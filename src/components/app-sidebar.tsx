@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { SignOutButton } from "@clerk/nextjs";
+import { SignOutButton, useUser } from "@clerk/nextjs";
 import {
   RiHome3Line,
   RiTaskLine,
@@ -39,6 +39,7 @@ const NAV_ITEMS = [
 
 export function AppSidebar({ user, projects }: Props) {
   const pathname = usePathname();
+  const { user: clerkUser } = useUser();
 
   return (
     <Sidebar collapsible="icon">
@@ -127,19 +128,37 @@ export function AppSidebar({ user, projects }: Props) {
         <SidebarSeparator />
         <SidebarMenu>
           <SidebarMenuItem>
-            <div className="flex flex-col gap-1 px-2 py-1">
-              <p className="truncate text-xs text-zinc-500 group-data-[collapsible=icon]:hidden">
-                {user.email}
-              </p>
-              <span className="inline-flex w-fit items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 group-data-[collapsible=icon]:hidden">
-                {user.role}
-              </span>
-            </div>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
             <SignOutButton redirectUrl="/">
-              <SidebarMenuButton tooltip="Sign out">
-                <span>Sign out</span>
+              <SidebarMenuButton
+                size="lg"
+                tooltip={user.email}
+                className="group/user"
+              >
+                {/* Avatar */}
+                <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
+                  {clerkUser?.imageUrl ? (
+                    <img
+                      src={clerkUser.imageUrl}
+                      alt={user.email}
+                      className="size-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                      {user.email[0].toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                {/* Info */}
+                <div className="flex min-w-0 flex-col">
+                  <span className="truncate text-xs font-medium text-zinc-900 dark:text-zinc-50">
+                    {clerkUser?.firstName
+                      ? `${clerkUser.firstName}${clerkUser.lastName ? ` ${clerkUser.lastName}` : ""}`
+                      : user.email.split("@")[0]}
+                  </span>
+                  <span className="truncate text-xs text-zinc-500">
+                    {user.email}
+                  </span>
+                </div>
               </SidebarMenuButton>
             </SignOutButton>
           </SidebarMenuItem>
