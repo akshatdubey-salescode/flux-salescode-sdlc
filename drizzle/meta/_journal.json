@@ -15,6 +15,13 @@
       "when": 1775827201688,
       "tag": "0001_bumpy_polaris",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1775844188467,
+      "tag": "0002_fuzzy_alex_wilder",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "jira_projects" ADD COLUMN "header_image_url" text;
