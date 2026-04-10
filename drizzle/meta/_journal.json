@@ -8,6 +8,13 @@
       "when": 1775823449307,
       "tag": "0000_unique_annihilus",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1775827201688,
+      "tag": "0001_bumpy_polaris",
+      "breakpoints": true
     }
   ]
 }
