@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { jiraProjects, jiraIssues } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from "@/components/ui/breadcrumb";
 
 export default async function HomePage() {
   const user = await requireAuth();
@@ -18,7 +19,13 @@ export default async function HomePage() {
       {/* Top bar */}
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
         <SidebarTrigger />
-        <span className="text-sm text-zinc-500">Dashboard</span>
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbPage>Dashboard</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
       </header>
 
       <main className="flex-1 p-6">

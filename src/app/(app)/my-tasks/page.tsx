@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { jiraIssues } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from "@/components/ui/breadcrumb";
 
 function statusCategoryColor(cat: string | null) {
   if (cat === "Done" || cat === "Complete")
@@ -36,7 +37,13 @@ export default async function MyTasksPage() {
     <div className="flex flex-col min-h-svh">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
         <SidebarTrigger />
-        <span className="text-sm text-zinc-500">My Tasks</span>
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbPage>My Tasks</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
         <span className="ml-auto rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
           {issues.length}
         </span>

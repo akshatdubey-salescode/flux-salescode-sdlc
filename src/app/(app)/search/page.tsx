@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { jiraIssues } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from "@/components/ui/breadcrumb";
 
 function statusCategoryColor(cat: string | null) {
   if (cat === "Done" || cat === "Complete")
@@ -58,7 +59,13 @@ export default async function SearchPage(props: {
     <div className="flex flex-col min-h-svh">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
         <SidebarTrigger />
-        <span className="text-sm text-zinc-500">Search</span>
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbPage>Search</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
       </header>
 
       <main className="flex-1 p-6 space-y-4">

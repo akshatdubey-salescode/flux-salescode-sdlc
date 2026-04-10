@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { jiraProjects, jiraIssues } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from "@/components/ui/breadcrumb";
 
 export default async function ProjectsPage() {
   const user = await requireAuth();
@@ -27,7 +28,13 @@ export default async function ProjectsPage() {
     <div className="flex flex-col min-h-svh">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
         <SidebarTrigger />
-        <span className="text-sm text-zinc-500">Projects</span>
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbPage>Projects</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
         {user.role === "SUPERUSER" && (
           <Link
             href="/projects/new"

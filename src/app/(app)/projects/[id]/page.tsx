@@ -4,6 +4,14 @@ import { db } from "@/lib/db";
 import { jiraProjects, jiraIssues } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 
 const PAGE_SIZE = 50;
 
@@ -81,14 +89,20 @@ export default async function ProjectPage(props: {
     <div className="flex flex-col min-h-svh">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
         <SidebarTrigger />
-        <span className="text-sm text-zinc-500">Projects</span>
-        <span className="text-sm text-zinc-300 dark:text-zinc-600">/</span>
-        <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
-          {project.name}
-        </span>
-        <span className="ml-1 rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-          {project.jiraProjectKey}
-        </span>
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/projects">Projects</BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>{project.name}</BreadcrumbPage>
+            </BreadcrumbItem>
+            <span className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+              {project.jiraProjectKey}
+            </span>
+          </BreadcrumbList>
+        </Breadcrumb>
       </header>
 
       <main className="flex-1 p-6 space-y-6">
