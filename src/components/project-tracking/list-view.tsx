@@ -103,7 +103,9 @@ export function ListView({
                   Reporter
                 </th>
                 <th className="px-3 py-2.5 text-right font-medium text-zinc-500 w-8">
-                  <RiChatSmileLine className="size-3.5 ml-auto" title="Comments" />
+                  <span title="Comments">
+                    <RiChatSmileLine className="size-3.5 ml-auto" />
+                  </span>
                 </th>
                 <SortableHeader
                   label="Updated"

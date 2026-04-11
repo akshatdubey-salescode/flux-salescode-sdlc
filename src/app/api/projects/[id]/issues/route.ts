@@ -98,12 +98,11 @@ export async function GET(
   const conditions = [eq(jiraIssues.projectId, id)];
 
   if (q) {
-    conditions.push(
-      or(
-        ilike(jiraIssues.jiraKey, `%${q}%`),
-        ilike(jiraIssues.summary, `%${q}%`)
-      )
+    const searchCondition = or(
+      ilike(jiraIssues.jiraKey, `%${q}%`),
+      ilike(jiraIssues.summary, `%${q}%`)
     );
+    if (searchCondition) conditions.push(searchCondition);
   }
 
   if (statusList.length) conditions.push(inArray(jiraIssues.status, statusList));
@@ -120,7 +119,8 @@ export async function GET(
     const labelConditions = labelsList.map(
       (label) => sql`${label} = ANY(${jiraIssues.labels})`
     );
-    conditions.push(or(...labelConditions));
+    const labelsCondition = or(...labelConditions);
+    if (labelsCondition) conditions.push(labelsCondition);
   }
 
   if (dateFrom)

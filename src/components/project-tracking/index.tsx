@@ -77,7 +77,7 @@ export function ProjectTrackingTab({ projectId }: Props) {
       if (value === null || value === "") {
         params.delete(key);
       } else {
-        params.set(key, value);
+        params.set(key, value!);
       }
     }
     router.replace(`?${params.toString()}`, { scroll: false });
