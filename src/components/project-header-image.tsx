@@ -129,7 +129,7 @@ export function ProjectHeaderImage({
         <div className="absolute inset-0 bg-black/40 pointer-events-none" />
 
         <div className="absolute bottom-4 left-6 z-10 pointer-events-none">
-          <h1 className="text-3xl font-semibold text-white drop-shadow-md">
+          <h1 className="text-4xl font-semibold text-white drop-shadow-md">
             {projectName}
           </h1>
         </div>

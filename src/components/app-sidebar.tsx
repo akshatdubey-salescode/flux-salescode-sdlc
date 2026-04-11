@@ -9,6 +9,7 @@ import {
   RiSearchLine,
   RiFolderLine,
   RiAddLine,
+  RiLogoutBoxRLine,
 } from "@remixicon/react";
 import {
   Sidebar,
@@ -23,6 +24,11 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import type { JiraProject } from "@/lib/db/schema";
 import type { AuthUser } from "@/lib/auth/server";
 
@@ -134,42 +140,51 @@ export function AppSidebar({ user, projects }: Props) {
       <SidebarSeparator className="opacity-50" />
 
       {/* User + sign out */}
-      <SidebarFooter className="p-4">
+      <SidebarFooter className="p-4 group-data-[collapsible=icon]:p-2">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SignOutButton redirectUrl="/">
-              <SidebarMenuButton
-                size="lg"
-                tooltip={user.email}
-                className="h-14 w-full justify-start gap-3 rounded-xl border border-zinc-200 bg-white px-3 shadow-sm transition-all hover:bg-zinc-50 hover:shadow dark:border-zinc-800 dark:bg-zinc-900/50 dark:hover:bg-zinc-900"
-              >
-                {/* Avatar */}
-                <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100 ring-2 ring-white dark:bg-zinc-800 dark:ring-zinc-900">
-                  {clerkUser?.imageUrl ? (
-                    <img
-                      src={clerkUser.imageUrl}
-                      alt={user.email}
-                      className="size-full object-cover"
-                    />
-                  ) : (
-                    <span className="text-xs font-bold text-zinc-400">
-                      {user.email[0].toUpperCase()}
+            <Popover>
+              <PopoverTrigger asChild>
+                <div 
+                  role="button"
+                  className="flex h-14 w-full cursor-pointer items-center gap-3 rounded-xl border border-zinc-200/50 bg-white/50 px-3 shadow-sm backdrop-blur-md transition-all hover:bg-white/80 dark:border-zinc-800/50 dark:bg-zinc-900/50 dark:hover:bg-zinc-900/80 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-transparent group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:shadow-none"
+                >
+                  {/* Avatar */}
+                  <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100 ring-2 ring-white/50 dark:bg-zinc-800 dark:ring-zinc-900/50">
+                    {clerkUser?.imageUrl ? (
+                      <img
+                        src={clerkUser.imageUrl}
+                        alt={user.email}
+                        className="size-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-xs font-bold text-zinc-400">
+                        {user.email[0].toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  {/* Info */}
+                  <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5 group-data-[collapsible=icon]:hidden">
+                    <span className="truncate text-[13px] font-bold leading-none text-zinc-900 dark:text-zinc-50">
+                      {clerkUser?.firstName
+                        ? `${clerkUser.firstName}${clerkUser.lastName ? ` ${clerkUser.lastName}` : ""}`
+                        : user.email.split("@")[0]}
                     </span>
-                  )}
+                    <span className="truncate text-[11px] font-medium leading-none text-zinc-500 dark:text-zinc-400">
+                      {user.email}
+                    </span>
+                  </div>
                 </div>
-                {/* Info */}
-                <div className="flex min-w-0 flex-col items-start gap-0.5 group-data-[collapsible=icon]:hidden">
-                  <span className="truncate text-[13px] font-bold text-zinc-900 dark:text-zinc-50 leading-none">
-                    {clerkUser?.firstName
-                      ? `${clerkUser.firstName}${clerkUser.lastName ? ` ${clerkUser.lastName}` : ""}`
-                      : user.email.split("@")[0]}
-                  </span>
-                  <span className="truncate text-[11px] font-medium text-zinc-500 dark:text-zinc-400 leading-none">
-                    {user.email}
-                  </span>
-                </div>
-              </SidebarMenuButton>
-            </SignOutButton>
+              </PopoverTrigger>
+              <PopoverContent side="right" align="end" className="w-56 p-1">
+                <SignOutButton redirectUrl="/">
+                  <button className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm font-medium text-red-600 outline-none transition-colors hover:bg-red-50 focus:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/50 dark:focus:bg-red-950/50">
+                    Sign Out
+                    <RiLogoutBoxRLine className="size-4" />
+                  </button>
+                </SignOutButton>
+              </PopoverContent>
+            </Popover>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
