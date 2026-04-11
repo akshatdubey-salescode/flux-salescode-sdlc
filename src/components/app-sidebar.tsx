@@ -11,6 +11,7 @@ import {
   RiAddLine,
   RiLogoutBoxRLine,
   RiBriefcaseLine,
+  RiUserSettingsLine,
 } from "@remixicon/react";
 import {
   Sidebar,
@@ -95,6 +96,21 @@ export function AppSidebar({ user, projects }: Props) {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+              {user.role === "SUPERUSER" && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/admin/users"}
+                    tooltip="User Management"
+                    className="transition-all hover:bg-zinc-100 hover:translate-x-0.5 dark:hover:bg-zinc-800"
+                  >
+                    <Link href="/admin/users">
+                      <RiUserSettingsLine className="text-zinc-400 group-data-[active=true]:text-inherit" />
+                      <span className="font-medium">User Management</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
