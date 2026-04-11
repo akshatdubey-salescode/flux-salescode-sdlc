@@ -96,14 +96,16 @@ const ISSUE_FIELDS = [
 export class JiraClient {
   private headers: HeadersInit;
   private baseUrl: string;
+  private allowedHost: string;
 
   constructor(config: {
     baseUrl: string;
     email: string;
     apiToken: string;
   }) {
-    // Strip trailing slash
     this.baseUrl = config.baseUrl.replace(/\/$/, "");
+    // Lock down the host so every request is validated against it
+    this.allowedHost = new URL(this.baseUrl).host;
     const token = Buffer.from(
       `${config.email}:${config.apiToken}`
     ).toString("base64");
@@ -114,19 +116,37 @@ export class JiraClient {
     };
   }
 
+  /**
+   * The ONLY way this client makes HTTP requests.
+   *
+   * Enforces two invariants on every call:
+   *   1. method is always GET — writes are structurally impossible through JiraClient
+   *   2. URL host matches the configured Jira base URL — prevents SSRF and
+   *      accidental calls to a different Atlassian org
+   *
+   * Any violation throws immediately before the request is sent.
+   */
+  private async get(url: string): Promise<Response> {
+    const parsed = new URL(url);
+    if (parsed.host !== this.allowedHost) {
+      throw new Error(
+        `[JiraClient] BLOCKED: request to "${parsed.host}" is outside the ` +
+        `configured Jira host "${this.allowedHost}". No request was sent.`
+      );
+    }
+    return fetch(url, { method: "GET", headers: this.headers });
+  }
+
   /** Verify credentials by calling /myself. Returns true if authenticated. */
   async testConnection(): Promise<boolean> {
-    const res = await fetch(`${this.baseUrl}/rest/api/3/myself`, {
-      headers: this.headers,
-    });
+    const res = await this.get(`${this.baseUrl}/rest/api/3/myself`);
     return res.ok;
   }
 
   /** Fetch project metadata. Throws if the project key does not exist. */
   async fetchProjectInfo(projectKey: string): Promise<JiraProjectInfo> {
-    const res = await fetch(
-      `${this.baseUrl}/rest/api/3/project/${projectKey}`,
-      { headers: this.headers }
+    const res = await this.get(
+      `${this.baseUrl}/rest/api/3/project/${encodeURIComponent(projectKey)}`
     );
     if (!res.ok) {
       const body = await res.text().catch(() => "");
@@ -155,7 +175,7 @@ export class JiraClient {
       `&maxResults=${maxResults}` +
       `&startAt=${startAt}`;
 
-    const res = await fetch(url, { headers: this.headers });
+    const res = await this.get(url);
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       throw new Error(`Jira search failed (${res.status}): ${body}`);
@@ -166,10 +186,10 @@ export class JiraClient {
   /** Fetch a single issue by key, including comments. */
   async fetchIssue(issueKey: string): Promise<JiraIssueRaw> {
     const url =
-      `${this.baseUrl}/rest/api/3/issue/${issueKey}` +
+      `${this.baseUrl}/rest/api/3/issue/${encodeURIComponent(issueKey)}` +
       `?fields=${ISSUE_FIELDS}&expand=changelog`;
 
-    const res = await fetch(url, { headers: this.headers });
+    const res = await this.get(url);
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       throw new Error(`Jira issue "${issueKey}" not found (${res.status}): ${body}`);
@@ -182,9 +202,8 @@ export class JiraClient {
    * Endpoint: GET /rest/api/3/project/{projectKey}/statuses
    */
   async fetchProjectStatuses(projectKey: string): Promise<JiraProjectStatus[]> {
-    const res = await fetch(
-      `${this.baseUrl}/rest/api/3/project/${projectKey}/statuses`,
-      { headers: this.headers }
+    const res = await this.get(
+      `${this.baseUrl}/rest/api/3/project/${encodeURIComponent(projectKey)}/statuses`
     );
     if (!res.ok) {
       const body = await res.text().catch(() => "");

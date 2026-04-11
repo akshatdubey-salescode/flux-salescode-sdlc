@@ -1,3 +1,29 @@
+/**
+ * The ONLY path on Jira this module is permitted to write to.
+ * POST and DELETE are restricted to webhook management exclusively —
+ * no issue data, project data, or user data is ever modified.
+ */
+const ALLOWED_WRITE_PATH = "/rest/webhooks/1.0/webhook";
+
+/**
+ * Safety guard for all outgoing write requests in this module.
+ * Throws before any request is sent if the URL or method is outside
+ * the explicit allowlist.
+ */
+function assertWriteAllowed(method: "POST" | "DELETE", url: string): void {
+  const parsed = new URL(url);
+  const isWebhookPath =
+    parsed.pathname === ALLOWED_WRITE_PATH ||
+    parsed.pathname.startsWith(`${ALLOWED_WRITE_PATH}/`);
+
+  if (!isWebhookPath) {
+    throw new Error(
+      `[jira-webhooks] BLOCKED: ${method} to "${parsed.pathname}" is not on ` +
+      `the write allowlist. Only "${ALLOWED_WRITE_PATH}" may be written to.`
+    );
+  }
+}
+
 const WEBHOOK_EVENTS = [
   "jira:issue_created",
   "jira:issue_updated",
@@ -60,6 +86,7 @@ export async function registerJiraWebhook(
       for (const wh of stale) {
         const deleteUrl =
           wh.self ?? `${baseUrl}/rest/webhooks/1.0/webhook/${wh.id}`;
+        assertWriteAllowed("DELETE", deleteUrl);
         await fetch(deleteUrl, {
           method: "DELETE",
           headers: authHeader,
@@ -72,7 +99,9 @@ export async function registerJiraWebhook(
   }
 
   // Create the webhook scoped to this project via JQL filter
-  const res = await fetch(`${baseUrl}/rest/webhooks/1.0/webhook`, {
+  const createUrl = `${baseUrl}/rest/webhooks/1.0/webhook`;
+  assertWriteAllowed("POST", createUrl);
+  const res = await fetch(createUrl, {
     method: "POST",
     headers: {
       ...authHeader,
