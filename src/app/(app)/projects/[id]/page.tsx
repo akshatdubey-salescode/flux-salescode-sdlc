@@ -19,7 +19,6 @@ import { ProjectTabs } from "@/components/project-tabs";
 
 export default async function ProjectPage(props: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string }>;
 }) {
   const user = await requireAuth();
   const { id } = await props.params;

@@ -10,6 +10,7 @@ import {
   RiFolderLine,
   RiAddLine,
   RiLogoutBoxRLine,
+  RiBriefcaseLine,
 } from "@remixicon/react";
 import {
   Sidebar,
@@ -41,6 +42,7 @@ const NAV_ITEMS = [
   { label: "Dashboard", href: "/home", icon: RiHome3Line },
   { label: "My Tasks", href: "/my-tasks", icon: RiTaskLine },
   { label: "Search", href: "/search", icon: RiSearchLine },
+  { label: "All Projects", href: "/projects", icon: RiBriefcaseLine },
 ];
 
 export function AppSidebar({ user, projects }: Props) {
