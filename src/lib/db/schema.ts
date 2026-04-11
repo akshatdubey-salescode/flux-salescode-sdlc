@@ -53,6 +53,7 @@ export const jiraProjects = pgTable("jira_projects", {
   webhookSecret: text("webhook_secret").notNull(), // random hex; included in webhook URL
   isActive: boolean("is_active").notNull().default(true),
   headerImageUrl: text("header_image_url"),
+  headerColor: text("header_color"),
   lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
   createdBy: text("created_by")
     .notNull()

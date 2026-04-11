@@ -56,7 +56,8 @@ export default async function ProjectPage(props: {
 
       <ProjectHeaderImage
         projectId={project.id}
-        initialUrl={project.headerImageUrl ?? null}
+        initialImageUrl={project.headerImageUrl ?? null}
+        initialColor={project.headerColor ?? null}
         isAdmin={isAdmin}
       />
 

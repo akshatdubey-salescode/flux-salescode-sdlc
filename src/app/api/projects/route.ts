@@ -5,6 +5,7 @@ import { requireAuth, requireRole } from "@/lib/auth/server";
 import { JiraClient } from "@/lib/jira/client";
 import { syncProject } from "@/lib/jira/sync";
 import { randomBytes } from "crypto";
+import { randomPaletteColor } from "@/lib/header-palette";
 
 export async function GET() {
   await requireAuth();
@@ -78,6 +79,7 @@ export async function POST(request: Request) {
       jiraApiToken,
       webhookSecret,
       isActive: true,
+      headerColor: randomPaletteColor(),
       createdBy: user.id,
     })
     .returning();
