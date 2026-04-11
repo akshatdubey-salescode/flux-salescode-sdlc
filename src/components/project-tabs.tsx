@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Skeleton } from "@/components/ui/skeleton";
 import { RiRefreshLine } from "@remixicon/react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { SlaEngineTab } from "@/components/sla-engine";
+import { ProjectTrackingTab } from "@/components/project-tracking";
 
 type Props = {
   projectId: string;
@@ -29,11 +31,14 @@ export function ProjectTabs({ projectId, isAdmin }: Props) {
       : "overview";
 
   const [syncing, setSyncing] = useState(false);
+  const [isPending, startTransition] = useTransition();
 
   function handleTabChange(value: string) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", value);
-    router.replace(`?${params.toString()}`, { scroll: false });
+    startTransition(() => {
+      router.replace(`?${params.toString()}`, { scroll: false });
+    });
   }
 
   async function handleForceSync() {
@@ -62,21 +67,39 @@ export function ProjectTabs({ projectId, isAdmin }: Props) {
       </div>
 
       <div className="p-6">
-        <TabsContent value="overview">
-          <Placeholder label="Overview" />
-        </TabsContent>
+        {isPending ? (
+          <TabContentSkeleton />
+        ) : (
+          <>
+            <TabsContent value="overview">
+              <Placeholder label="Overview" />
+            </TabsContent>
 
-        <TabsContent value="project-tracking">
-          <Placeholder label="Project Tracking" />
-        </TabsContent>
+            <TabsContent value="project-tracking">
+              <ProjectTrackingTab projectId={projectId} />
+            </TabsContent>
 
-        {isAdmin && (
-          <TabsContent value="sla-engine">
-            <SlaEngineTab projectId={projectId} />
-          </TabsContent>
+            {isAdmin && (
+              <TabsContent value="sla-engine">
+                <SlaEngineTab projectId={projectId} />
+              </TabsContent>
+            )}
+          </>
         )}
       </div>
     </Tabs>
+  );
+}
+
+function TabContentSkeleton() {
+  return (
+    <div className="space-y-3">
+      <Skeleton className="h-8 w-1/3" />
+      <Skeleton className="h-4 w-full" />
+      <Skeleton className="h-4 w-5/6" />
+      <Skeleton className="h-4 w-4/6" />
+      <Skeleton className="h-32 w-full" />
+    </div>
   );
 }
 
