@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { jiraProjects, projectStatusMappings } from "@/lib/db/schema";
 import { requireRole } from "@/lib/auth/server";
 import { JiraClient } from "@/lib/jira/client";
+import { decrypt } from "@/lib/crypto";
 import { StatusMappingEditor } from "@/components/status-mapping-editor";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
@@ -37,7 +38,7 @@ export default async function StatusMappingPage(props: {
     const client = new JiraClient({
       baseUrl: project.jiraBaseUrl,
       email: project.jiraEmail,
-      apiToken: project.jiraApiToken,
+      apiToken: decrypt(project.jiraApiToken),
     });
     discoveredStatuses = await client.fetchProjectStatuses(
       project.jiraProjectKey

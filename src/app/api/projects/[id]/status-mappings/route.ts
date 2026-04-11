@@ -7,6 +7,7 @@ import {
 } from "@/lib/db/schema";
 import { requireRole } from "@/lib/auth/server";
 import { JiraClient } from "@/lib/jira/client";
+import { decrypt } from "@/lib/crypto";
 
 const CANONICAL_VALUES: readonly string[] = [
   "BACKLOG",
@@ -45,7 +46,7 @@ export async function GET(
     const client = new JiraClient({
       baseUrl: project.jiraBaseUrl,
       email: project.jiraEmail,
-      apiToken: project.jiraApiToken,
+      apiToken: decrypt(project.jiraApiToken),
     });
     discoveredStatuses = await client.fetchProjectStatuses(
       project.jiraProjectKey

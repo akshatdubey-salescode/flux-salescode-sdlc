@@ -6,6 +6,8 @@ import { JiraClient } from "@/lib/jira/client";
 import { syncProject } from "@/lib/jira/sync";
 import { randomBytes } from "crypto";
 import { randomPaletteColor } from "@/lib/header-palette";
+import { encrypt, decrypt } from "@/lib/crypto";
+import { registerJiraWebhook } from "@/lib/jira/webhooks";
 
 export async function GET() {
   await requireAuth();
@@ -33,8 +35,6 @@ export async function POST(request: Request) {
   let body: {
     jiraBaseUrl: string;
     jiraProjectKey: string;
-    jiraEmail: string;
-    jiraApiToken: string;
   };
 
   try {
@@ -43,10 +43,17 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { jiraBaseUrl, jiraProjectKey, jiraEmail, jiraApiToken } = body;
+  const { jiraBaseUrl, jiraProjectKey } = body;
 
-  if (!jiraBaseUrl || !jiraProjectKey || !jiraEmail || !jiraApiToken) {
-    return Response.json({ error: "All fields are required" }, { status: 400 });
+  if (!jiraBaseUrl || !jiraProjectKey) {
+    return Response.json({ error: "jiraBaseUrl and jiraProjectKey are required" }, { status: 400 });
+  }
+
+  const jiraEmail = process.env.JIRA_SITE_ADMIN_EMAIL;
+  const jiraApiToken = process.env.JIRA_SITE_ADMIN_TOKEN;
+
+  if (!jiraEmail || !jiraApiToken) {
+    return Response.json({ error: "Server is missing Jira admin credentials" }, { status: 500 });
   }
 
   const client = new JiraClient({ baseUrl: jiraBaseUrl, email: jiraEmail, apiToken: jiraApiToken });
@@ -76,13 +83,24 @@ export async function POST(request: Request) {
       jiraBaseUrl: jiraBaseUrl.replace(/\/$/, ""),
       jiraProjectKey: jiraProjectKey.toUpperCase(),
       jiraEmail,
-      jiraApiToken,
-      webhookSecret,
+      jiraApiToken: encrypt(jiraApiToken),
+      webhookSecret: encrypt(webhookSecret),
       isActive: true,
       headerColor: randomPaletteColor(),
       createdBy: user.id,
     })
     .returning();
+
+  // Register webhook in Jira (non-fatal — project still onboards if this fails)
+  const webhookResult = await registerJiraWebhook(
+    jiraBaseUrl,
+    jiraProjectKey.toUpperCase(),
+    project.id,
+    webhookSecret
+  );
+  if ("error" in webhookResult) {
+    console.warn("[jira-webhook] Auto-registration failed:", webhookResult.error);
+  }
 
   // Initial sync (synchronous — bounded by Jira pagination; large projects
   // can be re-synced via the /sync endpoint afterward)
@@ -94,7 +112,7 @@ export async function POST(request: Request) {
         id: project.id,
         name: project.name,
         jiraProjectKey: project.jiraProjectKey,
-        webhookSecret: project.webhookSecret,
+        webhookSecret: decrypt(project.webhookSecret),
       },
       sync: syncResult,
     },

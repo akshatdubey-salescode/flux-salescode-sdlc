@@ -35,35 +35,6 @@ export function CreateProjectForm() {
         required
       />
 
-      <Field
-        name="jiraEmail"
-        label="Jira Account Email"
-        placeholder="you@salescode.ai"
-        type="email"
-        required
-      />
-
-      <Field
-        name="jiraApiToken"
-        label="API Token"
-        placeholder="Paste your Jira API token"
-        type="password"
-        hint={
-          <>
-            Generate at{" "}
-            <a
-              href="https://id.atlassian.com/manage-profile/security/api-tokens"
-              target="_blank"
-              rel="noreferrer"
-              className="underline underline-offset-2"
-            >
-              id.atlassian.com
-            </a>
-          </>
-        }
-        required
-      />
-
       <button
         type="submit"
         disabled={isPending}

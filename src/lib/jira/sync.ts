@@ -7,6 +7,7 @@ import {
   jiraComments,
 } from "@/lib/db/schema";
 import { JiraClient, type JiraIssueRaw, type JiraCommentRaw } from "./client";
+import { decrypt } from "@/lib/crypto";
 
 // ---------------------------------------------------------------------------
 // Project sync — bulk fetch all issues and upsert into the database
@@ -34,7 +35,7 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
   const client = new JiraClient({
     baseUrl: project.jiraBaseUrl,
     email: project.jiraEmail,
-    apiToken: project.jiraApiToken,
+    apiToken: decrypt(project.jiraApiToken),
   });
 
   let synced = 0;

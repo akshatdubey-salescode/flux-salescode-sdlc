@@ -8,6 +8,8 @@ import { db } from "@/lib/db";
 import { jiraProjects } from "@/lib/db/schema";
 import { JiraClient } from "@/lib/jira/client";
 import { syncProject } from "@/lib/jira/sync";
+import { encrypt } from "@/lib/crypto";
+import { registerJiraWebhook } from "@/lib/jira/webhooks";
 
 export type CreateProjectState = {
   error?: string;
@@ -23,11 +25,16 @@ export async function createProject(
   const jiraProjectKey = (formData.get("jiraProjectKey") as string)
     ?.trim()
     .toUpperCase();
-  const jiraEmail = (formData.get("jiraEmail") as string)?.trim();
-  const jiraApiToken = (formData.get("jiraApiToken") as string)?.trim();
 
-  if (!jiraBaseUrl || !jiraProjectKey || !jiraEmail || !jiraApiToken) {
+  if (!jiraBaseUrl || !jiraProjectKey) {
     return { error: "All fields are required." };
+  }
+
+  const jiraEmail = process.env.JIRA_SITE_ADMIN_EMAIL;
+  const jiraApiToken = process.env.JIRA_SITE_ADMIN_TOKEN;
+
+  if (!jiraEmail || !jiraApiToken) {
+    return { error: "Server is missing Jira admin credentials. Contact your administrator." };
   }
 
   // Validate URL format
@@ -69,12 +76,25 @@ export async function createProject(
       jiraBaseUrl: jiraBaseUrl.replace(/\/$/, ""),
       jiraProjectKey,
       jiraEmail,
-      jiraApiToken,
-      webhookSecret,
+      jiraApiToken: encrypt(jiraApiToken),
+      webhookSecret: encrypt(webhookSecret),
       isActive: true,
       createdBy: user.id,
     })
     .returning();
+
+  // Register webhook in Jira (non-fatal — project still onboards if this fails)
+  const webhookResult = await registerJiraWebhook(
+    jiraBaseUrl,
+    jiraProjectKey,
+    project.id,
+    webhookSecret
+  );
+  if ("error" in webhookResult) {
+    console.warn("[jira-webhook] Auto-registration failed:", webhookResult.error);
+  } else {
+    console.log("[jira-webhook] Registered webhook:", webhookResult.webhookId);
+  }
 
   // Initial sync — first 500 issues synchronously
   await syncProject(project.id);

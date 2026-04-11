@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { eq, and } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { jiraProjects, jiraIssues } from "@/lib/db/schema";
+import { decrypt } from "@/lib/crypto";
 import {
   upsertIssue,
   upsertComment,
@@ -54,7 +55,7 @@ export async function POST(
     return new Response("Project not found", { status: 404 });
   }
 
-  if (secret !== project.webhookSecret) {
+  if (secret !== decrypt(project.webhookSecret)) {
     return new Response("Invalid secret", { status: 401 });
   }
 
