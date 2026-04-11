@@ -47,6 +47,11 @@ export type JiraCommentRaw = {
   updated: string;
 };
 
+export type JiraProjectStatus = {
+  name: string;
+  statusCategory: string;
+};
+
 export type JiraChangelogHistory = {
   id: string;
   author: {
@@ -170,5 +175,37 @@ export class JiraClient {
       throw new Error(`Jira issue "${issueKey}" not found (${res.status}): ${body}`);
     }
     return res.json() as Promise<JiraIssueRaw>;
+  }
+
+  /**
+   * Returns deduplicated statuses across all issue types in a project.
+   * Endpoint: GET /rest/api/3/project/{projectKey}/statuses
+   */
+  async fetchProjectStatuses(projectKey: string): Promise<JiraProjectStatus[]> {
+    const res = await fetch(
+      `${this.baseUrl}/rest/api/3/project/${projectKey}/statuses`,
+      { headers: this.headers }
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(
+        `Failed to fetch statuses for "${projectKey}" (${res.status}): ${body}`
+      );
+    }
+    const issueTypes = (await res.json()) as Array<{
+      statuses: Array<{ name: string; statusCategory: { name: string } }>;
+    }>;
+    // Same status name can appear under multiple issue types — deduplicate by name
+    const seen = new Set<string>();
+    const result: JiraProjectStatus[] = [];
+    for (const issueType of issueTypes) {
+      for (const s of issueType.statuses) {
+        if (!seen.has(s.name)) {
+          seen.add(s.name);
+          result.push({ name: s.name, statusCategory: s.statusCategory.name });
+        }
+      }
+    }
+    return result;
   }
 }

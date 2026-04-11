@@ -8,13 +8,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { SlaEngineTab } from "@/components/sla-engine";
 import { ProjectTrackingTab } from "@/components/project-tracking";
+import { StatusMappingTabContent } from "@/components/status-mapping-editor";
 
 type Props = {
   projectId: string;
   isAdmin: boolean;
 };
 
-const VALID_TABS = ["overview", "project-tracking", "sla-engine"] as const;
+const VALID_TABS = ["overview", "project-tracking", "sla-engine", "status-mapping"] as const;
 type Tab = (typeof VALID_TABS)[number];
 
 function isValidTab(value: string | null): value is Tab {
@@ -26,7 +27,9 @@ export function ProjectTabs({ projectId, isAdmin }: Props) {
   const searchParams = useSearchParams();
   const rawTab = searchParams.get("tab");
   const activeTab: Tab =
-    isValidTab(rawTab) && (rawTab !== "sla-engine" || isAdmin)
+    isValidTab(rawTab) &&
+    (rawTab !== "sla-engine" || isAdmin) &&
+    (rawTab !== "status-mapping" || isAdmin)
       ? rawTab
       : "overview";
 
@@ -59,6 +62,9 @@ export function ProjectTabs({ projectId, isAdmin }: Props) {
           {isAdmin && (
             <TabsTrigger value="sla-engine">SLA Engine</TabsTrigger>
           )}
+          {isAdmin && (
+            <TabsTrigger value="status-mapping">Status Mapping</TabsTrigger>
+          )}
         </TabsList>
         <Button variant="outline" size="sm" onClick={handleForceSync} disabled={syncing}>
           <RiRefreshLine className={syncing ? "animate-spin" : ""} />
@@ -82,6 +88,11 @@ export function ProjectTabs({ projectId, isAdmin }: Props) {
             {isAdmin && (
               <TabsContent value="sla-engine">
                 <SlaEngineTab projectId={projectId} />
+              </TabsContent>
+            )}
+            {isAdmin && (
+              <TabsContent value="status-mapping">
+                <StatusMappingTabContent projectId={projectId} />
               </TabsContent>
             )}
           </>

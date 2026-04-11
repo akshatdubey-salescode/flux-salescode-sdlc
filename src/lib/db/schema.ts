@@ -23,6 +23,16 @@ export const userRoleEnum = pgEnum("user_role", [
   "SUPERUSER",
 ]);
 
+export const canonicalStatusEnum = pgEnum("canonical_status", [
+  "BACKLOG",
+  "TODO",
+  "IN_PROGRESS",
+  "IN_REVIEW",
+  "IN_QA",
+  "DONE",
+  "CANCELLED",
+]);
+
 // ---------------------------------------------------------------------------
 // Users
 // ---------------------------------------------------------------------------
@@ -65,6 +75,35 @@ export const jiraProjects = pgTable("jira_projects", {
     .notNull()
     .defaultNow(),
 });
+
+// ---------------------------------------------------------------------------
+// Project Status Mappings — maps raw Jira statuses to canonical buckets
+// ---------------------------------------------------------------------------
+
+export const projectStatusMappings = pgTable(
+  "project_status_mappings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => jiraProjects.id, { onDelete: "cascade" }),
+    rawStatus: text("raw_status").notNull(),
+    canonicalStatus: canonicalStatusEnum("canonical_status").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("project_status_mappings_project_raw_idx").on(
+      t.projectId,
+      t.rawStatus
+    ),
+    index("project_status_mappings_project_idx").on(t.projectId),
+  ]
+);
 
 // ---------------------------------------------------------------------------
 // Jira Issues — synced mirror of Jira issues
@@ -294,3 +333,7 @@ export type JiraStatusHistory = typeof jiraStatusHistory.$inferSelect;
 export type JiraComment = typeof jiraComments.$inferSelect;
 export type SlaRule = typeof slaRules.$inferSelect;
 export type SlaViolation = typeof slaViolations.$inferSelect;
+export type ProjectStatusMapping = typeof projectStatusMappings.$inferSelect;
+export type NewProjectStatusMapping =
+  typeof projectStatusMappings.$inferInsert;
+export type CanonicalStatus = (typeof canonicalStatusEnum.enumValues)[number];

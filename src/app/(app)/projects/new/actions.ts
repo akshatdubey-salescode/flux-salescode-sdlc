@@ -80,5 +80,5 @@ export async function createProject(
   await syncProject(project.id);
 
   revalidatePath("/projects");
-  redirect(`/projects/${project.id}`);
+  redirect(`/projects/${project.id}/status-mapping?onboarding=1`);
 }
