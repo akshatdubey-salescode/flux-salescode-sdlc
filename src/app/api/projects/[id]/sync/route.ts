@@ -1,6 +1,7 @@
+import { after } from "next/server";
 import type { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/server";
-import { syncProject } from "@/lib/jira/sync";
+import { enqueueSyncJob, runSyncJob } from "@/lib/jira/sync-queue";
 
 export async function POST(
   _req: NextRequest,
@@ -9,11 +10,24 @@ export async function POST(
   await requireRole("SUPERUSER");
   const { id } = await ctx.params;
 
-  try {
-    const result = await syncProject(id);
-    return Response.json(result);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return Response.json({ error: message }, { status: 422 });
+  const result = await enqueueSyncJob(id);
+
+  if ("error" in result) {
+    return Response.json(
+      { error: "Too many syncs running. Try again shortly." },
+      { status: 429 }
+    );
   }
+
+  const { jobId } = result;
+
+  // Fire the sync after the response is sent — decoupled from the client connection
+  if ("queued" in result) {
+    after(() => runSyncJob(jobId));
+  }
+
+  return Response.json(
+    { jobId, status: "existing" in result ? "existing" : "queued" },
+    { status: 202 }
+  );
 }

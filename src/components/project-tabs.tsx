@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RiRefreshLine } from "@remixicon/react";
@@ -9,6 +9,14 @@ import { Button } from "@/components/ui/button";
 import { SlaEngineTab } from "@/components/sla-engine";
 import { ProjectTrackingTab } from "@/components/project-tracking";
 import { StatusMappingTabContent } from "@/components/status-mapping-editor";
+
+type SyncJob = {
+  id: string;
+  status: "pending" | "running" | "completed" | "failed";
+  totalIssues: number | null;
+  syncedCount: number;
+  errorCount: number;
+};
 
 type Props = {
   projectId: string;
@@ -33,8 +41,31 @@ export function ProjectTabs({ projectId, isAdmin }: Props) {
       ? rawTab
       : "overview";
 
-  const [syncing, setSyncing] = useState(false);
+  const [syncJob, setSyncJob] = useState<SyncJob | null>(null);
   const [isPending, startTransition] = useTransition();
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Clean up interval on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  function startPolling(jobId: string) {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const res = await fetch(`/api/sync-jobs/${jobId}`);
+      if (!res.ok) return;
+      const job: SyncJob = await res.json();
+      setSyncJob(job);
+      if (job.status === "completed" || job.status === "failed") {
+        clearInterval(pollRef.current!);
+        pollRef.current = null;
+        router.refresh();
+      }
+    }, 2000);
+  }
 
   function handleTabChange(value: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -45,12 +76,28 @@ export function ProjectTabs({ projectId, isAdmin }: Props) {
   }
 
   async function handleForceSync() {
-    setSyncing(true);
-    try {
-      await fetch(`/api/projects/${projectId}/sync`, { method: "POST" });
-    } finally {
-      setSyncing(false);
+    const res = await fetch(`/api/projects/${projectId}/sync`, {
+      method: "POST",
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.jobId) {
+      setSyncJob({ id: data.jobId, status: "pending", totalIssues: null, syncedCount: 0, errorCount: 0 });
+      startPolling(data.jobId);
     }
+  }
+
+  const isSyncing = syncJob?.status === "pending" || syncJob?.status === "running";
+
+  function syncLabel() {
+    if (syncJob?.status === "pending") return "Queued…";
+    if (syncJob?.status === "running") {
+      if (syncJob.totalIssues) {
+        return `Syncing… ${syncJob.syncedCount}/${syncJob.totalIssues}`;
+      }
+      return "Syncing…";
+    }
+    return "Force sync";
   }
 
   return (
@@ -66,9 +113,9 @@ export function ProjectTabs({ projectId, isAdmin }: Props) {
             <TabsTrigger value="status-mapping">Status Mapping</TabsTrigger>
           )}
         </TabsList>
-        <Button variant="outline" size="sm" onClick={handleForceSync} disabled={syncing}>
-          <RiRefreshLine className={syncing ? "animate-spin" : ""} />
-          {syncing ? "Syncing…" : "Force sync"}
+        <Button variant="outline" size="sm" onClick={handleForceSync} disabled={isSyncing}>
+          <RiRefreshLine className={isSyncing ? "animate-spin" : ""} />
+          {syncLabel()}
         </Button>
       </div>
 

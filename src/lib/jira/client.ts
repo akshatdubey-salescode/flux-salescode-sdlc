@@ -68,9 +68,7 @@ export type JiraChangelogHistory = {
 
 type JiraSearchResult = {
   issues: JiraIssueRaw[];
-  total: number;
-  startAt: number;
-  maxResults: number;
+  nextPageToken?: string; // present when more pages exist; absent on last page
 };
 
 type JiraProjectInfo = {
@@ -163,17 +161,22 @@ export class JiraClient {
    */
   async fetchIssues(
     projectKey: string,
-    startAt = 0,
+    nextPageToken?: string,
     maxResults = 100
   ): Promise<JiraSearchResult> {
     const jql = encodeURIComponent(`project = "${projectKey}" ORDER BY created ASC`);
-    const url =
+    // /rest/api/3/search/jql uses cursor-based pagination via nextPageToken.
+    // startAt is ignored by this endpoint and total is never returned.
+    let url =
       `${this.baseUrl}/rest/api/3/search/jql` +
       `?jql=${jql}` +
       `&fields=${ISSUE_FIELDS}` +
       `&expand=changelog` +
-      `&maxResults=${maxResults}` +
-      `&startAt=${startAt}`;
+      `&maxResults=${maxResults}`;
+
+    if (nextPageToken) {
+      url += `&nextPageToken=${encodeURIComponent(nextPageToken)}`;
+    }
 
     const res = await this.get(url);
     if (!res.ok) {

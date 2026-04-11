@@ -41,13 +41,13 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
   let synced = 0;
   let errors = 0;
   const errorMessages: string[] = [];
-  let startAt = 0;
+  let nextPageToken: string | undefined = undefined;
   const maxResults = 100;
 
   for (;;) {
     const result = await client.fetchIssues(
       project.jiraProjectKey,
-      startAt,
+      nextPageToken,
       maxResults
     );
 
@@ -62,8 +62,8 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
       }
     }
 
-    startAt += result.issues.length;
-    if (startAt >= result.total || result.issues.length === 0) break;
+    if (!result.nextPageToken || result.issues.length === 0) break;
+    nextPageToken = result.nextPageToken;
   }
 
   await db

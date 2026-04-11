@@ -320,6 +320,39 @@ export const emailNotifications = pgTable("email_notifications", {
 });
 
 // ---------------------------------------------------------------------------
+// Jira Sync Jobs — tracks async background sync operations
+// ---------------------------------------------------------------------------
+
+export const jiraSyncJobs = pgTable(
+  "jira_sync_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => jiraProjects.id, { onDelete: "cascade" }),
+    // pending | running | completed | failed
+    status: text("status").notNull().default("pending"),
+    // Set after the first page returns — null until then
+    totalIssues: integer("total_issues"),
+    syncedCount: integer("synced_count").notNull().default(0),
+    errorCount: integer("error_count").notNull().default(0),
+    errorMessages: text("error_messages")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("jira_sync_jobs_project_idx").on(t.projectId),
+    index("jira_sync_jobs_status_idx").on(t.status),
+  ]
+);
+
+// ---------------------------------------------------------------------------
 // Type exports
 // ---------------------------------------------------------------------------
 
@@ -337,3 +370,4 @@ export type ProjectStatusMapping = typeof projectStatusMappings.$inferSelect;
 export type NewProjectStatusMapping =
   typeof projectStatusMappings.$inferInsert;
 export type CanonicalStatus = (typeof canonicalStatusEnum.enumValues)[number];
+export type JiraSyncJob = typeof jiraSyncJobs.$inferSelect;

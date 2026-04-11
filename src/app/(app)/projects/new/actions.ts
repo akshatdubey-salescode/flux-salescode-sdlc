@@ -7,7 +7,8 @@ import { requireRole } from "@/lib/auth/server";
 import { db } from "@/lib/db";
 import { jiraProjects } from "@/lib/db/schema";
 import { JiraClient } from "@/lib/jira/client";
-import { syncProject } from "@/lib/jira/sync";
+import { after } from "next/server";
+import { enqueueSyncJob, runSyncJob } from "@/lib/jira/sync-queue";
 import { encrypt } from "@/lib/crypto";
 import { registerJiraWebhook } from "@/lib/jira/webhooks";
 
@@ -96,8 +97,11 @@ export async function createProject(
     console.log("[jira-webhook] Registered webhook:", webhookResult.webhookId);
   }
 
-  // Initial sync — first 500 issues synchronously
-  await syncProject(project.id);
+  // Kick off initial sync in the background — runs after redirect, decoupled from client
+  const enqueueResult = await enqueueSyncJob(project.id);
+  if (!("error" in enqueueResult)) {
+    after(() => runSyncJob(enqueueResult.jobId));
+  }
 
   revalidatePath("/projects");
   redirect(`/projects/${project.id}/status-mapping?onboarding=1`);
