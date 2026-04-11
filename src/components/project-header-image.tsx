@@ -32,7 +32,7 @@ export function ProjectHeaderImage({
   const [tab, setTab] = useState<PickerTab>("search");
 
   // Search state
-  const [query, setQuery] = useState("modern office workspace");
+  const [query, setQuery] = useState("software development");
   const [results, setResults] = useState<ImageSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -62,6 +62,15 @@ export function ProjectHeaderImage({
       setSearching(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!query.trim()) return;
+    const timer = setTimeout(() => {
+      setHasSearched(false);
+      search(query);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [query, search]);
 
   // Auto-search when picker opens on search tab
   useEffect(() => {
@@ -192,14 +201,7 @@ export function ProjectHeaderImage({
           {/* Search tab */}
           {tab === "search" && (
             <div className="space-y-3 p-4">
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setHasSearched(false);
-                  search(query);
-                }}
-                className="flex gap-2"
-              >
+              <form className="flex gap-2">
                 <div className="relative flex-1">
                   <RiSearchLine className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400" />
                   <input
