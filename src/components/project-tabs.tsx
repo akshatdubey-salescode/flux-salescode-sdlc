@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { RiRefreshLine } from "@remixicon/react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { SlaEngineTab } from "@/components/sla-engine";
 
 type Props = {
   projectId: string;
@@ -71,7 +72,7 @@ export function ProjectTabs({ projectId, isAdmin }: Props) {
 
         {isAdmin && (
           <TabsContent value="sla-engine">
-            <Placeholder label="SLA Engine" />
+            <SlaEngineTab projectId={projectId} />
           </TabsContent>
         )}
       </div>
