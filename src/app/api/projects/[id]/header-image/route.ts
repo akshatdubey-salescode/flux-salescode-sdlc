@@ -16,8 +16,8 @@ export async function PATCH(
   const { type, value } = body;
 
   if (type === "color") {
-    if (typeof value !== "string" || !(HEADER_PALETTE as readonly string[]).includes(value)) {
-      return Response.json({ error: "Invalid color" }, { status: 400 });
+    if (typeof value !== "string" || !/^#[0-9a-fA-F]{3,8}$/.test(value)) {
+      return Response.json({ error: "Invalid hexadecimal color format" }, { status: 400 });
     }
     await db
       .update(jiraProjects)

@@ -27,6 +27,7 @@ export function ProjectHeaderImage({
 
   const [imageUrl, setImageUrl] = useState<string | null>(initialImageUrl);
   const [color, setColor] = useState<string>(defaultColor);
+  const [customColor, setCustomColor] = useState<string>(defaultColor);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [tab, setTab] = useState<PickerTab>("search");
 
@@ -105,6 +106,7 @@ export function ProjectHeaderImage({
   function openPicker() {
     setPickerOpen(true);
     setTab("search");
+    setCustomColor(color);
   }
 
   const showImage = !!imageUrl;
@@ -137,6 +139,7 @@ export function ProjectHeaderImage({
         {isAdmin && !pickerOpen && (
           <div className="absolute inset-0 flex items-end justify-end bg-black/0 p-3 transition-colors duration-200 group-hover:bg-black/40">
             <button
+              type="button"
               onClick={openPicker}
               className="translate-y-1.5 rounded-md bg-white/90 px-3 py-1.5 text-xs font-medium text-zinc-900 opacity-0 shadow transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 hover:bg-white"
             >
@@ -164,6 +167,7 @@ export function ProjectHeaderImage({
             ).map(({ id, icon: Icon, label }) => (
               <button
                 key={id}
+                type="button"
                 onClick={() => setTab(id)}
                 className={cn(
                   "flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-xs font-medium transition-colors",
@@ -177,6 +181,7 @@ export function ProjectHeaderImage({
               </button>
             ))}
             <button
+              type="button"
               onClick={() => setPickerOpen(false)}
               className="ml-auto text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
             >
@@ -227,6 +232,7 @@ export function ProjectHeaderImage({
                   {results.map((r) => (
                     <button
                       key={r.id}
+                      type="button"
                       onClick={() => save("image", r.fullUrl)}
                       disabled={saving}
                       title={r.tags}
@@ -251,11 +257,12 @@ export function ProjectHeaderImage({
 
           {/* Color tab */}
           {tab === "color" && (
-            <div className="p-4">
+            <div className="space-y-4 p-4">
               <div className="grid grid-cols-8 gap-2">
                 {HEADER_PALETTE.map((hex) => (
                   <button
                     key={hex}
+                    type="button"
                     onClick={() => save("color", hex)}
                     disabled={saving}
                     title={hex}
@@ -268,6 +275,32 @@ export function ProjectHeaderImage({
                     style={{ backgroundColor: hex }}
                   />
                 ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={customColor}
+                  onChange={(e) => setCustomColor(e.target.value)}
+                  className="h-8 w-12 cursor-pointer rounded-md border-0 bg-transparent p-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-zinc-500"
+                  disabled={saving}
+                  title="Choose custom color"
+                />
+                <input
+                  type="text"
+                  value={customColor}
+                  onChange={(e) => setCustomColor(e.target.value)}
+                  className="flex-1 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs uppercase placeholder-zinc-400 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                  placeholder="#000000"
+                  disabled={saving}
+                />
+                <button
+                  type="button"
+                  onClick={() => customColor.trim() && save("color", customColor.trim())}
+                  disabled={saving || !customColor.trim()}
+                  className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+                >
+                  {saving ? "Saving…" : "Apply"}
+                </button>
               </div>
             </div>
           )}
@@ -287,6 +320,7 @@ export function ProjectHeaderImage({
                 className="flex-1 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs placeholder-zinc-400 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
               />
               <button
+                type="button"
                 onClick={() => draft.trim() && save("image", draft.trim())}
                 disabled={saving || !draft.trim()}
                 className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
