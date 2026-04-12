@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Flux - SDLC Management for Salescode.ai",
+  title: "Flux - SDLC Insights for Salescode.ai",
   description: "Software development lifecycle tracker",
   icons: {
     icon: [
