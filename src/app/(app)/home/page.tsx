@@ -1,62 +1,37 @@
-import Link from "next/link";
-import { eq } from "drizzle-orm";
-import { db } from "@/lib/db";
-import { jiraProjects, jiraIssues } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from "@/components/ui/breadcrumb";
+import { OrgDashboard } from "@/components/dashboard/org-dashboard";
 
 export default async function HomePage() {
   const user = await requireAuth();
 
-  const [projectCount, issueCount] = await Promise.all([
-    db.$count(jiraProjects, eq(jiraProjects.isActive, true)),
-    db.$count(jiraIssues),
-  ]);
-
   return (
-    <div className="flex flex-col min-h-svh">
+    <div className="flex flex-col min-h-svh bg-zinc-50 dark:bg-zinc-950">
       {/* Top bar */}
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <SidebarTrigger />
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
-              <BreadcrumbPage>Dashboard</BreadcrumbPage>
+              <BreadcrumbPage>Organisation Dashboard</BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
       </header>
 
       <main className="flex-1 p-6">
-        <div className="max-w-2xl space-y-6">
+        <div className="max-w-6xl mx-auto space-y-6">
           <div>
-            <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
-              Welcome back
+            <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50 tracking-tight">
+              Engineering Velocity
             </h1>
-            <p className="mt-0.5 text-sm text-zinc-500">{user.email}</p>
-          </div>
-
-          {/* Stats */}
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-            <StatCard label="Projects" value={projectCount} />
-            <StatCard label="Issues synced" value={issueCount} />
-          </div>
-
-          {/* Quick links */}
-          <div className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">
-              Quick links
+            <p className="mt-1 text-sm text-zinc-500">
+              Cross-project insights and performance metrics
             </p>
-            <div className="flex flex-wrap gap-2">
-              <QuickLink href="/projects" label="All projects" />
-              <QuickLink href="/my-tasks" label="My tasks" />
-              <QuickLink href="/search" label="Search issues" />
-              {user.role === "SUPERUSER" && (
-                <QuickLink href="/projects/new" label="Add project" />
-              )}
-            </div>
           </div>
+
+          <OrgDashboard />
         </div>
       </main>
     </div>

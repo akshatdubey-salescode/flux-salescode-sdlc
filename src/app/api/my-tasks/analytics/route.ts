@@ -1,0 +1,131 @@
+import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { requireAuth } from "@/lib/auth/server";
+
+export async function GET() {
+  try {
+    const user = await requireAuth();
+
+    const [
+      activeIssuesRes,
+      completedThisWeekRes,
+      completedLastWeekRes,
+      slaViolationsRes,
+      cycleTimeRes,
+      staleIssuesRes,
+    ] = await Promise.all([
+      db.execute(sql`
+        SELECT COUNT(*)::int AS count
+        FROM jira_issues ji
+        JOIN project_status_mappings psm
+          ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
+        WHERE psm.canonical_status NOT IN ('DONE', 'CANCELLED')
+          AND ji.assignee_email = ${user.email}
+      `),
+
+      db.execute(sql`
+        SELECT COUNT(DISTINCT ji.id)::int AS count
+        FROM jira_status_history jsh
+        JOIN jira_issues ji ON ji.id = jsh.issue_id
+        JOIN project_status_mappings psm
+          ON psm.project_id = ji.project_id AND psm.raw_status = jsh.to_status
+        WHERE psm.canonical_status = 'DONE'
+          AND jsh.changed_at >= NOW() - INTERVAL '7 days'
+          AND ji.assignee_email = ${user.email}
+      `),
+
+      db.execute(sql`
+        SELECT COUNT(DISTINCT ji.id)::int AS count
+        FROM jira_status_history jsh
+        JOIN jira_issues ji ON ji.id = jsh.issue_id
+        JOIN project_status_mappings psm
+          ON psm.project_id = ji.project_id AND psm.raw_status = jsh.to_status
+        WHERE psm.canonical_status = 'DONE'
+          AND jsh.changed_at >= NOW() - INTERVAL '14 days'
+          AND jsh.changed_at < NOW() - INTERVAL '7 days'
+          AND ji.assignee_email = ${user.email}
+      `),
+
+      db.execute(sql`
+        SELECT COUNT(*)::int AS count 
+        FROM sla_violations sv
+        JOIN jira_issues ji ON ji.id = sv.issue_id
+        WHERE sv.resolved_at IS NULL AND ji.assignee_email = ${user.email}
+      `),
+
+      // Personal Cycle Time vs Org Average
+      db.execute(sql`
+        WITH issue_cycle_times AS (
+          SELECT
+            ji.assignee_email,
+            ji.id AS issue_id,
+            SUM(jsh.duration_seconds) AS total_active_seconds
+          FROM jira_status_history jsh
+          JOIN jira_issues ji ON ji.id = jsh.issue_id
+          JOIN project_status_mappings psm
+            ON psm.project_id = ji.project_id
+            AND psm.raw_status = jsh.to_status
+          WHERE psm.canonical_status IN ('IN_PROGRESS', 'IN_REVIEW', 'IN_QA')
+            AND jsh.duration_seconds IS NOT NULL
+          GROUP BY ji.assignee_email, ji.id
+        ),
+        cohorts AS (
+          SELECT
+            CASE WHEN assignee_email = ${user.email} THEN 'Me' ELSE 'Org Average' END AS cohort,
+            total_active_seconds
+          FROM issue_cycle_times
+        )
+        SELECT
+          cohort,
+          COALESCE(ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY total_active_seconds) / 3600)::numeric, 1), 0) AS p50_hours
+        FROM cohorts
+        GROUP BY cohort
+      `),
+
+      // My Stale Issues
+      db.execute(sql`
+        SELECT
+          ji.id,
+          ji.jira_key,
+          ji.summary,
+          jp.name AS project_name,
+          date_part('day', NOW() - ji.jira_updated_at)::int AS days_stale
+        FROM jira_issues ji
+        JOIN jira_projects jp ON jp.id = ji.project_id
+        JOIN project_status_mappings psm
+          ON psm.project_id = ji.project_id
+          AND psm.raw_status = ji.status
+        WHERE psm.canonical_status NOT IN ('DONE', 'CANCELLED', 'BACKLOG')
+          AND ji.jira_updated_at < NOW() - INTERVAL '3 days'
+          AND ji.assignee_email = ${user.email}
+        ORDER BY days_stale DESC
+        LIMIT 10
+      `),
+    ]);
+
+    const activeIssues = activeIssuesRes.rows[0]?.count || 0;
+    const completedThisWeek = completedThisWeekRes.rows[0]?.count || 0;
+    const completedLastWeek = completedLastWeekRes.rows[0]?.count || 0;
+    const slaViolations = slaViolationsRes.rows[0]?.count || 0;
+
+    let compDelta = 0;
+    if (completedLastWeek > 0) {
+      compDelta = Math.round(((completedThisWeek as number) - (completedLastWeek as number)) / (completedLastWeek as number) * 100);
+    }
+
+    return NextResponse.json({
+      personalHealth: {
+        activeIssues,
+        completedThisWeek,
+        completedDelta: compDelta,
+        slaViolations,
+      },
+      cycleTimeComparison: cycleTimeRes.rows,
+      staleIssues: staleIssuesRes.rows,
+    });
+  } catch (error) {
+    console.error("User analytics error:", error);
+    return new NextResponse("Internal Server Error", { status: 500 });
+  }
+}

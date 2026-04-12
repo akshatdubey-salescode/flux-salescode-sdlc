@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { SlaEngineTab } from "@/components/sla-engine";
 import { ProjectTrackingTab } from "@/components/project-tracking";
 import { StatusMappingTabContent } from "@/components/status-mapping-editor";
+import { ProjectOverviewDashboard } from "@/components/project-overview/project-dashboard";
 
 type SyncJob = {
   id: string;
@@ -128,7 +129,7 @@ export function ProjectTabs({ projectId, isAdmin, isSuperuser }: Props) {
         ) : (
           <>
             <TabsContent value="overview">
-              <Placeholder label="Overview" />
+              <ProjectOverviewDashboard projectId={projectId} />
             </TabsContent>
 
             <TabsContent value="project-tracking">
