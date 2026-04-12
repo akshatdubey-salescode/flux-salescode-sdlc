@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireAuth } from "@/lib/auth/server";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from "@/components/ui/breadcrumb";

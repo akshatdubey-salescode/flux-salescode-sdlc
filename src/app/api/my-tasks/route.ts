@@ -88,7 +88,7 @@ export async function GET(req: NextRequest) {
       or(
         ilike(jiraIssues.jiraKey, `%${q}%`),
         ilike(jiraIssues.summary, `%${q}%`)
-      )
+      )!
     );
   }
 
@@ -107,7 +107,7 @@ export async function GET(req: NextRequest) {
     const labelConditions = labelsList.map(
       (label) => sql`${label} = ANY(${jiraIssues.labels})`
     );
-    conditions.push(or(...labelConditions));
+    conditions.push(or(...labelConditions)!);
   }
 
   if (dateFrom)

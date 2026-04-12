@@ -197,16 +197,16 @@ export async function GET() {
       `),
     ]);
 
-    const activeIssues = activeIssuesRes.rows[0]?.count || 0;
-    const completedThisWeek = completedThisWeekRes.rows[0]?.count || 0;
-    const completedLastWeek = completedLastWeekRes.rows[0]?.count || 0;
-    const slaViolations = slaViolationsRes.rows[0]?.count || 0;
-    const unmappedWarnings = unmappedWarningRes.rows[0]?.count || 0;
-    const projectsSyncedToday = projectsSyncedTodayRes.rows[0]?.count || 0;
+    const activeIssues = Number(activeIssuesRes.rows[0]?.count || 0);
+    const completedThisWeek = Number(completedThisWeekRes.rows[0]?.count || 0);
+    const completedLastWeek = Number(completedLastWeekRes.rows[0]?.count || 0);
+    const slaViolations = Number(slaViolationsRes.rows[0]?.count || 0);
+    const unmappedWarnings = Number(unmappedWarningRes.rows[0]?.count || 0);
+    const projectsSyncedToday = Number(projectsSyncedTodayRes.rows[0]?.count || 0);
 
     let compDelta = 0;
     if (completedLastWeek > 0) {
-      compDelta = Math.round(((completedThisWeek as number) - (completedLastWeek as number)) / (completedLastWeek as number) * 100);
+      compDelta = Math.round((completedThisWeek - completedLastWeek) / completedLastWeek * 100);
     }
 
     return NextResponse.json({
