@@ -19,6 +19,7 @@ type ProjectDashboardData = {
   throughput: { week: string; completed: number }[];
   cycleTimeByType: { issue_type: string; p50_hours: number }[];
   staleIssues: { id: string; jira_key: string; summary: string; assignee_name: string; days_stale: number }[];
+  jiraBaseUrl: string;
 };
 
 export function ProjectOverviewDashboard({ projectId }: { projectId: string }) {
@@ -49,7 +50,7 @@ export function ProjectOverviewDashboard({ projectId }: { projectId: string }) {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <IssueTypeCycleTime cycleTime={data.cycleTimeByType} />
-        <StaleIssuesList staleIssues={data.staleIssues} />
+        <StaleIssuesList staleIssues={data.staleIssues} jiraBaseUrl={data.jiraBaseUrl} />
       </div>
     </div>
   );
@@ -178,14 +179,27 @@ function IssueTypeCycleTime({ cycleTime }: { cycleTime: ProjectDashboardData["cy
   );
 }
 
-function StaleIssuesList({ staleIssues }: { staleIssues: ProjectDashboardData["staleIssues"] }) {
+function StaleIssuesList({ staleIssues, jiraBaseUrl }: { staleIssues: ProjectDashboardData["staleIssues"]; jiraBaseUrl: string }) {
+  const getJiraIssueUrl = (issueKey: string) => {
+    const baseUrl = jiraBaseUrl.replace(/\/$/, "");
+    return `${baseUrl}/browse/${issueKey}`;
+  };
+
   return (
     <Card title="Stale Issues assigned in project (>7 days)">
       <div className="space-y-3">
         {staleIssues.map(row => (
           <div key={row.id} className="flex flex-col gap-1 p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-950">
-            <div className="flex justify-between items-start">
-              <span className="font-medium text-sm line-clamp-1">{row.summary}</span>
+            <div className="flex justify-between items-start gap-2">
+              <a
+                href={getJiraIssueUrl(row.jira_key)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-sm line-clamp-1 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline"
+                title={row.summary}
+              >
+                {row.summary}
+              </a>
               <span className="flex items-center gap-1 text-xs font-semibold text-amber-600 dark:text-amber-500 whitespace-nowrap bg-amber-50 dark:bg-amber-950/30 px-1.5 py-0.5 rounded">
                 <RiTimeLine className="w-3.5 h-3.5" />
                 {row.days_stale}d

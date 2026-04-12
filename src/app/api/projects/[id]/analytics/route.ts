@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
 import { requireAuth } from "@/lib/auth/server";
+import { jiraProjects } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 
 export async function GET(
   request: Request,
@@ -11,6 +13,14 @@ export async function GET(
     await requireAuth();
     const params = await props.params;
     const projectId = params.id;
+
+    // Fetch project to get jiraBaseUrl
+    const projectRes = await db
+      .select({ jiraBaseUrl: jiraProjects.jiraBaseUrl })
+      .from(jiraProjects)
+      .where(eq(jiraProjects.id, projectId));
+
+    const jiraBaseUrl = projectRes[0]?.jiraBaseUrl || "";
 
     const [
       activeIssuesRes,
@@ -157,6 +167,7 @@ export async function GET(
       throughput: throughputRes.rows,
       cycleTimeByType: cycleTimeRes.rows,
       staleIssues: staleIssuesRes.rows,
+      jiraBaseUrl,
     });
   } catch (error) {
     console.error("Project analytics error:", error);
