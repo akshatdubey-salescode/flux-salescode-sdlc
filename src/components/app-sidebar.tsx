@@ -54,22 +54,23 @@ export function AppSidebar({ user, projects }: Props) {
   return (
     <Sidebar collapsible="icon">
       {/* Brand */}
-      <SidebarHeader>
+      <SidebarHeader className="py-2 px-2">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild>
-              <Link href="/home" className="flex items-center gap-3">
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-zinc-950 text-white shadow-lg ring-1 ring-zinc-800 dark:bg-white dark:text-zinc-950 dark:ring-zinc-200">
-                  <span className="text-sm font-black italic tracking-tighter">F</span>
+            <SidebarMenuButton size="lg" asChild className="hover:bg-zinc-100/50 dark:hover:bg-zinc-800/50 transition-colors">
+              <Link href="/home" className="flex items-center gap-2.5">
+                <div className="flex aspect-square size-9 items-center justify-center rounded-md bg-zinc-950 text-white shadow-sm ring-1 ring-zinc-800 dark:bg-white dark:text-zinc-950 dark:ring-zinc-200">
+                  <span className="text-base font-semibold">F</span>
                 </div>
-                <div className="flex flex-col gap-0.5 leading-none group-data-[collapsible=icon]:hidden">
-                  <span className="text-sm font-bold tracking-tight">Flux</span>
-                  <span className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400">
-                    SDLC Management
+                <div className="flex flex-col gap-0 leading-tight group-data-[collapsible=icon]:hidden">
+                  <span className="text-[14px] font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+                    Flux - SDLC Insights
                   </span>
-                  <span className="text-[9px] font-medium text-zinc-400 dark:text-zinc-500 opacity-80">
-                    for Salescode.ai
-                  </span>
+                  <div className="flex flex-col -space-y-0.5">
+                    <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500/70">
+                      for Salescode.ai
+                    </span>
+                  </div>
                 </div>
               </Link>
             </SidebarMenuButton>
@@ -172,7 +173,7 @@ export function AppSidebar({ user, projects }: Props) {
           <SidebarMenuItem>
             <Popover>
               <PopoverTrigger asChild>
-                <div 
+                <div
                   role="button"
                   className="flex h-14 w-full cursor-pointer items-center gap-3 rounded-xl border border-zinc-200/50 bg-white/50 px-3 shadow-sm backdrop-blur-md transition-all hover:bg-white/80 dark:border-zinc-800/50 dark:bg-zinc-900/50 dark:hover:bg-zinc-900/80 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-transparent group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:shadow-none"
                 >
