@@ -40,15 +40,16 @@ export function ProjectOverviewDashboard({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 max-w-6xl">
+    <div className="space-y-8 animate-in fade-in duration-500">
       <ProjectHealthStrip health={data.projectHealth} />
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <AssigneeWorkloadChart workload={data.assigneeWorkload} />
-        <ProjectThroughputChart throughput={data.throughput} />
-      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+        <div className="xl:col-span-2">
+          <AssigneeWorkloadChart workload={data.assigneeWorkload} />
+        </div>
+        <div className="xl:col-span-2">
+          <ProjectThroughputChart throughput={data.throughput} />
+        </div>
         <IssueTypeCycleTime cycleTime={data.cycleTimeByType} />
         <StaleIssuesList staleIssues={data.staleIssues} jiraBaseUrl={data.jiraBaseUrl} />
       </div>
@@ -103,7 +104,7 @@ function ProjectHealthStrip({ health }: { health: ProjectDashboardData["projectH
 function AssigneeWorkloadChart({ workload }: { workload: ProjectDashboardData["assigneeWorkload"] }) {
   return (
     <Card title="Assignee Workload (WIP Issues)">
-      <div className="space-y-4">
+      <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">
         {workload.map(row => (
           <div key={row.assignee}>
             <div className="flex justify-between text-sm mb-1.5">
@@ -161,7 +162,7 @@ function IssueTypeCycleTime({ cycleTime }: { cycleTime: ProjectDashboardData["cy
 
   return (
     <Card title="Median Cycle Time by Issue Type">
-      <div className="space-y-4">
+      <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">
         {sorted.map(row => (
           <div key={row.issue_type} className="flex justify-between items-center p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50">
             <span className="font-medium text-sm flex items-center gap-2">
@@ -187,31 +188,31 @@ function StaleIssuesList({ staleIssues, jiraBaseUrl }: { staleIssues: ProjectDas
 
   return (
     <Card title="Stale Issues assigned in project (>7 days)">
-      <div className="space-y-3">
+      <div className="space-y-1 max-h-[300px] overflow-y-auto pr-2">
         {staleIssues.map(row => (
-          <div key={row.id} className="flex flex-col gap-1 p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-950">
-            <div className="flex justify-between items-start gap-2">
+          <div key={row.id} className="flex items-center justify-between py-2 px-1 border-b border-zinc-100 dark:border-zinc-800 last:border-0">
+            <div className="flex flex-col gap-0.5 min-w-0">
               <a
                 href={getJiraIssueUrl(row.jira_key)}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-medium text-sm line-clamp-1 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline"
+                className="font-medium text-sm truncate text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline"
                 title={row.summary}
               >
                 {row.summary}
               </a>
+              <span className="text-xs text-zinc-500 font-mono">{row.jira_key}</span>
+            </div>
+            <div className="flex items-center gap-2 ml-3 shrink-0">
+              <span className="text-xs text-zinc-500">{row.assignee_name || "Unassigned"}</span>
               <span className="flex items-center gap-1 text-xs font-semibold text-amber-600 dark:text-amber-500 whitespace-nowrap bg-amber-50 dark:bg-amber-950/30 px-1.5 py-0.5 rounded">
                 <RiTimeLine className="w-3.5 h-3.5" />
                 {row.days_stale}d
               </span>
             </div>
-            <div className="flex justify-between items-center text-xs text-zinc-500">
-              <span className="font-mono">{row.jira_key}</span>
-              <span>{row.assignee_name || "Unassigned"}</span>
-            </div>
           </div>
         ))}
-        {staleIssues.length === 0 && <div className="text-sm text-zinc-500">No stale issues found.</div>}
+        {staleIssues.length === 0 && <div className="text-sm text-zinc-500 py-4">No stale issues found.</div>}
       </div>
     </Card>
   );
@@ -219,15 +220,13 @@ function StaleIssuesList({ staleIssues, jiraBaseUrl }: { staleIssues: ProjectDas
 
 function DashboardSkeleton() {
   return (
-    <div className="space-y-8 animate-pulse max-w-6xl">
+    <div className="space-y-8 animate-pulse">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-32 rounded-xl" />)}
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Skeleton className="h-[300px] rounded-xl" />
-        <Skeleton className="h-[300px] rounded-xl" />
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+        <Skeleton className="h-[300px] rounded-xl xl:col-span-2" />
+        <Skeleton className="h-[300px] rounded-xl xl:col-span-2" />
         <Skeleton className="h-[250px] rounded-xl" />
         <Skeleton className="h-[250px] rounded-xl" />
       </div>
