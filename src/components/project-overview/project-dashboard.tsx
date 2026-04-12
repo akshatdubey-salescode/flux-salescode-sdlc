@@ -104,24 +104,29 @@ function ProjectHealthStrip({ health }: { health: ProjectDashboardData["projectH
 function AssigneeWorkloadChart({ workload }: { workload: ProjectDashboardData["assigneeWorkload"] }) {
   return (
     <Card title="Assignee Workload (WIP Issues)">
-      <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">
-        {workload.map(row => (
-          <div key={row.assignee}>
-            <div className="flex justify-between text-sm mb-1.5">
-              <span className="font-medium text-zinc-800 dark:text-zinc-200">{row.assignee}</span>
-              <span className="text-zinc-500 flex items-center gap-1">
-                <span className="font-semibold text-zinc-900 dark:text-zinc-100">{row.active_count}</span> active tasks
-              </span>
+      <div className="relative">
+        <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">
+          {workload.map(row => (
+            <div key={row.assignee}>
+              <div className="flex justify-between text-sm mb-1.5">
+                <span className="font-medium text-zinc-800 dark:text-zinc-200">{row.assignee}</span>
+                <span className="text-zinc-500 flex items-center gap-1">
+                  <span className="font-semibold text-zinc-900 dark:text-zinc-100">{row.active_count}</span> active tasks
+                </span>
+              </div>
+              <div className="h-2.5 w-full bg-zinc-100 rounded-full dark:bg-zinc-800 overflow-hidden">
+                <div 
+                  className={`h-full rounded-full transition-all duration-500 outline outline-1 outline-offset-[-1px] ${row.active_count > 5 ? 'bg-red-400 outline-red-500' : 'bg-blue-400 outline-blue-500'}`}
+                  style={{ width: `${Math.min((row.active_count / 10) * 100, 100)}%` }}
+                />
+              </div>
             </div>
-            <div className="h-2.5 w-full bg-zinc-100 rounded-full dark:bg-zinc-800 overflow-hidden">
-              <div 
-                className={`h-full rounded-full transition-all duration-500 outline outline-1 outline-offset-[-1px] ${row.active_count > 5 ? 'bg-red-400 outline-red-500' : 'bg-blue-400 outline-blue-500'}`}
-                style={{ width: `${Math.min((row.active_count / 10) * 100, 100)}%` }}
-              />
-            </div>
-          </div>
-        ))}
-        {workload.length === 0 && <div className="text-sm text-zinc-500 text-center py-6">No WIP issues assigned.</div>}
+          ))}
+          {workload.length === 0 && <div className="text-sm text-zinc-500 text-center py-6">No WIP issues assigned.</div>}
+        </div>
+        {workload.length > 5 && (
+          <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white dark:from-zinc-950 to-transparent pointer-events-none" />
+        )}
       </div>
     </Card>
   );
