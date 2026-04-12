@@ -7,7 +7,6 @@ import {
   RiCloseLine,
   RiArrowUpSLine,
   RiArrowDownSLine,
-  RiArrowUpDownLine,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,25 +22,25 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { SORT_OPTIONS } from "./helpers";
-import type { FilterState, TrackingFields } from "./helpers";
+import { SORT_OPTIONS } from "../project-tracking/helpers";
+import type { MyTasksFilterState, MyTasksFields } from "./helpers";
 
 type Props = {
-  filters: FilterState;
-  fields: TrackingFields | null;
+  filters: MyTasksFilterState;
+  fields: MyTasksFields | null;
   onUpdate: (updates: Partial<Record<string, string | null>>) => void;
   total: number;
 };
 
-export function FilterBar({ filters, fields, onUpdate, total }: Props) {
+export function MyTasksFilterBar({ filters, fields, onUpdate, total }: Props) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [localSearch, setLocalSearch] = useState(filters.q);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeFilterCount = [
+    filters.projects.length > 0,
     filters.status.length > 0,
     filters.priority.length > 0,
-    filters.assignee.length > 0,
     filters.reporter.length > 0,
     filters.issueType.length > 0,
     filters.labels.length > 0,
@@ -62,9 +61,9 @@ export function FilterBar({ filters, fields, onUpdate, total }: Props) {
     setLocalSearch("");
     onUpdate({
       q: null,
+      projects: null,
       status: null,
       priority: null,
-      assignee: null,
       reporter: null,
       issueType: null,
       labels: null,
@@ -77,22 +76,30 @@ export function FilterBar({ filters, fields, onUpdate, total }: Props) {
 
   return (
     <div className="space-y-2">
-      {/* Main filter row */}
       <div className="flex flex-wrap items-center gap-2">
-        {/* Search */}
         <div className="relative min-w-[200px] flex-1 max-w-xs">
           <RiSearchLine className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400 pointer-events-none" />
           <Input
             value={localSearch}
             onChange={(e) => handleSearch(e.target.value)}
-            placeholder="Search issues…"
+            placeholder="Search your tasks…"
             className="pl-7"
           />
         </div>
 
-        {/* Quick filters */}
         {fields && (
           <>
+            <MultiSelect
+              label="Project"
+              options={fields.projects.map((p) => ({
+                value: p.id,
+                label: p.name,
+              }))}
+              selected={filters.projects}
+              onChange={(vals) =>
+                onUpdate({ projects: vals.join(",") || null, page: "1" })
+              }
+            />
             <MultiSelect
               label="Status"
               options={Array.from(new Set(fields.statuses.map((s) => s.status))).map(
@@ -114,21 +121,9 @@ export function FilterBar({ filters, fields, onUpdate, total }: Props) {
                 onUpdate({ priority: vals.join(",") || null, page: "1" })
               }
             />
-            <MultiSelect
-              label="Assignee"
-              options={fields.assignees.map((a) => ({
-                value: a.email,
-                label: a.name,
-              }))}
-              selected={filters.assignee}
-              onChange={(vals) =>
-                onUpdate({ assignee: vals.join(",") || null, page: "1" })
-              }
-            />
           </>
         )}
 
-        {/* More filters */}
         <Button
           variant="outline"
           size="sm"
@@ -144,10 +139,8 @@ export function FilterBar({ filters, fields, onUpdate, total }: Props) {
           )}
         </Button>
 
-        {/* Divider */}
         <div className="h-5 w-px bg-zinc-200 dark:bg-zinc-700" />
 
-        {/* Sort */}
         <SortSelector
           sortBy={filters.sortBy}
           sortDir={filters.sortDir}
@@ -160,7 +153,6 @@ export function FilterBar({ filters, fields, onUpdate, total }: Props) {
           }
         />
 
-        {/* Clear all */}
         {(activeFilterCount > 0 || filters.q) && (
           <button
             onClick={clearAll}
@@ -170,18 +162,15 @@ export function FilterBar({ filters, fields, onUpdate, total }: Props) {
           </button>
         )}
 
-        {/* Issue count */}
         <span className="ml-auto text-xs text-zinc-400">
-          {total} {total === 1 ? "issue" : "issues"}
+          {total} {total === 1 ? "task" : "tasks"}
         </span>
       </div>
 
-      {/* Active filter chips */}
       {activeFilterCount > 0 && (
-        <ActiveChips filters={filters} onUpdate={onUpdate} />
+        <ActiveChips filters={filters} fields={fields} onUpdate={onUpdate} />
       )}
 
-      {/* More filters sheet */}
       <MoreFiltersSheet
         open={moreOpen}
         onOpenChange={setMoreOpen}
@@ -193,18 +182,12 @@ export function FilterBar({ filters, fields, onUpdate, total }: Props) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// MultiSelect dropdown
-// ---------------------------------------------------------------------------
-
-type MultiSelectProps = {
+function MultiSelect({ label, options, selected, onChange }: {
   label: string;
   options: { value: string; label: string }[];
   selected: string[];
   onChange: (values: string[]) => void;
-};
-
-function MultiSelect({ label, options, selected, onChange }: MultiSelectProps) {
+}) {
   function toggle(value: string) {
     if (selected.includes(value)) {
       onChange(selected.filter((v) => v !== value));
@@ -275,10 +258,6 @@ function MultiSelect({ label, options, selected, onChange }: MultiSelectProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Sort selector
-// ---------------------------------------------------------------------------
-
 function SortSelector({
   sortBy,
   sortDir,
@@ -322,7 +301,6 @@ function SortSelector({
       </Popover>
       <button
         onClick={onSortDirToggle}
-        title={sortDir === "asc" ? "Ascending" : "Descending"}
         className="inline-flex h-7 items-center rounded-r-md border border-l-0 border-zinc-200 bg-white px-2 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
       >
         {sortDir === "asc" ? (
@@ -335,18 +313,28 @@ function SortSelector({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Active filter chips
-// ---------------------------------------------------------------------------
-
 function ActiveChips({
   filters,
+  fields,
   onUpdate,
 }: {
-  filters: FilterState;
+  filters: MyTasksFilterState;
+  fields: MyTasksFields | null;
   onUpdate: (updates: Partial<Record<string, string | null>>) => void;
 }) {
   const chips: { label: string; onRemove: () => void }[] = [];
+
+  filters.projects.forEach((pid) => {
+    const p = fields?.projects.find(pp => pp.id === pid);
+    chips.push({
+      label: `Project: ${p?.name || pid}`,
+      onRemove: () =>
+        onUpdate({
+          projects: filters.projects.filter((v) => v !== pid).join(",") || null,
+          page: "1",
+        }),
+    });
+  });
 
   filters.status.forEach((s) =>
     chips.push({
@@ -364,16 +352,6 @@ function ActiveChips({
       onRemove: () =>
         onUpdate({
           priority: filters.priority.filter((v) => v !== p).join(",") || null,
-          page: "1",
-        }),
-    })
-  );
-  filters.assignee.forEach((a) =>
-    chips.push({
-      label: `Assignee: ${a.split("@")[0]}`,
-      onRemove: () =>
-        onUpdate({
-          assignee: filters.assignee.filter((v) => v !== a).join(",") || null,
           page: "1",
         }),
     })
@@ -446,10 +424,6 @@ function ActiveChips({
   );
 }
 
-// ---------------------------------------------------------------------------
-// More filters sheet
-// ---------------------------------------------------------------------------
-
 function MoreFiltersSheet({
   open,
   onOpenChange,
@@ -459,15 +433,11 @@ function MoreFiltersSheet({
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  filters: FilterState;
-  fields: TrackingFields | null;
+  filters: MyTasksFilterState;
+  fields: MyTasksFields | null;
   onUpdate: (updates: Partial<Record<string, string | null>>) => void;
 }) {
-  function toggleMulti(
-    key: string,
-    current: string[],
-    value: string
-  ) {
+  function toggleMulti(key: string, current: string[], value: string) {
     const next = current.includes(value)
       ? current.filter((v) => v !== value)
       : [...current, value];
