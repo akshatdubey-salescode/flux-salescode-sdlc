@@ -13,6 +13,7 @@ import {
   RiBriefcaseLine,
   RiUserSettingsLine,
 } from "@remixicon/react";
+import { ThemeToggle } from "@/components/theme-toggle";
 import {
   Sidebar,
   SidebarContent,
@@ -160,6 +161,14 @@ export function AppSidebar({ user, projects }: Props) {
       {/* User + sign out */}
       <SidebarFooter className="p-4 group-data-[collapsible=icon]:p-2">
         <SidebarMenu>
+          <SidebarMenuItem>
+            <div className="flex items-center justify-between mb-2 group-data-[collapsible=icon]:justify-center">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400 group-data-[collapsible=icon]:hidden">
+                Theme
+              </span>
+              <ThemeToggle />
+            </div>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <Popover>
               <PopoverTrigger asChild>
