@@ -21,6 +21,7 @@ type SyncJob = {
 type Props = {
   projectId: string;
   isAdmin: boolean;
+  isSuperuser: boolean;
 };
 
 const VALID_TABS = ["overview", "project-tracking", "sla-engine", "status-mapping"] as const;
@@ -30,7 +31,7 @@ function isValidTab(value: string | null): value is Tab {
   return VALID_TABS.includes(value as Tab);
 }
 
-export function ProjectTabs({ projectId, isAdmin }: Props) {
+export function ProjectTabs({ projectId, isAdmin, isSuperuser }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawTab = searchParams.get("tab");
@@ -101,7 +102,7 @@ export function ProjectTabs({ projectId, isAdmin }: Props) {
   }
 
   return (
-    <Tabs value={activeTab} onValueChange={handleTabChange}>
+    <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
       <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-3 dark:border-zinc-800">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -113,10 +114,12 @@ export function ProjectTabs({ projectId, isAdmin }: Props) {
             <TabsTrigger value="status-mapping">Status Mapping</TabsTrigger>
           )}
         </TabsList>
-        <Button variant="outline" size="sm" onClick={handleForceSync} disabled={isSyncing}>
-          <RiRefreshLine className={isSyncing ? "animate-spin" : ""} />
-          {syncLabel()}
-        </Button>
+        {isSuperuser && (
+          <Button variant="outline" size="sm" onClick={handleForceSync} disabled={isSyncing}>
+            <RiRefreshLine className={isSyncing ? "animate-spin" : ""} />
+            {syncLabel()}
+          </Button>
+        )}
       </div>
 
       <div className="p-6">

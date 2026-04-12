@@ -7,8 +7,6 @@ import { requireRole } from "@/lib/auth/server";
 import { db } from "@/lib/db";
 import { jiraProjects } from "@/lib/db/schema";
 import { JiraClient } from "@/lib/jira/client";
-import { after } from "next/server";
-import { enqueueSyncJob, runSyncJob } from "@/lib/jira/sync-queue";
 import { encrypt } from "@/lib/crypto";
 import { registerJiraWebhook } from "@/lib/jira/webhooks";
 
@@ -95,12 +93,6 @@ export async function createProject(
     console.warn("[jira-webhook] Auto-registration failed:", webhookResult.error);
   } else {
     console.log("[jira-webhook] Registered webhook:", webhookResult.webhookId);
-  }
-
-  // Kick off initial sync in the background — runs after redirect, decoupled from client
-  const enqueueResult = await enqueueSyncJob(project.id);
-  if (!("error" in enqueueResult)) {
-    after(() => runSyncJob(enqueueResult.jobId));
   }
 
   revalidatePath("/projects");

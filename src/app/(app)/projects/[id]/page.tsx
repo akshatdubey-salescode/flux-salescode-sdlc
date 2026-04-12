@@ -32,9 +32,10 @@ export default async function ProjectPage(props: {
   if (!project) notFound();
 
   const isAdmin = hasMinRole(user.role, "ADMIN");
+  const isSuperuser = hasMinRole(user.role, "SUPERUSER");
 
   return (
-    <div className="flex flex-col min-h-svh">
+    <div className="flex flex-col min-h-svh min-w-0 w-full">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
         <SidebarTrigger />
         <Breadcrumb>
@@ -61,9 +62,9 @@ export default async function ProjectPage(props: {
         isAdmin={isAdmin}
       />
 
-      <main className="flex-1">
+      <main className="flex-1 min-w-0 w-full">
         <Suspense fallback={<TabsSkeleton />}>
-          <ProjectTabs projectId={project.id} isAdmin={isAdmin} />
+          <ProjectTabs projectId={project.id} isAdmin={isAdmin} isSuperuser={isSuperuser} />
         </Suspense>
       </main>
     </div>
