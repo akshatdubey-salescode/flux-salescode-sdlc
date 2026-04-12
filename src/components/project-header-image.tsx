@@ -5,6 +5,7 @@ import { RiSearchLine, RiLinkM, RiPaletteLine, RiLoader4Line } from "@remixicon/
 import { cn } from "@/lib/utils";
 import { HEADER_PALETTE, paletteColorForId } from "@/lib/header-palette";
 import type { ImageSearchResult } from "@/app/api/images/search/route";
+import { DeleteProjectDialog } from "@/components/delete-project-dialog";
 
 type PickerTab = "search" | "color" | "url";
 
@@ -14,6 +15,7 @@ type Props = {
   initialImageUrl: string | null;
   initialColor: string | null;
   isAdmin: boolean;
+  isSuperuser: boolean;
 };
 
 export function ProjectHeaderImage({
@@ -22,6 +24,7 @@ export function ProjectHeaderImage({
   initialImageUrl,
   initialColor,
   isAdmin,
+  isSuperuser,
 }: Props) {
   const defaultColor = initialColor ?? paletteColorForId(projectId);
 
@@ -147,13 +150,21 @@ export function ProjectHeaderImage({
 
         {isAdmin && !pickerOpen && (
           <div className="absolute inset-0 flex items-end justify-end bg-black/0 p-3 transition-colors duration-200 group-hover:bg-black/40">
-            <button
-              type="button"
-              onClick={openPicker}
-              className="translate-y-1.5 rounded-md bg-white/90 px-3 py-1.5 text-xs font-medium text-zinc-900 opacity-0 shadow transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 hover:bg-white"
-            >
-              Edit cover
-            </button>
+            <div className="flex items-center gap-2">
+              {isSuperuser && (
+                <DeleteProjectDialog
+                  projectId={projectId}
+                  projectName={projectName}
+                />
+              )}
+              <button
+                type="button"
+                onClick={openPicker}
+                className="translate-y-1.5 rounded-md bg-white/90 px-3 py-1.5 text-xs font-medium text-zinc-900 opacity-0 shadow transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 hover:bg-white"
+              >
+                Edit cover
+              </button>
+            </div>
           </div>
         )}
 

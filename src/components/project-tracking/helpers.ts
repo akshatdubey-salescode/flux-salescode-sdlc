@@ -46,38 +46,61 @@ export type FilterState = {
 // Status / category helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Maps a Jira statusCategory name to a canonical sort order.
+ * Normalised to lowercase + trimmed so casing differences from Jira don't break ordering.
+ * Common Jira category aliases:
+ *   "new" / "undefined" → To Do  (order 0)
+ *   "indeterminate"     → In Progress (order 1)
+ *   "done"              → Done (order 2)
+ */
 const STATUS_CATEGORY_ORDER: Record<string, number> = {
-  "To Do": 0,
-  "In Progress": 1,
-  Done: 2,
+  // To Do variants
+  "to do": 0,
+  new: 0,
+  undefined: 0,
+  // In Progress variants
+  "in progress": 1,
+  indeterminate: 1,
+  // Done variants
+  done: 2,
+  complete: 2,
 };
+
+function categoryOrder(category: string | null): number {
+  const key = (category ?? "").trim().toLowerCase();
+  return STATUS_CATEGORY_ORDER[key] ?? 3;
+}
 
 export function sortStatusesByCategory(
   statuses: Array<{ status: string; statusCategory: string | null }>
 ) {
   return [...statuses].sort((a, b) => {
-    const oa = STATUS_CATEGORY_ORDER[a.statusCategory ?? ""] ?? 3;
-    const ob = STATUS_CATEGORY_ORDER[b.statusCategory ?? ""] ?? 3;
+    const oa = categoryOrder(a.statusCategory);
+    const ob = categoryOrder(b.statusCategory);
     if (oa !== ob) return oa - ob;
+    // Within the same category, sort statuses alphabetically for stability
     return a.status.localeCompare(b.status);
   });
 }
 
 export function statusCategoryStyles(category: string | null) {
-  if (category === "Done") {
+  const key = (category ?? "").trim().toLowerCase();
+  if (key === "done" || key === "complete") {
     return {
       border: "border-l-emerald-400",
       badge:
         "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
     };
   }
-  if (category === "In Progress") {
+  if (key === "in progress" || key === "indeterminate") {
     return {
       border: "border-l-blue-400",
       badge:
         "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
     };
   }
+  // "to do", "new", "undefined", or unrecognised → neutral zinc
   return {
     border: "border-l-zinc-300 dark:border-l-zinc-600",
     badge: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",

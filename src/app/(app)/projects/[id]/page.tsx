@@ -60,6 +60,7 @@ export default async function ProjectPage(props: {
         initialImageUrl={project.headerImageUrl ?? null}
         initialColor={project.headerColor ?? null}
         isAdmin={isAdmin}
+        isSuperuser={isSuperuser}
       />
 
       <main className="flex-1 min-w-0 w-full">
