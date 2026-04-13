@@ -19,7 +19,8 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ChartInfo } from "@/components/ui/chart-info";
 import { Separator } from "@/components/ui/separator";
 import { StatusTimeChart } from "@/components/status-time-chart";
 
@@ -317,6 +318,9 @@ export default async function IssuePage(props: {
         <Card>
           <CardHeader>
             <CardTitle>Time in Status</CardTitle>
+            <CardAction>
+              <ChartInfo description="How long this issue spent in each workflow status. Large time blocks in 'In Progress' or 'In Review' may indicate the work was paused, blocked, or waiting on a review." />
+            </CardAction>
           </CardHeader>
           <CardContent>
             {chartData.length === 0 ? (

@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ChartInfo } from "@/components/ui/chart-info";
 import { Badge } from "@/components/ui/badge";
 import {
   ChartContainer,
@@ -211,6 +212,9 @@ function ThroughputChart({ throughput }: { throughput: OrgDashboardData["through
     <Card>
       <CardHeader>
         <CardTitle>Weekly Throughput</CardTitle>
+        <CardAction>
+          <ChartInfo description="Issues completed per week, stacked by project. Rising bars mean faster delivery. A sudden drop can signal a blocker, sprint boundary, or resourcing gap." />
+        </CardAction>
       </CardHeader>
       <CardContent>
         {chartData.length > 0 ? (
@@ -271,6 +275,9 @@ function WipHeatmap({ wipHeatmap }: { wipHeatmap: OrgDashboardData["wipHeatmap"]
     <Card>
       <CardHeader>
         <CardTitle>WIP Heatmap</CardTitle>
+        <CardAction>
+          <ChartInfo description="Work-in-progress counts per project across workflow stages. Large numbers in 'In Progress' or 'In Review' often indicate a bottleneck forming upstream." />
+        </CardAction>
       </CardHeader>
       <CardContent className="p-0 pb-1">
         {dataByProject.size === 0 ? (
@@ -347,6 +354,9 @@ function CycleTimeTable({ cycleTime }: { cycleTime: OrgDashboardData["cycleTime"
     <Card>
       <CardHeader>
         <CardTitle>Cycle Time — Hours</CardTitle>
+        <CardAction>
+          <ChartInfo description="How long issues take from first active work to completion. P50 is your typical delivery time; P90 reveals worst-case delays. Sort by P90 to find the slowest projects." />
+        </CardAction>
       </CardHeader>
       <CardContent className="p-0 pb-1">
         {sorted.length === 0 ? (
@@ -414,6 +424,9 @@ function FlowEfficiencyBars({
     <Card>
       <CardHeader>
         <CardTitle>Flow Efficiency</CardTitle>
+        <CardAction>
+          <ChartInfo description="Percentage of total time an issue was actively being worked on rather than waiting. Below 20% means most time is spent queued — a sign of too much WIP or blocked work." />
+        </CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
         {sorted.length === 0 && <EmptyState message="No data" />}
@@ -470,6 +483,9 @@ function SlaViolationCard({
     <Card>
       <CardHeader>
         <CardTitle>SLA Violations</CardTitle>
+        <CardAction>
+          <ChartInfo description="Issues that breached a defined SLA rule. The most-triggered rules show which policies are hardest to meet across your organisation." />
+        </CardAction>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="flex items-end gap-2">
@@ -533,6 +549,9 @@ function StaleIssuesRadar({
     <Card>
       <CardHeader>
         <CardTitle>Stale Issues Radar — &gt;7 Days</CardTitle>
+        <CardAction>
+          <ChartInfo description="Projects with issues that have had no status change in over 7 days. These are likely blocked, forgotten, or silently deprioritised and need triage." />
+        </CardAction>
       </CardHeader>
       <CardContent>
         {sorted.length === 0 ? (

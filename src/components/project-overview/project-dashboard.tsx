@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ChartInfo } from "@/components/ui/chart-info";
 import { Badge } from "@/components/ui/badge";
 import {
   ChartContainer,
@@ -181,6 +182,9 @@ function AssigneeWorkload({
     <Card>
       <CardHeader>
         <CardTitle>Assignee Workload</CardTitle>
+        <CardAction>
+          <ChartInfo description="Active WIP issues per team member right now. Members carrying more than 5 issues are flagged in red as potentially overloaded, which can slow delivery and reduce quality." />
+        </CardAction>
       </CardHeader>
       <CardContent>
         {workload.length === 0 ? (
@@ -241,6 +245,9 @@ function ThroughputChart({
     <Card>
       <CardHeader>
         <CardTitle>Weekly Throughput</CardTitle>
+        <CardAction>
+          <ChartInfo description="Issues completed per week for this project. Use this to track delivery pace over time and spot slowdowns before they become problems." />
+        </CardAction>
       </CardHeader>
       <CardContent>
         {chartData.length > 0 ? (
@@ -290,6 +297,9 @@ function IssueTypeCycleTime({
     <Card>
       <CardHeader>
         <CardTitle>Median Cycle Time by Issue Type</CardTitle>
+        <CardAction>
+          <ChartInfo description="How long each category of issue typically takes from active work to completion. Bugs taking longer than features often reveal friction in testing or the deployment pipeline." />
+        </CardAction>
       </CardHeader>
       <CardContent>
         {sorted.length === 0 ? (
@@ -336,6 +346,9 @@ function StaleIssuesList({
     <Card>
       <CardHeader>
         <CardTitle>Stale Issues — &gt;7 Days</CardTitle>
+        <CardAction>
+          <ChartInfo description="Issues in this project with no status change in over 7 days. Likely blocked, unassigned, or quietly deprioritised — worth a quick triage." />
+        </CardAction>
       </CardHeader>
       <CardContent className="p-0 pb-1">
         {staleIssues.length === 0 ? (

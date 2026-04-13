@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ChartInfo } from "@/components/ui/chart-info";
 import { Badge } from "@/components/ui/badge";
 import {
   ChartContainer,
@@ -176,6 +177,9 @@ function CycleTimeChart({
     <Card className="h-full flex flex-col">
       <CardHeader>
         <CardTitle>Cycle Time vs Org Average — Median</CardTitle>
+        <CardAction>
+          <ChartInfo description="Your median time to complete an issue compared to the org-wide average. Being above the line isn't necessarily bad — it may reflect working on more complex issues than your peers." />
+        </CardAction>
       </CardHeader>
       <CardContent className="flex-1 flex flex-col">
         {cycleTime.length > 0 ? (
@@ -239,6 +243,9 @@ function MyStaleIssues({
     <Card>
       <CardHeader>
         <CardTitle>My Stale Issues — &gt;3 Days</CardTitle>
+        <CardAction>
+          <ChartInfo description="Your assigned issues with no activity in the last 3 days. These may be blocked, need a status update, or have been quietly set aside." />
+        </CardAction>
       </CardHeader>
       <CardContent>
         {staleIssues.length === 0 ? (
