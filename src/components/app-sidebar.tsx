@@ -28,10 +28,18 @@ import {
   SidebarSeparator,
 } from "@/components/ui/sidebar";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@/components/ui/avatar";
 import type { JiraProject } from "@/lib/db/schema";
 import type { AuthUser } from "@/lib/auth/server";
 
@@ -160,59 +168,77 @@ export function AppSidebar({ user, projects }: Props) {
       <SidebarSeparator className="opacity-50" />
 
       {/* User + sign out */}
-      <SidebarFooter className="p-4 group-data-[collapsible=icon]:p-2">
+      <SidebarFooter className="p-2">
         <SidebarMenu>
           <SidebarMenuItem>
-            <div className="flex items-center justify-between mb-2 group-data-[collapsible=icon]:justify-center">
-              <span className="text-xs text-zinc-500 dark:text-zinc-400 group-data-[collapsible=icon]:hidden">
+            <div className="flex items-center justify-between px-1 mb-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+              <span className="text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
                 Theme
               </span>
               <ThemeToggle />
             </div>
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <Popover>
-              <PopoverTrigger asChild>
-                <div
-                  role="button"
-                  className="flex h-14 w-full cursor-pointer items-center gap-3 rounded-xl border border-zinc-200/50 bg-white/50 px-3 shadow-sm backdrop-blur-md transition-all hover:bg-white/80 dark:border-zinc-800/50 dark:bg-zinc-900/50 dark:hover:bg-zinc-900/80 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-transparent group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:shadow-none"
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <SidebarMenuButton
+                  size="lg"
+                  tooltip={user.email}
+                  className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
                 >
-                  {/* Avatar */}
-                  <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100 ring-2 ring-white/50 dark:bg-zinc-800 dark:ring-zinc-900/50">
-                    {clerkUser?.imageUrl ? (
-                      <img
-                        src={clerkUser.imageUrl}
-                        alt={user.email}
-                        className="size-full object-cover"
-                      />
-                    ) : (
-                      <span className="text-xs font-bold text-zinc-400">
-                        {user.email[0].toUpperCase()}
-                      </span>
-                    )}
-                  </div>
-                  {/* Info */}
-                  <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5 group-data-[collapsible=icon]:hidden">
-                    <span className="truncate text-[13px] font-bold leading-none text-zinc-900 dark:text-zinc-50">
+                  <Avatar className="size-8 rounded-lg">
+                    <AvatarImage src={clerkUser?.imageUrl} alt={user.email} />
+                    <AvatarFallback className="rounded-lg text-xs">
+                      {user.email[0].toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex min-w-0 flex-col items-start text-left group-data-[collapsible=icon]:hidden">
+                    <span className="truncate text-sm font-semibold leading-tight">
                       {clerkUser?.firstName
                         ? `${clerkUser.firstName}${clerkUser.lastName ? ` ${clerkUser.lastName}` : ""}`
                         : user.email.split("@")[0]}
                     </span>
-                    <span className="truncate text-[11px] font-medium leading-none text-zinc-500 dark:text-zinc-400">
+                    <span className="truncate text-[11px] text-muted-foreground leading-tight">
                       {user.email}
                     </span>
                   </div>
-                </div>
-              </PopoverTrigger>
-              <PopoverContent side="right" align="end" className="w-56 p-1">
+                </SidebarMenuButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                side="right"
+                align="end"
+                sideOffset={4}
+                className="w-56"
+              >
+                <DropdownMenuLabel className="p-0 font-normal">
+                  <div className="flex items-center gap-2 px-2 py-2">
+                    <Avatar className="size-8 rounded-lg">
+                      <AvatarImage src={clerkUser?.imageUrl} alt={user.email} />
+                      <AvatarFallback className="rounded-lg text-xs">
+                        {user.email[0].toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex min-w-0 flex-col">
+                      <span className="truncate text-sm font-semibold">
+                        {clerkUser?.firstName
+                          ? `${clerkUser.firstName}${clerkUser.lastName ? ` ${clerkUser.lastName}` : ""}`
+                          : user.email.split("@")[0]}
+                      </span>
+                      <span className="truncate text-[11px] text-muted-foreground">
+                        {user.email}
+                      </span>
+                    </div>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
                 <SignOutButton redirectUrl="/">
-                  <button className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm font-medium text-red-600 outline-none transition-colors hover:bg-red-50 focus:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/50 dark:focus:bg-red-950/50">
-                    Sign Out
+                  <DropdownMenuItem className="cursor-pointer text-destructive focus:text-destructive">
                     <RiLogoutBoxRLine className="size-4" />
-                  </button>
+                    Sign Out
+                  </DropdownMenuItem>
                 </SignOutButton>
-              </PopoverContent>
-            </Popover>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
