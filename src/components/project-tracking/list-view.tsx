@@ -241,6 +241,7 @@ function IssueRow({ issue }: { issue: TrackingIssue }) {
       <td className="px-3 py-2">
         <Link
           href={`/issues/${issue.jiraKey}`}
+          prefetch={false}
           className="font-mono font-semibold text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
         >
           {issue.jiraKey}
@@ -251,6 +252,7 @@ function IssueRow({ issue }: { issue: TrackingIssue }) {
       <td className="px-3 py-2 max-w-0">
         <Link
           href={`/issues/${issue.jiraKey}`}
+          prefetch={false}
           className="block truncate font-medium text-zinc-800 hover:text-zinc-950 dark:text-zinc-200 dark:hover:text-zinc-50"
           title={issue.summary}
         >

@@ -87,7 +87,6 @@ export async function GET(
   const hasComments = searchParams.get("hasComments") === "true";
   const sortBy = searchParams.get("sortBy") ?? "updated";
   const sortDir = searchParams.get("sortDir") === "asc" ? "asc" : "desc";
-  const all = searchParams.get("all") === "true";
   const pageSize = Math.min(
     200,
     Math.max(1, parseInt(searchParams.get("pageSize") ?? "50", 10))
@@ -160,19 +159,13 @@ export async function GET(
   };
 
   const [issues, countResult] = await Promise.all([
-    all
-      ? db
-          .select(selectFields)
-          .from(jiraIssues)
-          .where(where)
-          .orderBy(orderExpr)
-      : db
-          .select(selectFields)
-          .from(jiraIssues)
-          .where(where)
-          .orderBy(orderExpr)
-          .limit(pageSize)
-          .offset(offset),
+    db
+      .select(selectFields)
+      .from(jiraIssues)
+      .where(where)
+      .orderBy(orderExpr)
+      .limit(pageSize)
+      .offset(offset),
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(jiraIssues)
@@ -184,8 +177,8 @@ export async function GET(
   return Response.json({
     issues,
     total,
-    page: all ? 1 : page,
-    pageSize: all ? total : pageSize,
-    totalPages: all ? 1 : Math.ceil(total / pageSize),
+    page,
+    pageSize,
+    totalPages: Math.ceil(total / pageSize),
   });
 }

@@ -38,7 +38,8 @@ export async function GET(
     .innerJoin(slaRules, eq(slaViolations.ruleId, slaRules.id))
     .innerJoin(jiraIssues, eq(slaViolations.issueId, jiraIssues.id))
     .where(whereCondition)
-    .orderBy(desc(slaViolations.violatedAt));
+    .orderBy(desc(slaViolations.violatedAt))
+    .limit(200);
 
   return Response.json(violations);
 }

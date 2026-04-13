@@ -1,4 +1,4 @@
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   jiraProjects,
@@ -8,6 +8,8 @@ import {
 } from "@/lib/db/schema";
 import { JiraClient, type JiraIssueRaw, type JiraCommentRaw } from "./client";
 import { decrypt } from "@/lib/crypto";
+
+const SYNC_CONCURRENCY = 5;
 
 // ---------------------------------------------------------------------------
 // Project sync — bulk fetch all issues and upsert into the database
@@ -51,14 +53,21 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
       maxResults
     );
 
-    for (const issue of result.issues) {
-      try {
-        await upsertIssue(projectId, issue);
-        synced++;
-      } catch (err) {
-        errors++;
-        const msg = err instanceof Error ? err.message : String(err);
-        errorMessages.push(`${issue.key}: ${msg}`);
+    for (let i = 0; i < result.issues.length; i += SYNC_CONCURRENCY) {
+      const chunk = result.issues.slice(i, i + SYNC_CONCURRENCY);
+      const results = await Promise.allSettled(
+        chunk.map((issue) => upsertIssue(projectId, issue))
+      );
+      for (let j = 0; j < results.length; j++) {
+        const r = results[j];
+        if (r.status === "fulfilled") {
+          synced++;
+        } else {
+          errors++;
+          const msg =
+            r.reason instanceof Error ? r.reason.message : String(r.reason);
+          errorMessages.push(`${chunk[j].key}: ${msg}`);
+        }
       }
     }
 
@@ -160,9 +169,35 @@ export async function upsertIssue(
     await upsertStatusHistory(issue.id, raw);
   }
 
-  // Sync comments
-  for (const comment of f.comment?.comments ?? []) {
-    await upsertComment(issue.id, comment);
+  // Sync comments — single batch insert instead of N sequential round-trips
+  const rawComments = f.comment?.comments ?? [];
+  if (rawComments.length > 0) {
+    const syncedAt = new Date();
+    await db
+      .insert(jiraComments)
+      .values(
+        rawComments.map((raw) => ({
+          issueId: issue.id,
+          jiraCommentId: raw.id,
+          authorAccountId: raw.author?.accountId ?? null,
+          authorEmail: raw.author?.emailAddress ?? null,
+          authorName: raw.author?.displayName ?? null,
+          body: raw.body ? JSON.stringify(raw.body) : null,
+          jiraCreatedAt: raw.created ? new Date(raw.created) : null,
+          jiraUpdatedAt: raw.updated ? new Date(raw.updated) : null,
+          syncedAt,
+        }))
+      )
+      .onConflictDoUpdate({
+        target: [jiraComments.issueId, jiraComments.jiraCommentId],
+        set: {
+          authorEmail: sql`excluded.author_email`,
+          authorName: sql`excluded.author_name`,
+          body: sql`excluded.body`,
+          jiraUpdatedAt: sql`excluded.jira_updated_at`,
+          syncedAt: sql`excluded.synced_at`,
+        },
+      });
   }
 }
 
@@ -207,52 +242,50 @@ async function upsertStatusHistory(
 
   if (changes.length === 0) return;
 
-  // If we have transitions, reconstruct the initial status row
-  // The first transition's fromStatus is the issue's original status.
+  // Accumulate all rows then batch-insert — replaces N sequential round-trips
+  const historyRows: (typeof jiraStatusHistory.$inferInsert)[] = [];
+
+  // Reconstruct the initial status row from the first transition's fromStatus
   const firstChange = changes[0];
   if (firstChange.fromStatus) {
-    // Insert the initial state row (issue was created in this status)
-    await db
-      .insert(jiraStatusHistory)
-      .values({
-        issueId,
-        fromStatus: null,
-        toStatus: firstChange.fromStatus,
-        changedAt: raw.fields.created ? new Date(raw.fields.created) : new Date(),
-        changedByName: null,
-        changedByEmail: null,
-        durationSeconds: Math.floor(
-          (firstChange.changedAt.getTime() -
-            (raw.fields.created ? new Date(raw.fields.created).getTime() : 0)) /
-            1000
-        ),
-      })
-      .onConflictDoNothing();
+    const createdAt = raw.fields.created
+      ? new Date(raw.fields.created)
+      : new Date();
+    historyRows.push({
+      issueId,
+      fromStatus: null,
+      toStatus: firstChange.fromStatus,
+      changedAt: createdAt,
+      changedByName: null,
+      changedByEmail: null,
+      durationSeconds: Math.floor(
+        (firstChange.changedAt.getTime() - createdAt.getTime()) / 1000
+      ),
+    });
   }
 
-  // Insert each status change with duration = gap to next change
   for (let i = 0; i < changes.length; i++) {
     const change = changes[i];
     const next = changes[i + 1];
-    const durationSeconds = next
-      ? Math.floor(
-          (next.changedAt.getTime() - change.changedAt.getTime()) / 1000
-        )
-      : null; // current status, duration unknown
-
-    await db
-      .insert(jiraStatusHistory)
-      .values({
-        issueId,
-        fromStatus: change.fromStatus,
-        toStatus: change.toStatus,
-        changedAt: change.changedAt,
-        changedByName: change.changedByName,
-        changedByEmail: change.changedByEmail,
-        durationSeconds,
-      })
-      .onConflictDoNothing();
+    historyRows.push({
+      issueId,
+      fromStatus: change.fromStatus,
+      toStatus: change.toStatus,
+      changedAt: change.changedAt,
+      changedByName: change.changedByName,
+      changedByEmail: change.changedByEmail,
+      durationSeconds: next
+        ? Math.floor(
+            (next.changedAt.getTime() - change.changedAt.getTime()) / 1000
+          )
+        : null,
+    });
   }
+
+  await db
+    .insert(jiraStatusHistory)
+    .values(historyRows)
+    .onConflictDoNothing();
 }
 
 // ---------------------------------------------------------------------------

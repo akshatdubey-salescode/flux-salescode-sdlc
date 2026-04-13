@@ -8,8 +8,9 @@ import {
 } from "@remixicon/react";
 import { cn } from "@/lib/utils";
 import { FilterBar } from "./filter-bar";
-import { BoardView } from "./board-view";
+import { BoardView, BoardViewSkeleton } from "./board-view";
 import { ListView } from "./list-view";
+import { sortStatusesByCategory } from "./helpers";
 import type { TrackingIssue, TrackingFields, FilterState } from "./helpers";
 
 type Props = { projectId: string };
@@ -53,7 +54,7 @@ export function ProjectTrackingTab({ projectId }: Props) {
   const [loading, setLoading] = useState(true);
   const [fields, setFields] = useState<TrackingFields | null>(null);
 
-  // Stable key for the effect — avoids issues with array reference equality
+  // Stable key for the list-view effect
   const filterKey = JSON.stringify({
     q: filters.q,
     status: filters.status,
@@ -70,6 +71,40 @@ export function ProjectTrackingTab({ projectId }: Props) {
     view: filters.view,
     page: filters.page,
   });
+
+  // Stable key for board columns — excludes status (each column owns its own
+  // status filter) and page (each column owns its own page state)
+  const boardFilterKey = JSON.stringify({
+    q: filters.q,
+    priority: filters.priority,
+    assignee: filters.assignee,
+    reporter: filters.reporter,
+    issueType: filters.issueType,
+    labels: filters.labels,
+    dateFrom: filters.dateFrom,
+    dateTo: filters.dateTo,
+    hasComments: filters.hasComments,
+    sortBy: filters.sortBy,
+    sortDir: filters.sortDir,
+  });
+
+  // Columns to render on the board: all project statuses, optionally narrowed
+  // by the status filter (which doubles as column visibility on the board).
+  // Deduplicate by status name — the issues API filters by name only, so two
+  // entries with the same name but different statusCategory would produce
+  // identical columns (and duplicate React keys).
+  const boardColumns = fields
+    ? sortStatusesByCategory(
+        Array.from(
+          new Map(
+            (filters.status.length > 0
+              ? fields.statuses.filter((s) => filters.status.includes(s.status))
+              : fields.statuses
+            ).map((s) => [s.status, s])
+          ).values()
+        )
+      )
+    : [];
 
   function updateParams(updates: Partial<Record<string, string | null>>) {
     const params = new URLSearchParams(searchParams.toString());
@@ -91,11 +126,12 @@ export function ProjectTrackingTab({ projectId }: Props) {
       .catch(() => {});
   }, [projectId]);
 
-  // Fetch issues whenever filters change
+  // Fetch issues for list view only — board view columns manage their own fetching
   useEffect(() => {
-    const params = new URLSearchParams();
     const parsed: FilterState = JSON.parse(filterKey);
+    if (parsed.view === "board") return;
 
+    const params = new URLSearchParams();
     if (parsed.q) params.set("q", parsed.q);
     if (parsed.status.length) params.set("status", parsed.status.join(","));
     if (parsed.priority.length) params.set("priority", parsed.priority.join(","));
@@ -108,13 +144,8 @@ export function ProjectTrackingTab({ projectId }: Props) {
     if (parsed.hasComments) params.set("hasComments", "true");
     params.set("sortBy", parsed.sortBy);
     params.set("sortDir", parsed.sortDir);
-
-    if (parsed.view === "board") {
-      params.set("all", "true");
-    } else {
-      params.set("pageSize", "50");
-      params.set("page", String(parsed.page));
-    }
+    params.set("pageSize", "50");
+    params.set("page", String(parsed.page));
 
     setLoading(true);
     fetch(`/api/projects/${projectId}/issues?${params.toString()}`)
@@ -169,7 +200,16 @@ export function ProjectTrackingTab({ projectId }: Props) {
 
       {/* Views */}
       {filters.view === "board" ? (
-        <BoardView issues={issues} loading={loading} />
+        fields === null ? (
+          <BoardViewSkeleton />
+        ) : (
+          <BoardView
+            projectId={projectId}
+            columns={boardColumns}
+            filters={filters}
+            boardFilterKey={boardFilterKey}
+          />
+        )
       ) : (
         <ListView
           issues={issues}
