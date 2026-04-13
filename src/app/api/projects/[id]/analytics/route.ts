@@ -45,9 +45,7 @@ export async function GET(
         SELECT COUNT(DISTINCT ji.id)::int AS count
         FROM jira_status_history jsh
         JOIN jira_issues ji ON ji.id = jsh.issue_id
-        JOIN project_status_mappings psm
-          ON psm.project_id = ji.project_id AND psm.raw_status = jsh.to_status
-        WHERE psm.canonical_status = 'DONE'
+        WHERE ji.status_category = 'Done'
           AND jsh.changed_at >= NOW() - INTERVAL '7 days'
           AND ji.project_id = ${projectId}
       `),
@@ -56,9 +54,7 @@ export async function GET(
         SELECT COUNT(DISTINCT ji.id)::int AS count
         FROM jira_status_history jsh
         JOIN jira_issues ji ON ji.id = jsh.issue_id
-        JOIN project_status_mappings psm
-          ON psm.project_id = ji.project_id AND psm.raw_status = jsh.to_status
-        WHERE psm.canonical_status = 'DONE'
+        WHERE ji.status_category = 'Done'
           AND jsh.changed_at >= NOW() - INTERVAL '14 days'
            AND jsh.changed_at < NOW() - INTERVAL '7 days'
           AND ji.project_id = ${projectId}

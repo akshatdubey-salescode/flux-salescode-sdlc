@@ -126,10 +126,10 @@ export function ProjectTrackingTab({ projectId }: Props) {
       .catch(() => {});
   }, [projectId]);
 
-  // Fetch issues for list view only — board view columns manage their own fetching
+  // Fetch issues (always, for count) — board view columns manage their own data fetching
   useEffect(() => {
     const parsed: FilterState = JSON.parse(filterKey);
-    if (parsed.view === "board") return;
+    const isBoard = parsed.view === "board";
 
     const params = new URLSearchParams();
     if (parsed.q) params.set("q", parsed.q);
@@ -144,19 +144,22 @@ export function ProjectTrackingTab({ projectId }: Props) {
     if (parsed.hasComments) params.set("hasComments", "true");
     params.set("sortBy", parsed.sortBy);
     params.set("sortDir", parsed.sortDir);
-    params.set("pageSize", "50");
-    params.set("page", String(parsed.page));
+    // In board view, only fetch enough to get the total count
+    params.set("pageSize", isBoard ? "1" : "50");
+    params.set("page", isBoard ? "1" : String(parsed.page));
 
-    setLoading(true);
+    if (!isBoard) setLoading(true);
     fetch(`/api/projects/${projectId}/issues?${params.toString()}`)
       .then((r) => r.json())
       .then((data) => {
-        setIssues(data.issues ?? []);
+        if (!isBoard) {
+          setIssues(data.issues ?? []);
+          setTotalPages(data.totalPages ?? 1);
+        }
         setTotal(data.total ?? 0);
-        setTotalPages(data.totalPages ?? 1);
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => { if (!isBoard) setLoading(false); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, filterKey]);
 
