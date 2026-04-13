@@ -57,17 +57,17 @@ export function AppSidebar({ user, projects }: Props) {
       <SidebarHeader className="py-2 px-2">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild className="hover:bg-zinc-100/50 dark:hover:bg-zinc-800/50 transition-colors">
+            <SidebarMenuButton size="lg" asChild className="hover:bg-sidebar-accent transition-colors">
               <Link href="/home" className="flex items-center gap-2.5">
-                <div className="flex aspect-square size-9 items-center justify-center rounded-md bg-zinc-950 text-white shadow-sm ring-1 ring-zinc-800 dark:bg-white dark:text-zinc-950 dark:ring-zinc-200">
-                  <span className="text-base font-semibold">F</span>
+                <div className="flex aspect-square size-9 items-center justify-center rounded-md bg-gradient-to-br from-[#00c6b1] to-[#227c9d] text-white shadow-sm ring-1 ring-white/20">
+                  <span className="text-base font-bold">F</span>
                 </div>
                 <div className="flex flex-col gap-0 leading-tight group-data-[collapsible=icon]:hidden">
-                  <span className="text-[14px] font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+                  <span className="text-[14px] font-bold tracking-tight text-foreground">
                     Flux - SDLC Insights
                   </span>
                   <div className="flex flex-col -space-y-0.5">
-                    <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500/70">
+                    <span className="text-[10px] font-semibold text-muted-foreground/80">
                       for Salescode.ai
                     </span>
                   </div>
@@ -89,10 +89,10 @@ export function AppSidebar({ user, projects }: Props) {
                     asChild
                     isActive={pathname === href}
                     tooltip={label}
-                    className="transition-all hover:bg-zinc-100 hover:translate-x-0.5 dark:hover:bg-zinc-800"
+                    className="transition-all hover:bg-sidebar-accent hover:translate-x-0.5"
                   >
                     <Link href={href}>
-                      <Icon className="text-zinc-400 group-data-[active=true]:text-inherit" />
+                      <Icon className="text-muted-foreground group-data-[active=true]:text-primary" />
                       <span className="font-medium">{label}</span>
                     </Link>
                   </SidebarMenuButton>
@@ -104,10 +104,10 @@ export function AppSidebar({ user, projects }: Props) {
                     asChild
                     isActive={pathname === "/admin/users"}
                     tooltip="User Management"
-                    className="transition-all hover:bg-zinc-100 hover:translate-x-0.5 dark:hover:bg-zinc-800"
+                    className="transition-all hover:bg-sidebar-accent hover:translate-x-0.5"
                   >
                     <Link href="/admin/users">
-                      <RiUserSettingsLine className="text-zinc-400 group-data-[active=true]:text-inherit" />
+                      <RiUserSettingsLine className="text-muted-foreground group-data-[active=true]:text-primary" />
                       <span className="font-medium">User Management</span>
                     </Link>
                   </SidebarMenuButton>
@@ -128,7 +128,7 @@ export function AppSidebar({ user, projects }: Props) {
             {user.role === "SUPERUSER" && (
               <Link
                 href="/projects/new"
-                className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-50 transition-all"
+                className="rounded-md p-1 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground transition-all"
                 title="Add Project"
               >
                 <RiAddLine size={14} />
@@ -146,7 +146,7 @@ export function AppSidebar({ user, projects }: Props) {
                     className="hover:translate-x-0.5 transition-transform"
                   >
                     <Link href={`/projects/${project.id}`}>
-                      <RiFolderLine className="text-zinc-400 group-data-[active=true]:text-inherit" />
+                      <RiFolderLine className="text-muted-foreground group-data-[active=true]:text-primary" />
                       <span className="truncate">{project.name}</span>
                     </Link>
                   </SidebarMenuButton>

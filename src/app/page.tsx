@@ -7,19 +7,31 @@ export default async function LandingPage() {
   if (userId) redirect("/home");
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center bg-white dark:bg-zinc-950 px-4">
-      <div className="max-w-md w-full text-center space-y-6">
-        <h1 className="text-4xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          Flux
-        </h1>
-        <p className="text-zinc-500 dark:text-zinc-400 text-base">
-          Software development lifecycle tracker for salescode.ai
-        </p>
+    <main className="min-h-screen flex flex-col items-center justify-center bg-background px-4">
+      <div className="max-w-md w-full text-center space-y-8">
+        <div className="flex flex-col items-center gap-4">
+          <div className="flex size-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
+            <span className="text-3xl font-bold">F</span>
+          </div>
+          <h1 className="text-5xl font-bold tracking-tight text-foreground">
+            Flux
+          </h1>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-muted-foreground text-lg font-medium">
+            SDLC Insights for Salescode.ai
+          </p>
+          <p className="text-muted-foreground/60 text-sm">
+            Intelligent software development lifecycle tracking and analytics.
+          </p>
+        </div>
+
         <Link
           href="/sign-in"
-          className="inline-flex h-10 items-center justify-center rounded-md bg-zinc-900 px-6 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          className="inline-flex h-12 items-center justify-center rounded-xl bg-primary px-8 text-sm font-bold text-primary-foreground shadow-lg shadow-primary/20 transition-all hover:scale-[1.02] active:scale-[0.98] hover:bg-primary/90"
         >
-          Sign in
+          Get Started
         </Link>
       </div>
     </main>
