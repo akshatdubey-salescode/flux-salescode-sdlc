@@ -2,12 +2,29 @@
 
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
-  Cell
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
 } from "recharts";
-import { RiErrorWarningLine, RiCheckLine, RiTimeLine } from "@remixicon/react";
+import {
+  RiErrorWarningLine,
+  RiTimeLine,
+  RiArrowUpLine,
+  RiArrowDownLine,
+} from "@remixicon/react";
 
 type OrgDashboardData = {
   orgHealth: {
@@ -25,6 +42,9 @@ type OrgDashboardData = {
   flowEfficiency: { project_id: string; project_name: string; flow_efficiency_pct: number }[];
   slaTopRules: { rule_name: string; project_name: string; trigger_count: number }[];
 };
+
+const sanitize = (s: string) =>
+  `k_${s.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`;
 
 export function OrgDashboard() {
   const [data, setData] = useState<OrgDashboardData | null>(null);
@@ -44,88 +64,118 @@ export function OrgDashboard() {
   }
 
   return (
-    <div className="space-y-8 pb-8">
+    <div className="space-y-5 pb-8">
       <OrgHealthStrip health={data.orgHealth} />
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <ThroughputChart throughput={data.throughput} />
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div className="md:col-span-2">
+          <ThroughputChart throughput={data.throughput} />
+        </div>
         <WipHeatmap wipHeatmap={data.wipHeatmap} />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <div className="md:col-span-2">
-           <CycleTimeTable cycleTime={data.cycleTime} />
+          <CycleTimeTable cycleTime={data.cycleTime} />
         </div>
-        <div>
-           <FlowEfficiencyChart flowEfficiency={data.flowEfficiency} />
-        </div>
+        <FlowEfficiencyBars flowEfficiency={data.flowEfficiency} />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <SlaViolationSummary 
-          totalViolations={data.orgHealth.slaViolations} 
-          topRules={data.slaTopRules} 
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <SlaViolationCard
+          totalViolations={data.orgHealth.slaViolations}
+          topRules={data.slaTopRules}
         />
-        <StaleIssueRadar staleIssues={data.staleIssues} />
+        <StaleIssuesRadar staleIssues={data.staleIssues} />
       </div>
-    </div>
-  );
-}
-
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-      <h3 className="mb-4 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{title}</h3>
-      {children}
     </div>
   );
 }
 
 function OrgHealthStrip({ health }: { health: OrgDashboardData["orgHealth"] }) {
-  const stats = [
-    { label: "Active Issues", value: health.activeIssues },
-    { 
-      label: "Completed This Week", 
-      value: health.completedThisWeek,
-      subtext: `${health.completedDelta > 0 ? "+" : ""}${health.completedDelta}% vs last wk` 
-    },
-    { 
-      label: "SLA Violations", 
-      value: health.slaViolations,
-      alert: health.slaViolations > 0 
-    },
-    { 
-      label: "Unmapped Statuses", 
-      value: health.unmappedWarnings,
-      alert: health.unmappedWarnings > 0 
-    },
-    { label: "Projects Synced (24h)", value: health.projectsSyncedToday },
-  ];
+  const delta = health.completedDelta;
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-      {stats.map((stat, i) => (
-        <div key={i} className={`rounded-xl border p-4 shadow-sm ${stat.alert ? 'border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-950/20' : 'border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950'}`}>
-          <div className="text-sm font-medium text-zinc-500 mb-1 flex items-center gap-1">
-            {stat.label}
-            {stat.alert && <RiErrorWarningLine className="w-4 h-4 text-red-500" />}
-          </div>
-          <div className={`text-2xl font-bold ${stat.alert ? 'text-red-600 dark:text-red-400' : 'text-zinc-900 dark:text-zinc-50'}`}>
-            {stat.value}
-          </div>
-          {stat.subtext && (
-            <div className="text-xs text-zinc-400 mt-1">{stat.subtext}</div>
-          )}
-        </div>
-      ))}
+    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <StatCard label="Active Issues" value={health.activeIssues} />
+      <StatCard
+        label="Completed This Week"
+        value={health.completedThisWeek}
+        trend={delta}
+        trendLabel="vs last wk"
+      />
+      <StatCard
+        label="SLA Violations"
+        value={health.slaViolations}
+        alert={health.slaViolations > 0}
+      />
+      <StatCard
+        label="Unmapped Statuses"
+        value={health.unmappedWarnings}
+        alert={health.unmappedWarnings > 0}
+      />
+      <StatCard label="Projects Synced (24h)" value={health.projectsSyncedToday} />
     </div>
   );
 }
 
+function StatCard({
+  label,
+  value,
+  trend,
+  trendLabel,
+  alert,
+}: {
+  label: string;
+  value: number;
+  trend?: number;
+  trendLabel?: string;
+  alert?: boolean;
+}) {
+  return (
+    <Card
+      className={cn(
+        "gap-1.5 p-5",
+        alert && "ring-destructive/30 bg-destructive/5 dark:bg-destructive/10"
+      )}
+    >
+      <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+        {alert && <RiErrorWarningLine className="size-3 shrink-0 text-destructive" />}
+        {label}
+      </p>
+      <p
+        className={cn(
+          "text-2xl font-semibold tabular-nums",
+          alert ? "text-destructive" : "text-foreground"
+        )}
+      >
+        {value}
+      </p>
+      {trend !== undefined && (
+        <p
+          className={cn(
+            "flex items-center gap-0.5 text-xs",
+            trend > 0
+              ? "text-emerald-600 dark:text-emerald-400"
+              : trend < 0
+              ? "text-destructive"
+              : "text-muted-foreground"
+          )}
+        >
+          {trend > 0 ? (
+            <RiArrowUpLine className="size-3" />
+          ) : trend < 0 ? (
+            <RiArrowDownLine className="size-3" />
+          ) : null}
+          {trend > 0 ? "+" : ""}{trend}%{trendLabel ? ` ${trendLabel}` : ""}
+        </p>
+      )}
+    </Card>
+  );
+}
+
 function ThroughputChart({ throughput }: { throughput: OrgDashboardData["throughput"] }) {
-  // Aggregate by week across all projects for a simpler stacked bar, 
-  // or group by week and show lines/bars per project. Let's do a simple stacked bar chart.
-  const chartDataMap = new Map<string, any>();
+  const chartDataMap = new Map<string, Record<string, number | string>>();
   const projects = new Set<string>();
 
   throughput.forEach((row) => {
@@ -133,47 +183,84 @@ function ThroughputChart({ throughput }: { throughput: OrgDashboardData["through
     if (!chartDataMap.has(weekStr)) {
       chartDataMap.set(weekStr, { name: weekStr });
     }
-    const weekData = chartDataMap.get(weekStr);
-    weekData[row.project_name] = row.completed;
+    const entry = chartDataMap.get(weekStr)!;
+    const key = sanitize(row.project_name);
+    entry[key] = ((entry[key] as number) ?? 0) + row.completed;
     projects.add(row.project_name);
   });
 
+  const projectList = Array.from(projects);
+  const chartColors = [
+    "var(--chart-1)",
+    "var(--chart-2)",
+    "var(--chart-3)",
+    "var(--chart-4)",
+    "var(--chart-5)",
+  ];
+
+  const chartConfig: ChartConfig = Object.fromEntries(
+    projectList.map((proj, i) => [
+      sanitize(proj),
+      { label: proj, color: chartColors[i % chartColors.length] },
+    ])
+  );
+
   const chartData = Array.from(chartDataMap.values());
-  const projectColors = ["#8b5cf6", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#ec4899", "#6366f1"];
 
   return (
-    <Card title="Throughput (Weekly)">
-      <div className="h-[250px] w-full">
+    <Card>
+      <CardHeader>
+        <CardTitle>Weekly Throughput</CardTitle>
+      </CardHeader>
+      <CardContent>
         {chartData.length > 0 ? (
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" className="dark:stroke-zinc-800" />
-              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#888888' }} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#888888' }} />
-              <RechartsTooltip 
-                cursor={{fill: 'transparent'}}
-                contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+          <ChartContainer config={chartConfig} className="h-[220px] w-full">
+            <BarChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis
+                dataKey="name"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 11 }}
               />
-              {Array.from(projects).map((proj, i) => (
-                <Bar key={proj} dataKey={proj} stackId="a" fill={projectColors[i % projectColors.length]} radius={[2, 2, 0, 0]} />
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 11 }}
+                allowDecimals={false}
+              />
+              <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
+              {projectList.map((proj, i) => (
+                <Bar
+                  key={proj}
+                  dataKey={sanitize(proj)}
+                  stackId="a"
+                  fill={`var(--color-${sanitize(proj)})`}
+                  radius={i === projectList.length - 1 ? [2, 2, 0, 0] : [0, 0, 0, 0]}
+                />
               ))}
             </BarChart>
-          </ResponsiveContainer>
+          </ChartContainer>
         ) : (
-          <div className="h-full flex items-center justify-center text-sm text-zinc-500">Not enough data</div>
+          <EmptyState message="No throughput data yet" />
         )}
-      </div>
+      </CardContent>
     </Card>
   );
 }
 
 function WipHeatmap({ wipHeatmap }: { wipHeatmap: OrgDashboardData["wipHeatmap"] }) {
-  // Aggregate to Project x Stage matrix
-  const statuses = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'IN_QA'];
-  const dataByProject = new Map<string, Record<string, number>>();
+  const statuses = ["TODO", "IN_PROGRESS", "IN_REVIEW", "IN_QA"] as const;
+  const statusLabels: Record<string, string> = {
+    TODO: "Todo",
+    IN_PROGRESS: "In Progress",
+    IN_REVIEW: "In Review",
+    IN_QA: "In QA",
+  };
 
-  wipHeatmap.forEach(row => {
-    if (!statuses.includes(row.canonical_status)) return;
+  const dataByProject = new Map<string, Record<string, number>>();
+  wipHeatmap.forEach((row) => {
+    if (!statuses.includes(row.canonical_status as typeof statuses[number])) return;
     if (!dataByProject.has(row.name)) {
       dataByProject.set(row.name, { TODO: 0, IN_PROGRESS: 0, IN_REVIEW: 0, IN_QA: 0 });
     }
@@ -181,173 +268,323 @@ function WipHeatmap({ wipHeatmap }: { wipHeatmap: OrgDashboardData["wipHeatmap"]
   });
 
   return (
-    <Card title="WIP Heatmap">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b dark:border-zinc-800">
-              <th className="text-left font-medium pb-2 text-zinc-500">Project</th>
-              {statuses.map(s => (
-                <th key={s} className="text-center font-medium pb-2 text-zinc-500">{s.replace('_', ' ')}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {Array.from(dataByProject.entries()).map(([project, counts]) => (
-              <tr key={project} className="border-b last:border-0 dark:border-zinc-800">
-                <td className="py-3 font-medium text-zinc-900 dark:text-zinc-100">{project}</td>
-                {statuses.map(s => {
-                  const val = counts[s];
-                  // Simple color intensity logic based on value (0-15+)
-                  const intensity = Math.min(val / 15, 1);
-                  return (
-                    <td key={s} className="py-2 px-1">
-                      <div 
-                        className={`text-center py-1 rounded w-12 mx-auto font-medium ${val > 0 ? "text-white" : "text-zinc-300 dark:text-zinc-600"}`}
-                        style={{ backgroundColor: val > 0 ? `rgba(99, 102, 241, ${Math.max(intensity, 0.2)})` : 'transparent' }}
-                      >
-                        {val}
-                      </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>WIP Heatmap</CardTitle>
+      </CardHeader>
+      <CardContent className="p-0 pb-1">
+        {dataByProject.size === 0 ? (
+          <div className="px-5 pb-4">
+            <EmptyState message="No active WIP found" />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">
+                    Project
+                  </th>
+                  {statuses.map((s) => (
+                    <th
+                      key={s}
+                      className="px-2 py-2.5 text-center font-medium text-muted-foreground"
+                    >
+                      {statusLabels[s]}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {Array.from(dataByProject.entries()).map(([project, counts]) => (
+                  <tr key={project} className="group">
+                    <td className="px-4 py-2.5 font-medium text-foreground max-w-[120px] truncate">
+                      {project}
                     </td>
-                  );
-                })}
-              </tr>
-            ))}
-            {dataByProject.size === 0 && (
-              <tr>
-                <td colSpan={5} className="text-center py-8 text-zinc-500">No active WIP found.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                    {statuses.map((s) => {
+                      const val = counts[s];
+                      const intensity = Math.min(val / 15, 1);
+                      return (
+                        <td key={s} className="px-2 py-1.5 text-center">
+                          <span
+                            className={cn(
+                              "inline-flex items-center justify-center w-9 h-6 rounded font-mono tabular-nums font-semibold",
+                              val === 0
+                                ? "text-muted-foreground/30"
+                                : intensity > 0.5
+                                ? "text-white"
+                                : "text-foreground"
+                            )}
+                            style={{
+                              background:
+                                val > 0
+                                  ? `color-mix(in oklch, var(--chart-1) ${Math.round(
+                                      Math.max(intensity, 0.15) * 65 + 12
+                                    )}%, transparent)`
+                                  : undefined,
+                            }}
+                          >
+                            {val === 0 ? "—" : val}
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
     </Card>
   );
 }
 
 function CycleTimeTable({ cycleTime }: { cycleTime: OrgDashboardData["cycleTime"] }) {
-  // Sort by P90 worst first
   const sorted = [...cycleTime].sort((a, b) => b.p90_hours - a.p90_hours);
 
   return (
-    <Card title="Cycle Time (Hours)">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm text-left">
-          <thead>
-            <tr className="border-b dark:border-zinc-800 text-zinc-500">
-              <th className="pb-2 font-medium">Project</th>
-              <th className="pb-2 font-medium">P50 (Median)</th>
-              <th className="pb-2 font-medium">P75</th>
-              <th className="pb-2 font-medium text-red-500">P90 (Worst case)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map(row => (
-              <tr key={row.project_id} className="border-b last:border-0 dark:border-zinc-800">
-                <td className="py-3 font-medium">{row.project_name}</td>
-                <td className="py-3">{row.p50_hours}h</td>
-                <td className="py-3">{row.p75_hours}h</td>
-                <td className="py-3 font-bold text-red-600 dark:text-red-400">{row.p90_hours}h</td>
-              </tr>
-            ))}
-            {sorted.length === 0 && (
-              <tr><td colSpan={4} className="py-4 text-center text-zinc-500">No cycle time data available.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </Card>
-  );
-}
-
-function FlowEfficiencyChart({ flowEfficiency }: { flowEfficiency: OrgDashboardData["flowEfficiency"] }) {
-  const sorted = [...flowEfficiency].sort((a, b) => b.flow_efficiency_pct - a.flow_efficiency_pct);
-  
-  return (
-    <Card title="Flow Efficiency">
-      <div className="space-y-4">
-        {sorted.map(row => (
-          <div key={row.project_id}>
-            <div className="flex justify-between text-sm mb-1">
-              <span className="font-medium text-zinc-800 dark:text-zinc-200">{row.project_name}</span>
-              <span className={row.flow_efficiency_pct > 40 ? "text-emerald-600" : row.flow_efficiency_pct < 20 ? "text-red-500" : "text-amber-500"}>
-                {row.flow_efficiency_pct}%
-              </span>
-            </div>
-            <div className="h-2 w-full bg-zinc-100 rounded-full dark:bg-zinc-800 overflow-hidden">
-              <div 
-                className={`h-full rounded-full ${row.flow_efficiency_pct > 40 ? "bg-emerald-500" : row.flow_efficiency_pct < 20 ? "bg-red-500" : "bg-amber-400"}`}
-                style={{ width: `${Math.min(row.flow_efficiency_pct, 100)}%` }}
-              />
-            </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Cycle Time — Hours</CardTitle>
+      </CardHeader>
+      <CardContent className="p-0 pb-1">
+        {sorted.length === 0 ? (
+          <div className="px-5 pb-4">
+            <EmptyState message="No cycle time data available" />
           </div>
-        ))}
-        {sorted.length === 0 && <div className="text-sm text-zinc-500 text-center py-4">No data</div>}
-      </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">
+                    Project
+                  </th>
+                  <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">
+                    P50 Median
+                  </th>
+                  <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">
+                    P75
+                  </th>
+                  <th className="px-4 py-2.5 text-right font-medium text-muted-foreground text-destructive/80">
+                    P90 Worst
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {sorted.map((row) => (
+                  <tr
+                    key={row.project_id}
+                    className="hover:bg-muted/20 transition-colors"
+                  >
+                    <td className="px-4 py-2.5 font-medium text-foreground">
+                      {row.project_name}
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
+                      {row.p50_hours}h
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
+                      {row.p75_hours}h
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-destructive">
+                      {row.p90_hours}h
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
     </Card>
   );
 }
 
-function SlaViolationSummary({ totalViolations, topRules }: { totalViolations: number, topRules: OrgDashboardData["slaTopRules"] }) {
+function FlowEfficiencyBars({
+  flowEfficiency,
+}: {
+  flowEfficiency: OrgDashboardData["flowEfficiency"];
+}) {
+  const sorted = [...flowEfficiency].sort(
+    (a, b) => b.flow_efficiency_pct - a.flow_efficiency_pct
+  );
+
   return (
-    <Card title="SLA Violations">
-      <div className="mb-4">
-        <div className="text-3xl font-bold text-red-600 dark:text-red-400">{totalViolations}</div>
-        <div className="text-sm text-zinc-500">Active Violations Across Org</div>
-      </div>
-      <div>
-        <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-widest mb-3">Most Triggered Rules (30d)</h4>
-        <div className="space-y-3">
-          {topRules.map((rule, idx) => (
-            <div key={idx} className="flex flex-col gap-0.5">
-              <div className="flex justify-between items-start">
-                <span className="text-sm font-medium">{rule.rule_name}</span>
-                <span className="text-sm font-semibold bg-red-100 text-red-700 px-2 rounded-full dark:bg-red-900/30 dark:text-red-400">{rule.trigger_count}</span>
+    <Card>
+      <CardHeader>
+        <CardTitle>Flow Efficiency</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {sorted.length === 0 && <EmptyState message="No data" />}
+        {sorted.map((row) => {
+          const pct = row.flow_efficiency_pct;
+          const color =
+            pct > 40
+              ? "bg-emerald-500 dark:bg-emerald-400"
+              : pct < 20
+              ? "bg-destructive"
+              : "bg-amber-400 dark:bg-amber-300";
+
+          return (
+            <div key={row.project_id} className="space-y-1.5">
+              <div className="flex justify-between items-center text-xs">
+                <span className="font-medium text-foreground truncate max-w-[120px]">
+                  {row.project_name}
+                </span>
+                <span
+                  className={cn(
+                    "tabular-nums font-semibold",
+                    pct > 40
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : pct < 20
+                      ? "text-destructive"
+                      : "text-amber-600 dark:text-amber-400"
+                  )}
+                >
+                  {pct}%
+                </span>
               </div>
-              <div className="text-xs text-zinc-500">{rule.project_name}</div>
+              <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                <div
+                  className={cn("h-full rounded-full transition-all duration-500", color)}
+                  style={{ width: `${Math.min(pct, 100)}%` }}
+                />
+              </div>
             </div>
-          ))}
-          {topRules.length === 0 && <div className="text-sm text-zinc-500">Looking good. No rules triggered recently.</div>}
-        </div>
-      </div>
+          );
+        })}
+      </CardContent>
     </Card>
   );
 }
 
-function StaleIssueRadar({ staleIssues }: { staleIssues: OrgDashboardData["staleIssues"] }) {
+function SlaViolationCard({
+  totalViolations,
+  topRules,
+}: {
+  totalViolations: number;
+  topRules: OrgDashboardData["slaTopRules"];
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>SLA Violations</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="flex items-end gap-2">
+          <span
+            className={cn(
+              "text-4xl font-semibold tabular-nums",
+              totalViolations > 0 ? "text-destructive" : "text-foreground"
+            )}
+          >
+            {totalViolations}
+          </span>
+          <span className="text-xs text-muted-foreground mb-1.5">
+            active across org
+          </span>
+        </div>
+
+        <div>
+          <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-3">
+            Most Triggered — 30d
+          </p>
+          {topRules.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No rules triggered recently.
+            </p>
+          ) : (
+            <div className="space-y-2.5">
+              {topRules.map((rule, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-start justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-foreground truncate">
+                      {rule.rule_name}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {rule.project_name}
+                    </p>
+                  </div>
+                  <Badge variant="destructive" className="shrink-0 tabular-nums">
+                    {rule.trigger_count}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function StaleIssuesRadar({
+  staleIssues,
+}: {
+  staleIssues: OrgDashboardData["staleIssues"];
+}) {
   const sorted = [...staleIssues].sort((a, b) => b.stale_count - a.stale_count);
 
   return (
-    <Card title="Stale Issues Radar (>7 days)">
-      <div className="space-y-3">
-        {sorted.map(row => (
-          <div key={row.project_id} className="flex justify-between items-center p-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50">
-            <span className="font-medium text-sm">{row.name}</span>
-            <span className="flex items-center gap-1.5 text-sm font-semibold text-amber-600 dark:text-amber-500">
-              <RiTimeLine className="w-4 h-4" />
-              {row.stale_count} <span className="font-normal text-amber-700/70 dark:text-amber-500/70">stuck</span>
-            </span>
+    <Card>
+      <CardHeader>
+        <CardTitle>Stale Issues Radar — &gt;7 Days</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {sorted.length === 0 ? (
+          <EmptyState message="No stale issues" />
+        ) : (
+          <div className="divide-y divide-border/50">
+            {sorted.map((row) => (
+              <div
+                key={row.project_id}
+                className="flex items-center justify-between py-2.5 first:pt-0"
+              >
+                <span className="text-xs font-medium text-foreground">{row.name}</span>
+                <Badge variant="outline" className="gap-1 tabular-nums font-mono">
+                  <RiTimeLine className="size-2.5 text-amber-500" />
+                  {row.stale_count}
+                </Badge>
+              </div>
+            ))}
           </div>
-        ))}
-        {sorted.length === 0 && <div className="text-sm text-zinc-500">No stale issues.</div>}
-      </div>
+        )}
+      </CardContent>
     </Card>
+  );
+}
+
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="flex items-center justify-center py-8">
+      <p className="text-xs text-muted-foreground">{message}</p>
+    </div>
   );
 }
 
 function DashboardSkeleton() {
   return (
-    <div className="space-y-8 pb-8">
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
+    <div className="space-y-5 pb-8">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {[...Array(5)].map((_, i) => (
+          <Skeleton key={i} className="h-24 rounded-lg" />
+        ))}
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Skeleton className="h-[300px] rounded-xl" />
-        <Skeleton className="h-[300px] rounded-xl" />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <Skeleton className="md:col-span-2 h-[300px] rounded-lg" />
+        <Skeleton className="h-[300px] rounded-lg" />
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Skeleton className="md:col-span-2 h-[200px] rounded-xl" />
-        <Skeleton className="h-[200px] rounded-xl" />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <Skeleton className="md:col-span-2 h-[220px] rounded-lg" />
+        <Skeleton className="h-[220px] rounded-lg" />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <Skeleton className="h-[200px] rounded-lg" />
+        <Skeleton className="h-[200px] rounded-lg" />
       </div>
     </div>
   );

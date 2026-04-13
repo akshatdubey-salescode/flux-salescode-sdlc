@@ -90,6 +90,7 @@ export async function GET() {
           ji.jira_key,
           ji.summary,
           jp.name AS project_name,
+          jp.jira_base_url,
           date_part('day', NOW() - ji.jira_updated_at)::int AS days_stale
         FROM jira_issues ji
         JOIN jira_projects jp ON jp.id = ji.project_id

@@ -8,6 +8,7 @@ import {
   jiraComments,
 } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
+import { cn } from "@/lib/utils";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
   Breadcrumb,
@@ -17,6 +18,9 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { StatusTimeChart } from "@/components/status-time-chart";
 
 // ---------------------------------------------------------------------------
@@ -61,14 +65,13 @@ async function getIssueTimeline(issueKey: string) {
 
 type StatusCategory = string | null;
 
-function statusColor(cat: StatusCategory): string {
+function statusBadgeClass(cat: StatusCategory): string {
   if (cat === "Done" || cat === "Complete")
-    return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-400";
   if (cat === "In Progress")
-    return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
-  return "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400";
+    return "border-primary/20 bg-primary/10 text-primary";
+  return "border-border bg-muted text-muted-foreground";
 }
-
 
 function formatDateTime(date: Date | null): string {
   if (!date) return "—";
@@ -151,11 +154,10 @@ export default async function IssuePage(props: {
   const { issue, project, statusHistory, comments } = data;
 
   // Aggregate seconds per status for the bar chart.
-  // Use durationSeconds when available; otherwise derive from consecutive changedAt timestamps.
   const statusTotals: Record<string, number> = {};
   for (let i = 0; i < statusHistory.length; i++) {
     const row = statusHistory[i];
-    if (!row.fromStatus) continue; // initial creation row — no previous status
+    if (!row.fromStatus) continue;
 
     let seconds = row.durationSeconds;
     if (seconds == null && i > 0) {
@@ -169,7 +171,6 @@ export default async function IssuePage(props: {
       statusTotals[row.fromStatus] = (statusTotals[row.fromStatus] ?? 0) + seconds;
     }
   }
-  // Add time spent in current status since the last recorded transition
   const lastTransition = statusHistory.at(-1);
   if (lastTransition) {
     const sinceSeconds = Math.floor(
@@ -218,8 +219,9 @@ export default async function IssuePage(props: {
   return (
     <div className="flex flex-col min-h-svh">
       {/* Header */}
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
         <SidebarTrigger />
+        <Separator orientation="vertical" className="h-4" />
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -239,158 +241,186 @@ export default async function IssuePage(props: {
         </Breadcrumb>
       </header>
 
-      <main className="flex-1 p-6 space-y-6 max-w-4xl">
-        {/* Issue info card */}
-        <div className="rounded-lg border border-zinc-200 p-4 space-y-3 dark:border-zinc-800">
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs text-zinc-400">{issue.jiraKey}</span>
-                <span className="text-xs text-zinc-400">{issue.issueType}</span>
-                {issue.priority && (
-                  <span className="text-xs text-zinc-400">{issue.priority}</span>
-                )}
-              </div>
-              <h1 className="text-base font-semibold text-zinc-900 dark:text-zinc-50 leading-snug">
-                {issue.summary}
-              </h1>
+      <main className="flex-1 p-6 space-y-5 max-w-4xl">
+        {/* Issue info */}
+        <Card>
+          <CardContent className="pt-5 space-y-4">
+            {/* Key + badges row */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-mono text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                {issue.jiraKey}
+              </span>
+              {issue.issueType && (
+                <Badge variant="outline" className="text-[10px]">
+                  {issue.issueType}
+                </Badge>
+              )}
+              {issue.priority && (
+                <Badge variant="outline" className="text-[10px]">
+                  {issue.priority}
+                </Badge>
+              )}
+              <Badge
+                className={cn("ml-auto text-[10px]", statusBadgeClass(issue.statusCategory))}
+              >
+                {issue.status}
+              </Badge>
             </div>
-            <span
-              className={`shrink-0 inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusColor(issue.statusCategory)}`}
-            >
-              {issue.status}
-            </span>
-          </div>
 
-          <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-zinc-500">
-            {issue.assigneeName && (
-              <span>
-                <span className="text-zinc-400">Assignee</span>{" "}
-                <span className="text-zinc-700 dark:text-zinc-300">{issue.assigneeName}</span>
-              </span>
-            )}
-            {issue.reporterName && (
-              <span>
-                <span className="text-zinc-400">Reporter</span>{" "}
-                <span className="text-zinc-700 dark:text-zinc-300">{issue.reporterName}</span>
-              </span>
-            )}
-            {issue.jiraCreatedAt && (
-              <span>
-                <span className="text-zinc-400">Created</span>{" "}
-                <span className="text-zinc-700 dark:text-zinc-300">{formatDateTime(issue.jiraCreatedAt)}</span>
-              </span>
-            )}
-            {issue.jiraUpdatedAt && (
-              <span>
-                <span className="text-zinc-400">Updated</span>{" "}
-                <span className="text-zinc-700 dark:text-zinc-300">{formatDateTime(issue.jiraUpdatedAt)}</span>
-              </span>
-            )}
-          </div>
+            {/* Summary */}
+            <h1 className="text-base font-semibold leading-snug text-foreground">
+              {issue.summary}
+            </h1>
 
-          {issue.labels && issue.labels.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {issue.labels.map((label) => (
-                <span
-                  key={label}
-                  className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-500 dark:bg-zinc-800"
-                >
-                  {label}
+            {/* Metadata */}
+            <div className="flex flex-wrap gap-x-6 gap-y-1.5 text-xs">
+              {issue.assigneeName && (
+                <span className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">Assignee</span>
+                  <span className="font-medium text-foreground">{issue.assigneeName}</span>
                 </span>
-              ))}
+              )}
+              {issue.reporterName && (
+                <span className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">Reporter</span>
+                  <span className="font-medium text-foreground">{issue.reporterName}</span>
+                </span>
+              )}
+              {issue.jiraCreatedAt && (
+                <span className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">Created</span>
+                  <span className="text-foreground">{formatDateTime(issue.jiraCreatedAt)}</span>
+                </span>
+              )}
+              {issue.jiraUpdatedAt && (
+                <span className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">Updated</span>
+                  <span className="text-foreground">{formatDateTime(issue.jiraUpdatedAt)}</span>
+                </span>
+              )}
             </div>
-          )}
-        </div>
 
-        {/* Status time distribution */}
-        <section className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-            Time in status
-          </h2>
-          <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-            <StatusTimeChart data={chartData} />
-          </div>
-        </section>
+            {/* Labels */}
+            {issue.labels && issue.labels.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {issue.labels.map((label) => (
+                  <Badge key={label} variant="secondary" className="font-mono text-[10px]">
+                    {label}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Time in status */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Time in Status</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {chartData.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-4">
+                No status history available yet.
+              </p>
+            ) : (
+              <StatusTimeChart data={chartData} />
+            )}
+          </CardContent>
+        </Card>
 
         {/* Activity timeline */}
-        <section className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-            Timeline
-            <span className="ml-2 font-normal normal-case text-zinc-300 dark:text-zinc-600">
-              {events.length} events
-            </span>
-          </h2>
-
-          {events.length === 0 && (
-            <p className="text-xs text-zinc-400">No activity recorded yet.</p>
-          )}
-
-          <ol className="relative border-l border-zinc-200 dark:border-zinc-800 space-y-0">
-            {events.map((event, i) => (
-              <li key={event.id} className="ml-4 pb-6 last:pb-0">
-                {/* Dot */}
-                <span
-                  className={`absolute -left-[7px] mt-1.5 h-3 w-3 rounded-full border-2 border-white dark:border-zinc-950 ${
-                    event.kind === "comment"
-                      ? "bg-zinc-400 dark:bg-zinc-600"
-                      : "bg-blue-400 dark:bg-blue-600"
-                  }`}
-                />
-
-                {event.kind === "status" ? (
-                  <div className="space-y-0.5">
-                    <p className="text-xs text-zinc-400">{formatDateTime(event.at)}</p>
-                    <p className="text-xs text-zinc-700 dark:text-zinc-300">
-                      {event.fromStatus ? (
-                        <>
-                          Status changed{" "}
-                          <span className="font-medium">{event.fromStatus}</span>
-                          {" → "}
-                          <span className="font-medium">{event.toStatus}</span>
-                        </>
-                      ) : (
-                        <>
-                          Issue created with status{" "}
-                          <span className="font-medium">{event.toStatus}</span>
-                        </>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              Timeline
+              <span className="font-normal normal-case text-[10px] tracking-normal text-muted-foreground/60">
+                {events.length} events
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {events.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No activity recorded yet.</p>
+            ) : (
+              <ol className="relative border-l border-border space-y-0">
+                {events.map((event) => (
+                  <li key={event.id} className="ml-4 pb-6 last:pb-0">
+                    {/* Dot */}
+                    <span
+                      className={cn(
+                        "absolute -left-[7px] mt-1 h-3 w-3 rounded-full border-2 border-card",
+                        event.kind === "comment"
+                          ? "bg-muted-foreground/40"
+                          : "bg-primary/70"
                       )}
-                      {event.changedByName && (
-                        <span className="text-zinc-400"> by {event.changedByName}</span>
-                      )}
-                    </p>
-                    {event.fromStatus && event.durationSeconds != null && (
-                      <p className="text-xs text-zinc-400">
-                        Spent {formatDuration(event.durationSeconds)} in{" "}
-                        <span className="font-medium">{event.fromStatus}</span>
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    <p className="text-xs text-zinc-400">
-                      {formatDateTime(event.at)}
-                      {event.updatedAt &&
-                        event.updatedAt.getTime() !== event.at.getTime() && (
-                          <span className="ml-2 text-zinc-300 dark:text-zinc-600">
-                            (edited {formatDateTime(event.updatedAt)})
-                          </span>
+                    />
+
+                    {event.kind === "status" ? (
+                      <div className="space-y-0.5">
+                        <p className="text-[10px] text-muted-foreground tabular-nums">
+                          {formatDateTime(event.at)}
+                        </p>
+                        <p className="text-xs text-foreground">
+                          {event.fromStatus ? (
+                            <>
+                              Status{" "}
+                              <span className="font-medium text-muted-foreground line-through">
+                                {event.fromStatus}
+                              </span>
+                              {" → "}
+                              <span className="font-medium">{event.toStatus}</span>
+                            </>
+                          ) : (
+                            <>
+                              Created with status{" "}
+                              <span className="font-medium">{event.toStatus}</span>
+                            </>
+                          )}
+                          {event.changedByName && (
+                            <span className="text-muted-foreground">
+                              {" "}by {event.changedByName}
+                            </span>
+                          )}
+                        </p>
+                        {event.fromStatus && event.durationSeconds != null && (
+                          <p className="text-[10px] text-muted-foreground">
+                            Spent{" "}
+                            <span className="font-medium tabular-nums">
+                              {formatDuration(event.durationSeconds)}
+                            </span>{" "}
+                            in <span className="font-medium">{event.fromStatus}</span>
+                          </p>
                         )}
-                    </p>
-                    <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                      {event.authorName ?? event.authorEmail ?? "Unknown"} commented
-                    </p>
-                    {event.body && (
-                      <p className="mt-1 rounded bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400 whitespace-pre-wrap line-clamp-6">
-                        {adfToText(event.body)}
-                      </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] text-muted-foreground tabular-nums">
+                          {formatDateTime(event.at)}
+                          {event.updatedAt &&
+                            event.updatedAt.getTime() !== event.at.getTime() && (
+                              <span className="ml-2 text-muted-foreground/50">
+                                edited {formatDateTime(event.updatedAt)}
+                              </span>
+                            )}
+                        </p>
+                        <p className="text-xs font-medium text-foreground">
+                          {event.authorName ?? event.authorEmail ?? "Unknown"}
+                          <span className="font-normal text-muted-foreground"> commented</span>
+                        </p>
+                        {event.body && (
+                          <p className="rounded-md border border-border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground whitespace-pre-wrap line-clamp-6">
+                            {adfToText(event.body)}
+                          </p>
+                        )}
+                      </div>
                     )}
-                  </div>
-                )}
-              </li>
-            ))}
-          </ol>
-        </section>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </CardContent>
+        </Card>
       </main>
     </div>
   );
