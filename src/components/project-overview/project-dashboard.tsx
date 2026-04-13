@@ -402,7 +402,7 @@ function StaleIssuesList({
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-right">
-                      <Badge variant="warning" className="gap-1 tabular-nums">
+                      <Badge variant="destructive" className="gap-1 tabular-nums">
                         <RiTimeLine className="size-2.5" />
                         {row.days_stale}d
                       </Badge>

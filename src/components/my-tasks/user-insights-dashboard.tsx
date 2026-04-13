@@ -209,7 +209,7 @@ function CycleTimeChart({
                 <LabelList
                   dataKey="me"
                   position="top"
-                  formatter={(v: number) => `${v}h`}
+                  formatter={(v) => `${v}h`}
                   style={{ fill: "var(--foreground)", fontSize: 11, fontWeight: 600 }}
                 />
               </Bar>
@@ -217,7 +217,7 @@ function CycleTimeChart({
                 <LabelList
                   dataKey="org"
                   position="top"
-                  formatter={(v: number) => `${v}h`}
+                  formatter={(v) => `${v}h`}
                   style={{ fill: "var(--foreground)", fontSize: 11, fontWeight: 600 }}
                 />
               </Bar>
@@ -265,7 +265,7 @@ function MyStaleIssues({
                     <span className="truncate">{row.summary}</span>
                     <RiExternalLinkLine className="size-3 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity" />
                   </a>
-                  <Badge variant="warning" className="shrink-0 gap-1 tabular-nums">
+                  <Badge variant="destructive" className="shrink-0 gap-1 tabular-nums">
                     <RiTimeLine className="size-2.5" />
                     {row.days_stale}d
                   </Badge>
