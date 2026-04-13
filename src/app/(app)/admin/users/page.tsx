@@ -1,7 +1,7 @@
-import { asc, count, ilike, sql } from "drizzle-orm";
+import { asc, count, ilike, isNull } from "drizzle-orm";
 import { requireRole } from "@/lib/auth/server";
 import { db } from "@/lib/db";
-import { users } from "@/lib/db/schema";
+import { users, jiraIssues } from "@/lib/db/schema";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
   Breadcrumb,
@@ -10,6 +10,7 @@ import {
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
 import { UserManagementTable } from "@/components/user-management-table";
+import { JiraUserSyncTable } from "@/components/jira-user-sync-table";
 import type { UserRole } from "@/lib/auth/types";
 
 const PAGE_SIZE = 20;
@@ -24,6 +25,20 @@ export default async function UserManagementPage(props: {
   const page = Math.max(1, parseInt((searchParams.page as string) ?? "1", 10) || 1);
 
   const whereClause = q ? ilike(users.email, `%${q}%`) : undefined;
+
+  const jiraUsersWithMissingEmail = await db
+    .selectDistinct({
+      accountId: jiraIssues.assigneeAccountId,
+      name: jiraIssues.assigneeName,
+    })
+    .from(jiraIssues)
+    .where(isNull(jiraIssues.assigneeEmail))
+    .then((rows) =>
+      rows
+        .filter((r) => r.accountId !== null)
+        .map((r) => ({ accountId: r.accountId!, name: r.name ?? r.accountId! }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+    );
 
   const [{ total }] = await db
     .select({ total: count() })
@@ -74,6 +89,20 @@ export default async function UserManagementPage(props: {
           pageSize={PAGE_SIZE}
           search={q}
         />
+
+        {jiraUsersWithMissingEmail.length > 0 && (
+          <div className="space-y-3">
+            <div>
+              <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">
+                Jira Users with Missing Email
+              </h2>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                These assignees have no email on record — likely due to Jira profile privacy settings. Sync to pull their email from Jira.
+              </p>
+            </div>
+            <JiraUserSyncTable users={jiraUsersWithMissingEmail} />
+          </div>
+        )}
       </main>
     </div>
   );
