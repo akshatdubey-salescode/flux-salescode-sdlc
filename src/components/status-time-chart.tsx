@@ -15,7 +15,7 @@ export type StatusTimeEntry = {
 
 const chartConfig = {
   hours: {
-    label: "Time (hrs)",
+    label: "Time spent",
     color: "var(--chart-1)",
   },
 } satisfies ChartConfig
@@ -52,13 +52,35 @@ export function StatusTimeChart({ data }: { data: StatusTimeEntry[] }) {
           }
         />
         <ChartTooltip
+          cursor={false}
           content={
             <ChartTooltipContent
-              formatter={(value: unknown) => {
+              indicator="dot"
+              labelFormatter={(label) => String(label)}
+              className="min-w-[180px]"
+              formatter={(value, _name, item) => {
                 const hrs = Number(value)
-                if (hrs >= 24) return [`${(hrs / 24).toFixed(2)} days`, "Time spent"]
-                if (hrs < 1) return [`${Math.round(hrs * 60)} mins`, "Time spent"]
-                return [`${hrs.toFixed(2)} hrs`, "Time spent"]
+                const formatted =
+                  hrs >= 24
+                    ? `${(hrs / 24).toFixed(1)}d`
+                    : hrs < 1
+                    ? `${Math.round(hrs * 60)}m`
+                    : `${hrs.toFixed(1)}h`
+                const color = item.payload?.fill ?? item.color
+                return (
+                  <>
+                    <div
+                      className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                      style={{ backgroundColor: color }}
+                    />
+                    <div className="flex flex-1 justify-between items-center leading-none gap-4">
+                      <span className="text-muted-foreground">Time spent</span>
+                      <span className="font-mono font-medium tabular-nums text-foreground">
+                        {formatted}
+                      </span>
+                    </div>
+                  </>
+                )
               }}
             />
           }
