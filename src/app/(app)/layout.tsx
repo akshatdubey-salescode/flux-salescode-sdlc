@@ -20,7 +20,7 @@ export default async function AppLayout({
     })
     .from(jiraProjects)
     .where(eq(jiraProjects.isActive, true))
-    .orderBy(jiraProjects.createdAt);
+    .orderBy(jiraProjects.name);
 
   return (
     <SidebarProvider>
