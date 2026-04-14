@@ -4,7 +4,7 @@ import { useState } from "react";
 import { RiPencilLine, RiDeleteBinLine } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { conditionToHuman, formatThreshold } from "./helpers";
+import { conditionTreeToHuman, formatThreshold } from "./helpers";
 import type { SlaRule } from "./index";
 
 type Props = {
@@ -96,7 +96,7 @@ export function RuleCard({ rule, onEdit, onToggle, onDelete }: Props) {
         <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
           Flag issues where{" "}
           <span className="font-medium text-zinc-800 dark:text-zinc-200">
-            {conditionToHuman(rule.conditionField, rule.conditionOperator, rule.conditionValue)}
+            {conditionTreeToHuman(rule.conditions)}
           </span>
           {" "}· threshold{" "}
           <span className="font-semibold text-zinc-900 dark:text-zinc-100">

@@ -7,15 +7,15 @@ import { cn } from "@/lib/utils";
 import { RuleCard } from "./rule-card";
 import { RuleFormSheet } from "./rule-form-sheet";
 import { ViolationsPanel } from "./violations-panel";
+import { StakeholdersPanel } from "./stakeholders-panel";
+import type { SlaConditionTree } from "@/lib/db/schema";
 
 export type SlaRule = {
   id: string;
   projectId: string;
   name: string;
   description: string | null;
-  conditionField: string;
-  conditionOperator: string;
-  conditionValue: string;
+  conditions: SlaConditionTree;
   thresholdHours: string;
   notifyAssignee: boolean;
   notifyReporter: boolean;
@@ -40,18 +40,28 @@ export type SlaViolation = {
   thresholdHoursSnapshot: string;
   actualHours: string;
   notificationStatus: string | null;
+  escalationNotifiedAt: string | null;
   resolvedAt: string | null;
   resolvedReason: string | null;
 };
 
-type SubTab = "rules" | "violations";
+type Stakeholder = {
+  id: string;
+  name: string;
+  email: string;
+  createdAt: string;
+};
+
+type SubTab = "rules" | "violations" | "stakeholders";
 
 export function SlaEngineTab({ projectId }: { projectId: string }) {
   const [activeTab, setActiveTab] = useState<SubTab>("rules");
   const [rules, setRules] = useState<SlaRule[]>([]);
   const [violations, setViolations] = useState<SlaViolation[]>([]);
+  const [stakeholders, setStakeholders] = useState<Stakeholder[]>([]);
   const [loadingRules, setLoadingRules] = useState(true);
   const [loadingViolations, setLoadingViolations] = useState(true);
+  const [loadingStakeholders, setLoadingStakeholders] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<SlaRule | null>(null);
 
@@ -75,10 +85,21 @@ export function SlaEngineTab({ projectId }: { projectId: string }) {
     }
   }, [projectId]);
 
+  const fetchStakeholders = useCallback(async () => {
+    setLoadingStakeholders(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/stakeholders`);
+      if (res.ok) setStakeholders(await res.json());
+    } finally {
+      setLoadingStakeholders(false);
+    }
+  }, [projectId]);
+
   useEffect(() => {
     fetchRules();
     fetchViolations();
-  }, [fetchRules, fetchViolations]);
+    fetchStakeholders();
+  }, [fetchRules, fetchViolations, fetchStakeholders]);
 
   function openCreate() {
     setEditingRule(null);
@@ -151,6 +172,17 @@ export function SlaEngineTab({ projectId }: { projectId: string }) {
               </span>
             )}
           </SubTabButton>
+          <SubTabButton
+            active={activeTab === "stakeholders"}
+            onClick={() => setActiveTab("stakeholders")}
+          >
+            Stakeholders
+            {stakeholders.length > 0 && (
+              <span className="ml-1.5 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+                {stakeholders.length}
+              </span>
+            )}
+          </SubTabButton>
         </div>
 
         {activeTab === "rules" && (
@@ -192,6 +224,16 @@ export function SlaEngineTab({ projectId }: { projectId: string }) {
           violations={violations}
           loading={loadingViolations}
           onDismiss={handleDismiss}
+        />
+      )}
+
+      {/* Stakeholders content */}
+      {activeTab === "stakeholders" && (
+        <StakeholdersPanel
+          projectId={projectId}
+          stakeholders={stakeholders}
+          loading={loadingStakeholders}
+          onRefresh={fetchStakeholders}
         />
       )}
 

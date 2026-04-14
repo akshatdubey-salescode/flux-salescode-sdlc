@@ -43,6 +43,13 @@
       "when": 1775931829168,
       "tag": "0005_bright_jane_foster",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1776000000000,
+      "tag": "0006_sla_compound_conditions",
+      "breakpoints": true
     }
   ]
 }

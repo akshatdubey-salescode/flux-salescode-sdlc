@@ -1,3 +1,5 @@
+import type { SlaConditionTree, SlaConditionGroup, SlaCondition } from "@/lib/db/schema";
+
 export const FIELD_LABELS: Record<string, string> = {
   priority: "Priority",
   status: "Status",
@@ -42,6 +44,16 @@ export function conditionToHuman(
   return `${fieldLabel} ${operatorLabel} ${value}`;
 }
 
+export function conditionTreeToHuman(tree: SlaConditionTree): string {
+  return tree.groups
+    .map((g) =>
+      g.conditions
+        .map((c) => conditionToHuman(c.field, c.operator, c.value))
+        .join(" AND ")
+    )
+    .join(" OR ");
+}
+
 export function formatThreshold(hours: string | number): string {
   const h = typeof hours === "string" ? parseFloat(hours) : hours;
   if (isNaN(h) || h <= 0) return "—";
@@ -67,4 +79,20 @@ export function formatRelativeTime(dateStr: string): string {
   if (diffHours < 24) return `${diffHours}h ago`;
   const diffDays = Math.floor(diffHours / 24);
   return `${diffDays}d ago`;
+}
+
+// ---------------------------------------------------------------------------
+// Default condition factories
+// ---------------------------------------------------------------------------
+
+export function defaultCondition(): SlaCondition {
+  return { field: "priority", operator: "equals", value: "" };
+}
+
+export function defaultGroup(): SlaConditionGroup {
+  return { operator: "AND", conditions: [defaultCondition()] };
+}
+
+export function defaultConditionTree(): SlaConditionTree {
+  return { operator: "OR", groups: [defaultGroup()] };
 }

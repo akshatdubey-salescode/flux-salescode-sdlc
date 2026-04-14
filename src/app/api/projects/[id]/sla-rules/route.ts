@@ -1,10 +1,33 @@
 import { eq, and } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { slaRules, jiraProjects } from "@/lib/db/schema";
+import { slaRules, jiraProjects, type SlaConditionTree } from "@/lib/db/schema";
 import { requireRole } from "@/lib/auth/server";
 
 const VALID_FIELDS = ["status", "status_category", "issue_type", "priority"] as const;
 const VALID_OPERATORS = ["equals", "not_equals", "in"] as const;
+
+function validateConditionTree(tree: unknown): tree is SlaConditionTree {
+  if (!tree || typeof tree !== "object") return false;
+  const t = tree as Record<string, unknown>;
+  if (t.operator !== "OR") return false;
+  if (!Array.isArray(t.groups) || t.groups.length === 0) return false;
+
+  for (const group of t.groups as unknown[]) {
+    if (!group || typeof group !== "object") return false;
+    const g = group as Record<string, unknown>;
+    if (g.operator !== "AND") return false;
+    if (!Array.isArray(g.conditions) || g.conditions.length === 0) return false;
+
+    for (const cond of g.conditions as unknown[]) {
+      if (!cond || typeof cond !== "object") return false;
+      const c = cond as Record<string, unknown>;
+      if (!(VALID_FIELDS as readonly string[]).includes(c.field as string)) return false;
+      if (!(VALID_OPERATORS as readonly string[]).includes(c.operator as string)) return false;
+      if (typeof c.value !== "string" || !c.value.trim()) return false;
+    }
+  }
+  return true;
+}
 
 export async function GET(
   _req: Request,
@@ -48,9 +71,7 @@ export async function POST(
   let body: {
     name: string;
     description?: string | null;
-    conditionField: string;
-    conditionOperator: string;
-    conditionValue: string;
+    conditions: unknown;
     thresholdHours: number;
     notifyAssignee?: boolean;
     notifyReporter?: boolean;
@@ -63,18 +84,17 @@ export async function POST(
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { name, description, conditionField, conditionOperator, conditionValue, thresholdHours } = body;
+  const { name, description, conditions, thresholdHours } = body;
 
-  if (!name?.trim() || !conditionField || !conditionOperator || !conditionValue?.trim() || !thresholdHours) {
-    return Response.json({ error: "Required fields missing" }, { status: 400 });
+  if (!name?.trim()) {
+    return Response.json({ error: "name is required" }, { status: 400 });
   }
 
-  if (!(VALID_FIELDS as readonly string[]).includes(conditionField)) {
-    return Response.json({ error: "Invalid condition field" }, { status: 400 });
-  }
-
-  if (!(VALID_OPERATORS as readonly string[]).includes(conditionOperator)) {
-    return Response.json({ error: "Invalid condition operator" }, { status: 400 });
+  if (!validateConditionTree(conditions)) {
+    return Response.json(
+      { error: "conditions must be a valid OR-of-AND-groups structure" },
+      { status: 400 }
+    );
   }
 
   if (typeof thresholdHours !== "number" || thresholdHours <= 0) {
@@ -87,9 +107,7 @@ export async function POST(
       projectId: id,
       name: name.trim(),
       description: description?.trim() ?? null,
-      conditionField,
-      conditionOperator,
-      conditionValue: conditionValue.trim(),
+      conditions,
       thresholdHours: String(thresholdHours),
       notifyAssignee: body.notifyAssignee ?? true,
       notifyReporter: body.notifyReporter ?? false,

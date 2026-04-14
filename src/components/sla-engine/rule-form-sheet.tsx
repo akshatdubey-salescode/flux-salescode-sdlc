@@ -1,7 +1,14 @@
 "use client";
 
-import { useState, useEffect, useRef, type KeyboardEvent } from "react";
-import { RiCheckLine, RiArrowLeftLine, RiArrowRightLine, RiCloseLine } from "@remixicon/react";
+import { useState, useEffect, useRef, useCallback, type KeyboardEvent } from "react";
+import {
+  RiCheckLine,
+  RiArrowLeftLine,
+  RiArrowRightLine,
+  RiCloseLine,
+  RiAddLine,
+  RiDeleteBinLine,
+} from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -11,14 +18,25 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { cn } from "@/lib/utils";
 import {
   CONDITION_FIELDS,
   CONDITION_OPERATORS,
-  conditionToHuman,
+  conditionTreeToHuman,
   formatThreshold,
+  defaultCondition,
+  defaultGroup,
+  defaultConditionTree,
 } from "./helpers";
 import type { SlaRule } from "./index";
+import type {
+  SlaCondition,
+  SlaConditionGroup,
+  SlaConditionTree,
+} from "@/lib/db/schema";
+
+type Stakeholder = { id: string; name: string; email: string };
 
 type Props = {
   projectId: string;
@@ -28,7 +46,7 @@ type Props = {
   onSaved: () => void;
 };
 
-const STEPS = ["Name", "Condition", "Threshold", "Notifications"] as const;
+const STEPS = ["Name", "Conditions", "Threshold", "Notifications"] as const;
 
 const selectClass =
   "h-7 rounded-md border border-input bg-input/20 px-2 text-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 dark:bg-input/30";
@@ -42,13 +60,8 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
 
-  // Step 2
-  const [conditionField, setConditionField] = useState("priority");
-  const [conditionOperator, setConditionOperator] = useState("equals");
-  const [singleValue, setSingleValue] = useState("");
-  const [multiValues, setMultiValues] = useState<string[]>([]);
-  const [chipInput, setChipInput] = useState("");
-  const chipInputRef = useRef<HTMLInputElement>(null);
+  // Step 2 — compound condition tree
+  const [conditionTree, setConditionTree] = useState<SlaConditionTree>(defaultConditionTree);
 
   // Step 3
   const [thresholdAmount, setThresholdAmount] = useState("");
@@ -59,19 +72,25 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
   const [notifyReporter, setNotifyReporter] = useState(false);
   const [additionalEmails, setAdditionalEmails] = useState<string[]>([]);
   const [emailInput, setEmailInput] = useState("");
+  const [selectedStakeholderEmails, setSelectedStakeholderEmails] = useState<string[]>([]);
 
-  // Remote field options
+  // Remote data
   const [fieldOptions, setFieldOptions] = useState<Record<string, string[]>>({});
+  const [stakeholders, setStakeholders] = useState<Stakeholder[]>([]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch distinct field values from project's issues
+  // Fetch field options and stakeholders when sheet opens
   useEffect(() => {
     if (!open) return;
     fetch(`/api/projects/${projectId}/issue-fields`)
       .then((r) => r.json())
       .then(setFieldOptions)
+      .catch(() => {});
+    fetch(`/api/projects/${projectId}/stakeholders`)
+      .then((r) => r.json())
+      .then((data: Stakeholder[]) => setStakeholders(Array.isArray(data) ? data : []))
       .catch(() => {});
   }, [open, projectId]);
 
@@ -81,20 +100,12 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
     setError(null);
     setStep(1);
     setEmailInput("");
-    setChipInput("");
+    setSelectedStakeholderEmails([]);
 
     if (rule) {
       setName(rule.name);
       setDescription(rule.description ?? "");
-      setConditionField(rule.conditionField);
-      setConditionOperator(rule.conditionOperator);
-      if (rule.conditionOperator === "in") {
-        setMultiValues(rule.conditionValue.split(",").map((v) => v.trim()).filter(Boolean));
-        setSingleValue("");
-      } else {
-        setSingleValue(rule.conditionValue);
-        setMultiValues([]);
-      }
+      setConditionTree(rule.conditions ?? defaultConditionTree());
       const h = parseFloat(rule.thresholdHours);
       if (h >= 24 && h % 24 === 0) {
         setThresholdUnit("days");
@@ -109,10 +120,7 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
     } else {
       setName("");
       setDescription("");
-      setConditionField("priority");
-      setConditionOperator("equals");
-      setSingleValue("");
-      setMultiValues([]);
+      setConditionTree(defaultConditionTree());
       setThresholdAmount("");
       setThresholdUnit("hours");
       setNotifyAssignee(true);
@@ -121,39 +129,69 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
     }
   }, [rule, open]);
 
-  // Reset value selections when field or operator changes
-  function handleFieldChange(field: string) {
-    setConditionField(field);
-    setSingleValue("");
-    setMultiValues([]);
-    setChipInput("");
-  }
+  // ---------------------------------------------------------------------------
+  // Condition tree mutations
+  // ---------------------------------------------------------------------------
 
-  function handleOperatorChange(op: string) {
-    setConditionOperator(op);
-    setSingleValue("");
-    setMultiValues([]);
-    setChipInput("");
-  }
+  const updateCondition = useCallback(
+    (groupIdx: number, condIdx: number, patch: Partial<SlaCondition>) => {
+      setConditionTree((prev) => {
+        const groups = prev.groups.map((g, gi) => {
+          if (gi !== groupIdx) return g;
+          return {
+            ...g,
+            conditions: g.conditions.map((c, ci) =>
+              ci === condIdx ? { ...c, ...patch } : c
+            ),
+          };
+        });
+        return { ...prev, groups };
+      });
+    },
+    []
+  );
 
-  // Chip helpers for multi-value condition
-  function addChip(val: string) {
-    const trimmed = val.trim();
-    if (!trimmed || multiValues.includes(trimmed)) return;
-    setMultiValues((prev) => [...prev, trimmed]);
-    setChipInput("");
-  }
+  const removeCondition = useCallback((groupIdx: number, condIdx: number) => {
+    setConditionTree((prev) => {
+      const groups = prev.groups
+        .map((g, gi) => {
+          if (gi !== groupIdx) return g;
+          const conditions = g.conditions.filter((_, ci) => ci !== condIdx);
+          return { ...g, conditions };
+        })
+        .filter((g) => g.conditions.length > 0);
+      return { ...prev, groups: groups.length > 0 ? groups : [defaultGroup()] };
+    });
+  }, []);
 
-  function handleChipKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter" || e.key === ",") {
-      e.preventDefault();
-      addChip(chipInput);
-    } else if (e.key === "Backspace" && !chipInput && multiValues.length > 0) {
-      setMultiValues((prev) => prev.slice(0, -1));
-    }
-  }
+  const addCondition = useCallback((groupIdx: number) => {
+    setConditionTree((prev) => {
+      const groups = prev.groups.map((g, gi) => {
+        if (gi !== groupIdx) return g;
+        return { ...g, conditions: [...g.conditions, defaultCondition()] };
+      });
+      return { ...prev, groups };
+    });
+  }, []);
 
+  const removeGroup = useCallback((groupIdx: number) => {
+    setConditionTree((prev) => {
+      const groups = prev.groups.filter((_, gi) => gi !== groupIdx);
+      return { ...prev, groups: groups.length > 0 ? groups : [defaultGroup()] };
+    });
+  }, []);
+
+  const addGroup = useCallback(() => {
+    setConditionTree((prev) => ({
+      ...prev,
+      groups: [...prev.groups, defaultGroup()],
+    }));
+  }, []);
+
+  // ---------------------------------------------------------------------------
   // Email chip helpers
+  // ---------------------------------------------------------------------------
+
   function addEmail(val: string) {
     const trimmed = val.trim();
     if (!trimmed || additionalEmails.includes(trimmed)) return;
@@ -170,11 +208,30 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
     }
   }
 
+  // When stakeholder selections change, sync them into additionalEmails
+  function handleStakeholderChange(selected: string[]) {
+    setSelectedStakeholderEmails(selected);
+    setAdditionalEmails((prev) => {
+      const manual = prev.filter(
+        (e) => !stakeholders.some((s) => s.email === e)
+      );
+      return [...new Set([...manual, ...selected])];
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Validation
+  // ---------------------------------------------------------------------------
+
+  function isTreeValid(tree: SlaConditionTree): boolean {
+    return tree.groups.every((g) =>
+      g.conditions.every((c) => c.value.trim().length > 0)
+    );
+  }
+
   function canAdvance(): boolean {
     if (step === 1) return name.trim().length > 0;
-    if (step === 2) {
-      return conditionOperator === "in" ? multiValues.length > 0 : singleValue.trim().length > 0;
-    }
+    if (step === 2) return isTreeValid(conditionTree);
     if (step === 3) {
       const n = parseFloat(thresholdAmount);
       return !isNaN(n) && n > 0;
@@ -187,15 +244,15 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
     return thresholdUnit === "days" ? n * 24 : n;
   }
 
-  function getConditionValue(): string {
-    return conditionOperator === "in" ? multiValues.join(",") : singleValue.trim();
-  }
-
   function thresholdPreview(): string {
     const n = parseFloat(thresholdAmount);
     if (isNaN(n) || n <= 0) return "";
     return formatThreshold(getThresholdHours());
   }
+
+  // ---------------------------------------------------------------------------
+  // Save
+  // ---------------------------------------------------------------------------
 
   async function save() {
     setSaving(true);
@@ -204,9 +261,7 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
       const payload = {
         name: name.trim(),
         description: description.trim() || null,
-        conditionField,
-        conditionOperator,
-        conditionValue: getConditionValue(),
+        conditions: conditionTree,
         thresholdHours: getThresholdHours(),
         notifyAssignee,
         notifyReporter,
@@ -234,8 +289,10 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
     }
   }
 
-  const valueOptions = fieldOptions[conditionField] ?? [];
-  const isMulti = conditionOperator === "in";
+  const stakeholderOptions = stakeholders.map((s) => ({
+    value: s.email,
+    label: `${s.name} (${s.email})`,
+  }));
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -247,7 +304,7 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
               <SheetTitle>{rule ? "Edit SLA rule" : "New SLA rule"}</SheetTitle>
               <SheetDescription className="mt-0.5">
                 {rule
-                  ? "Update this rule's condition, threshold, or notifications."
+                  ? "Update this rule's conditions, threshold, or notifications."
                   : "Define when an issue should trigger an SLA alert."}
               </SheetDescription>
             </div>
@@ -311,6 +368,8 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
 
         {/* Step content */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
+
+          {/* ── Step 1: Name ── */}
           {step === 1 && (
             <div className="space-y-4">
               <div>
@@ -341,130 +400,72 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
             </div>
           )}
 
+          {/* ── Step 2: Compound Conditions ── */}
           {step === 2 && (
-            <div className="space-y-5">
+            <div className="space-y-4">
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Build the condition that will trigger this rule.
+                Build the condition that will trigger this rule. Groups are connected by{" "}
+                <span className="font-semibold text-orange-600 dark:text-orange-400">OR</span>;
+                conditions within a group are connected by{" "}
+                <span className="font-semibold text-blue-600 dark:text-blue-400">AND</span>.
               </p>
 
-              {/* Sentence builder */}
-              <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
-                <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-                  Flag issues where…
-                </p>
-                <div className="flex flex-wrap items-center gap-2">
-                  {/* Field */}
-                  <select
-                    value={conditionField}
-                    onChange={(e) => handleFieldChange(e.target.value)}
-                    className={selectClass}
-                  >
-                    {CONDITION_FIELDS.map((f) => (
-                      <option key={f.value} value={f.value}>
-                        {f.label}
-                      </option>
-                    ))}
-                  </select>
-
-                  {/* Operator */}
-                  <select
-                    value={conditionOperator}
-                    onChange={(e) => handleOperatorChange(e.target.value)}
-                    className={selectClass}
-                  >
-                    {CONDITION_OPERATORS.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-
-                  {/* Value */}
-                  {!isMulti ? (
-                    valueOptions.length > 0 ? (
-                      <select
-                        value={singleValue}
-                        onChange={(e) => setSingleValue(e.target.value)}
-                        className={cn(selectClass, !singleValue && "text-muted-foreground")}
-                      >
-                        <option value="">Select a value…</option>
-                        {valueOptions.map((v) => (
-                          <option key={v} value={v}>
-                            {v}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <Input
-                        value={singleValue}
-                        onChange={(e) => setSingleValue(e.target.value)}
-                        placeholder="Enter value…"
-                        className="w-36"
-                      />
-                    )
-                  ) : null}
-                </div>
-
-                {/* Chip input for "in" operator */}
-                {isMulti && (
-                  <div className="mt-3">
-                    <div
-                      className="flex min-h-7 cursor-text flex-wrap items-center gap-1 rounded-md border border-input bg-input/20 px-2 py-1 text-xs focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30 dark:bg-input/30"
-                      onClick={() => chipInputRef.current?.focus()}
-                    >
-                      {multiValues.map((v) => (
-                        <span
-                          key={v}
-                          className="inline-flex items-center gap-0.5 rounded bg-zinc-200 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200"
-                        >
-                          {v}
-                          <button
-                            type="button"
-                            onClick={() => setMultiValues((prev) => prev.filter((x) => x !== v))}
-                            className="ml-0.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
-                          >
-                            ×
-                          </button>
+              <div className="space-y-3">
+                {conditionTree.groups.map((group, groupIdx) => (
+                  <div key={groupIdx}>
+                    {/* OR separator between groups */}
+                    {groupIdx > 0 && (
+                      <div className="flex items-center gap-2 py-1">
+                        <div className="flex-1 border-t border-dashed border-zinc-200 dark:border-zinc-700" />
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-orange-600 dark:text-orange-400">
+                          OR
                         </span>
-                      ))}
-                      <input
-                        ref={chipInputRef}
-                        value={chipInput}
-                        onChange={(e) => setChipInput(e.target.value)}
-                        onKeyDown={handleChipKeyDown}
-                        onBlur={() => chipInput.trim() && addChip(chipInput)}
-                        placeholder={
-                          multiValues.length === 0 ? "Type a value and press Enter…" : "Add more…"
-                        }
-                        className="min-w-28 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
-                      />
-                    </div>
-                    <p className="mt-1.5 text-[10px] text-zinc-400">
-                      {valueOptions.length > 0
-                        ? `Suggestions: ${valueOptions.join(", ")}`
-                        : "Press Enter or comma to add each value."}
-                    </p>
+                        <div className="flex-1 border-t border-dashed border-zinc-200 dark:border-zinc-700" />
+                      </div>
+                    )}
+
+                    <ConditionGroupEditor
+                      group={group}
+                      groupIdx={groupIdx}
+                      fieldOptions={fieldOptions}
+                      showRemoveGroup={conditionTree.groups.length > 1}
+                      onUpdateCondition={updateCondition}
+                      onRemoveCondition={removeCondition}
+                      onAddCondition={addCondition}
+                      onRemoveGroup={removeGroup}
+                    />
                   </div>
-                )}
+                ))}
               </div>
 
-              {/* Live preview */}
-              {(singleValue || multiValues.length > 0) && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={addGroup}
+              >
+                <RiAddLine className="size-3.5" />
+                Add condition group{" "}
+                <span className="ml-1 text-[10px] font-bold text-orange-600 dark:text-orange-400">
+                  (OR)
+                </span>
+              </Button>
+
+              {/* Preview */}
+              {isTreeValid(conditionTree) && (
                 <div className="rounded-md bg-zinc-100 px-3 py-2 text-xs text-zinc-600 dark:bg-zinc-800/60 dark:text-zinc-400">
                   <span className="font-medium text-zinc-800 dark:text-zinc-200">Preview: </span>
                   Flag issues where{" "}
                   <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                    {conditionToHuman(
-                      conditionField,
-                      conditionOperator,
-                      conditionOperator === "in" ? multiValues.join(",") : singleValue
-                    )}
+                    {conditionTreeToHuman(conditionTree)}
                   </span>
                 </div>
               )}
             </div>
           )}
 
+          {/* ── Step 3: Threshold ── */}
           {step === 3 && (
             <div className="space-y-5">
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -504,11 +505,18 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
                     {thresholdPreview()}
                   </span>
                   <span className="text-zinc-500 dark:text-zinc-400"> without resolution.</span>
+                  <br />
+                  <span className="text-zinc-500 dark:text-zinc-400">Escalation at </span>
+                  <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                    {formatThreshold(getThresholdHours() * 2)}
+                  </span>
+                  <span className="text-zinc-500 dark:text-zinc-400"> (2×).</span>
                 </div>
               )}
             </div>
           )}
 
+          {/* ── Step 4: Notifications ── */}
           {step === 4 && (
             <div className="space-y-5">
               {/* Review summary */}
@@ -522,7 +530,7 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
                 <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                   Flag issues where{" "}
                   <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                    {conditionToHuman(conditionField, conditionOperator, getConditionValue())}
+                    {conditionTreeToHuman(conditionTree)}
                   </span>{" "}
                   and remain unresolved for more than{" "}
                   <span className="font-semibold text-zinc-900 dark:text-zinc-100">
@@ -551,7 +559,25 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
                 </div>
               </div>
 
-              {/* Additional emails */}
+              {/* Stakeholder multi-select */}
+              {stakeholderOptions.length > 0 && (
+                <div>
+                  <label className={labelClass}>
+                    Add from stakeholders{" "}
+                    <span className="font-normal text-zinc-400">(optional)</span>
+                  </label>
+                  <MultiSelect
+                    options={stakeholderOptions}
+                    onValueChange={handleStakeholderChange}
+                    defaultValue={selectedStakeholderEmails}
+                    placeholder="Select project stakeholders…"
+                    maxCount={3}
+                    className="text-xs"
+                  />
+                </div>
+              )}
+
+              {/* Manual additional emails */}
               <div>
                 <label className={labelClass}>
                   Additional recipients{" "}
@@ -636,6 +662,253 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
     </Sheet>
   );
 }
+
+// ---------------------------------------------------------------------------
+// ConditionGroupEditor — renders one AND-group with its conditions
+// ---------------------------------------------------------------------------
+
+function ConditionGroupEditor({
+  group,
+  groupIdx,
+  fieldOptions,
+  showRemoveGroup,
+  onUpdateCondition,
+  onRemoveCondition,
+  onAddCondition,
+  onRemoveGroup,
+}: {
+  group: SlaConditionGroup;
+  groupIdx: number;
+  fieldOptions: Record<string, string[]>;
+  showRemoveGroup: boolean;
+  onUpdateCondition: (gi: number, ci: number, patch: Partial<SlaCondition>) => void;
+  onRemoveCondition: (gi: number, ci: number) => void;
+  onAddCondition: (gi: number) => void;
+  onRemoveGroup: (gi: number) => void;
+}) {
+  const selectClass =
+    "h-7 rounded-md border border-input bg-input/20 px-2 text-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 dark:bg-input/30";
+
+  return (
+    <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+          Match ALL of:
+        </span>
+        {showRemoveGroup && (
+          <button
+            type="button"
+            onClick={() => onRemoveGroup(groupIdx)}
+            className="text-zinc-400 transition-colors hover:text-red-500"
+          >
+            <RiDeleteBinLine className="size-3.5" />
+          </button>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        {group.conditions.map((cond, condIdx) => (
+          <div key={condIdx}>
+            {condIdx > 0 && (
+              <div className="flex items-center gap-2 py-0.5">
+                <div className="flex-1 border-t border-zinc-200 dark:border-zinc-700" />
+                <span className="text-[9px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                  AND
+                </span>
+                <div className="flex-1 border-t border-zinc-200 dark:border-zinc-700" />
+              </div>
+            )}
+            <ConditionRow
+              cond={cond}
+              groupIdx={groupIdx}
+              condIdx={condIdx}
+              fieldOptions={fieldOptions}
+              showRemove={group.conditions.length > 1}
+              onUpdate={onUpdateCondition}
+              onRemove={onRemoveCondition}
+              selectClass={selectClass}
+            />
+          </div>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => onAddCondition(groupIdx)}
+        className="mt-2 flex items-center gap-1 text-[10px] font-medium text-blue-600 transition-colors hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+      >
+        <RiAddLine className="size-3" />
+        Add condition{" "}
+        <span className="font-bold">(AND)</span>
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ConditionRow — single condition: field + operator + value
+// ---------------------------------------------------------------------------
+
+function ConditionRow({
+  cond,
+  groupIdx,
+  condIdx,
+  fieldOptions,
+  showRemove,
+  onUpdate,
+  onRemove,
+  selectClass,
+}: {
+  cond: SlaCondition;
+  groupIdx: number;
+  condIdx: number;
+  fieldOptions: Record<string, string[]>;
+  showRemove: boolean;
+  onUpdate: (gi: number, ci: number, patch: Partial<SlaCondition>) => void;
+  onRemove: (gi: number, ci: number) => void;
+  selectClass: string;
+}) {
+  const chipInputRef = useRef<HTMLInputElement>(null);
+  const isMulti = cond.operator === "in";
+  const valueOptions = fieldOptions[cond.field] ?? [];
+  const multiValues = isMulti
+    ? cond.value.split(",").map((v) => v.trim()).filter(Boolean)
+    : [];
+  const [chipInput, setChipInput] = useState("");
+
+  function addChip(val: string) {
+    const trimmed = val.trim();
+    if (!trimmed || multiValues.includes(trimmed)) return;
+    onUpdate(groupIdx, condIdx, { value: [...multiValues, trimmed].join(",") });
+    setChipInput("");
+  }
+
+  function removeChip(chip: string) {
+    const next = multiValues.filter((v) => v !== chip);
+    onUpdate(groupIdx, condIdx, { value: next.join(",") });
+  }
+
+  function handleChipKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addChip(chipInput);
+    } else if (e.key === "Backspace" && !chipInput && multiValues.length > 0) {
+      const next = multiValues.slice(0, -1);
+      onUpdate(groupIdx, condIdx, { value: next.join(",") });
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-start gap-1.5">
+      {/* Field */}
+      <select
+        value={cond.field}
+        onChange={(e) => {
+          onUpdate(groupIdx, condIdx, {
+            field: e.target.value as SlaCondition["field"],
+            value: "",
+          });
+        }}
+        className={selectClass}
+      >
+        {CONDITION_FIELDS.map((f) => (
+          <option key={f.value} value={f.value}>
+            {f.label}
+          </option>
+        ))}
+      </select>
+
+      {/* Operator */}
+      <select
+        value={cond.operator}
+        onChange={(e) => {
+          onUpdate(groupIdx, condIdx, {
+            operator: e.target.value as SlaCondition["operator"],
+            value: "",
+          });
+        }}
+        className={selectClass}
+      >
+        {CONDITION_OPERATORS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+
+      {/* Value */}
+      {!isMulti ? (
+        valueOptions.length > 0 ? (
+          <select
+            value={cond.value}
+            onChange={(e) => onUpdate(groupIdx, condIdx, { value: e.target.value })}
+            className={cn(selectClass, !cond.value && "text-muted-foreground")}
+          >
+            <option value="">Select…</option>
+            {valueOptions.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <Input
+            value={cond.value}
+            onChange={(e) => onUpdate(groupIdx, condIdx, { value: e.target.value })}
+            placeholder="Value…"
+            className="h-7 w-28 text-xs"
+          />
+        )
+      ) : (
+        <div
+          className="flex min-h-7 cursor-text flex-wrap items-center gap-1 rounded-md border border-input bg-input/20 px-2 py-1 text-xs focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30 dark:bg-input/30"
+          style={{ minWidth: "8rem" }}
+          onClick={() => chipInputRef.current?.focus()}
+        >
+          {multiValues.map((v) => (
+            <span
+              key={v}
+              className="inline-flex items-center gap-0.5 rounded bg-zinc-200 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200"
+            >
+              {v}
+              <button
+                type="button"
+                onClick={() => removeChip(v)}
+                className="ml-0.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+          <input
+            ref={chipInputRef}
+            value={chipInput}
+            onChange={(e) => setChipInput(e.target.value)}
+            onKeyDown={handleChipKeyDown}
+            onBlur={() => chipInput.trim() && addChip(chipInput)}
+            placeholder={multiValues.length === 0 ? "Type + Enter…" : "More…"}
+            className="min-w-16 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
+          />
+        </div>
+      )}
+
+      {/* Remove button */}
+      {showRemove && (
+        <button
+          type="button"
+          onClick={() => onRemove(groupIdx, condIdx)}
+          className="mt-0.5 text-zinc-400 transition-colors hover:text-red-500"
+        >
+          <RiCloseLine className="size-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// NotifyToggle
+// ---------------------------------------------------------------------------
 
 function NotifyToggle({
   label,

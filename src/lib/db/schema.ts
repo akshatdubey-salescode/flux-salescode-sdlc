@@ -223,6 +223,31 @@ export const jiraComments = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// SLA condition types — stored as JSONB in sla_rules.conditions
+// ---------------------------------------------------------------------------
+
+export type SlaConditionField = "status" | "status_category" | "issue_type" | "priority";
+export type SlaConditionOperator = "equals" | "not_equals" | "in";
+
+export type SlaCondition = {
+  field: SlaConditionField;
+  operator: SlaConditionOperator;
+  /** For "in" operator, comma-separated values */
+  value: string;
+};
+
+export type SlaConditionGroup = {
+  operator: "AND";
+  conditions: SlaCondition[];
+};
+
+/** Top-level condition tree: OR of AND-groups */
+export type SlaConditionTree = {
+  operator: "OR";
+  groups: SlaConditionGroup[];
+};
+
+// ---------------------------------------------------------------------------
 // SLA Rules — project-level time-bound rules (Iteration 4)
 // ---------------------------------------------------------------------------
 
@@ -233,12 +258,8 @@ export const slaRules = pgTable("sla_rules", {
     .references(() => jiraProjects.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   description: text("description"),
-  // What field to watch: "status" | "status_category" | "issue_type" | "priority"
-  conditionField: text("condition_field").notNull(),
-  // "equals" | "not_equals" | "in"
-  conditionOperator: text("condition_operator").notNull(),
-  // Serialized value; for "in" operator use comma-separated list
-  conditionValue: text("condition_value").notNull(),
+  // Compound AND/OR condition tree. OR of AND-groups.
+  conditions: jsonb("conditions").$type<SlaConditionTree>().notNull(),
   thresholdHours: numeric("threshold_hours", { precision: 10, scale: 2 }).notNull(),
   notifyAssignee: boolean("notify_assignee").notNull().default(true),
   notifyReporter: boolean("notify_reporter").notNull().default(false),
@@ -287,6 +308,10 @@ export const slaViolations = pgTable(
       withTimezone: true,
     }),
     notificationStatus: text("notification_status").default("pending"), // pending | sent | failed
+    // Set when a tier-2 escalation email is sent (2× threshold)
+    escalationNotifiedAt: timestamp("escalation_notified_at", {
+      withTimezone: true,
+    }),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     resolvedReason: text("resolved_reason"), // status_changed | manual_dismiss
     syncedAt: timestamp("synced_at", { withTimezone: true })
@@ -318,6 +343,32 @@ export const emailNotifications = pgTable("email_notifications", {
   status: text("status").notNull().default("sent"), // sent | failed
   errorMessage: text("error_message"),
 });
+
+// ---------------------------------------------------------------------------
+// Project Stakeholders — pre-defined notification recipients per project
+// ---------------------------------------------------------------------------
+
+export const projectStakeholders = pgTable(
+  "project_stakeholders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => jiraProjects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("project_stakeholders_project_email_idx").on(
+      t.projectId,
+      t.email
+    ),
+    index("project_stakeholders_project_idx").on(t.projectId),
+  ]
+);
 
 // ---------------------------------------------------------------------------
 // Jira Sync Jobs — tracks async background sync operations
@@ -371,3 +422,4 @@ export type NewProjectStatusMapping =
   typeof projectStatusMappings.$inferInsert;
 export type CanonicalStatus = (typeof canonicalStatusEnum.enumValues)[number];
 export type JiraSyncJob = typeof jiraSyncJobs.$inferSelect;
+export type ProjectStakeholder = typeof projectStakeholders.$inferSelect;

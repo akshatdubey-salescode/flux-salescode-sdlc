@@ -1,7 +1,33 @@
 import { eq, and } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { slaRules } from "@/lib/db/schema";
+import { slaRules, type SlaConditionTree } from "@/lib/db/schema";
 import { requireRole } from "@/lib/auth/server";
+
+const VALID_FIELDS = ["status", "status_category", "issue_type", "priority"] as const;
+const VALID_OPERATORS = ["equals", "not_equals", "in"] as const;
+
+function validateConditionTree(tree: unknown): tree is SlaConditionTree {
+  if (!tree || typeof tree !== "object") return false;
+  const t = tree as Record<string, unknown>;
+  if (t.operator !== "OR") return false;
+  if (!Array.isArray(t.groups) || t.groups.length === 0) return false;
+
+  for (const group of t.groups as unknown[]) {
+    if (!group || typeof group !== "object") return false;
+    const g = group as Record<string, unknown>;
+    if (g.operator !== "AND") return false;
+    if (!Array.isArray(g.conditions) || g.conditions.length === 0) return false;
+
+    for (const cond of g.conditions as unknown[]) {
+      if (!cond || typeof cond !== "object") return false;
+      const c = cond as Record<string, unknown>;
+      if (!(VALID_FIELDS as readonly string[]).includes(c.field as string)) return false;
+      if (!(VALID_OPERATORS as readonly string[]).includes(c.operator as string)) return false;
+      if (typeof c.value !== "string" || !c.value.trim()) return false;
+    }
+  }
+  return true;
+}
 
 export async function PATCH(
   req: Request,
@@ -21,9 +47,7 @@ export async function PATCH(
   let body: Partial<{
     name: string;
     description: string | null;
-    conditionField: string;
-    conditionOperator: string;
-    conditionValue: string;
+    conditions: unknown;
     thresholdHours: number;
     notifyAssignee: boolean;
     notifyReporter: boolean;
@@ -41,9 +65,15 @@ export async function PATCH(
 
   if (body.name !== undefined) patch.name = body.name.trim();
   if (body.description !== undefined) patch.description = body.description?.trim() ?? null;
-  if (body.conditionField !== undefined) patch.conditionField = body.conditionField;
-  if (body.conditionOperator !== undefined) patch.conditionOperator = body.conditionOperator;
-  if (body.conditionValue !== undefined) patch.conditionValue = body.conditionValue.trim();
+  if (body.conditions !== undefined) {
+    if (!validateConditionTree(body.conditions)) {
+      return Response.json(
+        { error: "conditions must be a valid OR-of-AND-groups structure" },
+        { status: 400 }
+      );
+    }
+    patch.conditions = body.conditions;
+  }
   if (body.thresholdHours !== undefined) patch.thresholdHours = String(body.thresholdHours);
   if (body.notifyAssignee !== undefined) patch.notifyAssignee = body.notifyAssignee;
   if (body.notifyReporter !== undefined) patch.notifyReporter = body.notifyReporter;
