@@ -12,6 +12,10 @@ export const pool =
     connectionString: process.env.DATABASE_URL!,
   });
 
+pool.on("error", (err) => {
+  console.error("[db pool] idle client error:", err.message);
+});
+
 if (process.env.NODE_ENV !== "production") globalForDb.pool = pool;
 
 export const db = drizzle(pool, { schema });

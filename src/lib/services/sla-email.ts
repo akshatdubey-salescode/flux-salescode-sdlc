@@ -158,9 +158,23 @@ export async function sendSLADigestEmail(
 
   const html = buildDigestHtml(projectName, violations, hasEscalation);
 
-  try {
-    await provider.send({ to: email, subject, html });
-  } catch (err) {
+  const maxAttempts = 3;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await provider.send({ to: email, subject, html });
+      lastErr = undefined;
+      break;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 1000 * attempt));
+      }
+    }
+  }
+
+  if (lastErr !== undefined) {
+    const err = lastErr;
     const errorMessage = err instanceof Error ? err.message : String(err);
     // Audit each violation attempt as failed
     for (const v of violations) {
