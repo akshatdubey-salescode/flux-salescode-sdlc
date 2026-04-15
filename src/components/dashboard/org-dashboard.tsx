@@ -19,6 +19,10 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
 } from "recharts";
 import {
   RiErrorWarningLine,
@@ -42,6 +46,19 @@ type OrgDashboardData = {
   staleIssues: { project_id: string; name: string; stale_count: number }[];
   flowEfficiency: { project_id: string; project_name: string; flow_efficiency_pct: number }[];
   slaTopRules: { rule_name: string; project_name: string; trigger_count: number }[];
+  devWorkload: {
+    assignee_name: string;
+    active_total: number;
+    p1: number;
+    p2: number;
+    p3: number;
+    in_progress: number;
+    in_review: number;
+    in_qa: number;
+    p50_cycle_hours: number;
+  }[];
+  devVelocity: { assignee_name: string; this_week: number; last_week: number; delta: number }[];
+  issueTypeMix: { issue_type: string; count: number; pct: number }[];
 };
 
 const sanitize = (s: string) =>
@@ -88,6 +105,15 @@ export function OrgDashboard() {
           topRules={data.slaTopRules}
         />
         <StaleIssuesRadar staleIssues={data.staleIssues} />
+      </div>
+
+      <DevWorkloadTable devWorkload={data.devWorkload} />
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div className="md:col-span-2">
+          <DevVelocityTable devVelocity={data.devVelocity} />
+        </div>
+        <IssueTypeMix issueTypeMix={data.issueTypeMix} />
       </div>
     </div>
   );
@@ -577,6 +603,294 @@ function StaleIssuesRadar({
   );
 }
 
+function DevWorkloadTable({
+  devWorkload,
+}: {
+  devWorkload: OrgDashboardData["devWorkload"];
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Developer Workload</CardTitle>
+        <CardAction>
+          <ChartInfo description="Active issues per developer, broken down by priority (P1–P3) and current workflow stage. P1s in red signal high-urgency items. Median cycle time shows how fast each developer typically moves through active work." />
+        </CardAction>
+      </CardHeader>
+      <CardContent className="p-0 pb-1">
+        {devWorkload.length === 0 ? (
+          <div className="px-5 pb-4">
+            <EmptyState message="No active workload data" />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">
+                    Developer
+                  </th>
+                  <th className="px-3 py-2.5 text-center font-medium text-muted-foreground">
+                    Active
+                  </th>
+                  <th className="px-3 py-2.5 text-center font-medium text-destructive/80">
+                    P1
+                  </th>
+                  <th className="px-3 py-2.5 text-center font-medium text-amber-600 dark:text-amber-400">
+                    P2
+                  </th>
+                  <th className="px-3 py-2.5 text-center font-medium text-muted-foreground">
+                    P3
+                  </th>
+                  <th className="px-3 py-2.5 text-center font-medium text-muted-foreground">
+                    In Progress
+                  </th>
+                  <th className="px-3 py-2.5 text-center font-medium text-muted-foreground">
+                    In Review
+                  </th>
+                  <th className="px-3 py-2.5 text-center font-medium text-muted-foreground">
+                    In QA
+                  </th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">
+                    Median Cycle
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {devWorkload.map((row) => (
+                  <tr key={row.assignee_name} className="hover:bg-muted/20 transition-colors">
+                    <td className="px-4 py-2.5 font-medium text-foreground max-w-[160px] truncate">
+                      {row.assignee_name}
+                    </td>
+                    <td className="px-3 py-2.5 text-center tabular-nums font-semibold text-foreground">
+                      {row.active_total}
+                    </td>
+                    <td className="px-3 py-2.5 text-center tabular-nums">
+                      {row.p1 > 0 ? (
+                        <span className="inline-flex items-center justify-center w-6 h-5 rounded text-[11px] font-bold bg-destructive/10 text-destructive">
+                          {row.p1}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/30">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-center tabular-nums">
+                      {row.p2 > 0 ? (
+                        <span className="inline-flex items-center justify-center w-6 h-5 rounded text-[11px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                          {row.p2}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/30">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-center tabular-nums text-muted-foreground">
+                      {row.p3 > 0 ? row.p3 : <span className="text-muted-foreground/30">—</span>}
+                    </td>
+                    <td className="px-3 py-2.5 text-center tabular-nums text-muted-foreground">
+                      {row.in_progress > 0 ? row.in_progress : <span className="text-muted-foreground/30">—</span>}
+                    </td>
+                    <td className="px-3 py-2.5 text-center tabular-nums text-muted-foreground">
+                      {row.in_review > 0 ? row.in_review : <span className="text-muted-foreground/30">—</span>}
+                    </td>
+                    <td className="px-3 py-2.5 text-center tabular-nums text-muted-foreground">
+                      {row.in_qa > 0 ? row.in_qa : <span className="text-muted-foreground/30">—</span>}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
+                      {Number(row.p50_cycle_hours) > 0 ? `${row.p50_cycle_hours}h` : <span className="text-muted-foreground/30">—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DevVelocityTable({
+  devVelocity,
+}: {
+  devVelocity: OrgDashboardData["devVelocity"];
+}) {
+  const maxThisWeek = Math.max(...devVelocity.map((d) => d.this_week), 1);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Developer Velocity — This Week vs Last</CardTitle>
+        <CardAction>
+          <ChartInfo description="Issues completed by each developer this week vs the prior week. The bar shows this week's output relative to the top performer. Arrows indicate whether velocity improved or declined." />
+        </CardAction>
+      </CardHeader>
+      <CardContent className="space-y-2.5">
+        {devVelocity.length === 0 ? (
+          <EmptyState message="No completions in the last 2 weeks" />
+        ) : (
+          devVelocity.map((row) => (
+            <div key={row.assignee_name} className="space-y-1">
+              <div className="flex items-center justify-between gap-3 text-xs">
+                <span className="font-medium text-foreground truncate max-w-[160px]">
+                  {row.assignee_name}
+                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-muted-foreground text-[11px]">
+                    {row.last_week} last wk
+                  </span>
+                  <span
+                    className={cn(
+                      "flex items-center gap-0.5 font-semibold tabular-nums",
+                      row.delta > 0
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : row.delta < 0
+                        ? "text-destructive"
+                        : "text-muted-foreground"
+                    )}
+                  >
+                    {row.delta > 0 ? (
+                      <RiArrowUpLine className="size-3" />
+                    ) : row.delta < 0 ? (
+                      <RiArrowDownLine className="size-3" />
+                    ) : null}
+                    {row.this_week}
+                  </span>
+                </div>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-[var(--chart-1)] transition-all duration-500"
+                  style={{ width: `${(row.this_week / maxThisWeek) * 100}%` }}
+                />
+              </div>
+            </div>
+          ))
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+const ISSUE_TYPE_COLORS: Record<string, string> = {
+  Bug: "var(--destructive)",
+  Story: "var(--chart-2)",
+  Task: "var(--chart-1)",
+  "Sub-task": "var(--chart-3)",
+  Subtask: "var(--chart-3)",
+  Epic: "var(--chart-4)",
+};
+
+function IssueTypeMix({
+  issueTypeMix,
+}: {
+  issueTypeMix: OrgDashboardData["issueTypeMix"];
+}) {
+  // Merge "Sub-task" and "Subtask" into one bucket
+  const merged = issueTypeMix.reduce<
+    { issue_type: string; count: number; pct: number }[]
+  >((acc, row) => {
+    const key = row.issue_type === "Subtask" ? "Sub-task" : row.issue_type;
+    const existing = acc.find((r) => r.issue_type === key);
+    if (existing) {
+      existing.count += row.count;
+      existing.pct += row.pct;
+    } else {
+      acc.push({ issue_type: key, count: row.count, pct: row.pct });
+    }
+    return acc;
+  }, []);
+
+  const total = merged.reduce((s, r) => s + r.count, 0);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Active Issue Mix</CardTitle>
+        <CardAction>
+          <ChartInfo description="Breakdown of active issues by type. A high Bug share signals the team is in fire-fighting mode rather than building features. Healthy teams typically stay below 20% bugs." />
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        {merged.length === 0 ? (
+          <EmptyState message="No data" />
+        ) : (
+          <div className="flex flex-col items-center gap-4">
+            <PieChart width={160} height={160}>
+              <Pie
+                data={merged}
+                dataKey="count"
+                nameKey="issue_type"
+                cx="50%"
+                cy="50%"
+                innerRadius={46}
+                outerRadius={72}
+                strokeWidth={0}
+              >
+                {merged.map((entry) => (
+                  <Cell
+                    key={entry.issue_type}
+                    fill={
+                      ISSUE_TYPE_COLORS[entry.issue_type] ?? "var(--chart-5)"
+                    }
+                  />
+                ))}
+              </Pie>
+              <Tooltip
+                formatter={(value) => {
+                  const n = Number(value);
+                  return [`${n} (${((n / total) * 100).toFixed(1)}%)`, ""] as [string, string];
+                }}
+                contentStyle={{
+                  fontSize: 11,
+                  borderRadius: 6,
+                  border: "1px solid var(--border)",
+                  background: "var(--card)",
+                  color: "var(--foreground)",
+                }}
+              />
+            </PieChart>
+
+            <div className="w-full space-y-1.5">
+              {merged.map((row) => (
+                <div
+                  key={row.issue_type}
+                  className="flex items-center justify-between text-xs"
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="inline-block size-2 rounded-full shrink-0"
+                      style={{
+                        background:
+                          ISSUE_TYPE_COLORS[row.issue_type] ??
+                          "var(--chart-5)",
+                      }}
+                    />
+                    <span
+                      className={cn(
+                        "font-medium",
+                        row.issue_type === "Bug"
+                          ? "text-destructive"
+                          : "text-foreground"
+                      )}
+                    >
+                      {row.issue_type}
+                    </span>
+                  </div>
+                  <span className="tabular-nums text-muted-foreground">
+                    {row.count}{" "}
+                    <span className="text-[10px]">
+                      ({((row.count / total) * 100).toFixed(0)}%)
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function EmptyState({ message }: { message: string }) {
   return (
     <div className="flex items-center justify-center py-8">
@@ -604,6 +918,11 @@ function DashboardSkeleton() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <Skeleton className="h-[200px] rounded-lg" />
         <Skeleton className="h-[200px] rounded-lg" />
+      </div>
+      <Skeleton className="h-[340px] rounded-lg" />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <Skeleton className="md:col-span-2 h-[280px] rounded-lg" />
+        <Skeleton className="h-[280px] rounded-lg" />
       </div>
     </div>
   );

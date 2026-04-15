@@ -21,6 +21,9 @@ export async function GET() {
       staleIssuesRes,
       flowEfficiencyRes,
       slaTopRulesRes,
+      devWorkloadRes,
+      devVelocityRes,
+      issueTypeMixRes,
     ] = await Promise.all([
       // Total active issues
       db.execute(sql`
@@ -195,6 +198,99 @@ export async function GET() {
         ORDER BY trigger_count DESC
         LIMIT 5
       `),
+
+      // Developer workload — active issues by priority + stage, with median cycle time
+      db.execute(sql`
+        WITH dev_cycle AS (
+          SELECT
+            ji.assignee_name,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (
+              ORDER BY sub.active_seconds
+            ) AS p50_seconds
+          FROM (
+            SELECT
+              ji2.assignee_name,
+              ji2.id AS issue_id,
+              SUM(CASE WHEN psm2.canonical_status IN ('IN_PROGRESS','IN_REVIEW','IN_QA')
+                       THEN jsh.duration_seconds ELSE 0 END) AS active_seconds
+            FROM jira_issues ji2
+            JOIN jira_status_history jsh ON jsh.issue_id = ji2.id
+            JOIN project_status_mappings psm2
+              ON psm2.project_id = ji2.project_id AND psm2.raw_status = jsh.to_status
+            WHERE ji2.assignee_name IS NOT NULL
+              AND jsh.duration_seconds IS NOT NULL
+            GROUP BY ji2.assignee_name, ji2.id
+            HAVING SUM(CASE WHEN psm2.canonical_status IN ('IN_PROGRESS','IN_REVIEW','IN_QA')
+                            THEN jsh.duration_seconds ELSE 0 END) > 0
+          ) sub
+          JOIN jira_issues ji ON ji.assignee_name = sub.assignee_name AND ji.id = sub.issue_id
+          GROUP BY ji.assignee_name
+        )
+        SELECT
+          ji.assignee_name,
+          COUNT(*)::int AS active_total,
+          COUNT(CASE WHEN ji.priority = 'P1' THEN 1 END)::int AS p1,
+          COUNT(CASE WHEN ji.priority = 'P2' THEN 1 END)::int AS p2,
+          COUNT(CASE WHEN ji.priority = 'P3' THEN 1 END)::int AS p3,
+          COUNT(CASE WHEN psm.canonical_status = 'IN_PROGRESS' THEN 1 END)::int AS in_progress,
+          COUNT(CASE WHEN psm.canonical_status = 'IN_REVIEW' THEN 1 END)::int AS in_review,
+          COUNT(CASE WHEN psm.canonical_status = 'IN_QA' THEN 1 END)::int AS in_qa,
+          COALESCE(ROUND((dc.p50_seconds / 3600)::numeric, 1), 0) AS p50_cycle_hours
+        FROM jira_issues ji
+        JOIN project_status_mappings psm
+          ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
+        LEFT JOIN dev_cycle dc ON dc.assignee_name = ji.assignee_name
+        WHERE psm.canonical_status NOT IN ('DONE','CANCELLED')
+          AND ji.assignee_name IS NOT NULL
+        GROUP BY ji.assignee_name, dc.p50_seconds
+        HAVING COUNT(*) >= 2
+        ORDER BY p1 DESC, p2 DESC, active_total DESC
+        LIMIT 30
+      `),
+
+      // Developer velocity — completions this week vs last week
+      db.execute(sql`
+        WITH weekly AS (
+          SELECT
+            ji.assignee_name,
+            COUNT(DISTINCT CASE WHEN jsh.changed_at >= NOW() - INTERVAL '7 days'
+                                THEN ji.id END)::int AS this_week,
+            COUNT(DISTINCT CASE WHEN jsh.changed_at >= NOW() - INTERVAL '14 days'
+                                 AND jsh.changed_at < NOW() - INTERVAL '7 days'
+                                THEN ji.id END)::int AS last_week
+          FROM jira_status_history jsh
+          JOIN jira_issues ji ON ji.id = jsh.issue_id
+          JOIN project_status_mappings psm
+            ON psm.project_id = ji.project_id AND psm.raw_status = jsh.to_status
+          WHERE psm.canonical_status = 'DONE'
+            AND jsh.changed_at >= NOW() - INTERVAL '14 days'
+            AND ji.assignee_name IS NOT NULL
+          GROUP BY ji.assignee_name
+        )
+        SELECT
+          assignee_name,
+          this_week,
+          last_week,
+          (this_week - last_week) AS delta
+        FROM weekly
+        WHERE this_week > 0 OR last_week > 0
+        ORDER BY this_week DESC
+        LIMIT 15
+      `),
+
+      // Active issue type mix (Bug vs Story vs Task …)
+      db.execute(sql`
+        SELECT
+          issue_type,
+          COUNT(*)::int AS count,
+          ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1)::float AS pct
+        FROM jira_issues ji
+        JOIN project_status_mappings psm
+          ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
+        WHERE psm.canonical_status NOT IN ('DONE','CANCELLED')
+        GROUP BY issue_type
+        ORDER BY count DESC
+      `),
     ]);
 
     const activeIssues = Number(activeIssuesRes.rows[0]?.count || 0);
@@ -224,6 +320,9 @@ export async function GET() {
       staleIssues: staleIssuesRes.rows,
       flowEfficiency: flowEfficiencyRes.rows,
       slaTopRules: slaTopRulesRes.rows,
+      devWorkload: devWorkloadRes.rows,
+      devVelocity: devVelocityRes.rows,
+      issueTypeMix: issueTypeMixRes.rows,
     });
   } catch (error) {
     console.error("Dashboard analytics error:", error);
