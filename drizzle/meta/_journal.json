@@ -50,6 +50,13 @@
       "when": 1776000000000,
       "tag": "0006_sla_compound_conditions",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1776236509155,
+      "tag": "0007_naive_songbird",
+      "breakpoints": true
     }
   ]
 }

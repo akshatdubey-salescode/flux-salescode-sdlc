@@ -404,6 +404,50 @@ export const jiraSyncJobs = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Requirements — AI-generated requirements built by Business Analysts
+// ---------------------------------------------------------------------------
+
+export const requirements = pgTable(
+  "requirements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => jiraProjects.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description").notNull(),
+    acceptanceCriteria: text("acceptance_criteria"),
+    priority: text("priority", {
+      enum: ["low", "medium", "high", "critical"],
+    })
+      .notNull()
+      .default("medium"),
+    status: text("status", { enum: ["draft", "published"] })
+      .notNull()
+      .default("draft"),
+    // Citations and synthesis from charjan stored for audit/reference
+    charjanContext: jsonb("charjan_context").$type<{
+      answer: string;
+      citations: { id: string; title: string; snippet: string; relevance_score: number }[];
+    }>(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("requirements_project_idx").on(t.projectId),
+    index("requirements_created_by_idx").on(t.createdBy),
+    index("requirements_status_idx").on(t.status),
+  ]
+);
+
+// ---------------------------------------------------------------------------
 // Type exports
 // ---------------------------------------------------------------------------
 
@@ -423,3 +467,5 @@ export type NewProjectStatusMapping =
 export type CanonicalStatus = (typeof canonicalStatusEnum.enumValues)[number];
 export type JiraSyncJob = typeof jiraSyncJobs.$inferSelect;
 export type ProjectStakeholder = typeof projectStakeholders.$inferSelect;
+export type Requirement = typeof requirements.$inferSelect;
+export type NewRequirement = typeof requirements.$inferInsert;
