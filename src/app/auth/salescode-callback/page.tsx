@@ -14,8 +14,6 @@ function deleteCookie(name: string) {
   document.cookie = `${name}=; max-age=0; path=/`;
 }
 
-const DEV_AUTH_URL = "https://dev-auth.salescode.ai";
-const TENANT = "salescode_internal";
 const APP_NAME = "salescode_internal_app";
 const APP_VERSION = "1.0.0";
 
@@ -56,7 +54,7 @@ function SalescodeCallbackInner() {
     }
 
     const queryParams = new URLSearchParams({ state, code, scope, authuser, hd, prompt });
-    const tokenUrl = `${DEV_AUTH_URL}/v1/authenticate/sso/salescode_internal_google/token?${queryParams}`;
+    const tokenUrl = `/api/auth/salescode/token?${queryParams}`;
 
     const deviceInfo = {
       deviceId: getDeviceId(),
@@ -73,8 +71,6 @@ function SalescodeCallbackInner() {
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
-        Tenant: TENANT,
-        Origin: window.location.origin,
       },
       body: JSON.stringify(deviceInfo),
     })
