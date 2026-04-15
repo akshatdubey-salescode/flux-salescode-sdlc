@@ -95,8 +95,11 @@ export async function POST(req: Request) {
       // 4. Filter to violations that need notification
       const needsNotification = violations.filter((v) => {
         if (v.tier === 1) {
-          // New violations we just inserted
-          return newViolationIds.has(`${v.rule.id}:${v.issue.id}`);
+          // Either newly inserted, or existing violation whose tier-1 email never sent
+          return (
+            newViolationIds.has(`${v.rule.id}:${v.issue.id}`) ||
+            v.existingViolationId !== undefined
+          );
         }
         // Tier 2 — existing violation needing escalation
         return v.existingViolationId !== undefined;

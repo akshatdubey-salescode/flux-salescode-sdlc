@@ -181,11 +181,21 @@ export async function detectViolations(projectId: string): Promise<ViolationResu
           });
         }
       } else {
-        // Active violation exists — check if it qualifies for tier-2 escalation
+        // Active violation exists
         const alreadyEscalated = existing.escalationNotifiedAt !== null;
         const tier1Sent = existing.notificationSentAt !== null;
 
-        if (!alreadyEscalated && tier1Sent && elapsedMs >= thresholdMs * 2) {
+        if (!tier1Sent) {
+          // Tier-1 notification was never sent (e.g. email failed) — retry
+          results.push({
+            rule,
+            issue,
+            enteredConditionAt: enteredAt,
+            elapsedHours,
+            existingViolationId: existing.id,
+            tier: 1,
+          });
+        } else if (!alreadyEscalated && elapsedMs >= thresholdMs * 2) {
           results.push({
             rule,
             issue,
