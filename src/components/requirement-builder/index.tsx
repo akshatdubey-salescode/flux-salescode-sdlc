@@ -220,7 +220,7 @@ export function RequirementBuilderForm() {
                 onClick={() => setStep(id)}
                 className={`flex items-center justify-center gap-2 w-full rounded-xl px-4 py-2.5 text-sm font-medium transition-all ${
                   isActive
-                    ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900 shadow-sm"
+                    ? "bg-primary text-primary-foreground shadow-sm"
                     : isDone
                       ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400"
                       : "bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500"
@@ -291,7 +291,7 @@ export function RequirementBuilderForm() {
             <button
               onClick={launchSession}
               disabled={launching || !selectedRepo || !salescodeToken}
-              className="inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {launching ? (
                 <RiLoader4Line className="animate-spin" size={16} />
@@ -346,7 +346,7 @@ export function RequirementBuilderForm() {
                       setIframeLoadFailed(false);
                       setIframeKey((k) => k + 1);
                     }}
-                    className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"
                   >
                     <RiRefreshLine size={14} />
                     Try Again
@@ -371,7 +371,7 @@ export function RequirementBuilderForm() {
           <div className="flex justify-end">
             <button
               onClick={() => setStep(2)}
-              className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 px-5 py-2.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              className="inline-flex items-center gap-2 rounded-xl border border-border px-5 py-2.5 text-sm font-medium text-foreground hover:bg-muted"
             >
               Next: Publish
               <RiArrowRightLine size={14} />
@@ -467,7 +467,7 @@ export function RequirementBuilderForm() {
           <div className="flex items-center justify-between">
             <button
               onClick={() => setStep(1)}
-              className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 px-5 py-2.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              className="inline-flex items-center gap-2 rounded-xl border border-border px-5 py-2.5 text-sm font-medium text-foreground hover:bg-muted"
             >
               <RiArrowLeftLine size={14} />
               Back
@@ -477,7 +477,7 @@ export function RequirementBuilderForm() {
               <button
                 onClick={() => saveRequirement("draft")}
                 disabled={!draft.title || !draft.description || saving || !selectedRepo}
-                className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-5 py-2.5 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-5 py-2.5 text-sm font-semibold text-foreground shadow-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving ? <RiLoader4Line className="animate-spin" size={15} /> : null}
                 Save as Draft
@@ -485,7 +485,7 @@ export function RequirementBuilderForm() {
               <button
                 onClick={() => saveRequirement("published")}
                 disabled={!draft.title || !draft.description || saving || !selectedRepo}
-                className="inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving ? <RiLoader4Line className="animate-spin" size={15} /> : <RiCheckLine size={15} />}
                 Publish

@@ -54,7 +54,7 @@ export default async function ProjectsPage(props: {
         {user.role === "SUPERUSER" && (
           <Link
             href="/projects/new"
-            className="ml-auto inline-flex items-center rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            className="ml-auto inline-flex items-center rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
           >
             Add project
           </Link>
@@ -184,7 +184,7 @@ function EmptyState({ isSuperuser, hasSearch }: { isSuperuser: boolean; hasSearc
       {isSuperuser && (
         <Link
           href="/projects/new"
-          className="mt-6 inline-flex items-center rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 transition-colors shadow-sm"
+          className="mt-6 inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm"
         >
           Add your first project
         </Link>

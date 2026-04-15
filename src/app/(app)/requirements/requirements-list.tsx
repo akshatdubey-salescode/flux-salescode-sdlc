@@ -74,7 +74,7 @@ function MultiSelect({
             "inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
             hasSelection
               ? "border-blue-400 bg-blue-50 text-blue-700 dark:border-blue-500 dark:bg-blue-900/20 dark:text-blue-400"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              : "border-border bg-background text-foreground hover:bg-muted"
           )}
         >
           {label}
@@ -200,7 +200,7 @@ export function RequirementsList({ rows, total }: { rows: RequirementRow[]; tota
           <div className="flex items-center gap-0.5">
             <Popover>
               <PopoverTrigger asChild>
-                <button className="inline-flex h-7 items-center gap-1 rounded-l-md border border-zinc-200 bg-white px-2.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800">
+                <button className="inline-flex h-7 items-center gap-1 rounded-l-md border border-border bg-background px-2.5 text-xs font-medium text-foreground hover:bg-muted">
                   Sort: {sortBy === "created" ? "Created" : sortBy === "title" ? "Title" : "Priority"}
                   <RiArrowDownSLine className="size-3.5 opacity-50" />
                 </button>
@@ -226,7 +226,7 @@ export function RequirementsList({ rows, total }: { rows: RequirementRow[]; tota
             </Popover>
             <button
               onClick={() => updateParams({ sortDir: sortDir === "asc" ? "desc" : "asc" })}
-              className="inline-flex h-7 items-center rounded-r-md border border-l-0 border-zinc-200 bg-white px-2 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+              className="inline-flex h-7 items-center rounded-r-md border border-l-0 border-border bg-background px-2 text-muted-foreground hover:bg-muted"
             >
               {sortDir === "asc" ? (
                 <RiArrowUpSLine className="size-3.5" />
@@ -259,7 +259,7 @@ export function RequirementsList({ rows, total }: { rows: RequirementRow[]; tota
             {selectedStatus.map((s) => (
               <span
                 key={s}
-                className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground"
               >
                 Status: <span className="capitalize">{s}</span>
                 <button
@@ -277,7 +277,7 @@ export function RequirementsList({ rows, total }: { rows: RequirementRow[]; tota
             {selectedPriority.map((p) => (
               <span
                 key={p}
-                className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground"
               >
                 Priority: <span className="capitalize">{p}</span>
                 <button
@@ -313,7 +313,7 @@ export function RequirementsList({ rows, total }: { rows: RequirementRow[]; tota
           {!hasActiveFilters && (
             <Link
               href="/requirements/new"
-              className="mt-6 inline-flex items-center gap-2 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 transition-colors shadow-sm dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              className="mt-6 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm"
             >
               <RiSparklingLine size={15} />
               Build with AI

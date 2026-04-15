@@ -76,7 +76,7 @@ export default async function RequirementsPage(props: {
         </Breadcrumb>
         <Link
           href="/requirements/new"
-          className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
         >
           <RiAddLine size={14} />
           New Requirement
