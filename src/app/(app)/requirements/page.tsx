@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { requirements, jiraProjects } from "@/lib/db/schema";
+import { requirements } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
@@ -22,11 +22,9 @@ export default async function RequirementsPage() {
       priority: requirements.priority,
       status: requirements.status,
       createdAt: requirements.createdAt,
-      projectName: jiraProjects.name,
-      projectKey: jiraProjects.jiraProjectKey,
+      githubRepoName: requirements.githubRepoName,
     })
     .from(requirements)
-    .leftJoin(jiraProjects, eq(jiraProjects.id, requirements.projectId))
     .where(eq(requirements.createdBy, user.id))
     .orderBy(desc(requirements.createdAt));
 
@@ -84,19 +82,19 @@ export default async function RequirementsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50">
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">
                     Title
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                    Project
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                    Repository
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">
                     Priority
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">
                     Status
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">
                     Created
                   </th>
                 </tr>
@@ -110,9 +108,10 @@ export default async function RequirementsPage() {
                     <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-50 max-w-xs truncate">
                       {r.title}
                     </td>
-                    <td className="px-4 py-3 text-zinc-500 dark:text-zinc-400">
-                      <span className="font-mono text-xs">{r.projectKey}</span>{" "}
-                      {r.projectName}
+                    <td className="px-4 py-3">
+                      <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
+                        {r.githubRepoName}
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <PriorityBadge priority={r.priority} />
@@ -120,7 +119,7 @@ export default async function RequirementsPage() {
                     <td className="px-4 py-3">
                       <StatusBadge status={r.status} />
                     </td>
-                    <td className="px-4 py-3 text-zinc-400 dark:text-zinc-500 text-xs">
+                    <td className="px-4 py-3 text-xs text-zinc-400 dark:text-zinc-500">
                       {formatRelative(r.createdAt)}
                     </td>
                   </tr>

@@ -1,16 +1,10 @@
-import { and, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { requirements, jiraProjects } from "@/lib/db/schema";
+import { requirements } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 
-export async function GET(request: Request) {
+export async function GET() {
   const user = await requireAuth();
-  const { searchParams } = new URL(request.url);
-  const projectId = searchParams.get("projectId");
-
-  const where = projectId
-    ? and(eq(requirements.createdBy, user.id), eq(requirements.projectId, projectId))
-    : eq(requirements.createdBy, user.id);
 
   const rows = await db
     .select({
@@ -19,13 +13,10 @@ export async function GET(request: Request) {
       priority: requirements.priority,
       status: requirements.status,
       createdAt: requirements.createdAt,
-      projectId: requirements.projectId,
-      projectName: jiraProjects.name,
-      projectKey: jiraProjects.jiraProjectKey,
+      githubRepoName: requirements.githubRepoName,
     })
     .from(requirements)
-    .leftJoin(jiraProjects, eq(jiraProjects.id, requirements.projectId))
-    .where(where)
+    .where(eq(requirements.createdBy, user.id))
     .orderBy(desc(requirements.createdAt));
 
   return Response.json(rows);
@@ -35,7 +26,7 @@ export async function POST(request: Request) {
   const user = await requireAuth();
 
   let body: {
-    projectId: string;
+    githubRepoName: string;
     title: string;
     description: string;
     acceptanceCriteria?: string;
@@ -53,30 +44,19 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { projectId, title, description, acceptanceCriteria, priority, status, charjanContext } =
-    body;
+  const { githubRepoName, title, description, acceptanceCriteria, priority, status, charjanContext } = body;
 
-  if (!projectId || !title || !description) {
+  if (!githubRepoName || !title || !description) {
     return Response.json(
-      { error: "projectId, title, and description are required" },
+      { error: "githubRepoName, title, and description are required" },
       { status: 400 }
     );
-  }
-
-  const [project] = await db
-    .select({ id: jiraProjects.id })
-    .from(jiraProjects)
-    .where(and(eq(jiraProjects.id, projectId), eq(jiraProjects.isActive, true)))
-    .limit(1);
-
-  if (!project) {
-    return Response.json({ error: "Project not found" }, { status: 404 });
   }
 
   const [row] = await db
     .insert(requirements)
     .values({
-      projectId,
+      githubRepoName,
       title,
       description,
       acceptanceCriteria: acceptanceCriteria ?? null,

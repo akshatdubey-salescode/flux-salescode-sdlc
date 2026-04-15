@@ -57,6 +57,13 @@
       "when": 1776236509155,
       "tag": "0007_naive_songbird",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1776240000000,
+      "tag": "0008_requirements_github_repo",
+      "breakpoints": true
     }
   ]
 }

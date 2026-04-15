@@ -411,9 +411,8 @@ export const requirements = pgTable(
   "requirements",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    projectId: uuid("project_id")
-      .notNull()
-      .references(() => jiraProjects.id, { onDelete: "cascade" }),
+    // GitHub repo full name, e.g. "salescode-ai/schemes-service"
+    githubRepoName: text("github_repo_name").notNull(),
     title: text("title").notNull(),
     description: text("description").notNull(),
     acceptanceCriteria: text("acceptance_criteria"),
@@ -441,7 +440,7 @@ export const requirements = pgTable(
       .defaultNow(),
   },
   (t) => [
-    index("requirements_project_idx").on(t.projectId),
+    index("requirements_repo_idx").on(t.githubRepoName),
     index("requirements_created_by_idx").on(t.createdBy),
     index("requirements_status_idx").on(t.status),
   ]
@@ -469,3 +468,4 @@ export type JiraSyncJob = typeof jiraSyncJobs.$inferSelect;
 export type ProjectStakeholder = typeof projectStakeholders.$inferSelect;
 export type Requirement = typeof requirements.$inferSelect;
 export type NewRequirement = typeof requirements.$inferInsert;
+

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   RiSparklingLine,
@@ -8,282 +8,397 @@ import {
   RiArrowRightLine,
   RiCheckLine,
   RiLoader4Line,
-  RiFileList3Line,
-  RiInformationLine,
+  RiRefreshLine,
+  RiAlertLine,
+  RiFolderLine,
 } from "@remixicon/react";
 
-type Project = {
-  id: string;
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type GitHubRepo = {
+  id: number;
   name: string;
-  jiraProjectKey: string;
+  fullName: string;
+  description: string;
+  language: string;
 };
 
-type Citation = {
-  id: string;
-  title: string;
-  snippet: string;
-  relevance_score: number;
-};
-
-type GeneratedRequirement = {
+type Draft = {
   title: string;
   description: string;
   acceptanceCriteria: string;
-  charjanContext: {
-    answer: string;
-    citations: Citation[];
-  };
+  priority: "low" | "medium" | "high" | "critical";
 };
 
-const PRIORITIES = ["low", "medium", "high", "critical"] as const;
-type Priority = (typeof PRIORITIES)[number];
+const FALLBACK_AI_URL = "http://localhost:3000/agents";
 
-export function RequirementBuilderForm({ projects }: { projects: Project[] }) {
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export function RequirementBuilderForm() {
   const router = useRouter();
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2>(1);
 
-  // Step 1 state
-  const [selectedProjectId, setSelectedProjectId] = useState("");
-  const [roughIdea, setRoughIdea] = useState("");
-  const [generating, setGenerating] = useState(false);
-  const [generateError, setGenerateError] = useState("");
+  // Repos
+  const [repos, setRepos] = useState<GitHubRepo[]>([]);
+  const [reposLoading, setReposLoading] = useState(true);
+  const [selectedRepos, setSelectedRepos] = useState<string[]>([]); // fullNames
 
-  // Step 2 state
-  const [generated, setGenerated] = useState<GeneratedRequirement | null>(null);
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [acceptanceCriteria, setAcceptanceCriteria] = useState("");
-  const [priority, setPriority] = useState<Priority>("medium");
-  const [citationsOpen, setCitationsOpen] = useState(false);
+  // Session launch
+  const [launching, setLaunching] = useState(false);
+  const [sessionLaunched, setSessionLaunched] = useState(false);
+  const [launchError, setLaunchError] = useState("");
+
+  // iframe
+  const [iframeSrc, setIframeSrc] = useState(FALLBACK_AI_URL);
+  const [iframeKey, setIframeKey] = useState(0);
+  const [iframeLoadFailed, setIframeLoadFailed] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Step 2 draft
+  const [draft, setDraft] = useState<Draft>({
+    title: "",
+    description: "",
+    acceptanceCriteria: "",
+    priority: "medium",
+  });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
-  // Step 3 state
-  const [savedId, setSavedId] = useState("");
+  // ── Fetch GitHub repos ─────────────────────────────────────────────────────
+  useEffect(() => {
+    fetch("/api/github/repos")
+      .then((r) => r.json())
+      .then((data: GitHubRepo[]) => {
+        if (Array.isArray(data)) setRepos(data);
+      })
+      .catch(() => {})
+      .finally(() => setReposLoading(false));
+  }, []);
 
-  async function handleGenerate() {
-    if (!selectedProjectId || !roughIdea.trim()) return;
-    setGenerating(true);
-    setGenerateError("");
-
-    try {
-      const res = await fetch("/api/requirements/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: selectedProjectId, roughIdea }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error ?? `Request failed (${res.status})`);
-      }
-
-      const data: GeneratedRequirement = await res.json();
-      setGenerated(data);
-      setTitle(data.title);
-      setDescription(data.description);
-      setAcceptanceCriteria(data.acceptanceCriteria);
+  // ── Listen for CHARJAN_TICKET_FINALIZED from iframe ────────────────────────
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type !== "CHARJAN_TICKET_FINALIZED") return;
+      const { title, description, acceptanceCriteria } = event.data.ticket ?? {};
+      setDraft((prev) => ({
+        ...prev,
+        title: title || prev.title,
+        description: description || prev.description,
+        acceptanceCriteria: acceptanceCriteria || prev.acceptanceCriteria,
+      }));
       setStep(2);
-    } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setGenerating(false);
-    }
-  }
+      window.removeEventListener("message", handler);
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
 
-  async function handleSave(status: "draft" | "published") {
-    setSaving(true);
-    setSaveError("");
+  // ── Launch AI session ──────────────────────────────────────────────────────
+  const launchSession = useCallback(async () => {
+    if (selectedRepos.length === 0) return;
+    setLaunching(true);
+    setLaunchError("");
 
     try {
-      const res = await fetch("/api/requirements", {
+      const res = await fetch("/api/ai-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectId: selectedProjectId,
-          title,
-          description,
-          acceptanceCriteria,
-          priority,
-          status,
-          charjanContext: generated?.charjanContext,
-        }),
+        body: JSON.stringify({ repo_names: selectedRepos }),
       });
 
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error ?? `Save failed (${res.status})`);
+        const err = await res.json().catch(() => ({}));
+        setLaunchError(err.error ?? `Failed to launch (${res.status})`);
+        return;
       }
 
-      const saved = await res.json();
-      setSavedId(saved.id);
-      setStep(3);
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setSaving(false);
-    }
-  }
+      const { conversation_url, api_key, tenant_id } = await res.json();
 
-  const selectedProject = projects.find((p) => p.id === selectedProjectId);
+      const aiHost = (process.env.NEXT_PUBLIC_AI_BUILDER_URL ?? FALLBACK_AI_URL).replace(
+        /\/agents.*$/,
+        ""
+      );
+      const sep = conversation_url.includes("?") ? "&" : "?";
+      const encodedKey = btoa(api_key);
+      const url = `${aiHost}${conversation_url}${sep}apiKey=${encodeURIComponent(encodedKey)}&tenantId=${encodeURIComponent(tenant_id)}`;
+
+      setIframeSrc(url);
+      setIframeKey((k) => k + 1);
+      setIframeLoadFailed(false);
+      setSessionLaunched(true);
+    } catch (err) {
+      setLaunchError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLaunching(false);
+    }
+  }, [selectedRepos]);
+
+  // ── Save requirement ───────────────────────────────────────────────────────
+  const saveRequirement = useCallback(
+    async (status: "draft" | "published") => {
+      setSaving(true);
+      setSaveError("");
+
+      try {
+        // Save one requirement per selected repo
+        for (const fullName of selectedRepos) {
+          const res = await fetch("/api/requirements", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              githubRepoName: fullName,
+              title: draft.title || "Untitled Requirement",
+              description: draft.description,
+              acceptanceCriteria: draft.acceptanceCriteria || undefined,
+              priority: draft.priority,
+              status,
+            }),
+          });
+
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            setSaveError(err.error ?? `Save failed (${res.status})`);
+            return;
+          }
+        }
+
+        router.push("/requirements");
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : "Unknown error");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [selectedRepos, draft, router]
+  );
+
+  const toggleRepo = (fullName: string) =>
+    setSelectedRepos((prev) =>
+      prev.includes(fullName) ? prev.filter((r) => r !== fullName) : [...prev, fullName]
+    );
+
+  // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="max-w-3xl mx-auto">
-      {/* Step indicator */}
-      <div className="flex items-center gap-2 mb-8">
-        {[
-          { n: 1, label: "Describe" },
-          { n: 2, label: "Review" },
-          { n: 3, label: "Done" },
-        ].map(({ n, label }, i) => (
-          <div key={n} className="flex items-center gap-2">
-            {i > 0 && (
-              <div
-                className={`h-px w-12 ${step > i ? "bg-zinc-900 dark:bg-zinc-100" : "bg-zinc-200 dark:bg-zinc-700"}`}
-              />
-            )}
-            <div className="flex items-center gap-1.5">
-              <div
-                className={`flex size-6 items-center justify-center rounded-full text-xs font-bold transition-colors ${
-                  step === n
-                    ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
-                    : step > n
-                      ? "bg-emerald-500 text-white"
+    <div className="max-w-5xl mx-auto space-y-6">
+      {/* Step tabs */}
+      <div className="flex items-center gap-2">
+        {(
+          [
+            { id: 1, label: "AI Builder", icon: RiSparklingLine },
+            { id: 2, label: "Publish", icon: RiCheckLine },
+          ] as const
+        ).map(({ id, label, icon: Icon }, i) => {
+          const isActive = step === id;
+          const isDone = step > id;
+          return (
+            <div key={id} className="flex items-center gap-2 flex-1">
+              <button
+                onClick={() => setStep(id)}
+                className={`flex items-center justify-center gap-2 w-full rounded-xl px-4 py-2.5 text-sm font-medium transition-all ${
+                  isActive
+                    ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900 shadow-sm"
+                    : isDone
+                      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400"
                       : "bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500"
                 }`}
               >
-                {step > n ? <RiCheckLine size={12} /> : n}
-              </div>
-              <span
-                className={`text-sm font-medium ${step === n ? "text-zinc-900 dark:text-zinc-50" : "text-zinc-400 dark:text-zinc-500"}`}
-              >
+                {isDone ? <RiCheckLine size={15} /> : <Icon size={15} />}
                 {label}
-              </span>
+              </button>
+              {i === 0 && (
+                <RiArrowRightLine size={14} className="text-zinc-300 dark:text-zinc-600 shrink-0" />
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Step 1: Project + rough idea */}
+      {/* ── Step 1: Select repos + iframe ── */}
       {step === 1 && (
-        <div className="space-y-6">
-          <div>
-            <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50 mb-1">
-              Describe your requirement
-            </h2>
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              Select a project and describe what you want to build. Charjan will analyze the
-              codebase and generate a detailed requirement for you.
-            </p>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-                Project
-              </label>
-              <select
-                value={selectedProjectId}
-                onChange={(e) => setSelectedProjectId(e.target.value)}
-                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-zinc-500"
-              >
-                <option value="">Select a project…</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    [{p.jiraProjectKey}] {p.name}
-                  </option>
-                ))}
-              </select>
+        <div className="space-y-5">
+          {/* Repo selector */}
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <RiFolderLine size={16} className="text-zinc-400" />
+              <span className="text-xs font-bold uppercase tracking-widest text-zinc-400">
+                Select Repositories
+              </span>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-                What do you want to build?
-              </label>
-              <textarea
-                value={roughIdea}
-                onChange={(e) => setRoughIdea(e.target.value)}
-                placeholder="e.g. Add a notification system that alerts users when their Jira issues breach an SLA threshold"
-                rows={4}
-                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-zinc-500 resize-none"
-              />
-              <p className="mt-1.5 text-xs text-zinc-400">
-                1–3 sentences is enough. Charjan will use the codebase to fill in the details.
-              </p>
-            </div>
-          </div>
-
-          {generateError && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
-              {generateError}
-            </div>
-          )}
-
-          <button
-            onClick={handleGenerate}
-            disabled={!selectedProjectId || !roughIdea.trim() || generating}
-            className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-          >
-            {generating ? (
-              <>
-                <RiLoader4Line className="animate-spin" size={16} />
-                Analyzing codebase…
-              </>
+            {reposLoading ? (
+              <div className="flex items-center gap-2 text-sm text-zinc-400">
+                <RiLoader4Line className="animate-spin" size={14} />
+                Loading repos…
+              </div>
             ) : (
-              <>
-                <RiSparklingLine size={16} />
-                Generate Requirement
-              </>
+              <div className="flex flex-wrap gap-2">
+                {repos.map((repo) => {
+                  const selected = selectedRepos.includes(repo.fullName);
+                  return (
+                    <button
+                      key={repo.id}
+                      onClick={() => toggleRepo(repo.fullName)}
+                      className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
+                        selected
+                          ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                          : "border-zinc-200 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-500"
+                      }`}
+                    >
+                      <span
+                        className={`flex size-4 shrink-0 items-center justify-center rounded border transition-colors ${
+                          selected
+                            ? "border-white bg-white dark:border-zinc-900 dark:bg-zinc-900"
+                            : "border-zinc-300 dark:border-zinc-600"
+                        }`}
+                      >
+                        {selected && (
+                          <RiCheckLine
+                            size={10}
+                            className="text-zinc-900 dark:text-zinc-100"
+                          />
+                        )}
+                      </span>
+                      {repo.name}
+                      {repo.language && (
+                        <span className="text-[10px] text-zinc-400 font-normal">
+                          {repo.language}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+                {repos.length === 0 && (
+                  <p className="text-sm text-zinc-400">No repositories found.</p>
+                )}
+              </div>
             )}
-          </button>
-        </div>
-      )}
+          </div>
 
-      {/* Step 2: Review & edit */}
-      {step === 2 && generated && (
-        <div className="space-y-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50 mb-1">
-                Review & edit
-              </h2>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                Charjan generated this requirement based on the{" "}
-                <span className="font-medium">{selectedProject?.name}</span> codebase. Edit
-                as needed before saving.
-              </p>
-            </div>
+          {/* Launch button */}
+          <div className="flex justify-end">
             <button
-              onClick={() => { setStep(1); setGenerateError(""); }}
-              className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              onClick={launchSession}
+              disabled={launching || selectedRepos.length === 0}
+              className="inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
             >
-              <RiArrowLeftLine size={14} />
-              Back
+              {launching ? (
+                <RiLoader4Line className="animate-spin" size={16} />
+              ) : (
+                <RiSparklingLine size={16} />
+              )}
+              {sessionLaunched ? "Relaunch AI Builder" : "Launch AI Builder"}
             </button>
           </div>
 
-          <div className="space-y-4">
+          {launchError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
+              {launchError}
+            </div>
+          )}
+
+          {/* Charjan iframe */}
+          {sessionLaunched && (
+            <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+              <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 px-4 py-2.5">
+                <div className="flex items-center gap-2">
+                  <RiSparklingLine size={14} className="text-zinc-500" />
+                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    AI Requirement Builder
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    setIframeLoadFailed(false);
+                    setIframeKey((k) => k + 1);
+                  }}
+                  className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
+                >
+                  <RiRefreshLine size={13} />
+                  Reload
+                </button>
+              </div>
+
+              {iframeLoadFailed ? (
+                <div className="flex flex-col items-center justify-center h-[600px] gap-4 text-center px-8">
+                  <RiAlertLine size={32} className="text-amber-400" />
+                  <div>
+                    <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                      Could not load the AI builder
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Make sure your charjan instance is reachable.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setIframeLoadFailed(false);
+                      setIframeKey((k) => k + 1);
+                    }}
+                    className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  >
+                    <RiRefreshLine size={14} />
+                    Try Again
+                  </button>
+                </div>
+              ) : (
+                <iframe
+                  key={iframeKey}
+                  ref={iframeRef}
+                  src={iframeSrc}
+                  onError={() => setIframeLoadFailed(true)}
+                  className="w-full border-0"
+                  style={{ height: "600px" }}
+                  allow="clipboard-read; clipboard-write"
+                  title="AI Requirement Builder"
+                />
+              )}
+            </div>
+          )}
+
+          {/* Manual next */}
+          <div className="flex justify-end">
+            <button
+              onClick={() => setStep(2)}
+              className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 px-5 py-2.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            >
+              Next: Publish
+              <RiArrowRightLine size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Step 2: Review & publish ── */}
+      {step === 2 && (
+        <div className="space-y-5">
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-6 space-y-4">
+            <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-400">
+              Requirement Details
+            </h2>
+
             <div>
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-                Title
+                Title <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-zinc-500"
+                value={draft.title}
+                onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                placeholder="Requirement title"
+                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-                Description
+                Description <span className="text-red-500">*</span>
               </label>
               <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={8}
-                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-zinc-500 resize-y"
+                value={draft.description}
+                onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                rows={6}
+                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 resize-y"
               />
             </div>
 
@@ -292,11 +407,11 @@ export function RequirementBuilderForm({ projects }: { projects: Project[] }) {
                 Acceptance Criteria
               </label>
               <textarea
-                value={acceptanceCriteria}
-                onChange={(e) => setAcceptanceCriteria(e.target.value)}
-                rows={6}
-                placeholder="- [ ] Criterion 1&#10;- [ ] Criterion 2"
-                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-mono text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-zinc-500 resize-y"
+                value={draft.acceptanceCriteria}
+                onChange={(e) => setDraft({ ...draft, acceptanceCriteria: e.target.value })}
+                rows={4}
+                placeholder="- [ ] Given… When… Then…"
+                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-mono text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 resize-y"
               />
             </div>
 
@@ -304,59 +419,40 @@ export function RequirementBuilderForm({ projects }: { projects: Project[] }) {
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
                 Priority
               </label>
-              <div className="flex gap-2">
-                {PRIORITIES.map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setPriority(p)}
-                    className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize transition-colors ${
-                      priority === p
-                        ? priorityActiveClass(p)
-                        : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
-                    }`}
+              <select
+                value={draft.priority}
+                onChange={(e) =>
+                  setDraft({ ...draft, priority: e.target.value as Draft["priority"] })
+                }
+                className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Selected repos summary */}
+          {selectedRepos.length > 0 && (
+            <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-5 py-4">
+              <p className="text-xs font-bold uppercase tracking-widest text-zinc-400 mb-3">
+                Saving to
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {selectedRepos.map((r) => (
+                  <span
+                    key={r}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300"
                   >
-                    {p}
-                  </button>
+                    <RiFolderLine size={13} className="text-zinc-400" />
+                    {r.split("/")[1]}
+                  </span>
                 ))}
               </div>
             </div>
-
-            {/* Citations */}
-            {generated.charjanContext.citations.length > 0 && (
-              <div className="rounded-lg border border-zinc-200 dark:border-zinc-700">
-                <button
-                  onClick={() => setCitationsOpen((o) => !o)}
-                  className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/50"
-                >
-                  <span className="flex items-center gap-2">
-                    <RiInformationLine size={15} className="text-zinc-400" />
-                    Sources ({generated.charjanContext.citations.length} from codebase)
-                  </span>
-                  <RiArrowRightLine
-                    size={14}
-                    className={`text-zinc-400 transition-transform ${citationsOpen ? "rotate-90" : ""}`}
-                  />
-                </button>
-                {citationsOpen && (
-                  <div className="border-t border-zinc-200 dark:border-zinc-700 divide-y divide-zinc-100 dark:divide-zinc-800">
-                    {generated.charjanContext.citations.map((c) => (
-                      <div key={c.id} className="px-4 py-3">
-                        <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                          {c.title}
-                          <span className="ml-2 font-normal text-zinc-400">
-                            {Math.round(c.relevance_score * 100)}% match
-                          </span>
-                        </p>
-                        <p className="text-xs text-zinc-500 dark:text-zinc-400 line-clamp-3">
-                          {c.snippet}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          )}
 
           {saveError && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
@@ -364,89 +460,36 @@ export function RequirementBuilderForm({ projects }: { projects: Project[] }) {
             </div>
           )}
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between">
             <button
-              onClick={() => handleSave("published")}
-              disabled={!title.trim() || !description.trim() || saving}
-              className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              onClick={() => setStep(1)}
+              className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 px-5 py-2.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
             >
-              {saving ? (
-                <RiLoader4Line className="animate-spin" size={16} />
-              ) : (
-                <RiArrowRightLine size={16} />
-              )}
-              Publish
+              <RiArrowLeftLine size={14} />
+              Back
             </button>
-            <button
-              onClick={() => handleSave("draft")}
-              disabled={!title.trim() || !description.trim() || saving}
-              className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-5 py-2.5 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            >
-              Save as Draft
-            </button>
-            <button
-              onClick={handleGenerate}
-              disabled={generating}
-              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-xs font-medium text-zinc-500 hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-800"
-            >
-              <RiSparklingLine size={13} />
-              Regenerate
-            </button>
-          </div>
-        </div>
-      )}
 
-      {/* Step 3: Done */}
-      {step === 3 && (
-        <div className="flex flex-col items-center justify-center py-16 text-center gap-6">
-          <div className="flex size-16 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
-            <RiCheckLine size={32} className="text-emerald-600 dark:text-emerald-400" />
-          </div>
-          <div>
-            <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50 mb-2">
-              Requirement saved
-            </h2>
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              Your requirement has been saved and is ready to hand to developers.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => router.push("/requirements")}
-              className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-            >
-              <RiFileList3Line size={16} />
-              View all requirements
-            </button>
-            <button
-              onClick={() => {
-                setStep(1);
-                setRoughIdea("");
-                setSelectedProjectId("");
-                setGenerated(null);
-                setSavedId("");
-              }}
-              className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-5 py-2.5 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            >
-              <RiSparklingLine size={16} />
-              Build another
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => saveRequirement("draft")}
+                disabled={!draft.title || !draft.description || saving || selectedRepos.length === 0}
+                className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-5 py-2.5 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+              >
+                {saving ? <RiLoader4Line className="animate-spin" size={15} /> : null}
+                Save as Draft
+              </button>
+              <button
+                onClick={() => saveRequirement("published")}
+                disabled={!draft.title || !draft.description || saving || selectedRepos.length === 0}
+                className="inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              >
+                {saving ? <RiLoader4Line className="animate-spin" size={15} /> : <RiCheckLine size={15} />}
+                Publish
+              </button>
+            </div>
           </div>
         </div>
       )}
     </div>
   );
-}
-
-function priorityActiveClass(p: Priority): string {
-  switch (p) {
-    case "low":
-      return "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400";
-    case "medium":
-      return "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400";
-    case "high":
-      return "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400";
-    case "critical":
-      return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
-  }
 }
