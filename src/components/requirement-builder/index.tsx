@@ -11,7 +11,22 @@ import {
   RiRefreshLine,
   RiAlertLine,
   RiFolderLine,
+  RiGoogleLine,
 } from "@remixicon/react";
+
+const SALESCODE_TOKEN_KEY = "salescode_access_token";
+const SALESCODE_TOKEN_EXPIRY_KEY = "salescode_token_expiry";
+
+function getSalescodeToken(): string | null {
+  if (typeof window === "undefined") return null;
+  const expiry = sessionStorage.getItem(SALESCODE_TOKEN_EXPIRY_KEY);
+  if (expiry && Date.now() >= parseInt(expiry)) {
+    sessionStorage.removeItem(SALESCODE_TOKEN_KEY);
+    sessionStorage.removeItem(SALESCODE_TOKEN_EXPIRY_KEY);
+    return null;
+  }
+  return sessionStorage.getItem(SALESCODE_TOKEN_KEY);
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -36,12 +51,13 @@ const FALLBACK_AI_URL = "http://localhost:3000/agents";
 
 export function RequirementBuilderForm() {
   const router = useRouter();
+  const [salescodeToken, setSalescodeToken] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
 
   // Repos
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
   const [reposLoading, setReposLoading] = useState(true);
-  const [selectedRepos, setSelectedRepos] = useState<string[]>([]); // fullNames
+  const [selectedRepo, setSelectedRepo] = useState(""); // fullName
 
   // Session launch
   const [launching, setLaunching] = useState(false);
@@ -63,6 +79,11 @@ export function RequirementBuilderForm() {
   });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+
+  // ── Read Salescode token from sessionStorage ───────────────────────────────
+  useEffect(() => {
+    setSalescodeToken(getSalescodeToken());
+  }, []);
 
   // ── Fetch GitHub repos ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -95,19 +116,29 @@ export function RequirementBuilderForm() {
 
   // ── Launch AI session ──────────────────────────────────────────────────────
   const launchSession = useCallback(async () => {
-    if (selectedRepos.length === 0) return;
+    if (!selectedRepo) return;
     setLaunching(true);
     setLaunchError("");
 
     try {
+      const token = getSalescodeToken();
+      if (!token) {
+        window.location.href = `/api/auth/salescode/initiate?redirectBack=${encodeURIComponent(window.location.pathname)}`;
+        return;
+      }
+
       const res = await fetch("/api/ai-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo_names: selectedRepos }),
+        body: JSON.stringify({ repo_names: [selectedRepo], access_token: token }),
       });
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
+        if (err.error === "SALESCODE_AUTH_REQUIRED") {
+          window.location.href = `/api/auth/salescode/initiate?redirectBack=${encodeURIComponent(window.location.pathname)}`;
+          return;
+        }
         setLaunchError(err.error ?? `Failed to launch (${res.status})`);
         return;
       }
@@ -131,7 +162,7 @@ export function RequirementBuilderForm() {
     } finally {
       setLaunching(false);
     }
-  }, [selectedRepos]);
+  }, [selectedRepo]);
 
   // ── Save requirement ───────────────────────────────────────────────────────
   const saveRequirement = useCallback(
@@ -140,26 +171,23 @@ export function RequirementBuilderForm() {
       setSaveError("");
 
       try {
-        // Save one requirement per selected repo
-        for (const fullName of selectedRepos) {
-          const res = await fetch("/api/requirements", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              githubRepoName: fullName,
-              title: draft.title || "Untitled Requirement",
-              description: draft.description,
-              acceptanceCriteria: draft.acceptanceCriteria || undefined,
-              priority: draft.priority,
-              status,
-            }),
-          });
+        const res = await fetch("/api/requirements", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            githubRepoName: selectedRepo,
+            title: draft.title || "Untitled Requirement",
+            description: draft.description,
+            acceptanceCriteria: draft.acceptanceCriteria || undefined,
+            priority: draft.priority,
+            status,
+          }),
+        });
 
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            setSaveError(err.error ?? `Save failed (${res.status})`);
-            return;
-          }
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          setSaveError(err.error ?? `Save failed (${res.status})`);
+          return;
         }
 
         router.push("/requirements");
@@ -169,13 +197,8 @@ export function RequirementBuilderForm() {
         setSaving(false);
       }
     },
-    [selectedRepos, draft, router]
+    [selectedRepo, draft, router]
   );
-
-  const toggleRepo = (fullName: string) =>
-    setSelectedRepos((prev) =>
-      prev.includes(fullName) ? prev.filter((r) => r !== fullName) : [...prev, fullName]
-    );
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
@@ -219,12 +242,10 @@ export function RequirementBuilderForm() {
         <div className="space-y-5">
           {/* Repo selector */}
           <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 space-y-4">
-            <div className="flex items-center gap-2">
-              <RiFolderLine size={16} className="text-zinc-400" />
-              <span className="text-xs font-bold uppercase tracking-widest text-zinc-400">
-                Select Repositories
-              </span>
-            </div>
+            <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-zinc-400">
+              <RiFolderLine size={16} />
+              Repository
+            </label>
 
             {reposLoading ? (
               <div className="flex items-center gap-2 text-sm text-zinc-400">
@@ -232,54 +253,44 @@ export function RequirementBuilderForm() {
                 Loading repos…
               </div>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                {repos.map((repo) => {
-                  const selected = selectedRepos.includes(repo.fullName);
-                  return (
-                    <button
-                      key={repo.id}
-                      onClick={() => toggleRepo(repo.fullName)}
-                      className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
-                        selected
-                          ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
-                          : "border-zinc-200 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-500"
-                      }`}
-                    >
-                      <span
-                        className={`flex size-4 shrink-0 items-center justify-center rounded border transition-colors ${
-                          selected
-                            ? "border-white bg-white dark:border-zinc-900 dark:bg-zinc-900"
-                            : "border-zinc-300 dark:border-zinc-600"
-                        }`}
-                      >
-                        {selected && (
-                          <RiCheckLine
-                            size={10}
-                            className="text-zinc-900 dark:text-zinc-100"
-                          />
-                        )}
-                      </span>
-                      {repo.name}
-                      {repo.language && (
-                        <span className="text-[10px] text-zinc-400 font-normal">
-                          {repo.language}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-                {repos.length === 0 && (
-                  <p className="text-sm text-zinc-400">No repositories found.</p>
-                )}
-              </div>
+              <select
+                value={selectedRepo}
+                onChange={(e) => setSelectedRepo(e.target.value)}
+                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-zinc-500"
+              >
+                <option value="">Select a repository…</option>
+                {repos.map((repo) => (
+                  <option key={repo.id} value={repo.fullName}>
+                    {repo.name}{repo.language ? ` (${repo.language})` : ""}
+                  </option>
+                ))}
+              </select>
             )}
           </div>
+
+          {/* Salescode auth banner — shown until a valid dev-auth token is present */}
+          {!salescodeToken && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20 px-5 py-4 flex items-center justify-between gap-4">
+              <p className="text-sm text-amber-800 dark:text-amber-300">
+                Sign in with your Salescode Google account to launch the AI Builder.
+              </p>
+              <button
+                onClick={() => {
+                  window.location.href = `/api/auth/salescode/initiate?redirectBack=${encodeURIComponent(window.location.pathname)}`;
+                }}
+                className="inline-flex items-center gap-2 rounded-lg bg-white border border-amber-300 px-4 py-2 text-sm font-medium text-amber-900 shadow-sm hover:bg-amber-50 dark:bg-zinc-900 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-zinc-800 shrink-0"
+              >
+                <RiGoogleLine size={15} />
+                Sign in with Google
+              </button>
+            </div>
+          )}
 
           {/* Launch button */}
           <div className="flex justify-end">
             <button
               onClick={launchSession}
-              disabled={launching || selectedRepos.length === 0}
+              disabled={launching || !selectedRepo || !salescodeToken}
               className="inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
             >
               {launching ? (
@@ -434,23 +445,16 @@ export function RequirementBuilderForm() {
             </div>
           </div>
 
-          {/* Selected repos summary */}
-          {selectedRepos.length > 0 && (
+          {/* Selected repo summary */}
+          {selectedRepo && (
             <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-5 py-4">
-              <p className="text-xs font-bold uppercase tracking-widest text-zinc-400 mb-3">
+              <p className="text-xs font-bold uppercase tracking-widest text-zinc-400 mb-2">
                 Saving to
               </p>
-              <div className="flex flex-wrap gap-2">
-                {selectedRepos.map((r) => (
-                  <span
-                    key={r}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300"
-                  >
-                    <RiFolderLine size={13} className="text-zinc-400" />
-                    {r.split("/")[1]}
-                  </span>
-                ))}
-              </div>
+              <span className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                <RiFolderLine size={13} className="text-zinc-400" />
+                {selectedRepo}
+              </span>
             </div>
           )}
 
@@ -472,7 +476,7 @@ export function RequirementBuilderForm() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => saveRequirement("draft")}
-                disabled={!draft.title || !draft.description || saving || selectedRepos.length === 0}
+                disabled={!draft.title || !draft.description || saving || !selectedRepo}
                 className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-5 py-2.5 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
               >
                 {saving ? <RiLoader4Line className="animate-spin" size={15} /> : null}
@@ -480,7 +484,7 @@ export function RequirementBuilderForm() {
               </button>
               <button
                 onClick={() => saveRequirement("published")}
-                disabled={!draft.title || !draft.description || saving || selectedRepos.length === 0}
+                disabled={!draft.title || !draft.description || saving || !selectedRepo}
                 className="inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
                 {saving ? <RiLoader4Line className="animate-spin" size={15} /> : <RiCheckLine size={15} />}
