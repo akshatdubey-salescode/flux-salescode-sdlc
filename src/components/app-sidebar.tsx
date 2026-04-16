@@ -51,7 +51,7 @@ type Props = {
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/home", icon: RiHome3Line },
-  { label: "Requirements", href: "/requirements", icon: RiFileList3Line },
+  { label: "Requirement Builder", href: "/requirements", icon: RiFileList3Line },
   { label: "My Tasks", href: "/my-tasks", icon: RiTaskLine },
   { label: "Search", href: "/search", icon: RiSearchLine },
   { label: "All Projects", href: "/projects", icon: RiBriefcaseLine },

@@ -12,7 +12,11 @@ import {
   RiAlertLine,
   RiFolderLine,
   RiGoogleLine,
+  RiArrowDownSLine,
+  RiCloseLine,
 } from "@remixicon/react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 const SALESCODE_TOKEN_KEY = "salescode_access_token";
 const SALESCODE_TOKEN_EXPIRY_KEY = "salescode_token_expiry";
@@ -57,7 +61,7 @@ export function RequirementBuilderForm() {
   // Repos
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
   const [reposLoading, setReposLoading] = useState(true);
-  const [selectedRepo, setSelectedRepo] = useState(""); // fullName
+  const [selectedRepos, setSelectedRepos] = useState<string[]>([]); // fullNames
 
   // Session launch
   const [launching, setLaunching] = useState(false);
@@ -116,7 +120,7 @@ export function RequirementBuilderForm() {
 
   // ── Launch AI session ──────────────────────────────────────────────────────
   const launchSession = useCallback(async () => {
-    if (!selectedRepo) return;
+    if (selectedRepos.length === 0) return;
     setLaunching(true);
     setLaunchError("");
 
@@ -130,7 +134,7 @@ export function RequirementBuilderForm() {
       const res = await fetch("/api/ai-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo_names: [selectedRepo], access_token: token }),
+        body: JSON.stringify({ repo_names: selectedRepos, access_token: token }),
       });
 
       if (!res.ok) {
@@ -162,7 +166,7 @@ export function RequirementBuilderForm() {
     } finally {
       setLaunching(false);
     }
-  }, [selectedRepo]);
+  }, [selectedRepos]);
 
   // ── Save requirement ───────────────────────────────────────────────────────
   const saveRequirement = useCallback(
@@ -175,7 +179,7 @@ export function RequirementBuilderForm() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            githubRepoName: selectedRepo,
+            githubRepoName: selectedRepos[0] || "",
             title: draft.title || "Untitled Requirement",
             description: draft.description,
             acceptanceCriteria: draft.acceptanceCriteria || undefined,
@@ -197,7 +201,7 @@ export function RequirementBuilderForm() {
         setSaving(false);
       }
     },
-    [selectedRepo, draft, router]
+    [selectedRepos, draft, router]
   );
 
   // ─── Render ────────────────────────────────────────────────────────────────
@@ -253,18 +257,15 @@ export function RequirementBuilderForm() {
                 Loading repos…
               </div>
             ) : (
-              <select
-                value={selectedRepo}
-                onChange={(e) => setSelectedRepo(e.target.value)}
-                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-zinc-500"
-              >
-                <option value="">Select a repository…</option>
-                {repos.map((repo) => (
-                  <option key={repo.id} value={repo.fullName}>
-                    {repo.name}{repo.language ? ` (${repo.language})` : ""}
-                  </option>
-                ))}
-              </select>
+              <MultiSelect
+                label="Select Repositories"
+                options={repos.map((repo) => ({
+                  value: repo.fullName,
+                  label: `${repo.name}${repo.language ? ` (${repo.language})` : ""}`,
+                }))}
+                selected={selectedRepos}
+                onChange={setSelectedRepos}
+              />
             )}
           </div>
 
@@ -290,7 +291,7 @@ export function RequirementBuilderForm() {
           <div className="flex justify-end">
             <button
               onClick={launchSession}
-              disabled={launching || !selectedRepo || !salescodeToken}
+              disabled={launching || selectedRepos.length === 0 || !salescodeToken}
               className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {launching ? (
@@ -446,15 +447,27 @@ export function RequirementBuilderForm() {
           </div>
 
           {/* Selected repo summary */}
-          {selectedRepo && (
+          {selectedRepos.length > 0 && (
             <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-5 py-4">
               <p className="text-xs font-bold uppercase tracking-widest text-zinc-400 mb-2">
                 Saving to
               </p>
-              <span className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                <RiFolderLine size={13} className="text-zinc-400" />
-                {selectedRepo}
-              </span>
+              <div className="flex flex-wrap gap-2">
+                {selectedRepos.map((repo) => (
+                  <span
+                    key={repo}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300"
+                  >
+                    <RiFolderLine size={13} className="text-zinc-400" />
+                    {repo}
+                  </span>
+                ))}
+              </div>
+              {selectedRepos.length > 1 && (
+                <p className="mt-2 text-[10px] text-zinc-500">
+                  Note: The requirement will be associated with {selectedRepos[0]} in the database.
+                </p>
+              )}
             </div>
           )}
 
@@ -476,7 +489,7 @@ export function RequirementBuilderForm() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => saveRequirement("draft")}
-                disabled={!draft.title || !draft.description || saving || !selectedRepo}
+                disabled={!draft.title || !draft.description || saving || selectedRepos.length === 0}
                 className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-5 py-2.5 text-sm font-semibold text-foreground shadow-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving ? <RiLoader4Line className="animate-spin" size={15} /> : null}
@@ -484,7 +497,7 @@ export function RequirementBuilderForm() {
               </button>
               <button
                 onClick={() => saveRequirement("published")}
-                disabled={!draft.title || !draft.description || saving || !selectedRepo}
+                disabled={!draft.title || !draft.description || saving || selectedRepos.length === 0}
                 className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving ? <RiLoader4Line className="animate-spin" size={15} /> : <RiCheckLine size={15} />}
@@ -495,5 +508,109 @@ export function RequirementBuilderForm() {
         </div>
       )}
     </div>
+  );
+}
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+function MultiSelect({
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  selected: string[];
+  onChange: (values: string[]) => void;
+}) {
+  function toggle(value: string) {
+    if (selected.includes(value)) {
+      onChange(selected.filter((v) => v !== value));
+    } else {
+      onChange([...selected, value]);
+    }
+  }
+
+  const hasSelection = selected.length > 0;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          className={cn(
+            "flex w-full min-h-[42px] items-center justify-between gap-2 rounded-xl border px-4 py-2 text-sm transition-all",
+            hasSelection
+              ? "border-primary bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-50 shadow-sm"
+              : "border-zinc-200 bg-white text-zinc-500 hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:border-zinc-600"
+          )}
+        >
+          <div className="flex flex-wrap gap-1.5 items-center">
+            {!hasSelection && label}
+            {selected.map((val) => {
+              const opt = options.find((o) => o.value === val);
+              return (
+                <span
+                  key={val}
+                  className="inline-flex items-center gap-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 px-2 py-1 text-xs font-medium text-zinc-700 dark:text-zinc-300"
+                >
+                  {opt?.label || val}
+                  <RiCloseLine
+                    className="size-3 cursor-pointer hover:text-red-500"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggle(val);
+                    }}
+                  />
+                </span>
+              );
+            })}
+          </div>
+          <RiArrowDownSLine className="size-4 opacity-50 shrink-0" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[400px] p-0" sideOffset={8}>
+        <div className="max-h-80 overflow-y-auto py-2">
+          {options.length === 0 ? (
+            <p className="px-4 py-8 text-center text-sm text-zinc-400">
+              No repositories found
+            </p>
+          ) : (
+            options.map((opt) => (
+              <label
+                key={opt.value}
+                className="flex cursor-pointer items-center gap-3 px-4 py-2.5 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.includes(opt.value)}
+                  onChange={() => toggle(opt.value)}
+                  className="size-4 rounded border-zinc-300 bg-white text-primary focus:ring-primary dark:border-zinc-700 dark:bg-zinc-900"
+                />
+                <span className="flex-1 truncate text-zinc-700 dark:text-zinc-300">
+                  {opt.label}
+                </span>
+                {selected.includes(opt.value) && (
+                  <RiCheckLine size={16} className="text-primary" />
+                )}
+              </label>
+            ))
+          )}
+        </div>
+        {hasSelection && (
+          <div className="border-t border-zinc-100 dark:border-zinc-800 px-4 py-2 flex justify-between">
+            <button
+              onClick={() => onChange([])}
+              className="text-xs font-medium text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+            >
+              Clear all
+            </button>
+            <p className="text-[10px] text-zinc-400 flex items-center">
+              {selected.length} selected
+            </p>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
