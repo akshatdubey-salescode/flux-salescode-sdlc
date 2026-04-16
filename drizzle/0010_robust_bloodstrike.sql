@@ -1,0 +1,1 @@
+ALTER TABLE "user_integrations" ADD COLUMN "atlassian_cloud_id" text;

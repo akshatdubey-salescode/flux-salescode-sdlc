@@ -93,7 +93,7 @@ export function AtlassianIntegrationCard() {
           </div>
         ) : (
           <a
-            href="/api/auth/atlassian/initiate?redirectBack=/settings"
+            href="/api/atlassian/connect?redirectBack=/settings"
             className="inline-flex items-center gap-2 rounded-lg bg-[#0052CC] hover:bg-[#0747A6] px-4 py-2 text-sm font-semibold text-white transition-colors"
           >
             <RiExternalLinkLine size={14} />

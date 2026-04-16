@@ -9,6 +9,7 @@ const isPublicRoute = createRouteMatcher([
   "/unauthorized",
   "/privacy",
   "/terms",
+  "/api/atlassian/callback",
   "/api/webhooks(.*)",
   "/api/cron(.*)",
 ]);

@@ -6,9 +6,13 @@ import { encrypt, decrypt } from "@/lib/crypto";
 const ATLASSIAN_AUTH_URL = "https://auth.atlassian.com/authorize";
 const ATLASSIAN_TOKEN_URL = "https://auth.atlassian.com/oauth/token";
 const ATLASSIAN_ME_URL = "https://api.atlassian.com/me";
+const ATLASSIAN_RESOURCES_URL = "https://api.atlassian.com/oauth/token/accessible-resources";
 
-// Scopes: create issues + read user identity + offline access for refresh tokens
-const SCOPES = "read:jira-user write:jira-work offline_access";
+// read:me      — required for /me endpoint (accountId, email)
+// read:jira-user — view Jira user info
+// write:jira-work — create/edit issues
+// offline_access — get a refresh token
+const SCOPES = "read:me read:jira-user write:jira-work offline_access";
 
 function clientId(): string {
   const id = process.env.ATLASSIAN_CLIENT_ID;
@@ -25,7 +29,7 @@ function clientSecret(): string {
 function callbackUrl(): string {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
   if (!appUrl) throw new Error("NEXT_PUBLIC_APP_URL is not set");
-  return `${appUrl}/api/auth/atlassian/callback`;
+  return `${appUrl}/api/atlassian/callback`;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +83,8 @@ export async function exchangeCode(code: string): Promise<TokenResponse> {
 
 // ---------------------------------------------------------------------------
 // Refresh an access token using the stored refresh token
+// Atlassian uses rotating refresh tokens — the old token is immediately
+// invalidated; always persist the new one from the response.
 // ---------------------------------------------------------------------------
 
 async function refreshAccessToken(encryptedRefreshToken: string): Promise<TokenResponse> {
@@ -105,6 +111,7 @@ async function refreshAccessToken(encryptedRefreshToken: string): Promise<TokenR
 
 // ---------------------------------------------------------------------------
 // Fetch Atlassian user identity with an access token
+// Requires read:me scope.
 // ---------------------------------------------------------------------------
 
 export type AtlassianIdentity = {
@@ -126,6 +133,33 @@ export async function getAtlassianIdentity(accessToken: string): Promise<Atlassi
 }
 
 // ---------------------------------------------------------------------------
+// Fetch the list of Atlassian cloud sites the user has access to.
+// Returns the cloudId needed to call:
+//   https://api.atlassian.com/ex/jira/{cloudId}/rest/api/3/...
+// OAuth tokens CANNOT be used against org.atlassian.net directly —
+// they must go through api.atlassian.com with the cloudId.
+// ---------------------------------------------------------------------------
+
+export type AtlassianResource = {
+  id: string;       // cloudId
+  name: string;     // org display name
+  url: string;      // e.g. https://your-org.atlassian.net
+  scopes: string[];
+};
+
+export async function getAccessibleResources(accessToken: string): Promise<AtlassianResource[]> {
+  const res = await fetch(ATLASSIAN_RESOURCES_URL, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch Atlassian accessible resources (${res.status})`);
+  }
+
+  return res.json() as Promise<AtlassianResource[]>;
+}
+
+// ---------------------------------------------------------------------------
 // Persist tokens for a user (upsert)
 // ---------------------------------------------------------------------------
 
@@ -136,6 +170,7 @@ export async function saveIntegration(params: {
   expiresIn: number; // seconds
   accountId: string;
   email: string;
+  cloudId: string;
 }): Promise<void> {
   const tokenExpiresAt = new Date(Date.now() + params.expiresIn * 1000);
 
@@ -149,6 +184,7 @@ export async function saveIntegration(params: {
       tokenExpiresAt,
       atlassianAccountId: params.accountId,
       atlassianEmail: params.email,
+      atlassianCloudId: params.cloudId,
     })
     .onConflictDoUpdate({
       target: [userIntegrations.userId, userIntegrations.provider],
@@ -158,17 +194,26 @@ export async function saveIntegration(params: {
         tokenExpiresAt,
         atlassianAccountId: params.accountId,
         atlassianEmail: params.email,
+        atlassianCloudId: params.cloudId,
         updatedAt: new Date(),
       },
     });
 }
 
 // ---------------------------------------------------------------------------
-// Get a valid (non-expired) access token for a user, auto-refreshing if needed
+// Get a valid (non-expired) access token + cloudId for a user.
+// Auto-refreshes the access token if expired (rotating refresh tokens —
+// the new refresh token is always persisted immediately).
 // Returns null if the user has no Atlassian integration or refresh fails.
 // ---------------------------------------------------------------------------
 
-export async function getValidAccessToken(userId: string): Promise<string | null> {
+export type AtlassianCredentials = {
+  accessToken: string;
+  cloudId: string;
+  accountId: string;
+};
+
+export async function getValidCredentials(userId: string): Promise<AtlassianCredentials | null> {
   const [row] = await db
     .select()
     .from(userIntegrations)
@@ -180,7 +225,7 @@ export async function getValidAccessToken(userId: string): Promise<string | null
     )
     .limit(1);
 
-  if (!row) return null;
+  if (!row || !row.atlassianCloudId || !row.atlassianAccountId) return null;
 
   // Check if the token is still valid (with 60s buffer)
   const isExpired =
@@ -188,7 +233,11 @@ export async function getValidAccessToken(userId: string): Promise<string | null
     row.tokenExpiresAt.getTime() - 60_000 < Date.now();
 
   if (!isExpired) {
-    return decrypt(row.accessToken);
+    return {
+      accessToken: decrypt(row.accessToken),
+      cloudId: row.atlassianCloudId,
+      accountId: row.atlassianAccountId,
+    };
   }
 
   // Token expired — try to refresh
@@ -198,6 +247,7 @@ export async function getValidAccessToken(userId: string): Promise<string | null
     const refreshed = await refreshAccessToken(row.refreshToken);
     const tokenExpiresAt = new Date(Date.now() + refreshed.expires_in * 1000);
 
+    // Always persist the new refresh token — Atlassian rotates them on each use
     await db
       .update(userIntegrations)
       .set({
@@ -215,7 +265,11 @@ export async function getValidAccessToken(userId: string): Promise<string | null
         )
       );
 
-    return refreshed.access_token;
+    return {
+      accessToken: refreshed.access_token,
+      cloudId: row.atlassianCloudId,
+      accountId: row.atlassianAccountId,
+    };
   } catch (err) {
     console.error("[atlassian-oauth] Token refresh failed:", err);
     return null;

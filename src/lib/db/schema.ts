@@ -426,6 +426,9 @@ export const userIntegrations = pgTable(
     // Provider-specific identity fields (Atlassian account ID + email)
     atlassianAccountId: text("atlassian_account_id"),
     atlassianEmail: text("atlassian_email"),
+    // Atlassian cloud instance ID — needed to build the correct API URL:
+    // https://api.atlassian.com/ex/jira/{cloudId}/rest/api/3/...
+    atlassianCloudId: text("atlassian_cloud_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
