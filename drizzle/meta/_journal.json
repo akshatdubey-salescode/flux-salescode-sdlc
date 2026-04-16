@@ -78,6 +78,13 @@
       "when": 1776336296124,
       "tag": "0010_robust_bloodstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1776337511924,
+      "tag": "0011_clear_khan",
+      "breakpoints": true
     }
   ]
 }

@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { requirements } from "@/lib/db/schema";
+import { requirements, jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { cn } from "@/lib/utils";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -19,7 +19,9 @@ import {
   RiCalendarLine,
   RiArrowLeftLine,
   RiSparklingLine,
+  RiBriefcaseLine,
 } from "@remixicon/react";
+import { PublishToJiraButton } from "./publish-to-jira-button";
 
 const PRIORITY_STYLES: Record<string, string> = {
   low: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400",
@@ -56,6 +58,12 @@ export default async function RequirementDetailPage(props: {
     .limit(1);
 
   if (!req || req.createdBy !== user.id) notFound();
+
+  const [project] = await db
+    .select({ name: jiraProjects.name, jiraBaseUrl: jiraProjects.jiraBaseUrl })
+    .from(jiraProjects)
+    .where(eq(jiraProjects.id, req.jiraProjectId))
+    .limit(1);
 
   return (
     <div className="flex flex-col min-h-svh">
@@ -111,6 +119,12 @@ export default async function RequirementDetailPage(props: {
             </h1>
 
             <div className="flex flex-wrap items-center gap-4 text-xs text-zinc-500 dark:text-zinc-400">
+              {project && (
+                <span className="inline-flex items-center gap-1.5">
+                  <RiBriefcaseLine size={13} />
+                  {project.name}
+                </span>
+              )}
               <span className="inline-flex items-center gap-1.5">
                 <RiGitRepositoryLine size={13} />
                 <span className="font-mono">{req.githubRepoName}</span>
@@ -120,6 +134,23 @@ export default async function RequirementDetailPage(props: {
                 {formatDate(req.createdAt)}
               </span>
             </div>
+          </div>
+
+          {/* Publish to Jira */}
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-5 py-4">
+            <div>
+              <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Jira</p>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                {req.jiraIssueKey
+                  ? "This requirement has been published to Jira."
+                  : "Create a Jira issue from this requirement using your connected Atlassian account."}
+              </p>
+            </div>
+            <PublishToJiraButton
+              requirementId={req.id}
+              existingIssueKey={req.jiraIssueKey ?? null}
+              jiraBaseUrl={project?.jiraBaseUrl ?? ""}
+            />
           </div>
 
           <hr className="border-zinc-200 dark:border-zinc-800" />

@@ -467,6 +467,8 @@ export const requirements = pgTable(
     status: text("status", { enum: ["draft", "published"] })
       .notNull()
       .default("draft"),
+    // Set once the requirement has been published to Jira, e.g. "SC-123"
+    jiraIssueKey: text("jira_issue_key"),
     // Citations and synthesis from charjan stored for audit/reference
     charjanContext: jsonb("charjan_context").$type<{
       answer: string;

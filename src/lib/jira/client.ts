@@ -201,6 +201,82 @@ export class JiraClient {
   }
 
   /**
+   * Returns priorities available in this Jira instance.
+   * Endpoint: GET /rest/api/3/priority
+   */
+  async fetchPriorities(): Promise<Array<{ id: string; name: string; iconUrl: string }>> {
+    const res = await this.get(`${this.baseUrl}/rest/api/3/priority`);
+    if (!res.ok) return [];
+    const data = (await res.json()) as Array<{
+      id: string;
+      name: string;
+      iconUrl: string;
+    }>;
+    return (Array.isArray(data) ? data : []).map(({ id, name, iconUrl }) => ({
+      id,
+      name,
+      iconUrl,
+    }));
+  }
+
+  /**
+   * Returns non-subtask issue types available in a project.
+   * Reuses the project endpoint since it already includes issueTypes.
+   */
+  async fetchIssueTypes(
+    projectKey: string
+  ): Promise<Array<{ id: string; name: string; description: string; iconUrl: string }>> {
+    const res = await this.get(
+      `${this.baseUrl}/rest/api/3/project/${encodeURIComponent(projectKey)}`
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(
+        `Failed to fetch issue types for "${projectKey}" (${res.status}): ${body}`
+      );
+    }
+    const data = (await res.json()) as {
+      issueTypes?: Array<{
+        id: string;
+        name: string;
+        description: string;
+        iconUrl: string;
+        subtask: boolean;
+      }>;
+    };
+    return (data.issueTypes ?? [])
+      .filter((t) => !t.subtask)
+      .map(({ id, name, description, iconUrl }) => ({ id, name, description, iconUrl }));
+  }
+
+  /**
+   * Returns users that can be assigned to issues in a project.
+   * Endpoint: GET /rest/api/3/user/assignable/search?project={key}
+   */
+  async fetchAssignableUsers(
+    projectKey: string
+  ): Promise<Array<{ accountId: string; displayName: string; avatarUrl: string }>> {
+    const res = await this.get(
+      `${this.baseUrl}/rest/api/3/user/assignable/search` +
+      `?project=${encodeURIComponent(projectKey)}&maxResults=50`
+    );
+    if (!res.ok) {
+      // Non-fatal — return empty list if the endpoint fails
+      return [];
+    }
+    const data = (await res.json()) as Array<{
+      accountId: string;
+      displayName: string;
+      avatarUrls: Record<string, string>;
+    }>;
+    return (Array.isArray(data) ? data : []).map((u) => ({
+      accountId: u.accountId,
+      displayName: u.displayName,
+      avatarUrl: u.avatarUrls?.["24x24"] ?? "",
+    }));
+  }
+
+  /**
    * Returns deduplicated statuses across all issue types in a project.
    * Endpoint: GET /rest/api/3/project/{projectKey}/statuses
    */
