@@ -404,6 +404,42 @@ export const jiraSyncJobs = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// User Integrations — per-user OAuth tokens for external services
+// ---------------------------------------------------------------------------
+
+export const userIntegrations = pgTable(
+  "user_integrations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // e.g. "atlassian"
+    provider: text("provider").notNull(),
+    // OAuth access token — encrypted at rest
+    accessToken: text("access_token").notNull(),
+    // OAuth refresh token — encrypted at rest; nullable for providers that
+    // don't issue refresh tokens
+    refreshToken: text("refresh_token"),
+    // When the access token expires (UTC). NULL = no expiry info.
+    tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
+    // Provider-specific identity fields (Atlassian account ID + email)
+    atlassianAccountId: text("atlassian_account_id"),
+    atlassianEmail: text("atlassian_email"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("user_integrations_user_provider_idx").on(t.userId, t.provider),
+    index("user_integrations_user_idx").on(t.userId),
+  ]
+);
+
+// ---------------------------------------------------------------------------
 // Requirements — AI-generated requirements built by Business Analysts
 // ---------------------------------------------------------------------------
 
@@ -411,6 +447,10 @@ export const requirements = pgTable(
   "requirements",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    // Platform project this requirement targets (mandatory)
+    jiraProjectId: uuid("jira_project_id")
+      .notNull()
+      .references(() => jiraProjects.id, { onDelete: "restrict" }),
     // GitHub repo full name, e.g. "salescode-ai/schemes-service"
     githubRepoName: text("github_repo_name").notNull(),
     title: text("title").notNull(),
@@ -440,6 +480,7 @@ export const requirements = pgTable(
       .defaultNow(),
   },
   (t) => [
+    index("requirements_project_idx").on(t.jiraProjectId),
     index("requirements_repo_idx").on(t.githubRepoName),
     index("requirements_created_by_idx").on(t.createdBy),
     index("requirements_status_idx").on(t.status),
@@ -466,6 +507,8 @@ export type NewProjectStatusMapping =
 export type CanonicalStatus = (typeof canonicalStatusEnum.enumValues)[number];
 export type JiraSyncJob = typeof jiraSyncJobs.$inferSelect;
 export type ProjectStakeholder = typeof projectStakeholders.$inferSelect;
+export type UserIntegration = typeof userIntegrations.$inferSelect;
+export type NewUserIntegration = typeof userIntegrations.$inferInsert;
 export type Requirement = typeof requirements.$inferSelect;
 export type NewRequirement = typeof requirements.$inferInsert;
 

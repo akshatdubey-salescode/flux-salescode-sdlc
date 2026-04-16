@@ -64,6 +64,13 @@
       "when": 1776240000000,
       "tag": "0008_requirements_github_repo",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1776324595132,
+      "tag": "0009_powerful_wolfsbane",
+      "breakpoints": true
     }
   ]
 }

@@ -14,6 +14,7 @@ import {
   RiBriefcaseLine,
   RiUserSettingsLine,
   RiFileList3Line,
+  RiSettings3Line,
   RiArrowDownSLine,
   RiArrowUpSLine,
 } from "@remixicon/react";
@@ -274,6 +275,13 @@ export function AppSidebar({ user, projects }: Props) {
                     </div>
                   </div>
                 </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/settings" className="cursor-pointer">
+                    <RiSettings3Line className="size-4" />
+                    Settings
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <SignOutButton redirectUrl="/">
                   <DropdownMenuItem className="cursor-pointer text-destructive focus:text-destructive">

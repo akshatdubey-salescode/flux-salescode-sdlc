@@ -14,6 +14,7 @@ import {
   RiGoogleLine,
   RiArrowDownSLine,
   RiCloseLine,
+  RiBriefcaseLine,
 } from "@remixicon/react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -42,6 +43,12 @@ type GitHubRepo = {
   language: string;
 };
 
+type PlatformProject = {
+  id: string;
+  name: string;
+  jiraProjectKey: string;
+};
+
 type Draft = {
   title: string;
   description: string;
@@ -57,6 +64,11 @@ export function RequirementBuilderForm() {
   const router = useRouter();
   const [salescodeToken, setSalescodeToken] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
+
+  // Platform projects
+  const [platformProjects, setPlatformProjects] = useState<PlatformProject[]>([]);
+  const [platformProjectsLoading, setPlatformProjectsLoading] = useState(true);
+  const [selectedPlatformProjectId, setSelectedPlatformProjectId] = useState<string | null>(null);
 
   // Repos
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
@@ -87,6 +99,17 @@ export function RequirementBuilderForm() {
   // ── Read Salescode token from sessionStorage ───────────────────────────────
   useEffect(() => {
     setSalescodeToken(getSalescodeToken());
+  }, []);
+
+  // ── Fetch platform projects ────────────────────────────────────────────────
+  useEffect(() => {
+    fetch("/api/projects")
+      .then((r) => r.json())
+      .then((data: PlatformProject[]) => {
+        if (Array.isArray(data)) setPlatformProjects(data);
+      })
+      .catch(() => {})
+      .finally(() => setPlatformProjectsLoading(false));
   }, []);
 
   // ── Fetch GitHub repos ─────────────────────────────────────────────────────
@@ -171,6 +194,11 @@ export function RequirementBuilderForm() {
   // ── Save requirement ───────────────────────────────────────────────────────
   const saveRequirement = useCallback(
     async (status: "draft" | "published") => {
+      if (!selectedPlatformProjectId) {
+        setSaveError("Please select a platform project before saving.");
+        return;
+      }
+
       setSaving(true);
       setSaveError("");
 
@@ -179,6 +207,7 @@ export function RequirementBuilderForm() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            jiraProjectId: selectedPlatformProjectId,
             githubRepoName: selectedRepos[0] || "",
             title: draft.title || "Untitled Requirement",
             description: draft.description,
@@ -201,7 +230,7 @@ export function RequirementBuilderForm() {
         setSaving(false);
       }
     },
-    [selectedRepos, draft, router]
+    [selectedPlatformProjectId, selectedRepos, draft, router]
   );
 
   // ─── Render ────────────────────────────────────────────────────────────────
@@ -244,6 +273,38 @@ export function RequirementBuilderForm() {
       {/* ── Step 1: Select repos + iframe ── */}
       {step === 1 && (
         <div className="space-y-5">
+          {/* Platform project selector */}
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 space-y-4">
+            <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-zinc-400">
+              <RiBriefcaseLine size={16} />
+              Platform Project <span className="text-red-400 normal-case font-normal tracking-normal">required</span>
+            </label>
+
+            {platformProjectsLoading ? (
+              <div className="flex items-center gap-2 text-sm text-zinc-400">
+                <RiLoader4Line className="animate-spin" size={14} />
+                Loading projects…
+              </div>
+            ) : platformProjects.length === 0 ? (
+              <p className="text-sm text-zinc-400">
+                No platform projects found. Ask a Superuser to onboard a project first.
+              </p>
+            ) : (
+              <select
+                value={selectedPlatformProjectId ?? ""}
+                onChange={(e) => setSelectedPlatformProjectId(e.target.value || null)}
+                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+              >
+                <option value="">Select a project…</option>
+                {platformProjects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.jiraProjectKey})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
           {/* Repo selector */}
           <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 space-y-4">
             <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-zinc-400">
@@ -446,30 +507,42 @@ export function RequirementBuilderForm() {
             </div>
           </div>
 
-          {/* Selected repo summary */}
-          {selectedRepos.length > 0 && (
-            <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-5 py-4">
-              <p className="text-xs font-bold uppercase tracking-widest text-zinc-400 mb-2">
-                Saving to
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {selectedRepos.map((repo) => (
-                  <span
-                    key={repo}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300"
-                  >
-                    <RiFolderLine size={13} className="text-zinc-400" />
-                    {repo}
-                  </span>
-                ))}
+          {/* Context summary */}
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-5 py-4 space-y-3">
+            <p className="text-xs font-bold uppercase tracking-widest text-zinc-400">
+              Context
+            </p>
+            {selectedPlatformProjectId && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-zinc-500 w-20 shrink-0">Project</span>
+                <span className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary">
+                  <RiBriefcaseLine size={13} />
+                  {platformProjects.find((p) => p.id === selectedPlatformProjectId)?.name ?? selectedPlatformProjectId}
+                </span>
               </div>
-              {selectedRepos.length > 1 && (
-                <p className="mt-2 text-[10px] text-zinc-500">
-                  Note: The requirement will be associated with {selectedRepos[0]} in the database.
-                </p>
-              )}
-            </div>
-          )}
+            )}
+            {selectedRepos.length > 0 && (
+              <div className="flex items-start gap-2">
+                <span className="text-xs text-zinc-500 w-20 shrink-0 pt-1.5">Repos</span>
+                <div className="flex flex-wrap gap-2">
+                  {selectedRepos.map((repo) => (
+                    <span
+                      key={repo}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300"
+                    >
+                      <RiFolderLine size={13} className="text-zinc-400" />
+                      {repo}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {selectedRepos.length > 1 && (
+              <p className="text-[10px] text-zinc-500 pl-24">
+                Note: The requirement will be linked to {selectedRepos[0]} in the database.
+              </p>
+            )}
+          </div>
 
           {saveError && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
@@ -489,7 +562,7 @@ export function RequirementBuilderForm() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => saveRequirement("draft")}
-                disabled={!draft.title || !draft.description || saving || selectedRepos.length === 0}
+                disabled={!draft.title || !draft.description || saving || selectedRepos.length === 0 || !selectedPlatformProjectId}
                 className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-5 py-2.5 text-sm font-semibold text-foreground shadow-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving ? <RiLoader4Line className="animate-spin" size={15} /> : null}
@@ -497,7 +570,7 @@ export function RequirementBuilderForm() {
               </button>
               <button
                 onClick={() => saveRequirement("published")}
-                disabled={!draft.title || !draft.description || saving || selectedRepos.length === 0}
+                disabled={!draft.title || !draft.description || saving || selectedRepos.length === 0 || !selectedPlatformProjectId}
                 className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving ? <RiLoader4Line className="animate-spin" size={15} /> : <RiCheckLine size={15} />}

@@ -14,6 +14,7 @@ export async function GET() {
       status: requirements.status,
       createdAt: requirements.createdAt,
       githubRepoName: requirements.githubRepoName,
+      jiraProjectId: requirements.jiraProjectId,
     })
     .from(requirements)
     .where(eq(requirements.createdBy, user.id))
@@ -26,6 +27,7 @@ export async function POST(request: Request) {
   const user = await requireAuth();
 
   let body: {
+    jiraProjectId: string;
     githubRepoName: string;
     title: string;
     description: string;
@@ -44,11 +46,11 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { githubRepoName, title, description, acceptanceCriteria, priority, status, charjanContext } = body;
+  const { jiraProjectId, githubRepoName, title, description, acceptanceCriteria, priority, status, charjanContext } = body;
 
-  if (!githubRepoName || !title || !description) {
+  if (!jiraProjectId || !githubRepoName || !title || !description) {
     return Response.json(
-      { error: "githubRepoName, title, and description are required" },
+      { error: "jiraProjectId, githubRepoName, title, and description are required" },
       { status: 400 }
     );
   }
@@ -56,6 +58,7 @@ export async function POST(request: Request) {
   const [row] = await db
     .insert(requirements)
     .values({
+      jiraProjectId,
       githubRepoName,
       title,
       description,
