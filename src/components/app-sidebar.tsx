@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { SignOutButton, useUser } from "@clerk/nextjs";
 import {
   RiHome3Line,
@@ -13,6 +14,8 @@ import {
   RiBriefcaseLine,
   RiUserSettingsLine,
   RiFileList3Line,
+  RiArrowDownSLine,
+  RiArrowUpSLine,
 } from "@remixicon/react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -61,6 +64,30 @@ export function AppSidebar({ user, projects }: Props) {
   const pathname = usePathname();
   const { user: clerkUser } = useUser();
 
+  const projectsScrollRef = useRef<HTMLDivElement>(null);
+  const [hasMoreBelow, setHasMoreBelow] = useState(false);
+  const [hasMoreAbove, setHasMoreAbove] = useState(false);
+
+  const checkScroll = useCallback(() => {
+    const el = projectsScrollRef.current;
+    if (!el) return;
+    setHasMoreAbove(el.scrollTop > 4);
+    setHasMoreBelow(el.scrollHeight - el.scrollTop - el.clientHeight > 4);
+  }, []);
+
+  useEffect(() => {
+    const el = projectsScrollRef.current;
+    if (!el) return;
+    checkScroll();
+    el.addEventListener("scroll", checkScroll, { passive: true });
+    const ro = new ResizeObserver(checkScroll);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", checkScroll);
+      ro.disconnect();
+    };
+  }, [checkScroll]);
+
   return (
     <Sidebar collapsible="icon">
       {/* Brand */}
@@ -88,9 +115,9 @@ export function AppSidebar({ user, projects }: Props) {
         </SidebarMenu>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent className="overflow-hidden">
         {/* Main nav */}
-        <SidebarGroup>
+        <SidebarGroup className="shrink-0">
           <SidebarGroupContent>
             <SidebarMenu>
               {NAV_ITEMS.map(({ label, href, icon: Icon }) => (
@@ -127,11 +154,11 @@ export function AppSidebar({ user, projects }: Props) {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarSeparator className="opacity-50" />
+        <SidebarSeparator className="opacity-50 shrink-0" />
 
         {/* Projects */}
-        <SidebarGroup>
-          <div className="flex items-center justify-between pr-2 group-data-[collapsible=icon]:hidden">
+        <SidebarGroup className="min-h-0 flex-1 flex flex-col">
+          <div className="flex items-center justify-between pr-2 shrink-0 group-data-[collapsible=icon]:hidden">
             <SidebarGroupLabel className="text-[10px] font-bold uppercase tracking-widest text-zinc-500/70 dark:text-zinc-400/50">
               Projects
             </SidebarGroupLabel>
@@ -145,7 +172,16 @@ export function AppSidebar({ user, projects }: Props) {
               </Link>
             )}
           </div>
-          <SidebarGroupContent>
+          {hasMoreAbove && (
+            <div className="pointer-events-none shrink-0 flex justify-center pt-1 pb-2 group-data-[collapsible=icon]:hidden">
+              <RiArrowUpSLine className="size-4 text-zinc-400" />
+            </div>
+          )}
+
+          <SidebarGroupContent
+            ref={projectsScrollRef}
+            className="min-h-0 flex-1 overflow-y-auto no-scrollbar"
+          >
             <SidebarMenu>
               {projects.map((project) => (
                 <SidebarMenuItem key={project.id}>
@@ -164,6 +200,12 @@ export function AppSidebar({ user, projects }: Props) {
               ))}
             </SidebarMenu>
           </SidebarGroupContent>
+
+          {hasMoreBelow && (
+            <div className="pointer-events-none shrink-0 flex justify-center pt-2 pb-1 group-data-[collapsible=icon]:hidden">
+              <RiArrowDownSLine className="size-4 text-zinc-400" />
+            </div>
+          )}
         </SidebarGroup>
       </SidebarContent>
 
