@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
-import { eq, sql, or, ilike, and } from "drizzle-orm";
+import { eq, sql, or, ilike, and, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { jiraProjects, jiraIssues } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
@@ -38,7 +38,7 @@ export default async function ProjectsPage(props: {
     .leftJoin(jiraIssues, eq(jiraIssues.projectId, jiraProjects.id))
     .where(and(baseWhere, searchWhere))
     .groupBy(jiraProjects.id)
-    .orderBy(jiraProjects.createdAt);
+    .orderBy(asc(jiraProjects.name));
 
   return (
     <div className="flex flex-col min-h-svh">

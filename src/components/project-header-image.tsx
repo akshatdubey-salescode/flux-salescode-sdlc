@@ -122,6 +122,9 @@ export function ProjectHeaderImage({
   }
 
   const showImage = !!imageUrl;
+  const proxiedUrl = imageUrl
+    ? `/api/images/proxy?url=${encodeURIComponent(imageUrl)}`
+    : null;
 
   return (
     <div>
@@ -133,7 +136,7 @@ export function ProjectHeaderImage({
         {showImage && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={imageUrl!}
+            src={proxiedUrl!}
             alt="Project cover"
             className="h-full w-full object-cover"
             onError={() => setImageUrl(null)}

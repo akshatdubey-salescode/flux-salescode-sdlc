@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
@@ -20,7 +20,7 @@ export default async function AppLayout({
     })
     .from(jiraProjects)
     .where(eq(jiraProjects.isActive, true))
-    .orderBy(jiraProjects.name);
+    .orderBy(asc(jiraProjects.name));
 
   return (
     <SidebarProvider>
