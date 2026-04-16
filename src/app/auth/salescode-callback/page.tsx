@@ -81,8 +81,8 @@ function SalescodeCallbackInner() {
       .then((data) => {
         const { accessToken, accessTokenExpiresIn } = data.tokenInformation ?? {};
         if (accessToken) {
-          sessionStorage.setItem(SALESCODE_TOKEN_KEY, accessToken);
-          sessionStorage.setItem(
+          localStorage.setItem(SALESCODE_TOKEN_KEY, accessToken);
+          localStorage.setItem(
             SALESCODE_TOKEN_EXPIRY_KEY,
             String(Date.now() + (accessTokenExpiresIn ?? 3600) * 1000)
           );

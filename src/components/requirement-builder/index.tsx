@@ -23,13 +23,13 @@ const SALESCODE_TOKEN_EXPIRY_KEY = "salescode_token_expiry";
 
 function getSalescodeToken(): string | null {
   if (typeof window === "undefined") return null;
-  const expiry = sessionStorage.getItem(SALESCODE_TOKEN_EXPIRY_KEY);
+  const expiry = localStorage.getItem(SALESCODE_TOKEN_EXPIRY_KEY);
   if (expiry && Date.now() >= parseInt(expiry)) {
-    sessionStorage.removeItem(SALESCODE_TOKEN_KEY);
-    sessionStorage.removeItem(SALESCODE_TOKEN_EXPIRY_KEY);
+    localStorage.removeItem(SALESCODE_TOKEN_KEY);
+    localStorage.removeItem(SALESCODE_TOKEN_EXPIRY_KEY);
     return null;
   }
-  return sessionStorage.getItem(SALESCODE_TOKEN_KEY);
+  return localStorage.getItem(SALESCODE_TOKEN_KEY);
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
