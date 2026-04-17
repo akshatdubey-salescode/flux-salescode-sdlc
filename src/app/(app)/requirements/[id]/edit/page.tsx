@@ -76,7 +76,6 @@ export default async function EditRequirementPage(props: {
               title: req.title,
               description: req.description,
               acceptanceCriteria: req.acceptanceCriteria ?? "",
-              priority: req.priority as "low" | "medium" | "high" | "critical",
             }}
           />
         </div>

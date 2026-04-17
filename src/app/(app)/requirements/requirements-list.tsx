@@ -23,21 +23,11 @@ import { cn } from "@/lib/utils";
 export type RequirementRow = {
   id: string;
   title: string;
-  githubRepoName: string;
-  priority: string;
   status: string;
   createdAt: Date;
 };
 
-const PRIORITIES = ["low", "medium", "high", "critical"];
 const STATUSES = ["draft", "published"];
-
-const PRIORITY_STYLES: Record<string, string> = {
-  low: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400",
-  medium: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-  high: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
-  critical: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-};
 
 const STATUS_STYLES: Record<string, string> = {
   published: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
@@ -133,7 +123,6 @@ export function RequirementsList({ rows, total }: { rows: RequirementRow[]; tota
   const [localSearch, setLocalSearch] = useState(searchParams.get("q") ?? "");
 
   const selectedStatus = searchParams.get("status")?.split(",").filter(Boolean) ?? [];
-  const selectedPriority = searchParams.get("priority")?.split(",").filter(Boolean) ?? [];
   const sortBy = searchParams.get("sortBy") ?? "created";
   const sortDir = (searchParams.get("sortDir") ?? "desc") as "asc" | "desc";
 
@@ -162,10 +151,7 @@ export function RequirementsList({ rows, total }: { rows: RequirementRow[]; tota
     }
   }
 
-  const activeFilters = [
-    ...(selectedStatus.length ? [`Status: ${selectedStatus.join(", ")}`] : []),
-    ...(selectedPriority.length ? [`Priority: ${selectedPriority.join(", ")}`] : []),
-  ];
+  const activeFilters = selectedStatus.length ? [`Status: ${selectedStatus.join(", ")}`] : [];
   const hasActiveFilters = activeFilters.length > 0 || !!localSearch;
 
   return (
@@ -189,25 +175,19 @@ export function RequirementsList({ rows, total }: { rows: RequirementRow[]; tota
             selected={selectedStatus}
             onChange={(vals) => updateParams({ status: vals.join(",") || null })}
           />
-          <MultiSelect
-            label="Priority"
-            options={PRIORITIES}
-            selected={selectedPriority}
-            onChange={(vals) => updateParams({ priority: vals.join(",") || null })}
-          />
 
           {/* Sort */}
           <div className="flex items-center gap-0.5">
             <Popover>
               <PopoverTrigger asChild>
                 <button className="inline-flex h-7 items-center gap-1 rounded-l-md border border-border bg-background px-2.5 text-xs font-medium text-foreground hover:bg-muted">
-                  Sort: {sortBy === "created" ? "Created" : sortBy === "title" ? "Title" : "Priority"}
+                  Sort: {sortBy === "created" ? "Created" : "Title"}
                   <RiArrowDownSLine className="size-3.5 opacity-50" />
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="start" className="w-36 p-0">
+              <PopoverContent align="start" className="w-32 p-0">
                 <div className="py-1">
-                  {(["created", "title", "priority"] as const).map((opt) => (
+                  {(["created", "title"] as const).map((opt) => (
                     <button
                       key={opt}
                       onClick={() => updateParams({ sortBy: opt, sortDir: "desc" })}
@@ -218,7 +198,7 @@ export function RequirementsList({ rows, total }: { rows: RequirementRow[]; tota
                           : "text-zinc-600 dark:text-zinc-400"
                       )}
                     >
-                      {opt === "created" ? "Created" : opt.charAt(0).toUpperCase() + opt.slice(1)}
+                      {opt === "created" ? "Created" : "Title"}
                     </button>
                   ))}
                 </div>
@@ -240,7 +220,7 @@ export function RequirementsList({ rows, total }: { rows: RequirementRow[]; tota
             <button
               onClick={() => {
                 setLocalSearch("");
-                updateParams({ q: null, status: null, priority: null });
+                updateParams({ q: null, status: null });
               }}
               className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 underline underline-offset-2"
             >
@@ -254,7 +234,7 @@ export function RequirementsList({ rows, total }: { rows: RequirementRow[]; tota
         </div>
 
         {/* Active filter chips */}
-        {activeFilters.length > 0 && (
+        {selectedStatus.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {selectedStatus.map((s) => (
               <span
@@ -266,24 +246,6 @@ export function RequirementsList({ rows, total }: { rows: RequirementRow[]; tota
                   onClick={() =>
                     updateParams({
                       status: selectedStatus.filter((v) => v !== s).join(",") || null,
-                    })
-                  }
-                  className="text-zinc-400 hover:text-zinc-600"
-                >
-                  <RiCloseLine className="size-3" />
-                </button>
-              </span>
-            ))}
-            {selectedPriority.map((p) => (
-              <span
-                key={p}
-                className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground"
-              >
-                Priority: <span className="capitalize">{p}</span>
-                <button
-                  onClick={() =>
-                    updateParams({
-                      priority: selectedPriority.filter((v) => v !== p).join(",") || null,
                     })
                   }
                   className="text-zinc-400 hover:text-zinc-600"
@@ -326,9 +288,7 @@ export function RequirementsList({ rows, total }: { rows: RequirementRow[]; tota
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
-                  <SortableHeader label="Title" col="title" sortBy={sortBy} sortDir={sortDir} onSort={toggleSort} className="min-w-[240px]" />
-                  <SortableHeader label="Repository" col="repo" sortBy={sortBy} sortDir={sortDir} onSort={toggleSort} className="w-48" />
-                  <SortableHeader label="Priority" col="priority" sortBy={sortBy} sortDir={sortDir} onSort={toggleSort} className="w-24" />
+                  <SortableHeader label="Title" col="title" sortBy={sortBy} sortDir={sortDir} onSort={toggleSort} className="min-w-[300px]" />
                   <th className="px-3 py-2.5 text-left font-semibold uppercase tracking-wider text-zinc-500 w-24">
                     Status
                   </th>
@@ -344,21 +304,6 @@ export function RequirementsList({ rows, total }: { rows: RequirementRow[]; tota
                   >
                     <td className="px-3 py-3 font-medium text-zinc-900 dark:text-zinc-50 max-w-xs">
                       <span className="line-clamp-1">{r.title}</span>
-                    </td>
-                    <td className="px-3 py-3">
-                      <span className="font-mono text-zinc-500 dark:text-zinc-400 truncate block max-w-[180px]">
-                        {r.githubRepoName.split("/")[1] ?? r.githubRepoName}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3">
-                      <span
-                        className={cn(
-                          "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold capitalize",
-                          PRIORITY_STYLES[r.priority] ?? "bg-zinc-100 text-zinc-500"
-                        )}
-                      >
-                        {r.priority}
-                      </span>
                     </td>
                     <td className="px-3 py-3">
                       <span
@@ -417,7 +362,7 @@ function SortableHeader({
             <RiArrowDownSLine className="size-3.5" />
           )
         ) : (
-          <span className="size-3.5 opacity-0 group-hover:opacity-30">↕</span>
+          <span className="size-3.5 opacity-0">↕</span>
         )}
       </span>
     </th>

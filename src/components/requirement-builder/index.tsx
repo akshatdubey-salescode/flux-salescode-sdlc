@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { MarkdownEditor, splitContent } from "@/components/ui/markdown-editor";
 
 const SALESCODE_TOKEN_KEY = "salescode_access_token";
 const SALESCODE_TOKEN_EXPIRY_KEY = "salescode_token_expiry";
@@ -45,9 +46,7 @@ type PlatformProject = {
 
 type Draft = {
   title: string;
-  description: string;
-  acceptanceCriteria: string;
-  priority: "low" | "medium" | "high" | "critical";
+  content: string;
 };
 
 const FALLBACK_AI_URL = "http://localhost:3000/agents";
@@ -107,12 +106,7 @@ export function RequirementBuilderForm() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Step 2 draft
-  const [draft, setDraft] = useState<Draft>({
-    title: "",
-    description: "",
-    acceptanceCriteria: "",
-    priority: "medium",
-  });
+  const [draft, setDraft] = useState<Draft>({ title: "", content: "" });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
@@ -137,11 +131,13 @@ export function RequirementBuilderForm() {
     const handler = (event: MessageEvent) => {
       if (event.data?.type !== "CHARJAN_TICKET_FINALIZED") return;
       const { title, description, acceptanceCriteria } = event.data.ticket ?? {};
+      const cleanedDesc = description ? cleanDescription(description) : "";
+      const content = acceptanceCriteria
+        ? `${cleanedDesc}\n\n## Acceptance Criteria\n\n${acceptanceCriteria}`
+        : cleanedDesc;
       setDraft((prev) => ({
-        ...prev,
         title: title || prev.title,
-        description: description ? cleanDescription(description) : prev.description,
-        acceptanceCriteria: acceptanceCriteria || prev.acceptanceCriteria,
+        content: content || prev.content,
       }));
       setStep(2);
       window.removeEventListener("message", handler);
@@ -216,9 +212,7 @@ export function RequirementBuilderForm() {
           body: JSON.stringify({
             jiraProjectId: selectedPlatformProjectId,
             title: draft.title || "Untitled Requirement",
-            description: draft.description,
-            acceptanceCriteria: draft.acceptanceCriteria || undefined,
-            priority: draft.priority,
+            ...splitContent(draft.content),
             status,
           }),
         });
@@ -430,11 +424,7 @@ export function RequirementBuilderForm() {
       {/* ── Step 2: Review & publish ── */}
       {step === 2 && (
         <div className="space-y-5">
-          <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-6 space-y-4">
-            <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-400">
-              Requirement Details
-            </h2>
-
+          <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
                 Title <span className="text-red-500">*</span>
@@ -448,48 +438,14 @@ export function RequirementBuilderForm() {
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-                Description <span className="text-red-500">*</span>
-              </label>
-              <textarea
-                value={draft.description}
-                onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-                rows={6}
-                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 resize-y"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-                Acceptance Criteria
-              </label>
-              <textarea
-                value={draft.acceptanceCriteria}
-                onChange={(e) => setDraft({ ...draft, acceptanceCriteria: e.target.value })}
-                rows={4}
-                placeholder="- [ ] Given… When… Then…"
-                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-mono text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 resize-y"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-                Priority
-              </label>
-              <select
-                value={draft.priority}
-                onChange={(e) =>
-                  setDraft({ ...draft, priority: e.target.value as Draft["priority"] })
-                }
-                className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-              >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="critical">Critical</option>
-              </select>
-            </div>
+            <MarkdownEditor
+              label="Content"
+              required
+              value={draft.content}
+              onChange={(v) => setDraft({ ...draft, content: v })}
+              rows={16}
+              placeholder={`Describe the requirement in full...\n\nTo include acceptance criteria, add a ## Acceptance Criteria heading.`}
+            />
           </div>
 
           {/* Context summary */}
@@ -522,7 +478,7 @@ export function RequirementBuilderForm() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => saveRequirement("draft")}
-                disabled={!draft.title || !draft.description || saving || !selectedPlatformProjectId}
+                disabled={!draft.title || !draft.content || saving || !selectedPlatformProjectId}
                 className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-5 py-2.5 text-sm font-semibold text-foreground shadow-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving ? <RiLoader4Line className="animate-spin" size={15} /> : null}
@@ -530,7 +486,7 @@ export function RequirementBuilderForm() {
               </button>
               <button
                 onClick={() => saveRequirement("published")}
-                disabled={!draft.title || !draft.description || saving || !selectedPlatformProjectId}
+                disabled={!draft.title || !draft.content || saving || !selectedPlatformProjectId}
                 className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving ? <RiLoader4Line className="animate-spin" size={15} /> : <RiCheckLine size={15} />}

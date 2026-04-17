@@ -23,9 +23,6 @@ export default async function RequirementsPage(props: {
   const statusFilter = typeof searchParams.status === "string"
     ? searchParams.status.split(",").filter(Boolean)
     : [];
-  const priorityFilter = typeof searchParams.priority === "string"
-    ? searchParams.priority.split(",").filter(Boolean)
-    : [];
   const sortBy = typeof searchParams.sortBy === "string" ? searchParams.sortBy : "created";
   const sortDir = searchParams.sortDir === "asc" ? "asc" : "desc";
 
@@ -37,27 +34,14 @@ export default async function RequirementsPage(props: {
       inArray(requirements.status, statusFilter as ("draft" | "published")[])
     );
   }
-  if (priorityFilter.length) {
-    conditions.push(
-      inArray(requirements.priority, priorityFilter as ("low" | "medium" | "high" | "critical")[])
-    );
-  }
-
-  const orderCol =
-    sortBy === "title"
-      ? requirements.title
-      : sortBy === "priority"
-        ? requirements.priority
-        : requirements.createdAt;
+  const orderCol = sortBy === "title" ? requirements.title : requirements.createdAt;
 
   const rows = await db
     .select({
       id: requirements.id,
       title: requirements.title,
-      priority: requirements.priority,
       status: requirements.status,
       createdAt: requirements.createdAt,
-      githubRepoName: requirements.githubRepoName,
     })
     .from(requirements)
     .where(and(...conditions))

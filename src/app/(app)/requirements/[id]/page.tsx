@@ -4,7 +4,6 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { requirements, jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
-import { cn } from "@/lib/utils";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
   Breadcrumb,
@@ -22,13 +21,6 @@ import {
 } from "@remixicon/react";
 import { PublishToJiraButton } from "./publish-to-jira-button";
 import { Markdown } from "@/components/ui/markdown";
-
-const PRIORITY_STYLES: Record<string, string> = {
-  low: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400",
-  medium: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-  high: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
-  critical: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-};
 
 const STATUS_STYLES: Record<string, string> = {
   published: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
@@ -97,20 +89,12 @@ export default async function RequirementDetailPage(props: {
           <div className="space-y-3">
             <div className="flex items-start gap-3 flex-wrap">
               <span
-                className={cn(
-                  "inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold capitalize",
-                  STATUS_STYLES[req.status] ?? "bg-zinc-100 text-zinc-500"
-                )}
+                className={
+                  "inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold capitalize " +
+                  (STATUS_STYLES[req.status] ?? "bg-zinc-100 text-zinc-500")
+                }
               >
                 {req.status}
-              </span>
-              <span
-                className={cn(
-                  "inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold capitalize",
-                  PRIORITY_STYLES[req.priority] ?? "bg-zinc-100 text-zinc-500"
-                )}
-              >
-                {req.priority} priority
               </span>
             </div>
 

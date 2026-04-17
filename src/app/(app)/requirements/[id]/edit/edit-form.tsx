@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { RiLoader4Line, RiCheckLine } from "@remixicon/react";
+import { MarkdownEditor, splitContent } from "@/components/ui/markdown-editor";
 
 type Props = {
   id: string;
@@ -10,29 +11,33 @@ type Props = {
     title: string;
     description: string;
     acceptanceCriteria: string;
-    priority: "low" | "medium" | "high" | "critical";
   };
 };
 
 export function EditForm({ id, initial }: Props) {
   const router = useRouter();
-  const [form, setForm] = useState(initial);
+  const [title, setTitle] = useState(initial.title);
+  const [content, setContent] = useState(
+    initial.acceptanceCriteria
+      ? `${initial.description}\n\n## Acceptance Criteria\n\n${initial.acceptanceCriteria}`
+      : initial.description
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   async function handleSave() {
-    if (!form.title.trim() || !form.description.trim()) return;
+    if (!title.trim() || !content.trim()) return;
     setSaving(true);
     setError("");
+    const { description, acceptanceCriteria } = splitContent(content);
     try {
       const res = await fetch(`/api/requirements/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: form.title,
-          description: form.description,
-          acceptanceCriteria: form.acceptanceCriteria || null,
-          priority: form.priority,
+          title: title.trim(),
+          description,
+          acceptanceCriteria: acceptanceCriteria ?? null,
         }),
       });
       if (!res.ok) {
@@ -51,61 +56,27 @@ export function EditForm({ id, initial }: Props) {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-6 space-y-4">
+      <div className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
             Title <span className="text-red-500">*</span>
           </label>
           <input
             type="text"
-            value={form.title}
-            onChange={(e) => setForm({ ...form, title: e.target.value })}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
             className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
           />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-            Description <span className="text-red-500">*</span>
-          </label>
-          <textarea
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
-            rows={10}
-            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 resize-y"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-            Acceptance Criteria
-          </label>
-          <textarea
-            value={form.acceptanceCriteria}
-            onChange={(e) => setForm({ ...form, acceptanceCriteria: e.target.value })}
-            rows={5}
-            placeholder="- [ ] Given… When… Then…"
-            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-mono text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 resize-y"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
-            Priority
-          </label>
-          <select
-            value={form.priority}
-            onChange={(e) =>
-              setForm({ ...form, priority: e.target.value as Props["initial"]["priority"] })
-            }
-            className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-          >
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="critical">Critical</option>
-          </select>
-        </div>
+        <MarkdownEditor
+          label="Content"
+          required
+          value={content}
+          onChange={setContent}
+          rows={18}
+          placeholder={`Describe the requirement in full...\n\nTo include acceptance criteria, add a ## Acceptance Criteria heading.`}
+        />
       </div>
 
       {error && (
@@ -125,7 +96,7 @@ export function EditForm({ id, initial }: Props) {
         <button
           type="button"
           onClick={handleSave}
-          disabled={saving || !form.title.trim() || !form.description.trim()}
+          disabled={saving || !title.trim() || !content.trim()}
           className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {saving ? (
