@@ -17,6 +17,7 @@ import {
   RiSettings3Line,
   RiArrowDownSLine,
   RiArrowUpSLine,
+  RiTeamLine,
 } from "@remixicon/react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -57,6 +58,7 @@ const NAV_ITEMS = [
   { label: "Dashboard", href: "/home", icon: RiHome3Line },
   { label: "Requirement Builder", href: "/requirements", icon: RiFileList3Line },
   { label: "My Tasks", href: "/my-tasks", icon: RiTaskLine },
+  { label: "Team Observer", href: "/observer", icon: RiTeamLine },
   { label: "Search", href: "/search", icon: RiSearchLine },
   { label: "All Projects", href: "/projects", icon: RiBriefcaseLine },
 ];
@@ -125,7 +127,7 @@ export function AppSidebar({ user, projects }: Props) {
                 <SidebarMenuItem key={href}>
                   <SidebarMenuButton
                     asChild
-                    isActive={pathname === href}
+                    isActive={href === "/home" ? pathname === href : pathname.startsWith(href)}
                     tooltip={label}
                     className="transition-all hover:bg-sidebar-accent hover:translate-x-0.5"
                   >
