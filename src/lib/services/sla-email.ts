@@ -41,89 +41,153 @@ function getProvider(): EmailProvider {
 }
 
 // ---------------------------------------------------------------------------
-// Email HTML builder
+// Formatting helpers
 // ---------------------------------------------------------------------------
 
-type DigestRow = {
-  violation: ViolationResult;
-  violationDbId: string | undefined; // set after insert for new violations
-};
-
-function formatHours(hours: number): string {
-  if (hours < 24) return `${Math.round(hours * 10) / 10}h`;
-  const days = Math.floor(hours / 24);
-  const rem = Math.round((hours % 24) * 10) / 10;
-  return rem === 0 ? `${days}d` : `${days}d ${rem}h`;
+function formatDuration(hours: number): string {
+  const totalMins = Math.round(hours * 60);
+  if (totalMins < 60) return `${totalMins} min${totalMins !== 1 ? "s" : ""}`;
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  if (h < 24) {
+    return m === 0
+      ? `${h} hr${h !== 1 ? "s" : ""}`
+      : `${h} hr${h !== 1 ? "s" : ""} ${m} min`;
+  }
+  const d = Math.floor(h / 24);
+  const rh = h % 24;
+  return rh === 0
+    ? `${d} day${d !== 1 ? "s" : ""}`
+    : `${d} day${d !== 1 ? "s" : ""} ${rh} hr${rh !== 1 ? "s" : ""}`;
 }
 
-function pctOver(elapsed: number, threshold: number): string {
-  const pct = ((elapsed - threshold) / threshold) * 100;
-  return `${Math.round(pct)}%`;
-}
+// ---------------------------------------------------------------------------
+// Email HTML builder
+// ---------------------------------------------------------------------------
 
 function buildDigestHtml(
   projectName: string,
   rows: ViolationResult[],
-  isEscalation: boolean
+  isEscalation: boolean,
+  jiraBaseUrl: string
 ): string {
   const sorted = [...rows].sort((a, b) => (a.tier > b.tier ? -1 : 1));
 
-  const rowsHtml = sorted
-    .map((r) => {
-      const badge =
-        r.tier === 2
-          ? `<span style="background:#dc2626;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:700">ESCALATION</span>`
-          : `<span style="background:#f59e0b;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:700">BREACHED</span>`;
+  const headerColor = isEscalation ? "#c0392b" : "#e67e22";
+  const headerLabel = isEscalation ? "ESCALATION ALERT" : "SLA BREACH ALERT";
 
+  const cardsHtml = sorted
+    .map((r) => {
       const threshold = parseFloat(r.rule.thresholdHours);
+      const delay = Math.max(0, r.elapsedHours - threshold);
+      const jiraUrl = `${jiraBaseUrl.replace(/\/$/, "")}/browse/${r.issue.jiraKey}`;
+
+      const assignee = r.issue.assigneeName?.trim() || "Unassigned";
+      const isUnassigned = !r.issue.assigneeName?.trim();
+
+      const tierBadge =
+        r.tier === 2
+          ? `<span style="display:inline-block;background:#c0392b;color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;letter-spacing:0.5px">ESCALATION</span>`
+          : `<span style="display:inline-block;background:#e67e22;color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;letter-spacing:0.5px">BREACHED</span>`;
+
+      const cardBorderColor = r.tier === 2 ? "#c0392b" : "#e67e22";
+
       return `
-        <tr>
-          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-family:monospace;font-size:13px">${r.issue.jiraKey}</td>
-          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:13px">${r.issue.summary}</td>
-          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:13px">${r.rule.name}</td>
-          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:13px;white-space:nowrap">${formatHours(r.elapsedHours)}</td>
-          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:13px;white-space:nowrap">${formatHours(threshold)}</td>
-          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:13px;white-space:nowrap">${pctOver(r.elapsedHours, threshold)}</td>
-          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">${badge}</td>
-        </tr>`;
+<div style="background:#ffffff;border:1px solid #dfe1e6;border-left:4px solid ${cardBorderColor};border-radius:6px;margin-bottom:16px;overflow:hidden">
+
+  <!-- Card top: key + badge -->
+  <table style="width:100%;border-collapse:collapse">
+    <tr>
+      <td style="padding:16px 20px">
+        <table style="border-collapse:collapse">
+          <tr>
+            <td style="padding:0 10px 0 0">
+              <span style="font-family:monospace;font-size:13px;font-weight:700;color:#0052cc;background:#deebff;padding:4px 9px;border-radius:4px">${r.issue.jiraKey}</span>
+            </td>
+            <td style="padding:0">
+              ${tierBadge}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Summary -->
+  <div style="padding:0 20px 16px">
+    <p style="margin:0 0 4px;font-size:16px;font-weight:600;color:#172b4d;line-height:1.4">${r.issue.summary}</p>
+    <p style="margin:0;font-size:12px;color:#6b778c">SLA Rule: <strong style="color:#42526e">${r.rule.name}</strong></p>
+  </div>
+
+  <!-- Divider -->
+  <div style="border-top:1px solid #f4f5f7"></div>
+
+  <!-- Time metrics -->
+  <div style="padding:16px 20px">
+    <table style="border-collapse:collapse;width:100%">
+      <tr>
+        <td style="padding:0 32px 0 0;vertical-align:top">
+          <div style="font-size:10px;font-weight:600;color:#97a0af;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Threshold Time</div>
+          <div style="font-size:16px;font-weight:600;color:#42526e">${formatDuration(threshold)}</div>
+        </td>
+        <td style="padding:0 32px 0 0;vertical-align:top">
+          <div style="font-size:10px;font-weight:600;color:#97a0af;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Time Elapsed</div>
+          <div style="font-size:16px;font-weight:600;color:#42526e">${formatDuration(r.elapsedHours)}</div>
+        </td>
+        <td style="padding:0;vertical-align:top">
+          <div style="font-size:10px;font-weight:600;color:#97a0af;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Delay</div>
+          <div style="font-size:16px;font-weight:700;color:#c0392b">${formatDuration(delay)} late</div>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- Divider -->
+  <div style="border-top:1px solid #f4f5f7"></div>
+
+  <!-- Assignee + CTA -->
+  <div style="padding:14px 20px">
+    <table style="border-collapse:collapse;width:100%">
+      <tr>
+        <td style="vertical-align:middle">
+          <span style="font-size:12px;color:#6b778c">Assigned to&nbsp;</span>
+          <span style="font-size:13px;font-weight:600;color:${isUnassigned ? "#97a0af" : "#172b4d"}">${assignee}</span>
+        </td>
+        <td style="text-align:right;vertical-align:middle">
+          <a href="${jiraUrl}" style="display:inline-block;background:#0052cc;color:#ffffff;padding:9px 18px;border-radius:4px;text-decoration:none;font-size:13px;font-weight:600">Open in Jira &rarr;</a>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+</div>`;
     })
     .join("");
 
-  const title = isEscalation
-    ? `[ESCALATION] ${projectName} — ${rows.length} SLA violation(s) need your attention`
-    : `[SLA Violation] ${projectName} — ${rows.length} issue(s) stuck`;
-
-  return `
-<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html>
-<body style="font-family:sans-serif;background:#f9fafb;margin:0;padding:24px">
-  <div style="max-width:800px;margin:0 auto;background:#fff;border-radius:8px;border:1px solid #e5e7eb;overflow:hidden">
-    <div style="background:${isEscalation ? "#dc2626" : "#f59e0b"};padding:20px 24px">
-      <h1 style="margin:0;color:#fff;font-size:18px">${title}</h1>
-    </div>
-    <div style="padding:24px">
-      <p style="color:#374151;font-size:14px;margin-top:0">
-        The following issues have exceeded their SLA thresholds and require attention.
-      </p>
-      <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden">
-        <thead>
-          <tr style="background:#f3f4f6">
-            <th style="padding:10px 12px;text-align:left;font-size:12px;color:#6b7280;border-bottom:1px solid #e5e7eb">Jira Key</th>
-            <th style="padding:10px 12px;text-align:left;font-size:12px;color:#6b7280;border-bottom:1px solid #e5e7eb">Summary</th>
-            <th style="padding:10px 12px;text-align:left;font-size:12px;color:#6b7280;border-bottom:1px solid #e5e7eb">Rule</th>
-            <th style="padding:10px 12px;text-align:left;font-size:12px;color:#6b7280;border-bottom:1px solid #e5e7eb">Time Elapsed</th>
-            <th style="padding:10px 12px;text-align:left;font-size:12px;color:#6b7280;border-bottom:1px solid #e5e7eb">Threshold</th>
-            <th style="padding:10px 12px;text-align:left;font-size:12px;color:#6b7280;border-bottom:1px solid #e5e7eb">% Over</th>
-            <th style="padding:10px 12px;text-align:left;font-size:12px;color:#6b7280;border-bottom:1px solid #e5e7eb">Status</th>
-          </tr>
-        </thead>
-        <tbody>${rowsHtml}</tbody>
-      </table>
-    </div>
-    <div style="padding:16px 24px;border-top:1px solid #e5e7eb;background:#f9fafb">
-      <p style="margin:0;font-size:12px;color:#9ca3af">Sent by SLA Engine • Do not reply to this email</p>
-    </div>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:#f4f5f7;margin:0;padding:32px 16px">
+<div style="max-width:620px;margin:0 auto">
+
+  <!-- Header -->
+  <div style="background:${headerColor};border-radius:8px 8px 0 0;padding:28px 32px">
+    <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.75);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">${headerLabel}</div>
+    <div style="font-size:22px;font-weight:700;color:#ffffff;line-height:1.3;margin-bottom:6px">${projectName}</div>
+    <div style="font-size:14px;color:rgba(255,255,255,0.88)">${sorted.length} issue${sorted.length !== 1 ? "s" : ""} ${isEscalation ? "urgently require" : "require"} your attention</div>
   </div>
+
+  <!-- Body -->
+  <div style="background:#f4f5f7;padding:20px 0">
+    ${cardsHtml}
+  </div>
+
+  <!-- Footer -->
+  <div style="padding:12px 0 24px;text-align:center">
+    <p style="margin:0;font-size:12px;color:#97a0af">Sent by SLA Engine &bull; Do not reply to this email</p>
+  </div>
+
+</div>
 </body>
 </html>`;
 }
@@ -146,17 +210,18 @@ export type DigestRecipient = {
  */
 export async function sendSLADigestEmail(
   projectName: string,
-  recipient: DigestRecipient
+  recipient: DigestRecipient,
+  jiraBaseUrl: string
 ): Promise<{ sent: boolean; error?: string }> {
   const provider = getProvider();
   const { email, violations } = recipient;
 
   const hasEscalation = violations.some((v) => v.tier === 2);
   const subject = hasEscalation
-    ? `[ESCALATION] ${projectName} — ${violations.length} SLA violation(s) need your attention`
-    : `[SLA Violation] ${projectName} — ${violations.length} issue(s) stuck`;
+    ? `[Escalation] ${projectName} — ${violations.length} SLA violation${violations.length !== 1 ? "s" : ""} need urgent attention`
+    : `[SLA Breach] ${projectName} — ${violations.length} issue${violations.length !== 1 ? "s" : ""} need${violations.length === 1 ? "s" : ""} attention`;
 
-  const html = buildDigestHtml(projectName, violations, hasEscalation);
+  const html = buildDigestHtml(projectName, violations, hasEscalation, jiraBaseUrl);
 
   const maxAttempts = 3;
   let lastErr: unknown;
@@ -176,7 +241,6 @@ export async function sendSLADigestEmail(
   if (lastErr !== undefined) {
     const err = lastErr;
     const errorMessage = err instanceof Error ? err.message : String(err);
-    // Audit each violation attempt as failed
     for (const v of violations) {
       const violationDbId = v.existingViolationId ?? recipient.violationIds.get(`${v.rule.id}:${v.issue.id}`);
       if (violationDbId) {
@@ -195,7 +259,6 @@ export async function sendSLADigestEmail(
 
   const sentAt = new Date();
 
-  // Update violation rows and insert audit records
   for (const v of violations) {
     const violationDbId = v.existingViolationId ?? recipient.violationIds.get(`${v.rule.id}:${v.issue.id}`);
     if (!violationDbId) continue;
