@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { requirements, jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { getValidCredentials } from "@/lib/atlassian/oauth";
+import { markdownToAdf } from "@/lib/markdown-to-adf";
 
 // ─── SECURITY CONTRACT ────────────────────────────────────────────────────────
 //
@@ -28,22 +29,6 @@ import { getValidCredentials } from "@/lib/atlassian/oauth";
 // ─────────────────────────────────────────────────────────────────────────────
 
 const JIRA_API_BASE = "https://api.atlassian.com/ex/jira";
-
-// Converts plain text to Atlassian Document Format (ADF).
-// REST API v3 rejects plain strings in description fields.
-function toAdf(text: string) {
-  return {
-    version: 1,
-    type: "doc",
-    content: text
-      .split("\n\n")
-      .filter(Boolean)
-      .map((para) => ({
-        type: "paragraph",
-        content: [{ type: "text", text: para }],
-      })),
-  };
-}
 
 export async function POST(
   request: Request,
@@ -140,15 +125,14 @@ export async function POST(
   // ── 5. Build issue payload with explicit reporter ─────────────────────────
   // Setting reporter.id to the OAuth token owner's accountId means Jira
   // attributes the issue to them both via the token AND the payload field.
-  let descriptionText = req.description;
-  if (req.acceptanceCriteria) {
-    descriptionText += `\n\nAcceptance Criteria\n\n${req.acceptanceCriteria}`;
-  }
+  const descriptionMarkdown = req.acceptanceCriteria
+    ? `${req.description}\n\n## Acceptance Criteria\n\n${req.acceptanceCriteria}`
+    : req.description;
 
   const issueFields: Record<string, unknown> = {
     project: { key: project.jiraProjectKey },
     summary: req.title,
-    description: toAdf(descriptionText),
+    description: markdownToAdf(descriptionMarkdown),
     issuetype: { name: issueTypeName },
     priority: { name: priorityName },
     // Explicitly set reporter to the OAuth token owner.
