@@ -7,6 +7,7 @@ import {
   RiCheckLine,
   RiCloseLine,
   RiUser3Line,
+  RiArrowDownSLine,
 } from "@remixicon/react";
 import {
   Select,
@@ -15,6 +16,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 
 type IssueType = {
   id: string;
@@ -57,6 +71,7 @@ export function PublishToJiraButton({ requirementId, existingIssueKey, jiraBaseU
   const [selectedIssueType, setSelectedIssueType] = useState("");
   const [selectedPriority, setSelectedPriority] = useState("");
   const [selectedAssignee, setSelectedAssignee] = useState("");
+  const [assigneeOpen, setAssigneeOpen] = useState(false);
   const [publishError, setPublishError] = useState("");
   const [issueKey, setIssueKey] = useState<string | null>(existingIssueKey);
 
@@ -252,23 +267,49 @@ export function PublishToJiraButton({ requirementId, existingIssueKey, jiraBaseU
                     No assignable users found for this project.
                   </p>
                 ) : (
-                  <Select
-                    value={selectedAssignee}
-                    onValueChange={setSelectedAssignee}
-                    disabled={modalState === "publishing"}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Unassigned" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__unassigned__">Unassigned</SelectItem>
-                      {options.assignees.map((a) => (
-                        <SelectItem key={a.accountId} value={a.accountId}>
-                          {a.displayName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Popover open={assigneeOpen} onOpenChange={setAssigneeOpen}>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        disabled={modalState === "publishing"}
+                        className="flex w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-ring"
+                      >
+                        <span className={selectedAssignee && selectedAssignee !== "__unassigned__" ? "text-foreground" : "text-muted-foreground"}>
+                          {selectedAssignee && selectedAssignee !== "__unassigned__"
+                            ? options.assignees.find((a) => a.accountId === selectedAssignee)?.displayName ?? "Unassigned"
+                            : "Unassigned"}
+                        </span>
+                        <RiArrowDownSLine className="size-4 opacity-50 shrink-0" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[320px] p-0" align="start" sideOffset={4}>
+                      <Command>
+                        <CommandInput placeholder="Search assignee…" autoFocus />
+                        <CommandList>
+                          <CommandEmpty>No users found.</CommandEmpty>
+                          <CommandGroup>
+                            <CommandItem
+                              value="__unassigned__"
+                              onSelect={() => { setSelectedAssignee("__unassigned__"); setAssigneeOpen(false); }}
+                              data-checked={!selectedAssignee || selectedAssignee === "__unassigned__"}
+                            >
+                              Unassigned
+                            </CommandItem>
+                            {options.assignees.map((a) => (
+                              <CommandItem
+                                key={a.accountId}
+                                value={a.displayName}
+                                onSelect={() => { setSelectedAssignee(a.accountId); setAssigneeOpen(false); }}
+                                data-checked={selectedAssignee === a.accountId}
+                              >
+                                {a.displayName}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 )}
               </div>
 
