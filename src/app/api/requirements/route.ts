@@ -28,7 +28,7 @@ export async function POST(request: Request) {
 
   let body: {
     jiraProjectId: string;
-    githubRepoName: string;
+    githubRepoName?: string;
     title: string;
     description: string;
     acceptanceCriteria?: string;
@@ -48,9 +48,9 @@ export async function POST(request: Request) {
 
   const { jiraProjectId, githubRepoName, title, description, acceptanceCriteria, priority, status, charjanContext } = body;
 
-  if (!jiraProjectId || !githubRepoName || !title || !description) {
+  if (!jiraProjectId || !title || !description) {
     return Response.json(
-      { error: "jiraProjectId, githubRepoName, title, and description are required" },
+      { error: "jiraProjectId, title, and description are required" },
       { status: 400 }
     );
   }
@@ -59,7 +59,7 @@ export async function POST(request: Request) {
     .insert(requirements)
     .values({
       jiraProjectId,
-      githubRepoName,
+      githubRepoName: githubRepoName ?? "",
       title,
       description,
       acceptanceCriteria: acceptanceCriteria ?? null,

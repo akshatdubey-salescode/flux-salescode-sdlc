@@ -223,7 +223,8 @@ export function RequirementBuilderForm() {
           return;
         }
 
-        router.push("/requirements");
+        const created = await res.json();
+        router.push(`/requirements/${created.id}`);
       } catch (err) {
         setSaveError(err instanceof Error ? err.message : "Unknown error");
       } finally {
