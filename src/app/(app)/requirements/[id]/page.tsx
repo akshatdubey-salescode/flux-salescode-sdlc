@@ -15,13 +15,13 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import {
-  RiGitRepositoryLine,
   RiCalendarLine,
   RiArrowLeftLine,
   RiSparklingLine,
   RiBriefcaseLine,
 } from "@remixicon/react";
 import { PublishToJiraButton } from "./publish-to-jira-button";
+import { Markdown } from "@/components/ui/markdown";
 
 const PRIORITY_STYLES: Record<string, string> = {
   low: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400",
@@ -125,11 +125,7 @@ export default async function RequirementDetailPage(props: {
                   {project.name}
                 </span>
               )}
-              <span className="inline-flex items-center gap-1.5">
-                <RiGitRepositoryLine size={13} />
-                <span className="font-mono">{req.githubRepoName}</span>
-              </span>
-              <span className="inline-flex items-center gap-1.5">
+<span className="inline-flex items-center gap-1.5">
                 <RiCalendarLine size={13} />
                 {formatDate(req.createdAt)}
               </span>
@@ -155,31 +151,19 @@ export default async function RequirementDetailPage(props: {
 
           <hr className="border-zinc-200 dark:border-zinc-800" />
 
-          {/* Description */}
+          {/* Description + Acceptance Criteria */}
           <section className="space-y-2">
             <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-400">
               Description
             </h2>
-            <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
-              <p className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed">
-                {req.description}
-              </p>
-            </div>
+            <Markdown
+              content={
+                req.acceptanceCriteria
+                  ? `${req.description}\n\n## Acceptance Criteria\n\n${req.acceptanceCriteria}`
+                  : req.description
+              }
+            />
           </section>
-
-          {/* Acceptance criteria */}
-          {req.acceptanceCriteria && (
-            <section className="space-y-2">
-              <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-400">
-                Acceptance Criteria
-              </h2>
-              <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
-                <pre className="text-sm font-mono text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed">
-                  {req.acceptanceCriteria}
-                </pre>
-              </div>
-            </section>
-          )}
 
           {/* AI context (if any) */}
           {req.charjanContext && (

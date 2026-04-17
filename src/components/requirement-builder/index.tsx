@@ -10,14 +10,16 @@ import {
   RiLoader4Line,
   RiRefreshLine,
   RiAlertLine,
-  RiFolderLine,
   RiGoogleLine,
-  RiArrowDownSLine,
-  RiCloseLine,
   RiBriefcaseLine,
 } from "@remixicon/react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const SALESCODE_TOKEN_KEY = "salescode_access_token";
 const SALESCODE_TOKEN_EXPIRY_KEY = "salescode_token_expiry";
@@ -34,14 +36,6 @@ function getSalescodeToken(): string | null {
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-type GitHubRepo = {
-  id: number;
-  name: string;
-  fullName: string;
-  description: string;
-  language: string;
-};
 
 type PlatformProject = {
   id: string;
@@ -101,11 +95,6 @@ export function RequirementBuilderForm() {
   const [platformProjectsLoading, setPlatformProjectsLoading] = useState(true);
   const [selectedPlatformProjectId, setSelectedPlatformProjectId] = useState<string | null>(null);
 
-  // Repos
-  const [repos, setRepos] = useState<GitHubRepo[]>([]);
-  const [reposLoading, setReposLoading] = useState(true);
-  const [selectedRepos, setSelectedRepos] = useState<string[]>([]); // fullNames
-
   // Session launch
   const [launching, setLaunching] = useState(false);
   const [sessionLaunched, setSessionLaunched] = useState(false);
@@ -143,17 +132,6 @@ export function RequirementBuilderForm() {
       .finally(() => setPlatformProjectsLoading(false));
   }, []);
 
-  // ── Fetch GitHub repos ─────────────────────────────────────────────────────
-  useEffect(() => {
-    fetch("/api/github/repos")
-      .then((r) => r.json())
-      .then((data: GitHubRepo[]) => {
-        if (Array.isArray(data)) setRepos(data);
-      })
-      .catch(() => {})
-      .finally(() => setReposLoading(false));
-  }, []);
-
   // ── Listen for CHARJAN_TICKET_FINALIZED from iframe ────────────────────────
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -174,7 +152,6 @@ export function RequirementBuilderForm() {
 
   // ── Launch AI session ──────────────────────────────────────────────────────
   const launchSession = useCallback(async () => {
-    if (selectedRepos.length === 0) return;
     setLaunching(true);
     setLaunchError("");
 
@@ -219,7 +196,7 @@ export function RequirementBuilderForm() {
     } finally {
       setLaunching(false);
     }
-  }, [selectedRepos]);
+  }, []);
 
   // ── Save requirement ───────────────────────────────────────────────────────
   const saveRequirement = useCallback(
@@ -238,7 +215,6 @@ export function RequirementBuilderForm() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             jiraProjectId: selectedPlatformProjectId,
-            githubRepoName: selectedRepos[0] || "",
             title: draft.title || "Untitled Requirement",
             description: draft.description,
             acceptanceCriteria: draft.acceptanceCriteria || undefined,
@@ -260,7 +236,7 @@ export function RequirementBuilderForm() {
         setSaving(false);
       }
     },
-    [selectedPlatformProjectId, selectedRepos, draft, router]
+    [selectedPlatformProjectId, draft, router]
   );
 
   // ─── Render ────────────────────────────────────────────────────────────────
@@ -304,59 +280,38 @@ export function RequirementBuilderForm() {
       {step === 1 && (
         <div className="space-y-5">
           {/* Platform project selector */}
-          <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 space-y-4">
-            <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-zinc-400">
-              <RiBriefcaseLine size={16} />
-              Platform Project <span className="text-red-400 normal-case font-normal tracking-normal">required</span>
+          <div className="space-y-2">
+            <label className="flex items-center gap-1.5 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+              <RiBriefcaseLine size={13} />
+              Platform Project
+              <span className="ml-1 text-red-400">*</span>
             </label>
 
             {platformProjectsLoading ? (
-              <div className="flex items-center gap-2 text-sm text-zinc-400">
-                <RiLoader4Line className="animate-spin" size={14} />
-                Loading projects…
-              </div>
+              <div className="h-9 w-full animate-pulse rounded-md bg-zinc-100 dark:bg-zinc-800" />
             ) : platformProjects.length === 0 ? (
               <p className="text-sm text-zinc-400">
                 No platform projects found. Ask a Superuser to onboard a project first.
               </p>
             ) : (
-              <select
+              <Select
                 value={selectedPlatformProjectId ?? ""}
-                onChange={(e) => setSelectedPlatformProjectId(e.target.value || null)}
-                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                onValueChange={(v) => setSelectedPlatformProjectId(v || null)}
               >
-                <option value="">Select a project…</option>
-                {platformProjects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.jiraProjectKey})
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-
-          {/* Repo selector */}
-          <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 space-y-4">
-            <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-zinc-400">
-              <RiFolderLine size={16} />
-              Repository
-            </label>
-
-            {reposLoading ? (
-              <div className="flex items-center gap-2 text-sm text-zinc-400">
-                <RiLoader4Line className="animate-spin" size={14} />
-                Loading repos…
-              </div>
-            ) : (
-              <MultiSelect
-                label="Select Repositories"
-                options={repos.map((repo) => ({
-                  value: repo.fullName,
-                  label: `${repo.name}${repo.language ? ` (${repo.language})` : ""}`,
-                }))}
-                selected={selectedRepos}
-                onChange={setSelectedRepos}
-              />
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select a project…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {platformProjects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      <span className="flex items-center gap-2">
+                        {p.name}
+                        <span className="font-mono text-xs text-zinc-400">{p.jiraProjectKey}</span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
           </div>
 
@@ -382,7 +337,7 @@ export function RequirementBuilderForm() {
           <div className="flex justify-end">
             <button
               onClick={launchSession}
-              disabled={launching || selectedRepos.length === 0 || !salescodeToken}
+              disabled={launching || !salescodeToken}
               className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {launching ? (
@@ -538,41 +493,16 @@ export function RequirementBuilderForm() {
           </div>
 
           {/* Context summary */}
-          <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-5 py-4 space-y-3">
-            <p className="text-xs font-bold uppercase tracking-widest text-zinc-400">
-              Context
-            </p>
-            {selectedPlatformProjectId && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-zinc-500 w-20 shrink-0">Project</span>
-                <span className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary">
-                  <RiBriefcaseLine size={13} />
-                  {platformProjects.find((p) => p.id === selectedPlatformProjectId)?.name ?? selectedPlatformProjectId}
-                </span>
+          {selectedPlatformProjectId && (() => {
+            const proj = platformProjects.find((p) => p.id === selectedPlatformProjectId);
+            return proj ? (
+              <div className="flex items-center gap-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 px-4 py-2.5">
+                <RiBriefcaseLine size={13} className="text-zinc-400 shrink-0" />
+                <span className="text-sm text-zinc-700 dark:text-zinc-300 font-medium">{proj.name}</span>
+                <span className="ml-auto font-mono text-xs text-zinc-400">{proj.jiraProjectKey}</span>
               </div>
-            )}
-            {selectedRepos.length > 0 && (
-              <div className="flex items-start gap-2">
-                <span className="text-xs text-zinc-500 w-20 shrink-0 pt-1.5">Repos</span>
-                <div className="flex flex-wrap gap-2">
-                  {selectedRepos.map((repo) => (
-                    <span
-                      key={repo}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300"
-                    >
-                      <RiFolderLine size={13} className="text-zinc-400" />
-                      {repo}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {selectedRepos.length > 1 && (
-              <p className="text-[10px] text-zinc-500 pl-24">
-                Note: The requirement will be linked to {selectedRepos[0]} in the database.
-              </p>
-            )}
-          </div>
+            ) : null;
+          })()}
 
           {saveError && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
@@ -592,7 +522,7 @@ export function RequirementBuilderForm() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => saveRequirement("draft")}
-                disabled={!draft.title || !draft.description || saving || selectedRepos.length === 0 || !selectedPlatformProjectId}
+                disabled={!draft.title || !draft.description || saving || !selectedPlatformProjectId}
                 className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-5 py-2.5 text-sm font-semibold text-foreground shadow-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving ? <RiLoader4Line className="animate-spin" size={15} /> : null}
@@ -600,7 +530,7 @@ export function RequirementBuilderForm() {
               </button>
               <button
                 onClick={() => saveRequirement("published")}
-                disabled={!draft.title || !draft.description || saving || selectedRepos.length === 0 || !selectedPlatformProjectId}
+                disabled={!draft.title || !draft.description || saving || !selectedPlatformProjectId}
                 className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving ? <RiLoader4Line className="animate-spin" size={15} /> : <RiCheckLine size={15} />}
@@ -614,106 +544,3 @@ export function RequirementBuilderForm() {
   );
 }
 
-// ─── Sub-components ──────────────────────────────────────────────────────────
-
-function MultiSelect({
-  label,
-  options,
-  selected,
-  onChange,
-}: {
-  label: string;
-  options: { value: string; label: string }[];
-  selected: string[];
-  onChange: (values: string[]) => void;
-}) {
-  function toggle(value: string) {
-    if (selected.includes(value)) {
-      onChange(selected.filter((v) => v !== value));
-    } else {
-      onChange([...selected, value]);
-    }
-  }
-
-  const hasSelection = selected.length > 0;
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          className={cn(
-            "flex w-full min-h-[42px] items-center justify-between gap-2 rounded-xl border px-4 py-2 text-sm transition-all",
-            hasSelection
-              ? "border-primary bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-50 shadow-sm"
-              : "border-zinc-200 bg-white text-zinc-500 hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:border-zinc-600"
-          )}
-        >
-          <div className="flex flex-wrap gap-1.5 items-center">
-            {!hasSelection && label}
-            {selected.map((val) => {
-              const opt = options.find((o) => o.value === val);
-              return (
-                <span
-                  key={val}
-                  className="inline-flex items-center gap-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 px-2 py-1 text-xs font-medium text-zinc-700 dark:text-zinc-300"
-                >
-                  {opt?.label || val}
-                  <RiCloseLine
-                    className="size-3 cursor-pointer hover:text-red-500"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggle(val);
-                    }}
-                  />
-                </span>
-              );
-            })}
-          </div>
-          <RiArrowDownSLine className="size-4 opacity-50 shrink-0" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-[400px] p-0" sideOffset={8}>
-        <div className="max-h-80 overflow-y-auto py-2">
-          {options.length === 0 ? (
-            <p className="px-4 py-8 text-center text-sm text-zinc-400">
-              No repositories found
-            </p>
-          ) : (
-            options.map((opt) => (
-              <label
-                key={opt.value}
-                className="flex cursor-pointer items-center gap-3 px-4 py-2.5 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.includes(opt.value)}
-                  onChange={() => toggle(opt.value)}
-                  className="size-4 rounded border-zinc-300 bg-white text-primary focus:ring-primary dark:border-zinc-700 dark:bg-zinc-900"
-                />
-                <span className="flex-1 truncate text-zinc-700 dark:text-zinc-300">
-                  {opt.label}
-                </span>
-                {selected.includes(opt.value) && (
-                  <RiCheckLine size={16} className="text-primary" />
-                )}
-              </label>
-            ))
-          )}
-        </div>
-        {hasSelection && (
-          <div className="border-t border-zinc-100 dark:border-zinc-800 px-4 py-2 flex justify-between">
-            <button
-              onClick={() => onChange([])}
-              className="text-xs font-medium text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
-            >
-              Clear all
-            </button>
-            <p className="text-[10px] text-zinc-400 flex items-center">
-              {selected.length} selected
-            </p>
-          </div>
-        )}
-      </PopoverContent>
-    </Popover>
-  );
-}
