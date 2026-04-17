@@ -1,14 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   RiLoader4Line,
   RiExternalLinkLine,
   RiCheckLine,
-  RiArrowDownSLine,
   RiCloseLine,
   RiUser3Line,
 } from "@remixicon/react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type IssueType = {
   id: string;
@@ -94,7 +100,7 @@ export function PublishToJiraButton({ requirementId, existingIssueKey, jiraBaseU
         body: JSON.stringify({
           issueTypeName: selectedIssueType,
           priorityName: selectedPriority,
-          assigneeAccountId: selectedAssignee || undefined,
+          assigneeAccountId: selectedAssignee && selectedAssignee !== "__unassigned__" ? selectedAssignee : undefined,
         }),
       });
 
@@ -193,25 +199,20 @@ export function PublishToJiraButton({ requirementId, existingIssueKey, jiraBaseU
                 <label className="block text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
                   Issue type <span className="text-red-500 normal-case tracking-normal font-normal">required</span>
                 </label>
-                <div className="relative">
-                  <select
-                    value={selectedIssueType}
-                    onChange={(e) => setSelectedIssueType(e.target.value)}
-                    disabled={modalState === "publishing"}
-                    className="w-full appearance-none rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 pr-8 text-sm text-zinc-900 dark:text-zinc-50 shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
-                  >
-                    <option value="">Select issue type…</option>
+                <Select
+                  value={selectedIssueType}
+                  onValueChange={setSelectedIssueType}
+                  disabled={modalState === "publishing"}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select issue type…" />
+                  </SelectTrigger>
+                  <SelectContent>
                     {options.issueTypes.map((t) => (
-                      <option key={t.id} value={t.name}>
-                        {t.name}
-                      </option>
+                      <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>
                     ))}
-                  </select>
-                  <RiArrowDownSLine
-                    size={16}
-                    className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400"
-                  />
-                </div>
+                  </SelectContent>
+                </Select>
                 {selectedIssueType && options.issueTypes.find((t) => t.name === selectedIssueType)?.description && (
                   <p className="text-xs text-zinc-400">
                     {options.issueTypes.find((t) => t.name === selectedIssueType)?.description}
@@ -224,25 +225,20 @@ export function PublishToJiraButton({ requirementId, existingIssueKey, jiraBaseU
                 <label className="block text-xs font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
                   Priority <span className="text-red-500 normal-case tracking-normal font-normal">required</span>
                 </label>
-                <div className="relative">
-                  <select
-                    value={selectedPriority}
-                    onChange={(e) => setSelectedPriority(e.target.value)}
-                    disabled={modalState === "publishing"}
-                    className="w-full appearance-none rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 pr-8 text-sm text-zinc-900 dark:text-zinc-50 shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
-                  >
-                    <option value="">Select priority…</option>
+                <Select
+                  value={selectedPriority}
+                  onValueChange={setSelectedPriority}
+                  disabled={modalState === "publishing"}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select priority…" />
+                  </SelectTrigger>
+                  <SelectContent>
                     {options.priorities.map((p) => (
-                      <option key={p.id} value={p.name}>
-                        {p.name}
-                      </option>
+                      <SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>
                     ))}
-                  </select>
-                  <RiArrowDownSLine
-                    size={16}
-                    className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400"
-                  />
-                </div>
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Assignee */}
@@ -256,25 +252,23 @@ export function PublishToJiraButton({ requirementId, existingIssueKey, jiraBaseU
                     No assignable users found for this project.
                   </p>
                 ) : (
-                  <div className="relative">
-                    <select
-                      value={selectedAssignee}
-                      onChange={(e) => setSelectedAssignee(e.target.value)}
-                      disabled={modalState === "publishing"}
-                      className="w-full appearance-none rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 pr-8 text-sm text-zinc-900 dark:text-zinc-50 shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
-                    >
-                      <option value="">Unassigned</option>
+                  <Select
+                    value={selectedAssignee}
+                    onValueChange={setSelectedAssignee}
+                    disabled={modalState === "publishing"}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Unassigned" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__unassigned__">Unassigned</SelectItem>
                       {options.assignees.map((a) => (
-                        <option key={a.accountId} value={a.accountId}>
+                        <SelectItem key={a.accountId} value={a.accountId}>
                           {a.displayName}
-                        </option>
+                        </SelectItem>
                       ))}
-                    </select>
-                    <RiArrowDownSLine
-                      size={16}
-                      className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400"
-                    />
-                  </div>
+                    </SelectContent>
+                  </Select>
                 )}
               </div>
 

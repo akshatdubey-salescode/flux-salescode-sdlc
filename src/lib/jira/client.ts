@@ -256,24 +256,41 @@ export class JiraClient {
   async fetchAssignableUsers(
     projectKey: string
   ): Promise<Array<{ accountId: string; displayName: string; avatarUrl: string }>> {
-    const res = await this.get(
-      `${this.baseUrl}/rest/api/3/user/assignable/search` +
-      `?project=${encodeURIComponent(projectKey)}&maxResults=50`
-    );
-    if (!res.ok) {
-      // Non-fatal — return empty list if the endpoint fails
-      return [];
+    const pageSize = 200;
+    const all: Array<{ accountId: string; displayName: string; avatarUrl: string }> = [];
+    let startAt = 0;
+
+    while (true) {
+      const res = await this.get(
+        `${this.baseUrl}/rest/api/3/user/assignable/search` +
+        `?project=${encodeURIComponent(projectKey)}&maxResults=${pageSize}&startAt=${startAt}`
+      );
+      if (!res.ok) break;
+
+      const data = (await res.json()) as Array<{
+        accountId: string;
+        displayName: string;
+        avatarUrls: Record<string, string>;
+        active?: boolean;
+      }>;
+
+      if (!Array.isArray(data) || data.length === 0) break;
+
+      for (const u of data) {
+        if (u.active !== false) {
+          all.push({
+            accountId: u.accountId,
+            displayName: u.displayName,
+            avatarUrl: u.avatarUrls?.["24x24"] ?? "",
+          });
+        }
+      }
+
+      if (data.length < pageSize) break;
+      startAt += pageSize;
     }
-    const data = (await res.json()) as Array<{
-      accountId: string;
-      displayName: string;
-      avatarUrls: Record<string, string>;
-    }>;
-    return (Array.isArray(data) ? data : []).map((u) => ({
-      accountId: u.accountId,
-      displayName: u.displayName,
-      avatarUrl: u.avatarUrls?.["24x24"] ?? "",
-    }));
+
+    return all;
   }
 
   /**
