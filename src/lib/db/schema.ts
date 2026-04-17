@@ -493,6 +493,45 @@ export const requirements = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Observer Boards — manager-defined boards for watching specific developers
+// ---------------------------------------------------------------------------
+
+export const observerBoards = pgTable("observer_boards", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  description: text("description"),
+  createdBy: text("created_by")
+    .notNull()
+    .references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const observerBoardMembers = pgTable(
+  "observer_board_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    boardId: uuid("board_id")
+      .notNull()
+      .references(() => observerBoards.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    jiraAccountId: text("jira_account_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("observer_board_members_board_email_idx").on(t.boardId, t.email),
+    index("observer_board_members_board_idx").on(t.boardId),
+  ]
+);
+
+// ---------------------------------------------------------------------------
 // Type exports
 // ---------------------------------------------------------------------------
 
@@ -516,4 +555,8 @@ export type UserIntegration = typeof userIntegrations.$inferSelect;
 export type NewUserIntegration = typeof userIntegrations.$inferInsert;
 export type Requirement = typeof requirements.$inferSelect;
 export type NewRequirement = typeof requirements.$inferInsert;
+export type ObserverBoard = typeof observerBoards.$inferSelect;
+export type NewObserverBoard = typeof observerBoards.$inferInsert;
+export type ObserverBoardMember = typeof observerBoardMembers.$inferSelect;
+export type NewObserverBoardMember = typeof observerBoardMembers.$inferInsert;
 
