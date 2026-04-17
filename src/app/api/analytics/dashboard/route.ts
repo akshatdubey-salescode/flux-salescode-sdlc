@@ -2,16 +2,27 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
 import { requireAuth } from "@/lib/auth/server";
+import { subDays } from "date-fns";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     await requireAuth();
+
+    const { searchParams } = new URL(request.url);
+    const toDate = searchParams.get("to") ? new Date(searchParams.get("to")!) : new Date();
+    const fromDate = searchParams.get("from")
+      ? new Date(searchParams.get("from")!)
+      : subDays(toDate, 30);
+
+    // Prior period of equal length (for delta comparisons)
+    const durationMs = toDate.getTime() - fromDate.getTime();
+    const prevFromDate = new Date(fromDate.getTime() - durationMs);
 
     // Run all queries concurrently
     const [
       activeIssuesRes,
-      completedThisWeekRes,
-      completedLastWeekRes,
+      completedInRangeRes,
+      completedPriorRes,
       slaViolationsRes,
       unmappedWarningRes,
       projectsSyncedTodayRes,
@@ -25,7 +36,7 @@ export async function GET() {
       devVelocityRes,
       issueTypeMixRes,
     ] = await Promise.all([
-      // Total active issues
+      // Total active issues — always live
       db.execute(sql`
         SELECT COUNT(*)::int AS count
         FROM jira_issues ji
@@ -34,7 +45,7 @@ export async function GET() {
         WHERE psm.canonical_status NOT IN ('DONE', 'CANCELLED')
       `),
 
-      // Completed this week
+      // Completed in selected range
       db.execute(sql`
         SELECT COUNT(DISTINCT ji.id)::int AS count
         FROM jira_status_history jsh
@@ -42,10 +53,11 @@ export async function GET() {
         JOIN project_status_mappings psm
           ON psm.project_id = ji.project_id AND psm.raw_status = jsh.to_status
         WHERE psm.canonical_status = 'DONE'
-          AND jsh.changed_at >= NOW() - INTERVAL '7 days'
+          AND jsh.changed_at >= ${fromDate}
+          AND jsh.changed_at <= ${toDate}
       `),
 
-      // Completed last week
+      // Completed in prior period (same duration)
       db.execute(sql`
         SELECT COUNT(DISTINCT ji.id)::int AS count
         FROM jira_status_history jsh
@@ -53,16 +65,16 @@ export async function GET() {
         JOIN project_status_mappings psm
           ON psm.project_id = ji.project_id AND psm.raw_status = jsh.to_status
         WHERE psm.canonical_status = 'DONE'
-          AND jsh.changed_at >= NOW() - INTERVAL '14 days'
-          AND jsh.changed_at < NOW() - INTERVAL '7 days'
+          AND jsh.changed_at >= ${prevFromDate}
+          AND jsh.changed_at < ${fromDate}
       `),
 
-      // Active SLA violations
+      // Active SLA violations — always live
       db.execute(sql`
         SELECT COUNT(*)::int AS count FROM sla_violations WHERE resolved_at IS NULL
       `),
 
-      // Projects with unmapped statuses
+      // Projects with unmapped statuses — always live
       db.execute(sql`
         SELECT COUNT(DISTINCT ji.project_id)::int AS count
         FROM jira_issues ji
@@ -71,14 +83,14 @@ export async function GET() {
         WHERE psm.id IS NULL AND ji.status IS NOT NULL
       `),
 
-      // Projects synced today
+      // Projects synced today — always live
       db.execute(sql`
-        SELECT COUNT(*)::int AS count 
-        FROM jira_projects 
+        SELECT COUNT(*)::int AS count
+        FROM jira_projects
         WHERE last_synced_at > NOW() - INTERVAL '24h' AND is_active = true
       `),
 
-      // Throughput (Weekly)
+      // Throughput in selected range
       db.execute(sql`
         SELECT
           date_trunc('week', jsh.changed_at) AS week,
@@ -92,12 +104,13 @@ export async function GET() {
           ON psm.project_id = ji.project_id
           AND psm.raw_status = jsh.to_status
         WHERE psm.canonical_status = 'DONE'
-          AND jsh.changed_at >= NOW() - INTERVAL '8 weeks'
+          AND jsh.changed_at >= ${fromDate}
+          AND jsh.changed_at <= ${toDate}
         GROUP BY 1, 2, 3
         ORDER BY 1, 3
       `),
 
-      // WIP Heatmap
+      // WIP Heatmap — always live
       db.execute(sql`
         SELECT
           ji.project_id,
@@ -112,7 +125,7 @@ export async function GET() {
         GROUP BY ji.project_id, jp.name, psm.canonical_status
       `),
 
-      // Cycle Time
+      // Cycle Time in selected range
       db.execute(sql`
         WITH issue_cycle_times AS (
           SELECT
@@ -126,6 +139,8 @@ export async function GET() {
             AND psm.raw_status = jsh.to_status
           WHERE psm.canonical_status IN ('IN_PROGRESS', 'IN_REVIEW', 'IN_QA')
             AND jsh.duration_seconds IS NOT NULL
+            AND jsh.changed_at >= ${fromDate}
+            AND jsh.changed_at <= ${toDate}
           GROUP BY ji.project_id, ji.id
         )
         SELECT
@@ -139,7 +154,7 @@ export async function GET() {
         GROUP BY ict.project_id, jp.name
       `),
 
-      // Stale Issues (no update > 7 days)
+      // Stale Issues — fixed 7-day staleness threshold relative to now
       db.execute(sql`
         SELECT
           ji.project_id,
@@ -155,7 +170,7 @@ export async function GET() {
         GROUP BY ji.project_id, jp.name
       `),
 
-      // Flow Efficiency
+      // Flow Efficiency in selected range
       db.execute(sql`
         WITH per_issue AS (
           SELECT
@@ -170,6 +185,8 @@ export async function GET() {
             ON psm.project_id = ji.project_id
             AND psm.raw_status = jsh.to_status
           WHERE jsh.duration_seconds IS NOT NULL
+            AND jsh.changed_at >= ${fromDate}
+            AND jsh.changed_at <= ${toDate}
           GROUP BY ji.project_id, ji.id
         )
         SELECT
@@ -184,7 +201,7 @@ export async function GET() {
         GROUP BY pi.project_id, jp.name
       `),
 
-      // Top SLA Rules Violations
+      // Top SLA rules in selected range
       db.execute(sql`
         SELECT
           sr.name AS rule_name,
@@ -193,13 +210,14 @@ export async function GET() {
         FROM sla_violations sv
         JOIN sla_rules sr ON sr.id = sv.rule_id
         JOIN jira_projects jp ON jp.id = sr.project_id
-        WHERE sv.entered_condition_at >= NOW() - INTERVAL '30 days'
+        WHERE sv.entered_condition_at >= ${fromDate}
+          AND sv.entered_condition_at <= ${toDate}
         GROUP BY sr.id, jp.id
         ORDER BY trigger_count DESC
         LIMIT 5
       `),
 
-      // Developer workload — active issues by priority + stage, with median cycle time
+      // Developer workload — always live (current active assignments)
       db.execute(sql`
         WITH dev_cycle AS (
           SELECT
@@ -248,22 +266,22 @@ export async function GET() {
         LIMIT 30
       `),
 
-      // Developer velocity — completions this week vs last week
+      // Developer velocity — current range vs prior range
       db.execute(sql`
         WITH weekly AS (
           SELECT
             ji.assignee_name,
-            COUNT(DISTINCT CASE WHEN jsh.changed_at >= NOW() - INTERVAL '7 days'
+            COUNT(DISTINCT CASE WHEN jsh.changed_at >= ${fromDate} AND jsh.changed_at <= ${toDate}
                                 THEN ji.id END)::int AS this_week,
-            COUNT(DISTINCT CASE WHEN jsh.changed_at >= NOW() - INTERVAL '14 days'
-                                 AND jsh.changed_at < NOW() - INTERVAL '7 days'
+            COUNT(DISTINCT CASE WHEN jsh.changed_at >= ${prevFromDate} AND jsh.changed_at < ${fromDate}
                                 THEN ji.id END)::int AS last_week
           FROM jira_status_history jsh
           JOIN jira_issues ji ON ji.id = jsh.issue_id
           JOIN project_status_mappings psm
             ON psm.project_id = ji.project_id AND psm.raw_status = jsh.to_status
           WHERE psm.canonical_status = 'DONE'
-            AND jsh.changed_at >= NOW() - INTERVAL '14 days'
+            AND jsh.changed_at >= ${prevFromDate}
+            AND jsh.changed_at <= ${toDate}
             AND ji.assignee_name IS NOT NULL
           GROUP BY ji.assignee_name
         )
@@ -278,7 +296,7 @@ export async function GET() {
         LIMIT 15
       `),
 
-      // Active issue type mix (Bug vs Story vs Task …)
+      // Active issue type mix — always live
       db.execute(sql`
         SELECT
           issue_type,
@@ -294,15 +312,15 @@ export async function GET() {
     ]);
 
     const activeIssues = Number(activeIssuesRes.rows[0]?.count || 0);
-    const completedThisWeek = Number(completedThisWeekRes.rows[0]?.count || 0);
-    const completedLastWeek = Number(completedLastWeekRes.rows[0]?.count || 0);
+    const completedThisWeek = Number(completedInRangeRes.rows[0]?.count || 0);
+    const completedLastWeek = Number(completedPriorRes.rows[0]?.count || 0);
     const slaViolations = Number(slaViolationsRes.rows[0]?.count || 0);
     const unmappedWarnings = Number(unmappedWarningRes.rows[0]?.count || 0);
     const projectsSyncedToday = Number(projectsSyncedTodayRes.rows[0]?.count || 0);
 
     let compDelta = 0;
     if (completedLastWeek > 0) {
-      compDelta = Math.round((completedThisWeek - completedLastWeek) / completedLastWeek * 100);
+      compDelta = Math.round(((completedThisWeek - completedLastWeek) / completedLastWeek) * 100);
     }
 
     return NextResponse.json({
