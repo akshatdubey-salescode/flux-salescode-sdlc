@@ -4,18 +4,14 @@ import { currentUser } from "@clerk/nextjs/server";
 export async function POST(request: Request) {
   const user = await requireAuth();
 
-  let body: { repo_names: string[]; access_token?: string };
+  let body: { access_token?: string };
   try {
     body = await request.json();
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { repo_names, access_token } = body;
-  if (!repo_names?.length) {
-    return Response.json({ error: "repo_names is required" }, { status: 400 });
-  }
-
+  const { access_token } = body;
   if (!access_token) {
     return Response.json({ error: "SALESCODE_AUTH_REQUIRED" }, { status: 401 });
   }
@@ -54,31 +50,5 @@ export async function POST(request: Request) {
 
   const { api_key } = await provisionRes.json();
 
-  // ── Step 2: create session from project repos ──────────────────────────────
-  console.log("[ai-session] creating session for repos:", repo_names);
-  const sessionRes = await fetch(
-    `${apiUrl}/api/v1/tenants/${tenantId}/agents/sessions/from-project`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-API-Key": api_key },
-      body: JSON.stringify({ repo_names }),
-    }
-  );
-
-  if (!sessionRes.ok) {
-    const raw = await sessionRes.text().catch(() => "");
-    console.error("[ai-session] from-project failed", sessionRes.status, raw);
-    return Response.json(
-      { error: `Failed to create AI session (${sessionRes.status}): ${raw}` },
-      { status: 502 }
-    );
-  }
-
-  const sessionData = await sessionRes.json();
-  console.log("[ai-session] session created:", sessionData);
-  return Response.json({
-    conversation_url: sessionData.conversation_url,
-    api_key,
-    tenant_id: tenantId,
-  });
+  return Response.json({ api_key, tenant_id: tenantId });
 }

@@ -58,6 +58,37 @@ type Draft = {
 
 const FALLBACK_AI_URL = "http://localhost:3000/agents";
 
+// ─── Description cleaner ──────────────────────────────────────────────────────
+// Strips artifacts from the raw AI response before storing:
+//   • <think>…</think> reasoning blocks
+//   • Top-level "# Jira Ticket" (or any single-# heading) title line
+//   • "## Title" section (title is already in its own field)
+//   • "## Acceptance Criteria" section (already in acceptanceCriteria field)
+//   • Redundant horizontal-rule separators
+function cleanDescription(raw: string): string {
+  let text = raw;
+
+  // 1. Remove <think>...</think> blocks (reasoning model artifact)
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, "");
+
+  // 2. Remove the top-level single-# heading (e.g. "# Jira Ticket")
+  text = text.replace(/^#\s[^\n]*\n?/m, "");
+
+  // 3. Remove "## Title" section up to the next ## heading or end
+  text = text.replace(/^##\s+Title\b[^\n]*\n[\s\S]*?(?=\n##\s|$)/im, "");
+
+  // 4. Remove "## Acceptance Criteria" section up to the next ## heading or end
+  text = text.replace(/^##\s+Acceptance Criteria\b[^\n]*\n[\s\S]*?(?=\n##\s|$)/im, "");
+
+  // 5. Collapse horizontal-rule separators into blank lines
+  text = text.replace(/\n---+\s*\n/g, "\n\n");
+
+  // 6. Collapse runs of 3+ blank lines
+  text = text.replace(/\n{3,}/g, "\n\n");
+
+  return text.trim();
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function RequirementBuilderForm() {
@@ -131,7 +162,7 @@ export function RequirementBuilderForm() {
       setDraft((prev) => ({
         ...prev,
         title: title || prev.title,
-        description: description || prev.description,
+        description: description ? cleanDescription(description) : prev.description,
         acceptanceCriteria: acceptanceCriteria || prev.acceptanceCriteria,
       }));
       setStep(2);
@@ -157,7 +188,7 @@ export function RequirementBuilderForm() {
       const res = await fetch("/api/ai-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo_names: selectedRepos, access_token: token }),
+        body: JSON.stringify({ access_token: token }),
       });
 
       if (!res.ok) {
@@ -170,15 +201,14 @@ export function RequirementBuilderForm() {
         return;
       }
 
-      const { conversation_url, api_key, tenant_id } = await res.json();
+      const { api_key, tenant_id } = await res.json();
 
       const aiHost = (process.env.NEXT_PUBLIC_AI_BUILDER_URL ?? FALLBACK_AI_URL).replace(
         /\/agents.*$/,
         ""
       );
-      const sep = conversation_url.includes("?") ? "&" : "?";
       const encodedKey = btoa(api_key);
-      const url = `${aiHost}${conversation_url}${sep}apiKey=${encodeURIComponent(encodedKey)}&tenantId=${encodeURIComponent(tenant_id)}`;
+      const url = `${aiHost}/agents?apiKey=${encodeURIComponent(encodedKey)}&tenantId=${encodeURIComponent(tenant_id)}&agentType=code_generation&mode=qa`;
 
       setIframeSrc(url);
       setIframeKey((k) => k + 1);
