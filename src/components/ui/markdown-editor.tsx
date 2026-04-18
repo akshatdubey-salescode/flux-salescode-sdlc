@@ -13,7 +13,7 @@ type Props = {
 };
 
 export function MarkdownEditor({ value, onChange, placeholder, rows = 16, label, required }: Props) {
-  const [tab, setTab] = useState<"write" | "preview">("write");
+  const [tab, setTab] = useState<"write" | "preview">("preview");
 
   return (
     <div className="space-y-1.5">
