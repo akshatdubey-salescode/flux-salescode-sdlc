@@ -16,9 +16,10 @@ import { markdownToAdf } from "@/lib/markdown-to-adf";
 //                             the calling user's row in user_integrations.
 //                             Returns null (→ 422) if not connected.
 //   4. credentials.accountId assertion — hard-stops if accountId is missing
-//   5. reporter field in payload — Jira payload explicitly names the reporter
-//                             by accountId so the issue is attributed to the
-//                             user even at the Atlassian API level.
+//   5. reporter omitted from payload — Jira automatically assigns the OAuth
+//                             token owner as reporter; setting it explicitly
+//                             fails when the field isn't on the project's
+//                             create screen (varies per Jira configuration).
 //   6. Post-creation reporter check — verifies the created issue's reporter
 //                             matches the expected accountId.
 //
@@ -122,9 +123,10 @@ export async function POST(
     return Response.json({ error: "Target Jira project not found" }, { status: 422 });
   }
 
-  // ── 5. Build issue payload with explicit reporter ─────────────────────────
-  // Setting reporter.id to the OAuth token owner's accountId means Jira
-  // attributes the issue to them both via the token AND the payload field.
+  // ── 5. Build issue payload ────────────────────────────────────────────────
+  // Omit reporter — Jira automatically assigns the OAuth token owner as
+  // reporter, and explicitly setting it fails when the reporter field isn't
+  // on the project's create screen (varies by Jira project configuration).
   const descriptionMarkdown = req.acceptanceCriteria
     ? `${req.description}\n\n## Acceptance Criteria\n\n${req.acceptanceCriteria}`
     : req.description;
@@ -135,10 +137,6 @@ export async function POST(
     description: markdownToAdf(descriptionMarkdown),
     issuetype: { name: issueTypeName },
     priority: { name: priorityName },
-    // Explicitly set reporter to the OAuth token owner.
-    // This is belt-and-suspenders: the Bearer token already identifies the
-    // user, but naming them here makes attribution unambiguous in the payload.
-    reporter: { id: credentials.accountId },
   };
 
   if (assigneeAccountId) {
