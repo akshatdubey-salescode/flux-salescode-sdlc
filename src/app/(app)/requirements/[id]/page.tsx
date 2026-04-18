@@ -19,7 +19,7 @@ import {
   RiSparklingLine,
   RiBriefcaseLine,
 } from "@remixicon/react";
-import { PublishToJiraButton } from "./publish-to-jira-button";
+import { JiraPublishButton } from "./jira-publish-button";
 import { Markdown } from "@/components/ui/markdown";
 
 const STATUS_STYLES: Record<string, string> = {
@@ -126,7 +126,7 @@ export default async function RequirementDetailPage(props: {
                   : "Create a Jira issue from this requirement using your connected Atlassian account."}
               </p>
             </div>
-            <PublishToJiraButton
+            <JiraPublishButton
               requirementId={req.id}
               existingIssueKey={req.jiraIssueKey ?? null}
               jiraBaseUrl={project?.jiraBaseUrl ?? ""}
