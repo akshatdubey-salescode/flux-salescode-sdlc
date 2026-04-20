@@ -181,7 +181,7 @@ export function RequirementBuilderForm() {
         ""
       );
       const encodedKey = btoa(api_key);
-      const url = `${aiHost}/agents?apiKey=${encodeURIComponent(encodedKey)}&tenantId=${encodeURIComponent(tenant_id)}&agentType=code_generation&mode=qa`;
+      const url = `${aiHost}/agents?apiKey=${encodeURIComponent(encodedKey)}&tenantId=${encodeURIComponent(tenant_id)}&agentType=code_generation&mode=qa&audience=pm`;
 
       setIframeSrc(url);
       setIframeKey((k) => k + 1);
