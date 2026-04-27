@@ -40,9 +40,11 @@ export async function GET(request: Request) {
       db.execute(sql`
         SELECT COUNT(*)::int AS count
         FROM jira_issues ji
+        JOIN jira_projects jp ON jp.id = ji.project_id
         JOIN project_status_mappings psm
           ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
         WHERE psm.canonical_status NOT IN ('DONE', 'CANCELLED')
+          AND jp.is_active = true
       `),
 
       // Completed in selected range
@@ -50,11 +52,13 @@ export async function GET(request: Request) {
         SELECT COUNT(DISTINCT ji.id)::int AS count
         FROM jira_status_history jsh
         JOIN jira_issues ji ON ji.id = jsh.issue_id
+        JOIN jira_projects jp ON jp.id = ji.project_id
         JOIN project_status_mappings psm
           ON psm.project_id = ji.project_id AND psm.raw_status = jsh.to_status
         WHERE psm.canonical_status = 'DONE'
           AND jsh.changed_at >= ${fromDate}
           AND jsh.changed_at <= ${toDate}
+          AND jp.is_active = true
       `),
 
       // Completed in prior period (same duration)
@@ -62,25 +66,34 @@ export async function GET(request: Request) {
         SELECT COUNT(DISTINCT ji.id)::int AS count
         FROM jira_status_history jsh
         JOIN jira_issues ji ON ji.id = jsh.issue_id
+        JOIN jira_projects jp ON jp.id = ji.project_id
         JOIN project_status_mappings psm
           ON psm.project_id = ji.project_id AND psm.raw_status = jsh.to_status
         WHERE psm.canonical_status = 'DONE'
           AND jsh.changed_at >= ${prevFromDate}
           AND jsh.changed_at < ${fromDate}
+          AND jp.is_active = true
       `),
 
       // Active SLA violations — always live
       db.execute(sql`
-        SELECT COUNT(*)::int AS count FROM sla_violations WHERE resolved_at IS NULL
+        SELECT COUNT(*)::int AS count
+        FROM sla_violations sv
+        JOIN sla_rules sr ON sr.id = sv.rule_id
+        JOIN jira_projects jp ON jp.id = sr.project_id
+        WHERE sv.resolved_at IS NULL
+          AND jp.is_active = true
       `),
 
       // Projects with unmapped statuses — always live
       db.execute(sql`
         SELECT COUNT(DISTINCT ji.project_id)::int AS count
         FROM jira_issues ji
+        JOIN jira_projects jp ON jp.id = ji.project_id
         LEFT JOIN project_status_mappings psm
           ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
         WHERE psm.id IS NULL AND ji.status IS NOT NULL
+          AND jp.is_active = true
       `),
 
       // Projects synced today — always live
@@ -106,6 +119,7 @@ export async function GET(request: Request) {
         WHERE psm.canonical_status = 'DONE'
           AND jsh.changed_at >= ${fromDate}
           AND jsh.changed_at <= ${toDate}
+          AND jp.is_active = true
         GROUP BY 1, 2, 3
         ORDER BY 1, 3
       `),
@@ -122,6 +136,7 @@ export async function GET(request: Request) {
         JOIN project_status_mappings psm
           ON psm.project_id = ji.project_id
           AND psm.raw_status = ji.status
+        WHERE jp.is_active = true
         GROUP BY ji.project_id, jp.name, psm.canonical_status
       `),
 
@@ -151,6 +166,7 @@ export async function GET(request: Request) {
           COALESCE(ROUND((PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY total_active_seconds) / 3600)::numeric, 1), 0) AS p90_hours
         FROM issue_cycle_times ict
         JOIN jira_projects jp ON jp.id = ict.project_id
+        WHERE jp.is_active = true
         GROUP BY ict.project_id, jp.name
       `),
 
@@ -167,6 +183,7 @@ export async function GET(request: Request) {
           AND psm.raw_status = ji.status
         WHERE psm.canonical_status NOT IN ('DONE', 'CANCELLED')
           AND ji.jira_updated_at < NOW() - INTERVAL '7 days'
+          AND jp.is_active = true
         GROUP BY ji.project_id, jp.name
       `),
 
@@ -198,6 +215,7 @@ export async function GET(request: Request) {
           ), 0) AS flow_efficiency_pct
         FROM per_issue pi
         JOIN jira_projects jp ON jp.id = pi.project_id
+        WHERE jp.is_active = true
         GROUP BY pi.project_id, jp.name
       `),
 
@@ -212,6 +230,7 @@ export async function GET(request: Request) {
         JOIN jira_projects jp ON jp.id = sr.project_id
         WHERE sv.entered_condition_at >= ${fromDate}
           AND sv.entered_condition_at <= ${toDate}
+          AND jp.is_active = true
         GROUP BY sr.id, jp.id
         ORDER BY trigger_count DESC
         LIMIT 5
@@ -232,11 +251,13 @@ export async function GET(request: Request) {
               SUM(CASE WHEN psm2.canonical_status IN ('IN_PROGRESS','IN_REVIEW','IN_QA')
                        THEN jsh.duration_seconds ELSE 0 END) AS active_seconds
             FROM jira_issues ji2
+            JOIN jira_projects jp2 ON jp2.id = ji2.project_id
             JOIN jira_status_history jsh ON jsh.issue_id = ji2.id
             JOIN project_status_mappings psm2
               ON psm2.project_id = ji2.project_id AND psm2.raw_status = jsh.to_status
             WHERE ji2.assignee_name IS NOT NULL
               AND jsh.duration_seconds IS NOT NULL
+              AND jp2.is_active = true
             GROUP BY ji2.assignee_name, ji2.id
             HAVING SUM(CASE WHEN psm2.canonical_status IN ('IN_PROGRESS','IN_REVIEW','IN_QA')
                             THEN jsh.duration_seconds ELSE 0 END) > 0
@@ -255,11 +276,13 @@ export async function GET(request: Request) {
           COUNT(CASE WHEN psm.canonical_status = 'IN_QA' THEN 1 END)::int AS in_qa,
           COALESCE(ROUND((dc.p50_seconds / 3600)::numeric, 1), 0) AS p50_cycle_hours
         FROM jira_issues ji
+        JOIN jira_projects jp ON jp.id = ji.project_id
         JOIN project_status_mappings psm
           ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
         LEFT JOIN dev_cycle dc ON dc.assignee_name = ji.assignee_name
         WHERE psm.canonical_status NOT IN ('DONE','CANCELLED')
           AND ji.assignee_name IS NOT NULL
+          AND jp.is_active = true
         GROUP BY ji.assignee_name, dc.p50_seconds
         HAVING COUNT(*) >= 2
         ORDER BY p1 DESC, p2 DESC, active_total DESC
@@ -277,12 +300,14 @@ export async function GET(request: Request) {
                                 THEN ji.id END)::int AS last_week
           FROM jira_status_history jsh
           JOIN jira_issues ji ON ji.id = jsh.issue_id
+          JOIN jira_projects jp ON jp.id = ji.project_id
           JOIN project_status_mappings psm
             ON psm.project_id = ji.project_id AND psm.raw_status = jsh.to_status
           WHERE psm.canonical_status = 'DONE'
             AND jsh.changed_at >= ${prevFromDate}
             AND jsh.changed_at <= ${toDate}
             AND ji.assignee_name IS NOT NULL
+            AND jp.is_active = true
           GROUP BY ji.assignee_name
         )
         SELECT
@@ -303,9 +328,11 @@ export async function GET(request: Request) {
           COUNT(*)::int AS count,
           ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1)::float AS pct
         FROM jira_issues ji
+        JOIN jira_projects jp ON jp.id = ji.project_id
         JOIN project_status_mappings psm
           ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
         WHERE psm.canonical_status NOT IN ('DONE','CANCELLED')
+          AND jp.is_active = true
         GROUP BY issue_type
         ORDER BY count DESC
       `),
