@@ -127,7 +127,11 @@ export function AppSidebar({ user, projects }: Props) {
                 <SidebarMenuItem key={href}>
                   <SidebarMenuButton
                     asChild
-                    isActive={href === "/home" ? pathname === href : pathname.startsWith(href)}
+                    isActive={
+                    href === "/home" || href === "/projects"
+                      ? pathname === href
+                      : pathname.startsWith(href)
+                  }
                     tooltip={label}
                     className="transition-all hover:bg-sidebar-accent hover:translate-x-0.5"
                   >
