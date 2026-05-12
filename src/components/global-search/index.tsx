@@ -21,6 +21,7 @@ function readFilters(
     dateFrom: searchParams.get("dateFrom") ?? "",
     dateTo: searchParams.get("dateTo") ?? "",
     hasComments: searchParams.get("hasComments") === "true",
+    showCompleted: false,
     sortBy: searchParams.get("sortBy") ?? "updated",
     sortDir: searchParams.get("sortDir") === "asc" ? "asc" : "desc",
     view: "list",

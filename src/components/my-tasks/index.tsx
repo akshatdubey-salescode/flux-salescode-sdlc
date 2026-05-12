@@ -6,6 +6,7 @@ import { ListView } from "../project-tracking/list-view";
 import { MyTasksFilterBar } from "./filter-bar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UserInsightsDashboard } from "./user-insights-dashboard";
+import { usePinnedTasks } from "./use-pinned-tasks";
 import type { MyTasksFields, MyTasksFilterState, TrackingIssue } from "./helpers";
 
 function readFilters(
@@ -37,6 +38,7 @@ export function MyTasksView() {
   const filters = readFilters(searchParams);
   const activeTab = searchParams.get("tab") === "insights" ? "insights" : "list";
 
+  const { pinnedKeys, togglePin } = usePinnedTasks();
   const [issues, setIssues] = useState<TrackingIssue[]>([]);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -115,6 +117,13 @@ export function MyTasksView() {
       .finally(() => setLoading(false));
   }, [filterKey]);
 
+  // Pinned issues that are present in the current filtered result set float to top.
+  const sortedIssues = [
+    ...issues.filter((i) => pinnedKeys.has(i.jiraKey)),
+    ...issues.filter((i) => !pinnedKeys.has(i.jiraKey)),
+  ];
+  const pinnedCount = sortedIssues.filter((i) => pinnedKeys.has(i.jiraKey)).length;
+
   return (
     <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full space-y-4">
       <div className="flex items-center justify-between">
@@ -133,7 +142,7 @@ export function MyTasksView() {
         />
 
         <ListView
-          issues={issues}
+          issues={sortedIssues}
           loading={loading}
           total={total}
           page={filters.page}
@@ -144,6 +153,9 @@ export function MyTasksView() {
             updateParams({ sortBy, sortDir, page: "1" })
           }
           onPageChange={(page) => updateParams({ page: String(page) })}
+          pinnedKeys={pinnedKeys}
+          onPinToggle={togglePin}
+          pinnedCount={pinnedCount}
         />
       </TabsContent>
 

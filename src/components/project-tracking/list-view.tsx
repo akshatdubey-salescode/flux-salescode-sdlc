@@ -1,11 +1,14 @@
 "use client";
 
+import { Fragment } from "react";
 import Link from "next/link";
 import {
   RiArrowUpSLine,
   RiArrowDownSLine,
   RiArrowUpDownLine,
   RiChatSmileLine,
+  RiPushpinLine,
+  RiPushpinFill,
 } from "@remixicon/react";
 import { cn } from "@/lib/utils";
 import {
@@ -28,6 +31,9 @@ type Props = {
   sortDir: "asc" | "desc";
   onSortChange: (sortBy: string, sortDir: "asc" | "desc") => void;
   onPageChange: (page: number) => void;
+  pinnedKeys?: Set<string>;
+  onPinToggle?: (jiraKey: string) => void;
+  pinnedCount?: number;
 };
 
 const SORTABLE_COLS: Record<string, string> = {
@@ -48,6 +54,9 @@ export function ListView({
   sortDir,
   onSortChange,
   onPageChange,
+  pinnedKeys,
+  onPinToggle,
+  pinnedCount = 0,
 }: Props) {
   function handleColSort(col: string) {
     if (sortBy === col) {
@@ -64,6 +73,7 @@ export function ListView({
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
+                {onPinToggle && <th className="w-6 px-2 py-2.5" />}
                 <th className="w-8 px-3 py-2.5" />
                 <SortableHeader
                   label="Key"
@@ -121,7 +131,7 @@ export function ListView({
               {loading
                 ? Array.from({ length: 10 }).map((_, i) => (
                     <tr key={i}>
-                      <td colSpan={9} className="px-3 py-2.5">
+                      <td colSpan={onPinToggle ? 10 : 9} className="px-3 py-2.5">
                         <div className="h-3.5 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
                       </td>
                     </tr>
@@ -130,15 +140,26 @@ export function ListView({
                 ? (
                     <tr>
                       <td
-                        colSpan={9}
+                        colSpan={onPinToggle ? 10 : 9}
                         className="px-4 py-12 text-center text-zinc-400"
                       >
                         No issues found. Try adjusting your filters.
                       </td>
                     </tr>
                   )
-                : issues.map((issue) => (
-                    <IssueRow key={issue.id} issue={issue} />
+                : issues.map((issue, idx) => (
+                    <Fragment key={issue.id}>
+                      {onPinToggle && pinnedCount > 0 && idx === pinnedCount && (
+                        <tr className="pointer-events-none">
+                          <td colSpan={10} className="h-px bg-amber-200/60 dark:bg-amber-700/30 p-0" />
+                        </tr>
+                      )}
+                      <IssueRow
+                        issue={issue}
+                        pinned={pinnedKeys?.has(issue.jiraKey)}
+                        onPinToggle={onPinToggle}
+                      />
+                    </Fragment>
                   ))}
             </tbody>
           </table>
@@ -216,13 +237,49 @@ function SortableHeader({
   );
 }
 
-function IssueRow({ issue }: { issue: TrackingIssue }) {
+function IssueRow({
+  issue,
+  pinned,
+  onPinToggle,
+}: {
+  issue: TrackingIssue;
+  pinned?: boolean;
+  onPinToggle?: (jiraKey: string) => void;
+}) {
   const pStyles = priorityStyles(issue.priority);
   const tStyles = issueTypeStyles(issue.issueType);
   const sStyles = statusCategoryStyles(issue.statusCategory);
 
   return (
-    <tr className="bg-white transition-colors hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900/60">
+    <tr
+      className={cn(
+        "transition-colors",
+        pinned
+          ? "bg-amber-50/70 hover:bg-amber-50 dark:bg-amber-950/20 dark:hover:bg-amber-950/30"
+          : "bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900/60"
+      )}
+    >
+      {/* Pin button */}
+      {onPinToggle && (
+        <td className="px-2 py-2">
+          <button
+            onClick={() => onPinToggle(issue.jiraKey)}
+            title={pinned ? "Unpin" : "Pin to top"}
+            className={cn(
+              "flex size-5 items-center justify-center rounded transition-colors",
+              pinned
+                ? "text-amber-500 hover:text-amber-600"
+                : "text-zinc-300 hover:text-zinc-500 dark:text-zinc-600 dark:hover:text-zinc-400"
+            )}
+          >
+            {pinned ? (
+              <RiPushpinFill className="size-3.5" />
+            ) : (
+              <RiPushpinLine className="size-3.5" />
+            )}
+          </button>
+        </td>
+      )}
       {/* Type icon */}
       <td className="px-3 py-2">
         <span
