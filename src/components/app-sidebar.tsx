@@ -54,7 +54,7 @@ type Props = {
   projects: Pick<JiraProject, "id" | "name" | "jiraProjectKey">[];
 };
 
-const NAV_ITEMS = [
+export const NAV_ITEMS = [
   { label: "Dashboard", href: "/home", icon: RiHome3Line },
   { label: "Requirement Builder", href: "/requirements", icon: RiFileList3Line },
   { label: "My Tasks", href: "/my-tasks", icon: RiTaskLine },
@@ -133,7 +133,12 @@ export function AppSidebar({ user, projects }: Props) {
                   >
                     <Link href={href}>
                       <Icon className="text-muted-foreground group-data-[active=true]:text-primary" />
-                      <span className="font-medium">{label}</span>
+                      <span className="font-medium flex-1">{label}</span>
+                      {href === "/search" && (
+                        <kbd className="group-data-[collapsible=icon]:hidden inline-flex items-center rounded border border-border bg-muted px-1 py-0.5 font-mono text-[9px] leading-none text-muted-foreground/60">
+                          ⌘K
+                        </kbd>
+                      )}
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

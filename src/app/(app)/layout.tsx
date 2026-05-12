@@ -4,6 +4,7 @@ import { jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
+import { CommandPalette } from "@/components/command-palette";
 
 export default async function AppLayout({
   children,
@@ -26,6 +27,7 @@ export default async function AppLayout({
     <SidebarProvider>
       <AppSidebar user={user} projects={projects} />
       <SidebarInset>{children}</SidebarInset>
+      <CommandPalette projects={projects} isSuperUser={user.role === "SUPERUSER"} />
     </SidebarProvider>
   );
 }
