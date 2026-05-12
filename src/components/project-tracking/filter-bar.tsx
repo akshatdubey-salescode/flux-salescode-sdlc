@@ -11,6 +11,7 @@ import {
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import {
   Popover,
   PopoverContent,
@@ -82,7 +83,7 @@ export function FilterBar({ filters, fields, onUpdate, total }: Props) {
       {/* Main filter row */}
       <div className="flex flex-wrap items-center gap-2">
         {/* Search */}
-        <div className="relative min-w-[200px] flex-1 max-w-xs">
+        <div className="relative min-w-[200px] flex-1 max-w-[240px]">
           <RiSearchLine className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400 pointer-events-none" />
           <Input
             value={localSearch}
@@ -96,16 +97,11 @@ export function FilterBar({ filters, fields, onUpdate, total }: Props) {
         {fields && (
           <>
             <MultiSelect
-              label="Status"
-              options={Array.from(new Set(fields.statuses.map((s) => s.status))).map(
-                (status) => ({
-                  value: status,
-                  label: status,
-                })
-              )}
-              selected={filters.status}
+              label="Issue Type"
+              options={fields.issueTypes.map((t) => ({ value: t, label: t }))}
+              selected={filters.issueType}
               onChange={(vals) =>
-                onUpdate({ status: vals.join(",") || null, page: "1" })
+                onUpdate({ issueType: vals.join(",") || null, page: "1" })
               }
             />
             <MultiSelect
@@ -430,18 +426,19 @@ function ActiveChips({
   return (
     <div className="flex flex-wrap gap-1.5">
       {chips.map((chip, i) => (
-        <span
+        <Badge
           key={i}
-          className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+          variant="outline"
+          className="gap-1 rounded-full border-blue-100 bg-blue-50/50 px-2.5 py-0.5 text-xs font-medium text-blue-600 dark:border-blue-900/30 dark:bg-blue-900/10 dark:text-blue-400"
         >
           {chip.label}
           <button
             onClick={chip.onRemove}
-            className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+            className="text-blue-400 hover:text-blue-600 dark:hover:text-blue-300"
           >
             <RiCloseLine className="size-3" />
           </button>
-        </span>
+        </Badge>
       ))}
     </div>
   );
@@ -483,6 +480,24 @@ function MoreFiltersSheet({
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto space-y-5 p-6">
+          {/* Status */}
+          {fields && fields.statuses.length > 0 && (
+            <FilterSection label="Status">
+              {Array.from(new Set(fields.statuses.map((s) => s.status))).map(
+                (status) => (
+                  <CheckRow
+                    key={status}
+                    label={status}
+                    checked={filters.status.includes(status)}
+                    onChange={() =>
+                      toggleMulti("status", filters.status, status)
+                    }
+                  />
+                )
+              )}
+            </FilterSection>
+          )}
+
           {/* Reporter */}
           {fields && fields.reporters.length > 0 && (
             <FilterSection label="Reporter">
@@ -500,20 +515,6 @@ function MoreFiltersSheet({
           )}
 
           {/* Issue type */}
-          {fields && fields.issueTypes.length > 0 && (
-            <FilterSection label="Issue Type">
-              {fields.issueTypes.map((t) => (
-                <CheckRow
-                  key={t}
-                  label={t}
-                  checked={filters.issueType.includes(t)}
-                  onChange={() =>
-                    toggleMulti("issueType", filters.issueType, t)
-                  }
-                />
-              ))}
-            </FilterSection>
-          )}
 
           {/* Labels */}
           {fields && fields.labels.length > 0 && (

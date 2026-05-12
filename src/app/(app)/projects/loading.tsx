@@ -28,7 +28,7 @@ export default function ProjectsLoading() {
             <p className="text-sm text-zinc-500 dark:text-zinc-400">Manage your synced Jira projects and workspaces.</p>
           </div>
           <div className="flex items-center gap-4 flex-1 justify-end">
-            <Skeleton className="h-10 w-full max-w-md rounded-md" />
+            <Skeleton className="h-10 w-full max-w-[300px] rounded-md" />
           </div>
         </div>
 

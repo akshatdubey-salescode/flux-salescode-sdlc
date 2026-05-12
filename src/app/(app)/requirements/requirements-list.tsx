@@ -12,6 +12,7 @@ import {
 } from "@remixicon/react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import {
   Popover,
   PopoverContent,
@@ -165,7 +166,7 @@ export function RequirementsList({ rows, total }: { rows: RequirementRow[]; tota
       {/* Filter bar */}
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[200px] flex-1 max-w-xs">
+          <div className="relative min-w-[200px] flex-1 max-w-[240px]">
             <RiSearchLine className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400 pointer-events-none" />
             <Input
               value={localSearch}
@@ -243,9 +244,10 @@ export function RequirementsList({ rows, total }: { rows: RequirementRow[]; tota
         {selectedStatus.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {selectedStatus.map((s) => (
-              <span
+              <Badge
                 key={s}
-                className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground"
+                variant="outline"
+                className="gap-1 rounded-full border-blue-100 bg-blue-50/50 px-2.5 py-0.5 text-xs font-medium text-blue-600 dark:border-blue-900/30 dark:bg-blue-900/10 dark:text-blue-400"
               >
                 Status: <span className="capitalize">{s}</span>
                 <button
@@ -254,11 +256,11 @@ export function RequirementsList({ rows, total }: { rows: RequirementRow[]; tota
                       status: selectedStatus.filter((v) => v !== s).join(",") || null,
                     })
                   }
-                  className="text-zinc-400 hover:text-zinc-600"
+                  className="text-blue-400 hover:text-blue-600 dark:hover:text-blue-300"
                 >
                   <RiCloseLine className="size-3" />
                 </button>
-              </span>
+              </Badge>
             ))}
           </div>
         )}
