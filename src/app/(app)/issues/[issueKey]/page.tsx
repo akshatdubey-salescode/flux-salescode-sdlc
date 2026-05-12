@@ -19,6 +19,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartInfo } from "@/components/ui/chart-info";
 import { Separator } from "@/components/ui/separator";
@@ -38,7 +39,7 @@ async function getIssueTimeline(issueKey: string) {
   if (!issue) return null;
 
   const [project] = await db
-    .select({ id: jiraProjects.id, name: jiraProjects.name, jiraProjectKey: jiraProjects.jiraProjectKey })
+    .select({ id: jiraProjects.id, name: jiraProjects.name, jiraProjectKey: jiraProjects.jiraProjectKey, jiraBaseUrl: jiraProjects.jiraBaseUrl })
     .from(jiraProjects)
     .where(eq(jiraProjects.id, issue.projectId))
     .limit(1);
@@ -240,6 +241,17 @@ export default async function IssuePage(props: {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
+        <div className="ml-auto">
+          <Button asChild size="sm" className="h-7 gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs">
+            <a
+              href={`${project?.jiraBaseUrl}/browse/${issue.jiraKey}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open in Jira
+            </a>
+          </Button>
+        </div>
       </header>
 
       <main className="flex-1 p-6 space-y-5 max-w-4xl">

@@ -36,6 +36,7 @@ export type FilterState = {
   dateFrom: string;
   dateTo: string;
   hasComments: boolean;
+  showCompleted: boolean;
   sortBy: string;
   sortDir: "asc" | "desc";
   view: "board" | "list";

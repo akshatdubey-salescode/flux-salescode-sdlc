@@ -23,7 +23,8 @@ function readFilters(
     dateFrom: searchParams.get("dateFrom") ?? "",
     dateTo: searchParams.get("dateTo") ?? "",
     hasComments: searchParams.get("hasComments") === "true",
-    sortBy: searchParams.get("sortBy") ?? "updated",
+    showCompleted: searchParams.get("showCompleted") === "true",
+    sortBy: searchParams.get("sortBy") ?? "created",
     sortDir: searchParams.get("sortDir") === "asc" ? "asc" : "desc",
     view: "list", // Only list view for My Tasks for now
     page: Math.max(1, parseInt(searchParams.get("page") ?? "1", 10)),
@@ -53,6 +54,7 @@ export function MyTasksView() {
     dateFrom: filters.dateFrom,
     dateTo: filters.dateTo,
     hasComments: filters.hasComments,
+    showCompleted: filters.showCompleted,
     sortBy: filters.sortBy,
     sortDir: filters.sortDir,
     page: filters.page,
@@ -95,6 +97,7 @@ export function MyTasksView() {
     if (parsed.dateFrom) params.set("dateFrom", parsed.dateFrom);
     if (parsed.dateTo) params.set("dateTo", parsed.dateTo);
     if (parsed.hasComments) params.set("hasComments", "true");
+    if (parsed.showCompleted) params.set("showCompleted", "true");
     params.set("sortBy", parsed.sortBy);
     params.set("sortDir", parsed.sortDir);
     params.set("pageSize", "50");

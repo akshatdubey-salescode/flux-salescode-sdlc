@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import {
   RiSearchLine,
   RiFilterLine,
@@ -21,6 +21,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { SORT_OPTIONS } from "../project-tracking/helpers";
 import type { MyTasksFilterState, MyTasksFields } from "./helpers";
@@ -153,6 +155,19 @@ export function MyTasksFilterBar({ filters, fields, onUpdate, total }: Props) {
           }
         />
 
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="show-completed"
+            checked={filters.showCompleted}
+            onCheckedChange={(checked) =>
+              onUpdate({ showCompleted: checked ? "true" : null, page: "1" })
+            }
+          />
+          <Label htmlFor="show-completed" className="cursor-pointer text-xs font-normal text-zinc-600 dark:text-zinc-400">
+            Show Completed
+          </Label>
+        </div>
+
         {(activeFilterCount > 0 || filters.q) && (
           <button
             onClick={clearAll}
@@ -226,20 +241,19 @@ function MultiSelect({ label, options, selected, onChange }: {
         ) : (
           <div className="max-h-60 overflow-y-auto py-1">
             {options.map((opt) => (
-              <label
+              <div
                 key={opt.value}
                 className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                onClick={() => toggle(opt.value)}
               >
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={selected.includes(opt.value)}
-                  onChange={() => toggle(opt.value)}
-                  className="size-3 rounded accent-blue-500"
+                  onCheckedChange={() => toggle(opt.value)}
                 />
                 <span className="truncate text-zinc-700 dark:text-zinc-300">
                   {opt.label}
                 </span>
-              </label>
+              </div>
             ))}
           </div>
         )}
@@ -540,22 +554,18 @@ function MoreFiltersSheet({
 
           {/* Has comments */}
           <FilterSection label="Other">
-            <label className="flex cursor-pointer items-center gap-2.5 text-xs">
-              <input
-                type="checkbox"
+            <div className="flex items-center gap-2.5">
+              <Checkbox
+                id="mt-has-comments"
                 checked={filters.hasComments}
-                onChange={(e) =>
-                  onUpdate({
-                    hasComments: e.target.checked ? "true" : null,
-                    page: "1",
-                  })
+                onCheckedChange={(checked) =>
+                  onUpdate({ hasComments: checked ? "true" : null, page: "1" })
                 }
-                className="size-3 rounded accent-blue-500"
               />
-              <span className="text-zinc-700 dark:text-zinc-300">
+              <Label htmlFor="mt-has-comments" className="cursor-pointer text-xs font-normal text-zinc-700 dark:text-zinc-300">
                 Has comments
-              </span>
-            </label>
+              </Label>
+            </div>
           </FilterSection>
         </div>
       </SheetContent>
@@ -589,15 +599,13 @@ function CheckRow({
   checked: boolean;
   onChange: () => void;
 }) {
+  const id = useId();
   return (
-    <label className="flex cursor-pointer items-center gap-2.5 text-xs">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={onChange}
-        className="size-3 rounded accent-blue-500"
-      />
-      <span className="truncate text-zinc-700 dark:text-zinc-300">{label}</span>
-    </label>
+    <div className="flex items-center gap-2.5">
+      <Checkbox id={id} checked={checked} onCheckedChange={onChange} />
+      <Label htmlFor={id} className="cursor-pointer text-xs font-normal text-zinc-700 dark:text-zinc-300 truncate">
+        {label}
+      </Label>
+    </div>
   );
 }

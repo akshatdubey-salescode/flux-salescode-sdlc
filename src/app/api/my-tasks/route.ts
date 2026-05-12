@@ -72,7 +72,8 @@ export async function GET(req: NextRequest) {
   const dateFrom = searchParams.get("dateFrom") ?? "";
   const dateTo = searchParams.get("dateTo") ?? "";
   const hasComments = searchParams.get("hasComments") === "true";
-  const sortBy = searchParams.get("sortBy") ?? "updated";
+  const showCompleted = searchParams.get("showCompleted") === "true";
+  const sortBy = searchParams.get("sortBy") ?? "created";
   const sortDir = searchParams.get("sortDir") === "asc" ? "asc" : "desc";
   const pageSize = Math.min(
     200,
@@ -120,6 +121,11 @@ export async function GET(req: NextRequest) {
   if (hasComments) {
     conditions.push(
       sql`(SELECT COUNT(*) FROM jira_comments WHERE jira_comments.issue_id = ${jiraIssues.id}) > 0`
+    );
+  }
+  if (!showCompleted) {
+    conditions.push(
+      sql`LOWER(TRIM(${jiraIssues.statusCategory})) NOT IN ('done', 'complete')`
     );
   }
 

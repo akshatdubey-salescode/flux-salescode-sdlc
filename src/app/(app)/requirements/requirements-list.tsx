@@ -10,6 +10,7 @@ import {
   RiCloseLine,
   RiSparklingLine,
 } from "@remixicon/react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -79,24 +80,29 @@ function MultiSelect({
       <PopoverContent align="start" className="w-44 p-0">
         <div className="max-h-52 overflow-y-auto py-1">
           {options.map((opt) => (
-            <label
+            <div
               key={opt}
               className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              onClick={() =>
+                onChange(
+                  selected.includes(opt)
+                    ? selected.filter((v) => v !== opt)
+                    : [...selected, opt]
+                )
+              }
             >
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={selected.includes(opt)}
-                onChange={() =>
+                onCheckedChange={() =>
                   onChange(
                     selected.includes(opt)
                       ? selected.filter((v) => v !== opt)
                       : [...selected, opt]
                   )
                 }
-                className="size-3 rounded accent-blue-500"
               />
               <span className="capitalize text-zinc-700 dark:text-zinc-300">{opt}</span>
-            </label>
+            </div>
           ))}
         </div>
         {hasSelection && (
