@@ -1,19 +1,31 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, use, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbList,
   BreadcrumbPage,
+  BreadcrumbLink,
+  BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { MyTasksView } from "@/components/my-tasks";
 import { AssigneePicker } from "@/components/my-tasks/assignee-picker";
-import { RiUserSearchLine } from "@remixicon/react";
+import { RiArrowLeftLine, RiUserSearchLine } from "@remixicon/react";
 
-export default function MyTasksPage() {
+type Props = {
+  params: Promise<{ email: string }>;
+};
+
+export default function UserTasksPage({ params }: Props) {
+  const { email } = use(params);
+  const decodedEmail = decodeURIComponent(email);
+  const displayName = decodedEmail.split("@")[0];
+  const router = useRouter();
   const [pickerOpen, setPickerOpen] = useState(false);
 
   return (
@@ -23,12 +35,27 @@ export default function MyTasksPage() {
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
-              <BreadcrumbPage>My Tasks</BreadcrumbPage>
+              <BreadcrumbLink asChild>
+                <Link href="/my-tasks">My Tasks</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>{displayName}&apos;s Tasks</BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
 
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => router.back()}
+            className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 gap-1.5 h-7 px-2"
+          >
+            <RiArrowLeftLine className="size-3.5" />
+            Go back
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -36,14 +63,14 @@ export default function MyTasksPage() {
             className="text-xs gap-1.5 h-7 px-2.5"
           >
             <RiUserSearchLine className="size-3.5" />
-            Curious about someone else&apos;s bandwidth?
+            Check someone else&apos;s tasks
           </Button>
         </div>
       </header>
 
       <main className="flex-1 p-6">
-        <Suspense fallback={<MyTasksLoading />}>
-          <MyTasksView />
+        <Suspense fallback={<TasksLoading />}>
+          <MyTasksView targetEmail={decodedEmail} />
         </Suspense>
       </main>
 
@@ -52,7 +79,7 @@ export default function MyTasksPage() {
   );
 }
 
-function MyTasksLoading() {
+function TasksLoading() {
   return (
     <div className="space-y-4 animate-pulse">
       <div className="h-10 w-full bg-zinc-100 rounded-md dark:bg-zinc-800" />

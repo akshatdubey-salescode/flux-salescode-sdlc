@@ -32,13 +32,14 @@ function readFilters(
   };
 }
 
-export function MyTasksView() {
+export function MyTasksView({ targetEmail }: { targetEmail?: string } = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const filters = readFilters(searchParams);
   const activeTab = searchParams.get("tab") === "insights" ? "insights" : "list";
 
   const { pinnedKeys, togglePin } = usePinnedTasks();
+  const isObserving = !!targetEmail;
   const [issues, setIssues] = useState<TrackingIssue[]>([]);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -46,6 +47,7 @@ export function MyTasksView() {
   const [fields, setFields] = useState<MyTasksFields | null>(null);
 
   const filterKey = JSON.stringify({
+    targetEmail,
     q: filters.q,
     projects: filters.projects,
     status: filters.status,
@@ -79,11 +81,14 @@ export function MyTasksView() {
   }
 
   useEffect(() => {
-    fetch("/api/my-tasks/fields")
+    const url = targetEmail
+      ? `/api/my-tasks/fields?forEmail=${encodeURIComponent(targetEmail)}`
+      : "/api/my-tasks/fields";
+    fetch(url)
       .then((r) => r.json())
       .then(setFields)
       .catch(() => {});
-  }, []);
+  }, [targetEmail]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -105,6 +110,8 @@ export function MyTasksView() {
     params.set("pageSize", "50");
     params.set("page", String(parsed.page));
 
+    if (targetEmail) params.set("forEmail", targetEmail);
+
     setLoading(true);
     fetch(`/api/my-tasks?${params.toString()}`)
       .then((r) => r.json())
@@ -117,21 +124,26 @@ export function MyTasksView() {
       .finally(() => setLoading(false));
   }, [filterKey]);
 
-  // Pinned issues that are present in the current filtered result set float to top.
-  const sortedIssues = [
-    ...issues.filter((i) => pinnedKeys.has(i.jiraKey)),
-    ...issues.filter((i) => !pinnedKeys.has(i.jiraKey)),
-  ];
-  const pinnedCount = sortedIssues.filter((i) => pinnedKeys.has(i.jiraKey)).length;
+  const sortedIssues = isObserving
+    ? issues
+    : [
+        ...issues.filter((i) => pinnedKeys.has(i.jiraKey)),
+        ...issues.filter((i) => !pinnedKeys.has(i.jiraKey)),
+      ];
+  const pinnedCount = isObserving
+    ? 0
+    : sortedIssues.filter((i) => pinnedKeys.has(i.jiraKey)).length;
 
   return (
     <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full space-y-4">
-      <div className="flex items-center justify-between">
-        <TabsList>
-          <TabsTrigger value="list">Tasks List</TabsTrigger>
-          <TabsTrigger value="insights">My Insights</TabsTrigger>
-        </TabsList>
-      </div>
+      {!isObserving && (
+        <div className="flex items-center justify-between">
+          <TabsList>
+            <TabsTrigger value="list">Tasks List</TabsTrigger>
+            <TabsTrigger value="insights">My Insights</TabsTrigger>
+          </TabsList>
+        </div>
+      )}
 
       <TabsContent value="list" className="space-y-4 outline-none">
         <MyTasksFilterBar
@@ -153,15 +165,19 @@ export function MyTasksView() {
             updateParams({ sortBy, sortDir, page: "1" })
           }
           onPageChange={(page) => updateParams({ page: String(page) })}
-          pinnedKeys={pinnedKeys}
-          onPinToggle={togglePin}
-          pinnedCount={pinnedCount}
+          {...(!isObserving && {
+            pinnedKeys,
+            onPinToggle: togglePin,
+            pinnedCount,
+          })}
         />
       </TabsContent>
 
-      <TabsContent value="insights" className="outline-none">
-        <UserInsightsDashboard />
-      </TabsContent>
+      {!isObserving && (
+        <TabsContent value="insights" className="outline-none">
+          <UserInsightsDashboard />
+        </TabsContent>
+      )}
     </Tabs>
   );
 }

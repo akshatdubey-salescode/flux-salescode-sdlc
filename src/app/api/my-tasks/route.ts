@@ -82,7 +82,10 @@ export async function GET(req: NextRequest) {
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
   const offset = (page - 1) * pageSize;
 
-  const conditions = [eq(jiraIssues.assigneeEmail, user.email)];
+  const forEmail = searchParams.get("forEmail")?.trim();
+  const targetEmail = forEmail || user.email;
+
+  const conditions = [eq(jiraIssues.assigneeEmail, targetEmail)];
 
   if (q) {
     conditions.push(

@@ -3,8 +3,12 @@ import { db } from "@/lib/db";
 import { jiraIssues, jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 
-export async function GET() {
+export async function GET(req: Request) {
   const user = await requireAuth();
+
+  const { searchParams } = new URL(req.url);
+  const forEmail = searchParams.get("forEmail")?.trim();
+  const targetEmail = forEmail || user.email;
 
   const [statuses, priorities, issueTypes, reporterRows, labelRows, projectRows] =
     await Promise.all([
@@ -14,20 +18,20 @@ export async function GET() {
           statusCategory: jiraIssues.statusCategory,
         })
         .from(jiraIssues)
-        .where(eq(jiraIssues.assigneeEmail, user.email)),
+        .where(eq(jiraIssues.assigneeEmail, targetEmail)),
       db
         .selectDistinct({ value: jiraIssues.priority })
         .from(jiraIssues)
         .where(
           and(
-            eq(jiraIssues.assigneeEmail, user.email),
+            eq(jiraIssues.assigneeEmail, targetEmail),
             isNotNull(jiraIssues.priority)
           )
         ),
       db
         .selectDistinct({ value: jiraIssues.issueType })
         .from(jiraIssues)
-        .where(eq(jiraIssues.assigneeEmail, user.email)),
+        .where(eq(jiraIssues.assigneeEmail, targetEmail)),
       db
         .selectDistinct({
           email: jiraIssues.reporterEmail,
@@ -36,14 +40,14 @@ export async function GET() {
         .from(jiraIssues)
         .where(
           and(
-            eq(jiraIssues.assigneeEmail, user.email),
+            eq(jiraIssues.assigneeEmail, targetEmail),
             isNotNull(jiraIssues.reporterEmail)
           )
         ),
       db
         .selectDistinct({ labels: jiraIssues.labels })
         .from(jiraIssues)
-        .where(eq(jiraIssues.assigneeEmail, user.email)),
+        .where(eq(jiraIssues.assigneeEmail, targetEmail)),
       db
         .selectDistinct({
           id: jiraProjects.id,
@@ -52,7 +56,7 @@ export async function GET() {
         })
         .from(jiraProjects)
         .innerJoin(jiraIssues, eq(jiraIssues.projectId, jiraProjects.id))
-        .where(eq(jiraIssues.assigneeEmail, user.email)),
+        .where(eq(jiraIssues.assigneeEmail, targetEmail)),
     ]);
 
   const labels = [
