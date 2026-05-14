@@ -259,25 +259,27 @@ function BoardCard({
   onDelete: () => void;
 }) {
   return (
-    <div className="group relative flex flex-col rounded-xl border border-zinc-200 bg-white p-5 transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="flex items-start justify-between gap-2 mb-3">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <RiTeamLine size={18} />
+    <div className="group relative flex flex-col rounded-xl border border-zinc-200/60 bg-white p-6 shadow-sm transition-all hover:shadow-md hover:border-zinc-300 dark:border-zinc-800/60 dark:bg-zinc-900/50">
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/5 text-primary border border-primary/10 transition-colors group-hover:bg-primary/10">
+            <RiTeamLine size={20} />
           </div>
           <div className="min-w-0">
-            <h3 className="font-semibold text-zinc-900 dark:text-zinc-50 truncate leading-tight">
+            <h3 className="text-[16px] font-bold text-zinc-900 dark:text-zinc-50 truncate leading-tight tracking-tight">
               {board.name}
             </h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {board.memberCount} {board.memberCount === 1 ? "member" : "members"}
-            </p>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded">
+                {board.memberCount} {board.memberCount === 1 ? "member" : "members"}
+              </span>
+            </div>
           </div>
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors opacity-0 group-hover:opacity-100">
-              <RiMoreLine size={16} />
+            <button className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
+              <RiMoreLine size={18} />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-40">
@@ -298,20 +300,26 @@ function BoardCard({
       </div>
 
       {board.description && (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 line-clamp-2 mb-4 flex-1">
+        <p className="text-sm text-zinc-500 dark:text-zinc-400 line-clamp-2 mb-6 h-10">
           {board.description}
         </p>
       )}
 
-      <div className="mt-auto flex items-center justify-between pt-3 border-t border-zinc-100 dark:border-zinc-800">
-        <span className="text-xs text-muted-foreground">
-          Updated {formatDistanceToNow(new Date(board.updatedAt), { addSuffix: true })}
-        </span>
+      <div className="mt-auto flex items-center justify-between pt-4 border-t border-zinc-100 dark:border-zinc-800/60">
+        <div className="flex flex-col">
+          <span className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground/60">
+            Last Updated
+          </span>
+          <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            {formatDistanceToNow(new Date(board.updatedAt), { addSuffix: true })}
+          </span>
+        </div>
         <Link
           href={`/observer/${board.id}`}
-          className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 dark:bg-zinc-50 text-white dark:text-zinc-900 text-xs font-bold transition-transform hover:scale-105"
         >
-          Open <RiArrowRightLine size={12} />
+          View Board
+          <RiArrowRightLine size={14} />
         </Link>
       </div>
     </div>

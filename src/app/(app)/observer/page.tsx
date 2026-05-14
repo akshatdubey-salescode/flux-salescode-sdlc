@@ -10,6 +10,9 @@ import {
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
 import { BoardsListClient } from "@/components/observer/boards-list-client";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { RiCheckboxCircleLine } from "@remixicon/react";
 
 export default async function ObserverPage() {
   const user = await requireAuth();
@@ -58,6 +61,14 @@ export default async function ObserverPage() {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
+        <div className="ml-auto">
+          <Button variant="outline" size="sm" asChild className="h-8">
+            <Link href="/observer/check-in">
+              <RiCheckboxCircleLine className="mr-1.5 size-4" />
+              My Check-in
+            </Link>
+          </Button>
+        </div>
       </header>
 
       <main className="flex-1 p-6">

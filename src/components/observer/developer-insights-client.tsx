@@ -3,12 +3,11 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
-  RiArrowUpLine,
-  RiArrowDownLine,
-  RiCheckDoubleLine,
-  RiTimerLine,
-  RiFileList2Line,
+  RiCheckboxCircleLine,
+  RiInboxLine,
   RiBarChartLine,
+  RiCalendarLine,
+  RiChat1Line,
 } from "@remixicon/react";
 import {
   PieChart,
@@ -22,6 +21,12 @@ import {
   YAxis,
   CartesianGrid,
 } from "recharts";
+import { MyTasksView } from "@/components/my-tasks";
+import { Suspense, type ReactNode } from "react";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 type Insights = {
   completedThisWeek: number;
@@ -32,18 +37,21 @@ type Insights = {
   projectDistribution: { project_name: string; project_key: string; count: number }[];
   issueTypeDistribution: { issue_type: string; count: number }[];
   statusDistribution: { status: string; status_category: string; count: number }[];
-  recentIssues: {
-    jira_key: string;
-    summary: string;
-    status: string;
-    status_category: string;
-    issue_type: string;
-    priority: string;
-    jira_updated_at: string;
-    jira_created_at: string;
-    project_name: string;
-    project_key: string;
-  }[];
+};
+
+type TodayDeclaration = {
+  id: string;
+  comment: string | null;
+  expected_completion_date: string | null;
+  created_at: string;
+  updated_at: string;
+  jira_issue_id: string;
+  jira_key: string;
+  summary: string;
+  status: string;
+  status_category: string | null;
+  priority: string | null;
+  project_name: string;
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -67,66 +75,157 @@ type Props = {
   email: string;
   boardId?: string;
   boardName?: string;
+  stalenessThreshold?: number;
 };
 
-export function DeveloperInsightsClient({ email, boardId, boardName }: Props) {
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
+export function DeveloperInsightsClient({ email, boardId, boardName, stalenessThreshold = 5 }: Props) {
   const [insights, setInsights] = useState<Insights | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [showInsights, setShowInsights] = useState(false);
+  const [todayDecls, setTodayDecls] = useState<TodayDeclaration[]>([]);
+  const [declsLoading, setDeclsLoading] = useState(true);
 
   const initials = email.split("@")[0].slice(0, 2).toUpperCase();
 
+  // Load today's declarations
   useEffect(() => {
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch(
-          `/api/observer/developer/${encodeURIComponent(email)}/insights`
-        );
-        if (!res.ok) throw new Error("Failed to load insights");
-        const data = await res.json();
-        setInsights(data);
-      } catch {
-        setError("Failed to load developer insights. Please try again.");
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
-  }, [email]);
+    setDeclsLoading(true);
+    fetch(`/api/observer/developer/${encodeURIComponent(email)}/declarations?stalenessThreshold=${stalenessThreshold}`)
+      .then((r) => r.json())
+      .then((data) => setTodayDecls(data.todayDeclarations ?? []))
+      .catch(() => {})
+      .finally(() => setDeclsLoading(false));
+  }, [email, stalenessThreshold]);
 
-  if (loading) {
-    return (
-      <div className="max-w-6xl mx-auto space-y-6 animate-pulse">
-        <div className="h-8 w-48 rounded-lg bg-zinc-200 dark:bg-zinc-800" />
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-24 rounded-xl bg-zinc-200 dark:bg-zinc-800" />
-          ))}
+  // Load insights only when toggled on
+  useEffect(() => {
+    if (!showInsights || insights) return;
+    setInsightsLoading(true);
+    fetch(`/api/observer/developer/${encodeURIComponent(email)}/insights`)
+      .then((r) => r.json())
+      .then(setInsights)
+      .catch(() => {})
+      .finally(() => setInsightsLoading(false));
+  }, [showInsights, email, insights]);
+
+  const today = new Date().toISOString().split("T")[0];
+
+  return (
+    <div className="max-w-6xl mx-auto space-y-6">
+      {/* Developer header */}
+      <div className="flex items-center gap-4">
+        <div className="flex size-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-primary/5 text-primary font-bold text-lg ring-2 ring-primary/10">
+          {initials}
         </div>
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-64 rounded-xl bg-zinc-200 dark:bg-zinc-800" />
-          ))}
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+            {email.split("@")[0]}
+          </h1>
+          <p className="text-sm text-muted-foreground">{email}</p>
+        </div>
+        <div className="ml-auto flex items-center gap-3">
+          <button
+            onClick={() => setShowInsights((v) => !v)}
+            className={`flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-1.5 border transition-colors ${
+              showInsights
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700 text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <RiBarChartLine size={13} />
+            {showInsights ? "Hide insights" : "Show insights"}
+          </button>
+          {boardId && (
+            <Link
+              href={`/observer/${boardId}`}
+              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+            >
+              ← Back to {boardName ?? "board"}
+            </Link>
+          )}
         </div>
       </div>
-    );
-  }
 
-  if (error) {
+      {/* Insights panel (toggled) */}
+      {showInsights && (
+        <InsightsPanel insights={insights} loading={insightsLoading} />
+      )}
+
+      {/* Today's Declarations */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <RiCheckboxCircleLine size={14} className="text-emerald-500" />
+          <h2 className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
+            Today&apos;s Declarations
+          </h2>
+          {todayDecls.length > 0 && (
+            <span className="text-xs text-muted-foreground">
+              {todayDecls.length}
+            </span>
+          )}
+        </div>
+        {declsLoading ? (
+          <div className="space-y-0 animate-pulse">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="h-10 border-b border-zinc-100 dark:border-zinc-800/60 bg-zinc-50 dark:bg-zinc-900/40" />
+            ))}
+          </div>
+        ) : todayDecls.length === 0 ? (
+          <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+            <RiInboxLine size={14} className="text-zinc-300 dark:text-zinc-700" />
+            No declarations for today.
+          </div>
+        ) : (
+          <div className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
+            {todayDecls.map((decl) => (
+              <DeclRow key={decl.id} decl={decl} today={today} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Open Work Queue — reuse my-tasks table */}
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <RiInboxLine size={16} className="text-blue-500" />
+          <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">
+            Open Work Queue
+          </h2>
+        </div>
+        <Suspense>
+          <MyTasksView targetEmail={email} />
+        </Suspense>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Insights panel (charts)
+// ---------------------------------------------------------------------------
+
+function InsightsPanel({
+  insights,
+  loading,
+}: {
+  insights: Insights | null;
+  loading: boolean;
+}) {
+  if (loading) {
     return (
-      <div className="max-w-6xl mx-auto flex flex-col items-center justify-center py-20 text-center">
-        <p className="text-sm text-muted-foreground">{error}</p>
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 animate-pulse">
+        {[...Array(3)].map((_, i) => (
+          <div key={i} className="h-56 rounded-xl bg-zinc-200 dark:bg-zinc-800" />
+        ))}
       </div>
     );
   }
 
   if (!insights) return null;
-
-  const weekTrend = insights.completedLastWeek > 0
-    ? Math.round(((insights.completedThisWeek - insights.completedLastWeek) / insights.completedLastWeek) * 100)
-    : null;
 
   const priorityData = insights.priorityDistribution.map((p) => ({
     name: p.priority,
@@ -154,333 +253,118 @@ export function DeveloperInsightsClient({ email, boardId, boardName }: Props) {
       : "—";
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8">
-      {/* Developer header */}
-      <div className="flex items-center gap-4">
-        <div className="flex size-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-primary/5 text-primary font-bold text-lg ring-2 ring-primary/10">
-          {initials}
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-            {email.split("@")[0]}
-          </h1>
-          <p className="text-sm text-muted-foreground">{email}</p>
-        </div>
-        {boardId && (
-          <Link
-            href={`/observer/${boardId}`}
-            className="ml-auto text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-          >
-            ← Back to {boardName ?? "board"}
-          </Link>
-        )}
+    <div className="space-y-4">
+      {/* KPIs */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="Completed this week" value={insights.completedThisWeek} sub={`vs ${insights.completedLastWeek} last week`} />
+        <StatCard label="Open issues" value={insights.openIssues} />
+        <StatCard label="Avg cycle time" value={avgCycleDays} sub="last 30 days" />
+        <StatCard label="Projects" value={insights.projectDistribution.length} />
       </div>
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <KpiCard
-          title="Completed This Week"
-          value={insights.completedThisWeek}
-          icon={<RiCheckDoubleLine size={18} />}
-          trend={weekTrend}
-          trendLabel={`vs last week (${insights.completedLastWeek})`}
-          accent="text-emerald-600 dark:text-emerald-400"
-          bg="bg-emerald-50 dark:bg-emerald-950/30"
-        />
-        <KpiCard
-          title="Open Issues"
-          value={insights.openIssues}
-          icon={<RiFileList2Line size={18} />}
-          accent="text-blue-600 dark:text-blue-400"
-          bg="bg-blue-50 dark:bg-blue-950/30"
-        />
-        <KpiCard
-          title="Avg Cycle Time"
-          value={avgCycleDays}
-          icon={<RiTimerLine size={18} />}
-          subtitle="last 30 days"
-          accent="text-amber-600 dark:text-amber-400"
-          bg="bg-amber-50 dark:bg-amber-950/30"
-        />
-        <KpiCard
-          title="Total Projects"
-          value={insights.projectDistribution.length}
-          icon={<RiBarChartLine size={18} />}
-          accent="text-violet-600 dark:text-violet-400"
-          bg="bg-violet-50 dark:bg-violet-950/30"
-        />
-      </div>
-
-      {/* Charts row */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {/* Priority distribution */}
+      {/* Charts */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <ChartCard title="Priority Distribution" subtitle="All assigned issues">
           {priorityData.length > 0 ? (
             <div className="flex items-center gap-4">
-              <ResponsiveContainer width={140} height={140}>
+              <ResponsiveContainer width={130} height={130}>
                 <PieChart>
-                  <Pie
-                    data={priorityData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={40}
-                    outerRadius={65}
-                    paddingAngle={2}
-                    dataKey="value"
-                  >
-                    {priorityData.map((entry, index) => (
-                      <Cell key={index} fill={entry.fill} />
-                    ))}
+                  <Pie data={priorityData} cx="50%" cy="50%" innerRadius={36} outerRadius={60} paddingAngle={2} dataKey="value">
+                    {priorityData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
                   </Pie>
-                  <Tooltip
-                    content={({ active, payload }) =>
-                      active && payload?.length ? (
-                        <div className="rounded-lg border bg-popover px-3 py-2 text-xs shadow-md">
-                          <p className="font-medium">{payload[0].name}</p>
-                          <p className="text-muted-foreground">{payload[0].value} issues</p>
-                        </div>
-                      ) : null
-                    }
-                  />
+                  <Tooltip content={TooltipContent} />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="flex-1 space-y-1.5">
-                {priorityData.map((entry) => (
-                  <div key={entry.name} className="flex items-center justify-between gap-2">
+              <div className="flex-1 space-y-1">
+                {priorityData.map((e) => (
+                  <div key={e.name} className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5">
-                      <span
-                        className="inline-block size-2 rounded-full"
-                        style={{ background: entry.fill }}
-                      />
-                      <span className="text-xs text-zinc-600 dark:text-zinc-400">{entry.name}</span>
+                      <span className="inline-block size-2 rounded-full" style={{ background: e.fill }} />
+                      <span className="text-xs text-zinc-600 dark:text-zinc-400">{e.name}</span>
                     </div>
-                    <span className="text-xs font-semibold tabular-nums">{entry.value}</span>
+                    <span className="text-xs font-semibold tabular-nums">{e.value}</span>
                   </div>
                 ))}
               </div>
             </div>
-          ) : (
-            <NoDataPlaceholder />
-          )}
+          ) : <NoData />}
         </ChartCard>
 
-        {/* Project distribution */}
         <ChartCard title="Projects Breakdown" subtitle="Issues per project">
           {projectData.length > 0 ? (
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={projectData} layout="vertical" margin={{ left: 0, right: 12, top: 4, bottom: 4 }}>
                 <CartesianGrid horizontal={false} strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis type="number" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  width={44}
-                  tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
-                />
-                <Tooltip
-                  content={({ active, payload }) =>
-                    active && payload?.length ? (
-                      <div className="rounded-lg border bg-popover px-3 py-2 text-xs shadow-md">
-                        <p className="font-medium">{(payload[0].payload as { fullName: string }).fullName}</p>
-                        <p className="text-muted-foreground">{payload[0].value} issues</p>
-                      </div>
-                    ) : null
-                  }
-                />
+                <YAxis type="category" dataKey="name" width={44} tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} />
+                <Tooltip content={({ active, payload }) =>
+                  active && payload?.length ? (
+                    <div className="rounded-lg border bg-popover px-3 py-2 text-xs shadow-md">
+                      <p className="font-medium">{(payload[0].payload as { fullName: string }).fullName}</p>
+                      <p className="text-muted-foreground">{payload[0].value} issues</p>
+                    </div>
+                  ) : null
+                } />
                 <Bar dataKey="count" fill="var(--primary)" radius={[0, 3, 3, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          ) : (
-            <NoDataPlaceholder />
-          )}
+          ) : <NoData />}
         </ChartCard>
 
-        {/* Issue type distribution */}
         <ChartCard title="Issue Types" subtitle="Story, Bug, Task…">
           {issueTypeData.length > 0 ? (
             <div className="flex items-center gap-4">
-              <ResponsiveContainer width={140} height={140}>
+              <ResponsiveContainer width={130} height={130}>
                 <PieChart>
-                  <Pie
-                    data={issueTypeData}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={65}
-                    paddingAngle={2}
-                    dataKey="value"
-                  >
-                    {issueTypeData.map((entry, index) => (
-                      <Cell key={index} fill={entry.fill} />
-                    ))}
+                  <Pie data={issueTypeData} cx="50%" cy="50%" outerRadius={60} paddingAngle={2} dataKey="value">
+                    {issueTypeData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
                   </Pie>
-                  <Tooltip
-                    content={({ active, payload }) =>
-                      active && payload?.length ? (
-                        <div className="rounded-lg border bg-popover px-3 py-2 text-xs shadow-md">
-                          <p className="font-medium">{payload[0].name}</p>
-                          <p className="text-muted-foreground">{payload[0].value} issues</p>
-                        </div>
-                      ) : null
-                    }
-                  />
+                  <Tooltip content={TooltipContent} />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="flex-1 space-y-1.5">
-                {issueTypeData.map((entry) => (
-                  <div key={entry.name} className="flex items-center justify-between gap-2">
+              <div className="flex-1 space-y-1">
+                {issueTypeData.map((e) => (
+                  <div key={e.name} className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5">
-                      <span
-                        className="inline-block size-2 rounded-full"
-                        style={{ background: entry.fill }}
-                      />
-                      <span className="text-xs text-zinc-600 dark:text-zinc-400">{entry.name}</span>
+                      <span className="inline-block size-2 rounded-full" style={{ background: e.fill }} />
+                      <span className="text-xs text-zinc-600 dark:text-zinc-400">{e.name}</span>
                     </div>
-                    <span className="text-xs font-semibold tabular-nums">{entry.value}</span>
+                    <span className="text-xs font-semibold tabular-nums">{e.value}</span>
                   </div>
                 ))}
               </div>
             </div>
-          ) : (
-            <NoDataPlaceholder />
-          )}
+          ) : <NoData />}
         </ChartCard>
       </div>
-
-      {/* Status distribution */}
-      {insights.statusDistribution.length > 0 && (
-        <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 mb-1">
-            Open Issues by Status
-          </h3>
-          <p className="text-xs text-muted-foreground mb-4">Current status breakdown</p>
-          <div className="flex flex-wrap gap-2">
-            {insights.statusDistribution.map((s) => (
-              <div
-                key={`${s.status}-${s.status_category}`}
-                className="flex items-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 dark:border-zinc-700 dark:bg-zinc-800"
-              >
-                <span
-                  className="inline-block size-2 rounded-full"
-                  style={{ background: getStatusCategoryColor(s.status_category) }}
-                />
-                <span className="text-xs font-medium">{s.status}</span>
-                <span className="text-xs text-muted-foreground tabular-nums">{s.count}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Recent issues */}
-      <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
-        <div className="px-5 py-4 border-b border-zinc-100 dark:border-zinc-800">
-          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Recent Activity</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">Last 15 updated issues</p>
-        </div>
-        <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {insights.recentIssues.length === 0 ? (
-            <p className="px-5 py-8 text-sm text-muted-foreground text-center">No issues found.</p>
-          ) : (
-            insights.recentIssues.map((issue) => (
-              <div key={issue.jira_key} className="flex items-start gap-3 px-5 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
-                <span
-                  className="mt-1.5 shrink-0 inline-block size-2 rounded-full"
-                  style={{ background: getStatusCategoryColor(issue.status_category) }}
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-zinc-800 dark:text-zinc-200 truncate leading-snug">
-                    {issue.summary}
-                  </p>
-                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                    <span className="text-xs font-mono text-muted-foreground">{issue.jira_key}</span>
-                    <span className="text-xs text-muted-foreground">·</span>
-                    <span className="text-xs text-muted-foreground">{issue.project_name}</span>
-                    <span className="text-xs text-muted-foreground">·</span>
-                    <span className="text-xs text-muted-foreground">{issue.issue_type}</span>
-                    {issue.priority && (
-                      <>
-                        <span className="text-xs text-muted-foreground">·</span>
-                        <span className={`text-xs font-medium ${getPriorityTextColor(issue.priority)}`}>
-                          {issue.priority}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </div>
-                <div className="shrink-0 text-right">
-                  <StatusBadge statusCategory={issue.status_category} status={issue.status} />
-                  {issue.jira_updated_at && (
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      {formatRelative(issue.jira_updated_at)}
-                    </p>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
     </div>
   );
 }
 
-function KpiCard({
-  title,
-  value,
-  icon,
-  trend,
-  trendLabel,
-  subtitle,
-  accent,
-  bg,
-}: {
-  title: string;
-  value: string | number;
-  icon: React.ReactNode;
-  trend?: number | null;
-  trendLabel?: string;
-  subtitle?: string;
-  accent: string;
-  bg: string;
-}) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function TooltipContent({ active, payload }: any) {
+  if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-xs font-medium text-muted-foreground leading-tight">{title}</p>
-        <div className={`flex size-7 items-center justify-center rounded-lg ${bg} ${accent}`}>
-          {icon}
-        </div>
-      </div>
-      <p className={`text-2xl font-bold tabular-nums ${accent}`}>{value}</p>
-      {trend != null ? (
-        <div className="flex items-center gap-1 mt-1">
-          {trend > 0 ? (
-            <RiArrowUpLine size={12} className="text-emerald-500" />
-          ) : trend < 0 ? (
-            <RiArrowDownLine size={12} className="text-red-500" />
-          ) : null}
-          <span className={`text-[10px] ${trend > 0 ? "text-emerald-600" : trend < 0 ? "text-red-600" : "text-muted-foreground"}`}>
-            {trend > 0 ? "+" : ""}{trend}% {trendLabel}
-          </span>
-        </div>
-      ) : subtitle ? (
-        <p className="text-[10px] text-muted-foreground mt-1">{subtitle}</p>
-      ) : null}
+    <div className="rounded-lg border bg-popover px-3 py-2 text-xs shadow-md">
+      <p className="font-medium">{payload[0].name}</p>
+      <p className="text-muted-foreground">{payload[0].value} issues</p>
     </div>
   );
 }
 
-function ChartCard({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  children: React.ReactNode;
-}) {
+function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4">
+      <p className="text-xs text-muted-foreground mb-1">{label}</p>
+      <p className="text-xl font-bold text-zinc-900 dark:text-zinc-50 tabular-nums">{value}</p>
+      {sub && <p className="text-[10px] text-muted-foreground mt-0.5">{sub}</p>}
+    </div>
+  );
+}
+
+function ChartCard({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
+  return (
+    <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
       <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 mb-0.5">{title}</h3>
       <p className="text-xs text-muted-foreground mb-4">{subtitle}</p>
       {children}
@@ -488,69 +372,132 @@ function ChartCard({
   );
 }
 
-function NoDataPlaceholder() {
+function NoData() {
+  return <div className="flex items-center justify-center h-28 text-xs text-muted-foreground">No data available</div>;
+}
+
+// ---------------------------------------------------------------------------
+// Declaration row (flat, Notion-style)
+// ---------------------------------------------------------------------------
+
+function DeclRow({ decl, today }: { decl: TodayDeclaration; today: string }) {
+  const [showComment, setShowComment] = useState(false);
+  const expDate = decl.expected_completion_date;
+  const isOverdue = expDate && expDate < today;
+  const isToday = expDate === today;
+
   return (
-    <div className="flex items-center justify-center h-28 text-xs text-muted-foreground">
-      No data available
+    <div className="group/decl py-2.5 px-3 -mx-3 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-900/40 transition-colors">
+      <div className="flex items-start gap-3 min-w-0">
+        <span
+          className="shrink-0 mt-2 size-1.5 rounded-full"
+          style={{ background: statusCategoryColor(decl.status_category) }}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-4">
+            <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200 leading-tight">
+              {decl.summary}
+            </span>
+            <div className="flex items-center gap-2.5 shrink-0 mt-0.5">
+              {expDate && (
+                <span className={`flex items-center gap-1 text-[11px] font-medium ${
+                  isOverdue ? "text-red-500" : isToday ? "text-amber-500" : "text-muted-foreground"
+                }`}>
+                  <RiCalendarLine size={11} />
+                  {formatDateShort(expDate)}
+                </span>
+              )}
+              <DeclStatusChip status={decl.status} statusCategory={decl.status_category} />
+              {decl.comment && (
+                <button
+                  onClick={() => setShowComment((v) => !v)}
+                  className={`transition-colors ${
+                    showComment
+                      ? "text-zinc-600 dark:text-zinc-300"
+                      : "text-zinc-300 dark:text-zinc-600 hover:text-zinc-400"
+                  }`}
+                  title={showComment ? "Hide comment" : "Show comment"}
+                >
+                  <RiChat1Line size={12} />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 mt-1.5 text-[11px] text-muted-foreground/80 font-medium">
+            <span className="font-mono">{decl.jira_key}</span>
+            <span className="text-zinc-300 dark:text-zinc-800">·</span>
+            <span className="truncate max-w-[240px]">{decl.project_name}</span>
+            {decl.priority && (
+              <>
+                <span className="text-zinc-300 dark:text-zinc-800">·</span>
+                <span className={priorityTextColor(decl.priority)}>{decl.priority}</span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+      {showComment && decl.comment && (
+        <div className="pl-4.5 mt-2">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 bg-zinc-50/50 dark:bg-zinc-800/30 p-2 rounded-md border border-zinc-100 dark:border-zinc-800/50">
+            {decl.comment}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
 
-function isDone(cat: string): boolean {
-  const c = cat.toLowerCase();
-  return c === "done" || c === "complete" || c === "completed";
-}
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
 
-function isInProgress(cat: string): boolean {
-  const c = cat.toLowerCase();
-  return c === "in progress" || c === "indeterminate";
-}
-
-function StatusBadge({ statusCategory, status }: { statusCategory: string; status: string }) {
-  const cls = isDone(statusCategory)
-    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
-    : isInProgress(statusCategory)
-      ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400"
-      : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400";
+function DeclStatusChip({ status, statusCategory }: { status: string; statusCategory: string | null }) {
+  const cat = (statusCategory ?? "").toLowerCase();
+  const cls =
+    cat.includes("done") || cat.includes("complete")
+      ? "text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-100/50 dark:border-emerald-900/50"
+      : cat.includes("progress") || cat === "indeterminate"
+        ? "text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-100/50 dark:border-amber-900/50"
+        : "text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800 border-zinc-200/50 dark:border-zinc-700/50";
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${cls}`}>
+    <span className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-bold tracking-tight uppercase whitespace-nowrap ${cls}`}>
       {status}
     </span>
   );
 }
 
-function getStatusCategoryColor(statusCategory: string): string {
-  if (isDone(statusCategory)) return "#22c55e";
-  if (isInProgress(statusCategory)) return "#f59e0b";
+function statusCategoryColor(cat: string | null): string {
+  const c = (cat ?? "").toLowerCase();
+  if (c.includes("done") || c.includes("complete")) return "#10b981";
+  if (c.includes("progress") || c === "indeterminate") return "#f59e0b";
   return "#94a3b8";
 }
 
-function getPriorityTextColor(priority: string): string {
+function priorityTextColor(priority: string): string {
   switch (priority?.toLowerCase()) {
-    case "highest":
     case "critical":
-      return "text-red-600 dark:text-red-400";
+    case "highest":
+      return "text-red-600 dark:text-red-400 font-semibold";
     case "high":
-      return "text-orange-600 dark:text-orange-400";
+      return "text-orange-600 dark:text-orange-400 font-semibold";
     case "medium":
-      return "text-amber-600 dark:text-amber-400";
+      return "text-amber-600 dark:text-amber-400 font-semibold";
     default:
       return "text-muted-foreground";
   }
 }
 
-function formatRelative(dateStr: string): string {
+function formatDateShort(dateStr: string): string {
   try {
-    const d = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - d.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    if (diffDays === 0) return "Today";
-    if (diffDays === 1) return "Yesterday";
-    if (diffDays < 7) return `${diffDays}d ago`;
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
-    return `${Math.floor(diffDays / 30)}mo ago`;
+    const d = new Date(dateStr + "T00:00:00");
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
+    if (diff === 0) return "today";
+    if (diff === 1) return "tomorrow";
+    if (diff === -1) return "yesterday";
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   } catch {
-    return "";
+    return dateStr;
   }
 }

@@ -14,6 +14,8 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { BoardDetailClient } from "@/components/observer/board-detail-client";
+import { Button } from "@/components/ui/button";
+import { RiCheckboxCircleLine } from "@remixicon/react";
 
 type Props = { params: Promise<{ boardId: string }> };
 
@@ -50,6 +52,14 @@ export default async function BoardDetailPage({ params }: Props) {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
+        <div className="ml-auto">
+          <Button variant="outline" size="sm" asChild className="h-8">
+            <Link href="/observer/check-in">
+              <RiCheckboxCircleLine className="mr-1.5 size-4" />
+              My Check-in
+            </Link>
+          </Button>
+        </div>
       </header>
 
       <main className="flex-1 p-6">

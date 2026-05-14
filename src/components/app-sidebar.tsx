@@ -18,6 +18,7 @@ import {
   RiArrowDownSLine,
   RiArrowUpSLine,
   RiTeamLine,
+  RiCheckboxCircleLine,
 } from "@remixicon/react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -130,7 +131,9 @@ export function AppSidebar({ user, projects }: Props) {
                     isActive={
                     href === "/home" || href === "/projects"
                       ? pathname === href
-                      : pathname.startsWith(href)
+                      : href === "/observer"
+                        ? pathname.startsWith(href) && !pathname.startsWith("/observer/check-in")
+                        : pathname.startsWith(href)
                   }
                     tooltip={label}
                     className="transition-all hover:bg-sidebar-accent hover:translate-x-0.5"

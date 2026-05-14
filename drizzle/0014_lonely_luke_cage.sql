@@ -1,0 +1,1 @@
+ALTER TABLE "engineer_work_declarations" ADD COLUMN "expected_completion_date" date;

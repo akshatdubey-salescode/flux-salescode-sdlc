@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { eq } from "drizzle-orm";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
   Breadcrumb,
@@ -9,7 +10,11 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { requireAuth } from "@/lib/auth/server";
+import { db } from "@/lib/db";
+import { observerBoards } from "@/lib/db/schema";
 import { DeveloperInsightsClient } from "@/components/observer/developer-insights-client";
+import { Button } from "@/components/ui/button";
+import { RiCheckboxCircleLine } from "@remixicon/react";
 
 type Props = {
   params: Promise<{ email: string }>;
@@ -21,6 +26,15 @@ export default async function DeveloperInsightsPage({ params, searchParams }: Pr
   const { email } = await params;
   const { boardId, boardName } = await searchParams;
   const decodedEmail = decodeURIComponent(email);
+
+  let stalenessThreshold = 5;
+  if (boardId) {
+    const [board] = await db
+      .select({ stalenessThresholdDays: observerBoards.stalenessThresholdDays })
+      .from(observerBoards)
+      .where(eq(observerBoards.id, boardId));
+    if (board) stalenessThreshold = board.stalenessThresholdDays;
+  }
 
   return (
     <div className="flex flex-col min-h-svh bg-zinc-50 dark:bg-zinc-950">
@@ -49,6 +63,14 @@ export default async function DeveloperInsightsPage({ params, searchParams }: Pr
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
+        <div className="ml-auto">
+          <Button variant="outline" size="sm" asChild className="h-8">
+            <Link href="/observer/check-in">
+              <RiCheckboxCircleLine className="mr-1.5 size-4" />
+              My Check-in
+            </Link>
+          </Button>
+        </div>
       </header>
 
       <main className="flex-1 p-6">
@@ -56,6 +78,7 @@ export default async function DeveloperInsightsPage({ params, searchParams }: Pr
           email={decodedEmail}
           boardId={boardId}
           boardName={boardName}
+          stalenessThreshold={stalenessThreshold}
         />
       </main>
     </div>

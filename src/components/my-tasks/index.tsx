@@ -32,7 +32,15 @@ function readFilters(
   };
 }
 
-export function MyTasksView({ targetEmail }: { targetEmail?: string } = {}) {
+export function MyTasksView({
+  targetEmail,
+  renderIssueActions,
+  hideTabs = false,
+}: {
+  targetEmail?: string;
+  renderIssueActions?: (issue: TrackingIssue) => React.ReactNode;
+  hideTabs?: boolean;
+} = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const filters = readFilters(searchParams);
@@ -136,7 +144,7 @@ export function MyTasksView({ targetEmail }: { targetEmail?: string } = {}) {
 
   return (
     <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full space-y-4">
-      {!isObserving && (
+      {!isObserving && !hideTabs && (
         <div className="flex items-center justify-between">
           <TabsList>
             <TabsTrigger value="list">Tasks List</TabsTrigger>
@@ -165,6 +173,7 @@ export function MyTasksView({ targetEmail }: { targetEmail?: string } = {}) {
             updateParams({ sortBy, sortDir, page: "1" })
           }
           onPageChange={(page) => updateParams({ page: String(page) })}
+          renderActions={renderIssueActions}
           {...(!isObserving && {
             pinnedKeys,
             onPinToggle: togglePin,

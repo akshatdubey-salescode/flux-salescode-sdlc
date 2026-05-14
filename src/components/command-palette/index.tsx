@@ -19,6 +19,7 @@ import {
   RiFolderLine,
   RiUserSettingsLine,
   RiExternalLinkLine,
+  RiCheckboxCircleLine,
 } from "@remixicon/react";
 import type { JiraProject } from "@/lib/db/schema";
 
@@ -99,6 +100,7 @@ export function CommandPalette({ projects, isSuperUser }: Props) {
 
   const filteredNav = [
     ...NAV_ITEMS,
+    { label: "My Check-in", href: "/observer/check-in", icon: RiCheckboxCircleLine },
     ...(isSuperUser
       ? [{ label: "User Management", href: "/admin/users", icon: RiUserSettingsLine }]
       : []),

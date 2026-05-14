@@ -10,6 +10,7 @@ import {
   jsonb,
   integer,
   numeric,
+  date,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -500,6 +501,7 @@ export const observerBoards = pgTable("observer_boards", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   description: text("description"),
+  stalenessThresholdDays: integer("staleness_threshold_days").notNull().default(5),
   createdBy: text("created_by")
     .notNull()
     .references(() => users.id),
@@ -532,6 +534,45 @@ export const observerBoardMembers = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Engineer Work Declarations — daily self-reported active JIRA log
+// ---------------------------------------------------------------------------
+
+export const engineerWorkDeclarations = pgTable(
+  "engineer_work_declarations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Matches observer_board_members.email and jira_issues.assignee_email
+    engineerEmail: text("engineer_email").notNull(),
+    jiraIssueId: uuid("jira_issue_id")
+      .notNull()
+      .references(() => jiraIssues.id, { onDelete: "cascade" }),
+    // Calendar day in UTC (YYYY-MM-DD). One declaration per engineer+issue+day.
+    declaredDate: date("declared_date").notNull(),
+    // The day the engineer expects to close this JIRA. Drives auto-carryover.
+    expectedCompletionDate: date("expected_completion_date"),
+    comment: text("comment"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("engineer_work_declarations_unique_idx").on(
+      t.engineerEmail,
+      t.jiraIssueId,
+      t.declaredDate
+    ),
+    index("engineer_work_declarations_email_date_idx").on(
+      t.engineerEmail,
+      t.declaredDate
+    ),
+    index("engineer_work_declarations_issue_idx").on(t.jiraIssueId),
+  ]
+);
+
+// ---------------------------------------------------------------------------
 // Type exports
 // ---------------------------------------------------------------------------
 
@@ -559,4 +600,6 @@ export type ObserverBoard = typeof observerBoards.$inferSelect;
 export type NewObserverBoard = typeof observerBoards.$inferInsert;
 export type ObserverBoardMember = typeof observerBoardMembers.$inferSelect;
 export type NewObserverBoardMember = typeof observerBoardMembers.$inferInsert;
+export type EngineerWorkDeclaration = typeof engineerWorkDeclarations.$inferSelect;
+export type NewEngineerWorkDeclaration = typeof engineerWorkDeclarations.$inferInsert;
 
