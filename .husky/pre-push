@@ -1,9 +1,7 @@
 #!/bin/sh
-# Auto-fix commit authors before push — rewrites any commit not by the canonical author.
+# Block push if any commit in the range was not authored by the canonical author.
 
-AUTHOR_NAME="Akshat Dubey"
-AUTHOR_EMAIL="akshat.dubey@salescode.ai"
-EXPECTED="$AUTHOR_NAME <$AUTHOR_EMAIL>"
+EXPECTED="Akshat Dubey <akshat.dubey@salescode.ai>"
 
 while read local_ref local_sha remote_ref remote_sha; do
   [ "$local_sha" = "0000000000000000000000000000000000000000" ] && continue
@@ -14,36 +12,19 @@ while read local_ref local_sha remote_ref remote_sha; do
     range="${remote_sha}..${local_sha}"
   fi
 
-  bad=$(git log --format="%H %an <%ae>" $range | grep -v " $EXPECTED$")
+  bad=$(git log --format="%H %an <%ae>" $range | grep -v " $EXPECTED$" || true)
 
-  if [ -z "$bad" ]; then
-    continue
-  fi
-
-  echo "pre-push: found commits with wrong author — auto-fixing..."
-
-  oldest_bad=$(git log --reverse --format="%H %an <%ae>" $range \
-    | grep -v " $EXPECTED$" | head -1 | awk '{print $1}')
-  base=$(git rev-parse "${oldest_bad}^" 2>/dev/null)
-
-  if [ -z "$base" ]; then
-    rebase_arg="--root"
-  else
-    rebase_arg="$base"
-  fi
-
-  GIT_COMMITTER_NAME="$AUTHOR_NAME" \
-  GIT_COMMITTER_EMAIL="$AUTHOR_EMAIL" \
-  git rebase --exec \
-    "git commit --amend --no-edit --allow-empty --author='$EXPECTED'" \
-    $rebase_arg
-
-  if [ $? -ne 0 ]; then
-    echo "pre-push: auto-fix failed. Resolve the rebase, then push again."
+  if [ -n "$bad" ]; then
+    echo "pre-push: commits with unexpected author found — push blocked."
+    echo ""
+    echo "Expected author: $EXPECTED"
+    echo ""
+    echo "Offending commits:"
+    echo "$bad"
+    echo ""
+    echo "Fix with: git rebase --exec 'git commit --amend --no-edit --reset-author' <base-sha>"
     exit 1
   fi
-
-  echo "pre-push: all authors corrected. Continuing push..."
 done
 
 exit 0
