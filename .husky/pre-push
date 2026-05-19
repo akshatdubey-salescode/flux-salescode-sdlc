@@ -35,7 +35,7 @@ while read local_ref local_sha remote_ref remote_sha; do
   GIT_COMMITTER_NAME="$AUTHOR_NAME" \
   GIT_COMMITTER_EMAIL="$AUTHOR_EMAIL" \
   git rebase --exec \
-    "git commit --amend --no-edit --author='$EXPECTED'" \
+    "git commit --amend --no-edit --allow-empty --author='$EXPECTED'" \
     $rebase_arg
 
   if [ $? -ne 0 ]; then
