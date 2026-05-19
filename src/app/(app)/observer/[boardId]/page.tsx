@@ -43,7 +43,7 @@ export default async function BoardDetailPage({ params }: Props) {
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href="/observer">Team Observer</Link>
+                <Link href="/observer">Team Pulse</Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />

@@ -44,7 +44,7 @@ export default async function DeveloperInsightsPage({ params, searchParams }: Pr
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href="/observer">Team Observer</Link>
+                <Link href="/observer">Team Pulse</Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             {boardId && (

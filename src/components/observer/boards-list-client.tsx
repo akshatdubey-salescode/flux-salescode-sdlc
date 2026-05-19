@@ -127,10 +127,10 @@ export function BoardsListClient({ initialBoards }: Props) {
       <div className="flex items-start justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-            Team Observer
+            Team Pulse
           </h1>
           <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-            Create custom boards to monitor your team&apos;s workload and productivity.
+            Track what your team is working on, spot risks early, and stay on top of delivery.
           </p>
         </div>
         <Button onClick={() => { setName(""); setDescription(""); setCreateOpen(true); }} className="shrink-0 gap-1.5">

@@ -22,7 +22,7 @@ export default async function CheckInPage() {
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href="/observer">Team Observer</Link>
+                <Link href="/observer">Team Pulse</Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />

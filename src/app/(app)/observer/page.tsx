@@ -57,7 +57,7 @@ export default async function ObserverPage() {
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
-              <BreadcrumbPage>Team Observer</BreadcrumbPage>
+              <BreadcrumbPage>Team Pulse</BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
