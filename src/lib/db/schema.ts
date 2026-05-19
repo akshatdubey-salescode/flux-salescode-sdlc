@@ -501,6 +501,8 @@ export const observerBoards = pgTable("observer_boards", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   description: text("description"),
+  managerName: text("manager_name"),
+  managerEmail: text("manager_email"),
   stalenessThresholdDays: integer("staleness_threshold_days").notNull().default(5),
   createdBy: text("created_by")
     .notNull()

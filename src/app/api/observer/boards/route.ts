@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { eq, desc } from "drizzle-orm";
+import { desc } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
@@ -8,56 +8,40 @@ export async function GET() {
   try {
     const user = await requireAuth();
 
+    // Return all boards — caller decides which are "mine"
     const boards = await db
       .select({
         id: observerBoards.id,
         name: observerBoards.name,
         description: observerBoards.description,
+        managerName: observerBoards.managerName,
+        managerEmail: observerBoards.managerEmail,
+        createdBy: observerBoards.createdBy,
         createdAt: observerBoards.createdAt,
         updatedAt: observerBoards.updatedAt,
       })
       .from(observerBoards)
-      .where(eq(observerBoards.createdBy, user.id))
       .orderBy(desc(observerBoards.updatedAt));
 
-    const boardIds = boards.map((b) => b.id);
-
-    const memberCounts =
-      boardIds.length > 0
+    const allMembers =
+      boards.length > 0
         ? await db
-            .select({
-              boardId: observerBoardMembers.boardId,
-              id: observerBoardMembers.id,
-            })
+            .select({ boardId: observerBoardMembers.boardId })
             .from(observerBoardMembers)
-            .where(
-              boardIds.length === 1
-                ? eq(observerBoardMembers.boardId, boardIds[0])
-                : // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  (eq as any)(observerBoardMembers.boardId, boardIds[0])
-            )
         : [];
 
-    // Build a count map
     const countMap: Record<string, number> = {};
-    for (const bid of boardIds) {
-      countMap[bid] = 0;
-    }
-
-    if (boardIds.length > 0) {
-      const allMembers = await db
-        .select({ boardId: observerBoardMembers.boardId })
-        .from(observerBoardMembers);
-
-      for (const m of allMembers) {
-        if (m.boardId in countMap) {
-          countMap[m.boardId]++;
-        }
-      }
+    for (const b of boards) countMap[b.id] = 0;
+    for (const m of allMembers) {
+      if (m.boardId in countMap) countMap[m.boardId]++;
     }
 
     return NextResponse.json(
-      boards.map((b) => ({ ...b, memberCount: countMap[b.id] ?? 0 }))
+      boards.map((b) => ({
+        ...b,
+        memberCount: countMap[b.id] ?? 0,
+        isOwned: b.createdBy === user.id,
+      }))
     );
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -68,7 +52,12 @@ export async function POST(request: Request) {
   try {
     const user = await requireAuth();
     const body = await request.json();
-    const { name, description } = body as { name: string; description?: string };
+    const { name, description, managerName, managerEmail } = body as {
+      name: string;
+      description?: string;
+      managerName?: string;
+      managerEmail?: string;
+    };
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
@@ -79,6 +68,8 @@ export async function POST(request: Request) {
       .values({
         name: name.trim(),
         description: description?.trim() || null,
+        managerName: managerName?.trim() || null,
+        managerEmail: managerEmail?.trim() || null,
         createdBy: user.id,
       })
       .returning();

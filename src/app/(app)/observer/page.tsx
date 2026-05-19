@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { desc } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
@@ -22,11 +22,13 @@ export default async function ObserverPage() {
       id: observerBoards.id,
       name: observerBoards.name,
       description: observerBoards.description,
+      managerName: observerBoards.managerName,
+      managerEmail: observerBoards.managerEmail,
+      createdBy: observerBoards.createdBy,
       createdAt: observerBoards.createdAt,
       updatedAt: observerBoards.updatedAt,
     })
     .from(observerBoards)
-    .where(eq(observerBoards.createdBy, user.id))
     .orderBy(desc(observerBoards.updatedAt));
 
   const allMembers =
@@ -48,6 +50,7 @@ export default async function ObserverPage() {
   const boardsWithCount = boards.map((b) => ({
     ...b,
     memberCount: countMap[b.id] ?? 0,
+    isOwned: b.createdBy === user.id,
   }));
 
   return (

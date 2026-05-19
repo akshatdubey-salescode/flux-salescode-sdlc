@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
@@ -26,7 +26,7 @@ export default async function BoardDetailPage({ params }: Props) {
   const [board] = await db
     .select()
     .from(observerBoards)
-    .where(and(eq(observerBoards.id, boardId), eq(observerBoards.createdBy, user.id)));
+    .where(eq(observerBoards.id, boardId));
 
   if (!board) notFound();
 
