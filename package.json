@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "prepare": "husky && git config user.name 'Akshat Dubey' && git config user.email 'akshat.dubey@salescode.ai'",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -52,6 +53,7 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.2.3",
+    "husky": "^9.1.7",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

@@ -1,0 +1,49 @@
+#!/bin/sh
+# Auto-fix commit authors before push — rewrites any commit not by the canonical author.
+
+AUTHOR_NAME="Akshat Dubey"
+AUTHOR_EMAIL="akshat.dubey@salescode.ai"
+EXPECTED="$AUTHOR_NAME <$AUTHOR_EMAIL>"
+
+while read local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "0000000000000000000000000000000000000000" ] && continue
+
+  if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+    range="$local_sha"
+  else
+    range="${remote_sha}..${local_sha}"
+  fi
+
+  bad=$(git log --format="%H %an <%ae>" $range | grep -v " $EXPECTED$")
+
+  if [ -z "$bad" ]; then
+    continue
+  fi
+
+  echo "pre-push: found commits with wrong author — auto-fixing..."
+
+  oldest_bad=$(git log --reverse --format="%H %an <%ae>" $range \
+    | grep -v " $EXPECTED$" | head -1 | awk '{print $1}')
+  base=$(git rev-parse "${oldest_bad}^" 2>/dev/null)
+
+  if [ -z "$base" ]; then
+    rebase_arg="--root"
+  else
+    rebase_arg="$base"
+  fi
+
+  GIT_COMMITTER_NAME="$AUTHOR_NAME" \
+  GIT_COMMITTER_EMAIL="$AUTHOR_EMAIL" \
+  git rebase --exec \
+    "git commit --amend --no-edit --author='$EXPECTED'" \
+    $rebase_arg
+
+  if [ $? -ne 0 ]; then
+    echo "pre-push: auto-fix failed. Resolve the rebase, then push again."
+    exit 1
+  fi
+
+  echo "pre-push: all authors corrected. Continuing push..."
+done
+
+exit 0
