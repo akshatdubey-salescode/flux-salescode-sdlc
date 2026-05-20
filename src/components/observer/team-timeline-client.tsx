@@ -236,6 +236,7 @@ function DatePicker({
               setOpen(false);
             }
           }}
+          className="[--cell-size:--spacing(8)]"
         />
       </PopoverContent>
     </Popover>
