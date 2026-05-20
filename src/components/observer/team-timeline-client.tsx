@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   RiCalendarLine,
   RiArrowLeftSLine,
@@ -15,6 +16,7 @@ import {
   RiExternalLinkLine,
   RiFilter3Line,
   RiInboxLine,
+  RiSearchLine,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -29,6 +31,19 @@ import type {
 } from "@/app/api/observer/boards/[boardId]/timeline/route";
 import type { UnplannedResponse, UnplannedPersonGroup } from "@/app/api/observer/boards/[boardId]/unplanned/route";
 import { TeamGanttClient } from "@/components/observer/team-gantt-client";
+
+// ---------------------------------------------------------------------------
+// Hooks
+// ---------------------------------------------------------------------------
+
+function useDebounce(value: string, delay: number): string {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -570,6 +585,7 @@ function IssueRow({ issue }: { issue: TimelineIssue }) {
 
 function MemberTimelineCard({ member }: { member: TimelineMember }) {
   const { counts } = member;
+  const [collapsed, setCollapsed] = useState(false);
 
   const headerBg =
     counts.overdue > 0
@@ -582,8 +598,11 @@ function MemberTimelineCard({ member }: { member: TimelineMember }) {
     <div
       className={`rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/50 shadow-sm overflow-hidden ${headerBg}`}
     >
-      {/* Member header */}
-      <div className="flex items-center justify-between gap-4 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800/80">
+      {/* Member header — click to collapse/expand */}
+      <button
+        onClick={() => setCollapsed((c) => !c)}
+        className="w-full flex items-center justify-between gap-4 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800/80 text-left hover:bg-zinc-50/50 dark:hover:bg-zinc-800/20 transition-colors"
+      >
         <div className="flex items-center gap-3 min-w-0">
           <div className="size-8 rounded-full bg-gradient-to-br from-zinc-100 to-zinc-50 dark:from-zinc-800 dark:to-zinc-900 border border-zinc-200 dark:border-zinc-700 flex items-center justify-center text-[11px] font-bold text-zinc-500 shrink-0">
             {initials(member.name)}
@@ -630,27 +649,35 @@ function MemberTimelineCard({ member }: { member: TimelineMember }) {
 
           <Link
             href={`/observer/developer/${encodeURIComponent(member.email)}`}
+            onClick={(e) => e.stopPropagation()}
             className="text-[11px] font-medium text-primary hover:text-primary/80 transition-colors whitespace-nowrap"
           >
             Full profile →
           </Link>
-        </div>
-      </div>
 
-      {/* Issues */}
-      <div className="p-3 space-y-1.5">
-        {member.issues.length === 0 ? (
-          <div className="py-4 px-3 text-center">
-            <p className="text-xs text-muted-foreground italic">
-              No Jira issues with start & due dates for this date
-            </p>
-          </div>
-        ) : (
-          member.issues.map((issue) => (
-            <IssueRow key={issue.id} issue={issue} />
-          ))
-        )}
-      </div>
+          <RiArrowLeftSLine
+            size={14}
+            className={`text-zinc-400 transition-transform duration-200 ${collapsed ? "-rotate-90" : "rotate-90"}`}
+          />
+        </div>
+      </button>
+
+      {/* Issues — collapsible */}
+      {!collapsed && (
+        <div className="p-3 space-y-1.5">
+          {member.issues.length === 0 ? (
+            <div className="py-4 px-3 text-center">
+              <p className="text-xs text-muted-foreground italic">
+                No Jira issues with start & due dates for this date
+              </p>
+            </div>
+          ) : (
+            member.issues.map((issue) => (
+              <IssueRow key={issue.id} issue={issue} />
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -741,16 +768,78 @@ function getRelevantQuarters(pastCount: number) {
   return result;
 }
 
+function UnplannedPersonCard({
+  person,
+  filtered,
+  typeSummary,
+}: {
+  person: UnplannedPersonGroup;
+  filtered: UnplannedIssue[];
+  typeSummary: string;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  return (
+    <div className="rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/50 shadow-sm overflow-hidden">
+      <button
+        onClick={() => setCollapsed((c) => !c)}
+        className="w-full flex items-center gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800/80 text-left hover:bg-zinc-50/50 dark:hover:bg-zinc-800/20 transition-colors"
+      >
+        <div className="size-7 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[11px] font-bold text-zinc-500 shrink-0">
+          {initials(person.name)}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{person.name}</p>
+            {person.isManager && (
+              <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">Manager</span>
+            )}
+          </div>
+          <p className="text-[11px] text-muted-foreground">{typeSummary}</p>
+        </div>
+        <RiArrowLeftSLine
+          size={14}
+          className={`text-zinc-400 shrink-0 transition-transform duration-200 ${collapsed ? "-rotate-90" : "rotate-90"}`}
+        />
+      </button>
+      {!collapsed && (
+        <div className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
+          {filtered.map((issue) => (
+            <UnplannedIssueRow key={issue.id} issue={issue} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function UnplannedWithDateFilter({ boardId }: { boardId: string }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const thisQ = currentQuarterNum();
   const thisYear = new Date().getFullYear();
   const defaultBounds = quarterBounds(thisYear, thisQ);
 
-  const [start, setStart] = useState(defaultBounds.start);
-  const [end, setEnd] = useState(defaultBounds.end);
+  const start = searchParams.get("ustart") ?? defaultBounds.start;
+  const end = searchParams.get("uend") ?? defaultBounds.end;
+  const typeFilter = (searchParams.get("utype") ?? "all") as UnplannedFilter;
+
+  const [uqInput, setUqInput] = useState(() => searchParams.get("uq") ?? "");
+  const debouncedUq = useDebounce(uqInput, 350);
+  const uMounted = useRef(false);
+
   const [data, setData] = useState<UnplannedResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [typeFilter, setTypeFilter] = useState<UnplannedFilter>("all");
+
+  function updateUnplannedParams(updates: Record<string, string | null>) {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [k, v] of Object.entries(updates)) {
+      if (v === null) params.delete(k);
+      else params.set(k, v);
+    }
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }
 
   const load = useCallback(async (s: string, e: string) => {
     setLoading(true);
@@ -768,6 +857,15 @@ function UnplannedWithDateFilter({ boardId }: { boardId: string }) {
 
   useEffect(() => { load(start, end); }, [start, end, load]);
 
+  // Sync debounced search to URL (skip first mount)
+  useEffect(() => {
+    if (!uMounted.current) { uMounted.current = true; return; }
+    const params = new URLSearchParams(searchParams.toString());
+    if (debouncedUq) params.set("uq", debouncedUq);
+    else params.delete("uq");
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }, [debouncedUq]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Past 2 quarters + current quarter (no future)
   const quarterChips = getRelevantQuarters(2);
 
@@ -781,14 +879,14 @@ function UnplannedWithDateFilter({ boardId }: { boardId: string }) {
   return (
     <div>
       {/* Filter bar: type filter left, quarter + date pickers right */}
-      <div className="flex items-center justify-between gap-3 flex-wrap mb-5">
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
         {/* Left: issue type filter */}
         <div className="flex items-center gap-1.5 flex-wrap">
           <RiFilter3Line size={13} className="text-muted-foreground mr-0.5" />
           {(["all","missing_start","missing_due","missing_both"] as UnplannedFilter[]).map((id) => (
             <button
               key={id}
-              onClick={() => setTypeFilter(id)}
+              onClick={() => updateUnplannedParams({ utype: id === "all" ? null : id })}
               className={`px-2.5 py-1 text-xs rounded-md border font-medium transition-colors ${
                 typeFilter === id
                   ? "bg-primary text-primary-foreground border-primary"
@@ -808,7 +906,7 @@ function UnplannedWithDateFilter({ boardId }: { boardId: string }) {
               return (
                 <button
                   key={`${c.label}-${c.year}`}
-                  onClick={() => { setStart(c.start); setEnd(c.end); }}
+                  onClick={() => updateUnplannedParams({ ustart: c.start, uend: c.end })}
                   className={`flex flex-col items-center px-3 py-1 rounded-lg border text-xs font-semibold transition-colors leading-tight ${
                     active
                       ? "bg-primary text-primary-foreground border-primary"
@@ -822,17 +920,47 @@ function UnplannedWithDateFilter({ boardId }: { boardId: string }) {
             })}
           </div>
           <div className="w-px h-8 bg-zinc-200 dark:bg-zinc-700 mx-0.5" />
-          <DatePicker value={start} onChange={(d) => setStart(d > end ? end : d)} placeholder="From" />
+          <DatePicker
+            value={start}
+            onChange={(d) => updateUnplannedParams({ ustart: d > end ? end : d })}
+            placeholder="From"
+          />
           <span className="text-xs text-muted-foreground">→</span>
-          <DatePicker value={end} onChange={(d) => setEnd(d < start ? start : d)} placeholder="To" />
+          <DatePicker
+            value={end}
+            onChange={(d) => updateUnplannedParams({ uend: d < start ? start : d })}
+            placeholder="To"
+          />
         </div>
+      </div>
+
+      {/* Search */}
+      <div className="relative mb-5">
+        <RiSearchLine size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+        <input
+          type="text"
+          value={uqInput}
+          onChange={(e) => setUqInput(e.target.value)}
+          placeholder="Search by name, email or Jira title…"
+          className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-primary/30"
+        />
       </div>
 
       {loading && <div className="h-40 bg-zinc-100 dark:bg-zinc-800/50 rounded-xl animate-pulse" />}
 
       {!loading && data && (() => {
-        // Compute filtered total across all people
-        const filteredTotal = data.byPerson.reduce(
+        const uNeedle = uqInput.trim().toLowerCase();
+        const visiblePeople = uNeedle
+          ? data.byPerson.filter(
+              (p) =>
+                p.name.toLowerCase().includes(uNeedle) ||
+                p.email.toLowerCase().includes(uNeedle) ||
+                p.issues.some((i) => i.summary.toLowerCase().includes(uNeedle))
+            )
+          : data.byPerson;
+
+        // Compute filtered total across visible people
+        const filteredTotal = visiblePeople.reduce(
           (sum, p) => sum + filterIssues(p.issues).length, 0
         );
 
@@ -861,7 +989,7 @@ function UnplannedWithDateFilter({ boardId }: { boardId: string }) {
             </div>
 
             <div className="space-y-4">
-              {data.byPerson.map((person) => {
+              {visiblePeople.map((person) => {
                 const filtered = filterIssues(person.issues);
                 if (filtered.length === 0) return null;
 
@@ -876,27 +1004,12 @@ function UnplannedWithDateFilter({ boardId }: { boardId: string }) {
                   .join(" · ");
 
                 return (
-                  <div key={person.email} className="rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/50 shadow-sm overflow-hidden">
-                    <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800/80">
-                      <div className="size-7 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[11px] font-bold text-zinc-500 shrink-0">
-                        {initials(person.name)}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{person.name}</p>
-                          {person.isManager && (
-                            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">Manager</span>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-muted-foreground">{typeSummary}</p>
-                      </div>
-                    </div>
-                    <div className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
-                      {filtered.map((issue) => (
-                        <UnplannedIssueRow key={issue.id} issue={issue} />
-                      ))}
-                    </div>
-                  </div>
+                  <UnplannedPersonCard
+                    key={person.email}
+                    person={person}
+                    filtered={filtered}
+                    typeSummary={typeSummary}
+                  />
                 );
               })}
             </div>
@@ -913,17 +1026,71 @@ function UnplannedWithDateFilter({ boardId }: { boardId: string }) {
 
 type Props = {
   boardId: string;
+  onRemoveMember?: (email: string) => void;
 };
 
-export function TeamTimelineClient({ boardId }: Props) {
-  const [filter, setFilter] = useState<DateFilter>({
-    mode: "single",
-    date: todayStr(),
-  });
+const VALID_TABS = ["timeline", "gantt", "unplanned"] as const;
+type TabValue = (typeof VALID_TABS)[number];
+
+export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // --- derive filter from URL params ---
+  const mode = (searchParams.get("mode") ?? "single") as FilterMode;
+  const spDate = searchParams.get("date") ?? todayStr();
+  const spTstart = searchParams.get("tstart") ?? todayStr();
+  const spTend = searchParams.get("tend") ?? offsetDate(todayStr(), 6);
+
+  // Local state for search so every keystroke doesn't trigger router.replace
+  const [qInput, setQInput] = useState(() => searchParams.get("q") ?? "");
+  const debouncedQ = useDebounce(qInput, 350);
+  const isMounted = useRef(false);
+
+  const filter: DateFilter = useMemo(
+    () =>
+      mode === "range"
+        ? { mode: "range", start: spTstart, end: spTend }
+        : { mode: "single", date: spDate },
+    [mode, spDate, spTstart, spTend]
+  );
+
   const [data, setData] = useState<TimelineResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("timeline");
+
+  const rawTab = searchParams.get("tab") ?? "timeline";
+  const activeTab: TabValue = VALID_TABS.includes(rawTab as TabValue) ? (rawTab as TabValue) : "timeline";
+
+  function updateParams(updates: Record<string, string | null>) {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [k, v] of Object.entries(updates)) {
+      if (v === null) params.delete(k);
+      else params.set(k, v);
+    }
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }
+
+  function setActiveTab(tab: string) {
+    updateParams({ tab });
+  }
+
+  function setFilter(f: DateFilter) {
+    if (f.mode === "single") {
+      updateParams({ mode: "single", date: f.date, tstart: null, tend: null });
+    } else {
+      updateParams({ mode: "range", tstart: f.start, tend: f.end, date: null });
+    }
+  }
+
+  // Sync debounced search to URL (skip first mount to avoid redundant replace)
+  useEffect(() => {
+    if (!isMounted.current) { isMounted.current = true; return; }
+    const params = new URLSearchParams(searchParams.toString());
+    if (debouncedQ) params.set("q", debouncedQ);
+    else params.delete("q");
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }, [debouncedQ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function buildUrl(f: DateFilter): string {
     const base = `/api/observer/boards/${boardId}/timeline`;
@@ -1026,16 +1193,42 @@ export function TeamTimelineClient({ boardId }: Props) {
                     No members on this board yet.
                   </p>
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  {data.members.map((member) => (
-                    <MemberTimelineCard
-                      key={member.memberId}
-                      member={member}
-                    />
-                  ))}
-                </div>
-              )}
+              ) : (() => {
+                const needle = qInput.trim().toLowerCase();
+                const filteredMembers = needle
+                  ? data.members.filter(
+                      (m) =>
+                        m.name.toLowerCase().includes(needle) ||
+                        m.email.toLowerCase().includes(needle) ||
+                        m.issues.some((i) => i.summary.toLowerCase().includes(needle))
+                    )
+                  : data.members;
+                return (
+                  <>
+                    <div className="relative mb-4">
+                      <RiSearchLine size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                      <input
+                        type="text"
+                        value={qInput}
+                        onChange={(e) => setQInput(e.target.value)}
+                        placeholder="Search by name, email or Jira title…"
+                        className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      />
+                    </div>
+                    {filteredMembers.length === 0 ? (
+                      <div className="py-10 text-center">
+                        <p className="text-sm text-muted-foreground">No members match &ldquo;{qInput}&rdquo;.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {filteredMembers.map((member) => (
+                          <MemberTimelineCard key={member.memberId} member={member} />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </TabsContent>
 
             <TabsContent value="gantt">
