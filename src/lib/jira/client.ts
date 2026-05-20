@@ -89,6 +89,13 @@ const ISSUE_FIELDS = [
   "created",
   "updated",
   "comment",
+  // Date fields — duedate is standard; the customfields cover sprint start,
+  // epic start, and the Applicate-specific end-date field.
+  "duedate",
+  "customfield_10015", // start date (sprint)
+  "customfield_10014", // start date (epic / alternate)
+  "customfield_10021", // due date (alternate)
+  "customfield_11449", // end date (Applicate)
 ].join(",");
 
 export class JiraClient {

@@ -2,14 +2,10 @@
 
 import { useState, useEffect, useCallback } from "react";
 import {
-  RiCalendarLine,
   RiRefreshLine,
   RiInboxLine,
   RiExternalLinkLine,
 } from "@remixicon/react";
-import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
 import type {
   TimelineResponse,
   TimelineIssue,
@@ -35,12 +31,6 @@ function daysBetween(a: string, b: string): number {
     (new Date(b + "T12:00:00").getTime() - new Date(a + "T12:00:00").getTime()) /
       86400000
   );
-}
-function startOfWeek(date: string): string {
-  const d = new Date(date + "T12:00:00");
-  const day = d.getDay();
-  d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
-  return localDateStr(d);
 }
 function isWeekend(dateStr: string): boolean {
   const day = new Date(dateStr + "T12:00:00").getDay();
@@ -71,8 +61,6 @@ function initials(name: string): string {
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-const MAX_DAYS = 10;
-
 // Layout (px)
 const MEMBER_COL_W = 180;
 const SLOT_W = 54;   // width per half-day slot (AM or PM)
@@ -88,58 +76,6 @@ const BAR_CLASSES: Record<IssueLabel, string> = {
   done:     "bg-zinc-300 hover:bg-zinc-400 text-zinc-600 dark:bg-zinc-600 dark:hover:bg-zinc-500 dark:text-zinc-200",
 };
 
-// ---------------------------------------------------------------------------
-// Date picker (controlled month for reliable future navigation)
-// ---------------------------------------------------------------------------
-function GanttDatePicker({
-  value,
-  onChange,
-  placeholder,
-}: {
-  value: string;
-  onChange: (d: string) => void;
-  placeholder?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const [month, setMonth] = useState<Date>(
-    () => new Date((value || todayStr()) + "T12:00:00")
-  );
-
-  useEffect(() => {
-    if (value) setMonth(new Date(value + "T12:00:00"));
-  }, [value]);
-
-  const label = value ? fmtDate(value) : (placeholder ?? "Date");
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 gap-1.5 font-medium min-w-[100px] justify-start"
-        >
-          <RiCalendarLine size={13} className="text-muted-foreground" />
-          {label}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
-        <Calendar
-          mode="single"
-          month={month}
-          onMonthChange={setMonth}
-          selected={value ? new Date(value + "T12:00:00") : undefined}
-          onSelect={(date) => {
-            if (date) {
-              onChange(localDateStr(date));
-              setOpen(false);
-            }
-          }}
-        />
-      </PopoverContent>
-    </Popover>
-  );
-}
 
 function issueTypeSummary(bars: BarDatum[]): string {
   if (bars.length === 0) return "No issues";
@@ -434,24 +370,14 @@ function GanttGrid({
 }
 
 // ---------------------------------------------------------------------------
-// Main export
+// Main export — dates are controlled by the parent (TeamTimelineClient)
 // ---------------------------------------------------------------------------
-type Props = { boardId: string };
+type Props = { boardId: string; start: string; end: string };
 
-export function TeamGanttClient({ boardId }: Props) {
-  const today = todayStr();
-  const [start, setStart] = useState(today);
-  const [end, setEnd] = useState(offsetDate(today, 6));
+export function TeamGanttClient({ boardId, start, end }: Props) {
   const [data, setData] = useState<TimelineResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  function applyRange(s: string, e: string) {
-    let newEnd = e < s ? s : e;
-    if (daysBetween(s, newEnd) >= MAX_DAYS) newEnd = offsetDate(s, MAX_DAYS - 1);
-    setStart(s);
-    setEnd(newEnd);
-  }
 
   const load = useCallback(
     async (s: string, e: string) => {
@@ -482,53 +408,27 @@ export function TeamGanttClient({ boardId }: Props) {
 
   const numDays = daysBetween(start, end) + 1;
 
-  const presets = [
-    { label: "Today +7D", s: today, e: offsetDate(today, 6) },
-    { label: "Next 10D", s: today, e: offsetDate(today, 9) },
-    { label: "This Week", s: startOfWeek(today), e: offsetDate(startOfWeek(today), 6) },
-  ];
-
   return (
     <div>
-      {/* Controls bar */}
-      <div className="flex items-center gap-2 flex-wrap mb-5">
-        <GanttDatePicker
-          value={start}
-          onChange={(d) => applyRange(d, d > end ? d : end)}
-          placeholder="Start"
-        />
-        <span className="text-xs text-muted-foreground font-medium">to</span>
-        <GanttDatePicker
-          value={end}
-          onChange={(d) => applyRange(start > d ? d : start, d)}
-          placeholder="End"
-        />
-        <span className="text-[11px] text-muted-foreground/60 tabular-nums">
-          ({numDays}d · max {MAX_DAYS})
+      {/* Info + legend row */}
+      <div className="flex items-center gap-3 flex-wrap mb-5">
+        <span className="text-xs text-muted-foreground">
+          Showing{" "}
+          <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+            {fmtDate(start)}
+          </span>
+          {numDays > 1 && (
+            <>
+              {" → "}
+              <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                {fmtDate(end)}
+              </span>
+            </>
+          )}
+          {" "}({numDays}d)
         </span>
 
-        <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-700 mx-1" />
-
-        {presets.map((p) => {
-          const normalizedEnd =
-            daysBetween(p.s, p.e) >= MAX_DAYS ? offsetDate(p.s, MAX_DAYS - 1) : p.e;
-          return (
-            <button
-              key={p.label}
-              onClick={() => applyRange(p.s, p.e)}
-              className={`px-2.5 py-1 text-xs rounded-md border font-medium transition-colors ${
-                start === p.s && end === normalizedEnd
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
-              }`}
-            >
-              {p.label}
-            </button>
-          );
-        })}
-
         <div className="ml-auto flex items-center gap-4">
-          {/* Color legend */}
           <div className="hidden sm:flex items-center gap-3 text-[10px] text-muted-foreground">
             {(
               [

@@ -201,12 +201,7 @@ export function BoardDetailClient({ board, initialMembers }: Props) {
             }}
           />
         ) : (
-          <TeamTimelineClient
-            boardId={board.id}
-            onRemoveMember={(email) =>
-              setRemoveMember(members.find((m) => m.email === email) ?? null)
-            }
-          />
+          <TeamTimelineClient boardId={board.id} />
         )}
       </div>
 

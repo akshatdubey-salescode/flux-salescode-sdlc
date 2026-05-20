@@ -25,9 +25,9 @@ import type {
   TimelineMember,
   TimelineIssue,
   UnplannedIssue,
-  UnplannedMember,
   IssueLabel,
 } from "@/app/api/observer/boards/[boardId]/timeline/route";
+import type { UnplannedResponse, UnplannedPersonGroup } from "@/app/api/observer/boards/[boardId]/unplanned/route";
 import { TeamGanttClient } from "@/components/observer/team-gantt-client";
 
 // ---------------------------------------------------------------------------
@@ -51,6 +51,12 @@ function offsetDate(dateStr: string, days: number): string {
   const d = new Date(dateStr + "T12:00:00"); // noon avoids DST edge cases
   d.setDate(d.getDate() + days);
   return localDateStr(d);
+}
+
+function daysBetween(a: string, b: string): number {
+  return Math.round(
+    (new Date(b + "T12:00:00").getTime() - new Date(a + "T12:00:00").getTime()) / 86400000
+  );
 }
 
 function formatDisplayDate(dateStr: string): string {
@@ -477,13 +483,7 @@ function SummaryCards({
   );
 }
 
-function IssueRow({
-  issue,
-  selectedDate,
-}: {
-  issue: TimelineIssue;
-  selectedDate: string;
-}) {
+function IssueRow({ issue }: { issue: TimelineIssue }) {
   const cfg = LABEL_CONFIG[issue.label];
   const jiraUrl = `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`;
 
@@ -568,17 +568,8 @@ function IssueRow({
   );
 }
 
-function MemberTimelineCard({
-  member,
-  selectedDate,
-  onRemove,
-}: {
-  member: TimelineMember;
-  selectedDate: string;
-  onRemove?: () => void;
-}) {
+function MemberTimelineCard({ member }: { member: TimelineMember }) {
   const { counts } = member;
-  const hasUrgency = counts.overdue > 0 || counts.atRisk > 0;
 
   const headerBg =
     counts.overdue > 0
@@ -656,7 +647,7 @@ function MemberTimelineCard({
           </div>
         ) : (
           member.issues.map((issue) => (
-            <IssueRow key={issue.id} issue={issue} selectedDate={selectedDate} />
+            <IssueRow key={issue.id} issue={issue} />
           ))
         )}
       </div>
@@ -666,99 +657,14 @@ function MemberTimelineCard({
 
 type UnplannedFilter = "all" | "missing_start" | "missing_due" | "missing_both";
 
-function UnplannedSection({
-  unplanned,
-}: {
-  unplanned: TimelineResponse["unplanned"];
-}) {
-  const [filter, setFilter] = useState<UnplannedFilter>("all");
+function quarterBounds(year: number, q: number): { start: string; end: string } {
+  const starts = [`${year}-01-01`, `${year}-04-01`, `${year}-07-01`, `${year}-10-01`];
+  const ends   = [`${year}-03-31`, `${year}-06-30`, `${year}-09-30`, `${year}-12-31`];
+  return { start: starts[q - 1], end: ends[q - 1] };
+}
 
-  if (unplanned.totalCount === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 text-center">
-        <div className="size-12 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center mb-3">
-          <RiCheckboxCircleLine size={22} className="text-emerald-600 dark:text-emerald-400" />
-        </div>
-        <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-          All issues are planned
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Every assigned Jira has a start date and due date.
-        </p>
-      </div>
-    );
-  }
-
-  const filterChips: { id: UnplannedFilter; label: string }[] = [
-    { id: "all", label: "All" },
-    { id: "missing_start", label: "Missing Start" },
-    { id: "missing_due", label: "Missing Due Date" },
-    { id: "missing_both", label: "Missing Both" },
-  ];
-
-  function filterIssues(issues: UnplannedIssue[]): UnplannedIssue[] {
-    if (filter === "missing_start") return issues.filter((i) => i.missingStart);
-    if (filter === "missing_due") return issues.filter((i) => i.missingDue);
-    if (filter === "missing_both")
-      return issues.filter((i) => i.missingStart && i.missingDue);
-    return issues;
-  }
-
-  return (
-    <div>
-      {/* Filter chips */}
-      <div className="flex items-center gap-1.5 flex-wrap mb-5">
-        <RiFilter3Line size={13} className="text-muted-foreground mr-0.5" />
-        {filterChips.map((chip) => (
-          <button
-            key={chip.id}
-            onClick={() => setFilter(chip.id)}
-            className={`px-2.5 py-1 text-xs rounded-md border font-medium transition-colors ${
-              filter === chip.id
-                ? "bg-primary text-primary-foreground border-primary"
-                : "border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
-            }`}
-          >
-            {chip.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="space-y-4">
-        {unplanned.byMember.map((member) => {
-          const filtered = filterIssues(member.issues);
-          if (filtered.length === 0) return null;
-
-          return (
-            <div
-              key={member.memberId}
-              className="rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/50 shadow-sm overflow-hidden"
-            >
-              <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800/80">
-                <div className="size-7 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[11px] font-bold text-zinc-500 shrink-0">
-                  {initials(member.name)}
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-                    {member.name}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">
-                    {filtered.length} unplanned issue{filtered.length !== 1 ? "s" : ""}
-                  </p>
-                </div>
-              </div>
-
-              <div className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
-                {filtered.map((issue) => (
-                  <UnplannedIssueRow key={issue.id} issue={issue} />
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+function currentQuarterNum(): number {
+  return Math.ceil((new Date().getMonth() + 1) / 3);
 }
 
 function UnplannedIssueRow({ issue }: { issue: UnplannedIssue }) {
@@ -817,15 +723,199 @@ function UnplannedIssueRow({ issue }: { issue: UnplannedIssue }) {
 }
 
 // ---------------------------------------------------------------------------
+// Unplanned tab with creation-date filter (uses its own API)
+// ---------------------------------------------------------------------------
+
+function getRelevantQuarters(pastCount: number) {
+  const now = new Date();
+  const curYear = now.getFullYear();
+  const curQ = Math.ceil((now.getMonth() + 1) / 3);
+  const monthRanges = ["Jan–Mar", "Apr–Jun", "Jul–Sep", "Oct–Dec"];
+  const result = [];
+  for (let i = pastCount; i >= 0; i--) {
+    let q = curQ - i;
+    let y = curYear;
+    while (q <= 0) { q += 4; y--; }
+    result.push({ label: `Q${q}`, year: y, sublabel: monthRanges[q - 1], ...quarterBounds(y, q) });
+  }
+  return result;
+}
+
+function UnplannedWithDateFilter({ boardId }: { boardId: string }) {
+  const thisQ = currentQuarterNum();
+  const thisYear = new Date().getFullYear();
+  const defaultBounds = quarterBounds(thisYear, thisQ);
+
+  const [start, setStart] = useState(defaultBounds.start);
+  const [end, setEnd] = useState(defaultBounds.end);
+  const [data, setData] = useState<UnplannedResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [typeFilter, setTypeFilter] = useState<UnplannedFilter>("all");
+
+  const load = useCallback(async (s: string, e: string) => {
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/observer/boards/${boardId}/unplanned?start=${s}&end=${e}`
+      );
+      if (res.ok) setData(await res.json());
+    } catch {
+      // network-level failure — just stop loading
+    } finally {
+      setLoading(false);
+    }
+  }, [boardId]);
+
+  useEffect(() => { load(start, end); }, [start, end, load]);
+
+  // Past 2 quarters + current quarter (no future)
+  const quarterChips = getRelevantQuarters(2);
+
+  function filterIssues(issues: UnplannedPersonGroup["issues"]) {
+    if (typeFilter === "missing_start") return issues.filter((i) => i.missingStart);
+    if (typeFilter === "missing_due")   return issues.filter((i) => i.missingDue);
+    if (typeFilter === "missing_both")  return issues.filter((i) => i.missingStart && i.missingDue);
+    return issues;
+  }
+
+  return (
+    <div>
+      {/* Filter bar: type filter left, quarter + date pickers right */}
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-5">
+        {/* Left: issue type filter */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <RiFilter3Line size={13} className="text-muted-foreground mr-0.5" />
+          {(["all","missing_start","missing_due","missing_both"] as UnplannedFilter[]).map((id) => (
+            <button
+              key={id}
+              onClick={() => setTypeFilter(id)}
+              className={`px-2.5 py-1 text-xs rounded-md border font-medium transition-colors ${
+                typeFilter === id
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
+              }`}
+            >
+              {{ all: "All", missing_start: "Missing Start", missing_due: "Missing Due", missing_both: "Missing Both" }[id]}
+            </button>
+          ))}
+        </div>
+
+        {/* Right: quarter chips + custom date pickers */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex gap-1">
+            {quarterChips.map((c) => {
+              const active = start === c.start && end === c.end;
+              return (
+                <button
+                  key={`${c.label}-${c.year}`}
+                  onClick={() => { setStart(c.start); setEnd(c.end); }}
+                  className={`flex flex-col items-center px-3 py-1 rounded-lg border text-xs font-semibold transition-colors leading-tight ${
+                    active
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
+                  }`}
+                >
+                  <span>{c.label} <span className="font-normal opacity-60 text-[10px]">{c.year}</span></span>
+                  <span className={`text-[10px] font-normal ${active ? "opacity-75" : "text-muted-foreground"}`}>{c.sublabel}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="w-px h-8 bg-zinc-200 dark:bg-zinc-700 mx-0.5" />
+          <DatePicker value={start} onChange={(d) => setStart(d > end ? end : d)} placeholder="From" />
+          <span className="text-xs text-muted-foreground">→</span>
+          <DatePicker value={end} onChange={(d) => setEnd(d < start ? start : d)} placeholder="To" />
+        </div>
+      </div>
+
+      {loading && <div className="h-40 bg-zinc-100 dark:bg-zinc-800/50 rounded-xl animate-pulse" />}
+
+      {!loading && data && (() => {
+        // Compute filtered total across all people
+        const filteredTotal = data.byPerson.reduce(
+          (sum, p) => sum + filterIssues(p.issues).length, 0
+        );
+
+        if (filteredTotal === 0) {
+          return (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="size-12 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center mb-3">
+                <RiCheckboxCircleLine size={22} className="text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-1">All issues are planned</p>
+              <p className="text-xs text-muted-foreground">No unplanned issues found for this date range.</p>
+            </div>
+          );
+        }
+
+        return (
+          <>
+            {/* Total count summary */}
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                {filteredTotal} unplanned
+              </span>
+              <span className="text-xs text-muted-foreground">
+                created between {formatDisplayDate(start)} – {formatDisplayDate(end)}
+              </span>
+            </div>
+
+            <div className="space-y-4">
+              {data.byPerson.map((person) => {
+                const filtered = filterIssues(person.issues);
+                if (filtered.length === 0) return null;
+
+                // Build type summary: "2 Bugs · 3 Tasks"
+                const typeCounts: Record<string, number> = {};
+                for (const issue of filtered) {
+                  const t = issue.issueType || "Issue";
+                  typeCounts[t] = (typeCounts[t] ?? 0) + 1;
+                }
+                const typeSummary = Object.entries(typeCounts)
+                  .map(([t, n]) => `${n} ${n === 1 ? t : t.endsWith("s") ? t : t + "s"}`)
+                  .join(" · ");
+
+                return (
+                  <div key={person.email} className="rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/50 shadow-sm overflow-hidden">
+                    <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800/80">
+                      <div className="size-7 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[11px] font-bold text-zinc-500 shrink-0">
+                        {initials(person.name)}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{person.name}</p>
+                          {person.isManager && (
+                            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">Manager</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">{typeSummary}</p>
+                      </div>
+                    </div>
+                    <div className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
+                      {filtered.map((issue) => (
+                        <UnplannedIssueRow key={issue.id} issue={issue} />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        );
+      })()}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
 
 type Props = {
   boardId: string;
-  onRemoveMember?: (email: string) => void;
 };
 
-export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
+export function TeamTimelineClient({ boardId }: Props) {
   const [filter, setFilter] = useState<DateFilter>({
     mode: "single",
     date: todayStr(),
@@ -866,9 +956,13 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
     load(filter);
   }, [filter, load]);
 
-  // reference date for IssueRow days-remaining display
-  const referenceDate =
-    filter.mode === "single" ? filter.date : todayStr();
+  // Gantt dates derived from the top-level filter (single date → 7-day window)
+  const ganttStart = filter.mode === "single" ? filter.date : filter.start;
+  const ganttEnd = filter.mode === "single"
+    ? offsetDate(filter.date, 6)
+    : daysBetween(filter.start, filter.end) > 9
+      ? offsetDate(filter.start, 9)
+      : filter.end;
 
   if (error) {
     return (
@@ -911,14 +1005,7 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
               <TabsList>
                 <TabsTrigger value="timeline">Timeline View</TabsTrigger>
                 <TabsTrigger value="gantt">Gantt View</TabsTrigger>
-                <TabsTrigger value="unplanned">
-                  Unplanned
-                  {data.unplanned.totalCount > 0 && (
-                    <span className="ml-1.5 inline-flex items-center justify-center size-4 rounded-full bg-zinc-200 dark:bg-zinc-700 text-[10px] font-bold text-zinc-600 dark:text-zinc-300">
-                      {data.unplanned.totalCount}
-                    </span>
-                  )}
-                </TabsTrigger>
+                <TabsTrigger value="unplanned">Unplanned</TabsTrigger>
               </TabsList>
 
               <button
@@ -945,12 +1032,6 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
                     <MemberTimelineCard
                       key={member.memberId}
                       member={member}
-                      selectedDate={referenceDate}
-                      onRemove={
-                        onRemoveMember
-                          ? () => onRemoveMember(member.email)
-                          : undefined
-                      }
                     />
                   ))}
                 </div>
@@ -958,11 +1039,11 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
             </TabsContent>
 
             <TabsContent value="gantt">
-              <TeamGanttClient boardId={boardId} />
+              <TeamGanttClient boardId={boardId} start={ganttStart} end={ganttEnd} />
             </TabsContent>
 
             <TabsContent value="unplanned">
-              <UnplannedSection unplanned={data.unplanned} />
+              <UnplannedWithDateFilter boardId={boardId} />
             </TabsContent>
           </Tabs>
         </>
