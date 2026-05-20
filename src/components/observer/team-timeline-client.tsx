@@ -470,88 +470,102 @@ function SummaryCards({
   );
 }
 
-function IssueRow({ issue }: { issue: TimelineIssue }) {
+function TimelineTableRow({ issue }: { issue: TimelineIssue }) {
   const cfg = LABEL_CONFIG[issue.label];
+  const tStyles = issueTypeStyles(issue.issueType);
+  const sStyles = statusCategoryStyles(issue.statusCategory);
+  const pStyles = priorityStyles(issue.priority);
   const jiraUrl = `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`;
 
-  const daysText = () => {
-    if (issue.label === "done") return null;
-    if (issue.daysRemaining === null) return null;
-    if (issue.daysRemaining < 0)
-      return `Overdue by ${Math.abs(issue.daysRemaining)}d`;
-    if (issue.daysRemaining === 0) return "Due today";
-    if (issue.daysRemaining === 1) return "Due tomorrow";
-    return `${issue.daysRemaining}d left`;
-  };
+  const daysText =
+    issue.label === "done" || issue.daysRemaining === null
+      ? null
+      : issue.daysRemaining < 0
+      ? `Overdue by ${Math.abs(issue.daysRemaining)}d`
+      : issue.daysRemaining === 0
+      ? "Due today"
+      : issue.daysRemaining === 1
+      ? "Due tomorrow"
+      : `${issue.daysRemaining}d left`;
 
-  const daysBadgeColor = () => {
-    if (!issue.daysRemaining && issue.daysRemaining !== 0) return "";
-    if (issue.daysRemaining < 0) return "text-red-600 dark:text-red-400 font-semibold";
-    if (issue.daysRemaining <= 1) return "text-red-500 dark:text-red-400 font-semibold";
-    if (issue.daysRemaining <= 3) return "text-amber-600 dark:text-amber-400 font-semibold";
-    return "text-muted-foreground";
-  };
+  const daysColor =
+    !daysText ? "" :
+    issue.daysRemaining! < 0  ? "text-red-600 dark:text-red-400 font-semibold" :
+    issue.daysRemaining! <= 1 ? "text-red-500 dark:text-red-400 font-semibold" :
+    issue.daysRemaining! <= 3 ? "text-amber-600 dark:text-amber-400 font-semibold" :
+    "text-muted-foreground";
 
   return (
-    <div
-      className={`flex items-start gap-3 px-4 py-3 border-l-2 ${cfg.border} bg-white dark:bg-zinc-900/30 hover:bg-zinc-50/80 dark:hover:bg-zinc-800/30 transition-colors rounded-r-lg`}
-    >
-      <span className={`mt-1.5 size-2 rounded-full shrink-0 ${cfg.dot}`} />
-
-      <div className="flex-1 min-w-0">
-        <div className="flex items-start justify-between gap-3">
-          <p
-            className={`text-sm font-medium leading-snug ${
-              issue.label === "done"
-                ? "text-zinc-400 dark:text-zinc-500 line-through"
-                : "text-zinc-800 dark:text-zinc-200"
-            }`}
-          >
-            {issue.summary}
-          </p>
-
-          <div className="flex items-center gap-2 shrink-0 mt-0.5">
-            {daysText() && (
-              <span className={`text-[11px] ${daysBadgeColor()}`}>
-                {daysText()}
-              </span>
-            )}
-            <span
-              className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-bold tracking-tight uppercase whitespace-nowrap ${statusChipClass(issue.statusCategory)}`}
-            >
-              {issue.status}
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground/80">
-          <a
-            href={jiraUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-mono font-semibold hover:text-primary transition-colors flex items-center gap-0.5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {issue.jiraKey}
-            <RiExternalLinkLine size={10} className="opacity-60" />
-          </a>
-          <span className="text-zinc-300 dark:text-zinc-700">·</span>
-          <span className="truncate max-w-[140px]">{issue.projectName}</span>
-          {issue.priority && (
-            <>
-              <span className="text-zinc-300 dark:text-zinc-700">·</span>
-              <span className={`font-medium ${priorityColor(issue.priority)}`}>
-                {issue.priority}
-              </span>
-            </>
-          )}
-          <span className="text-zinc-300 dark:text-zinc-700">·</span>
-          <span className="font-medium text-zinc-400 dark:text-zinc-500 whitespace-nowrap">
-            {formatDateRange(issue.startDate, issue.dueDate)}
-          </span>
-        </div>
-      </div>
-    </div>
+    <tr className={`transition-colors ${
+      issue.label === "done"
+        ? "bg-zinc-50/50 dark:bg-zinc-900/20 hover:bg-zinc-50 dark:hover:bg-zinc-900/40"
+        : "bg-white dark:bg-zinc-950 hover:bg-zinc-50 dark:hover:bg-zinc-900/60"
+    }`}>
+      {/* Label dot */}
+      <td className="pl-4 pr-2 py-2.5">
+        <span className={`block size-2 rounded-full shrink-0 ${cfg.dot}`} />
+      </td>
+      {/* Type icon */}
+      <td className="px-2 py-2.5">
+        <span
+          className={`flex size-5 items-center justify-center rounded text-[10px] font-bold ${tStyles.bg} ${tStyles.text}`}
+          title={issue.issueType}
+        >
+          {tStyles.abbr}
+        </span>
+      </td>
+      {/* Key */}
+      <td className="px-3 py-2.5">
+        <a
+          href={jiraUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="font-mono font-semibold text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 inline-flex items-center gap-0.5"
+        >
+          {issue.jiraKey}
+          <RiExternalLinkLine size={10} className="opacity-60" />
+        </a>
+      </td>
+      {/* Summary */}
+      <td className="px-3 py-2.5 max-w-0">
+        <a
+          href={jiraUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className={`block truncate font-medium hover:text-zinc-950 dark:hover:text-zinc-50 ${
+            issue.label === "done"
+              ? "text-zinc-400 dark:text-zinc-500 line-through"
+              : "text-zinc-800 dark:text-zinc-200"
+          }`}
+          title={issue.summary}
+        >
+          {issue.summary}
+        </a>
+      </td>
+      {/* Status */}
+      <td className="px-3 py-2.5">
+        <span className={`inline-block rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${sStyles.badge}`}>
+          {issue.status}
+        </span>
+      </td>
+      {/* Priority */}
+      <td className="px-3 py-2.5">
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`size-1.5 rounded-full ${pStyles.dot}`} />
+          <span className={`font-medium ${pStyles.text}`}>{issue.priority ?? "—"}</span>
+        </span>
+      </td>
+      {/* Date range */}
+      <td className="px-3 py-2.5 whitespace-nowrap text-xs text-zinc-400 dark:text-zinc-500">
+        {formatDateRange(issue.startDate, issue.dueDate)}
+      </td>
+      {/* Days remaining */}
+      <td className="px-3 py-2.5 text-right whitespace-nowrap text-xs">
+        {daysText ? <span className={daysColor}>{daysText}</span> : <span className="text-zinc-300 dark:text-zinc-600">—</span>}
+      </td>
+    </tr>
   );
 }
 
@@ -559,7 +573,7 @@ function MemberTimelineCard({ member }: { member: TimelineMember }) {
   const { counts } = member;
   const [collapsed, setCollapsed] = useState(false);
 
-  const headerBg =
+  const accentBorder =
     counts.overdue > 0
       ? "border-l-4 border-l-red-500"
       : counts.atRisk > 0
@@ -567,58 +581,37 @@ function MemberTimelineCard({ member }: { member: TimelineMember }) {
       : "border-l-4 border-l-zinc-200 dark:border-l-zinc-700";
 
   return (
-    <div
-      className={`rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/50 shadow-sm overflow-hidden ${headerBg}`}
-    >
-      {/* Member header — click to collapse/expand */}
-      <button
+    <div className={`rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/50 shadow-sm overflow-hidden ${accentBorder}`}>
+      {/* Header */}
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setCollapsed((c) => !c)}
-        className="w-full flex items-center justify-between gap-4 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800/80 text-left hover:bg-zinc-50/50 dark:hover:bg-zinc-800/20 transition-colors"
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setCollapsed((c) => !c); }}
+        className="w-full flex items-center justify-between gap-4 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800/80 text-left hover:bg-zinc-50/50 dark:hover:bg-zinc-800/20 transition-colors cursor-pointer select-none"
       >
         <div className="flex items-center gap-3 min-w-0">
           <div className="size-8 rounded-full bg-gradient-to-br from-zinc-100 to-zinc-50 dark:from-zinc-800 dark:to-zinc-900 border border-zinc-200 dark:border-zinc-700 flex items-center justify-center text-[11px] font-bold text-zinc-500 shrink-0">
             {initials(member.name)}
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50 truncate">
-              {member.name}
-            </p>
-            <p className="text-[11px] text-muted-foreground truncate">
-              {member.email}
-            </p>
+            <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50 truncate">{member.name}</p>
+            <p className="text-[11px] text-muted-foreground truncate">{member.email}</p>
           </div>
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
-          {/* Count summary */}
           <div className="flex items-center gap-2 text-[11px] font-medium">
-            {counts.overdue > 0 && (
-              <span className="text-red-600 dark:text-red-400">
-                {counts.overdue} overdue
-              </span>
-            )}
-            {counts.atRisk > 0 && (
-              <span className="text-amber-600 dark:text-amber-400">
-                {counts.atRisk} at risk
-              </span>
-            )}
+            {counts.overdue > 0 && <span className="text-red-600 dark:text-red-400">{counts.overdue} overdue</span>}
+            {counts.atRisk > 0 && <span className="text-amber-600 dark:text-amber-400">{counts.atRisk} at risk</span>}
             {counts.active - counts.atRisk - counts.overdue > 0 && (
-              <span className="text-blue-600 dark:text-blue-400">
-                {counts.active - counts.atRisk - counts.overdue} active
-              </span>
+              <span className="text-blue-600 dark:text-blue-400">{counts.active - counts.atRisk - counts.overdue} active</span>
             )}
-            {counts.done > 0 && (
-              <span className="text-zinc-400 dark:text-zinc-500">
-                {counts.done} done
-              </span>
-            )}
+            {counts.done > 0 && <span className="text-zinc-400 dark:text-zinc-500">{counts.done} done</span>}
             {counts.active === 0 && counts.done === 0 && (
-              <span className="text-zinc-400 dark:text-zinc-500">
-                No issues on this date
-              </span>
+              <span className="text-zinc-400 dark:text-zinc-500">No issues on this date</span>
             )}
           </div>
-
           <Link
             href={`/observer/developer/${encodeURIComponent(member.email)}`}
             onClick={(e) => e.stopPropagation()}
@@ -626,29 +619,42 @@ function MemberTimelineCard({ member }: { member: TimelineMember }) {
           >
             Full profile →
           </Link>
-
           <RiArrowLeftSLine
             size={14}
             className={`text-zinc-400 transition-transform duration-200 ${collapsed ? "-rotate-90" : "rotate-90"}`}
           />
         </div>
-      </button>
+      </div>
 
-      {/* Issues — collapsible */}
+      {/* Issues table */}
       {!collapsed && (
-        <div className="p-3 space-y-1.5">
-          {member.issues.length === 0 ? (
-            <div className="py-4 px-3 text-center">
-              <p className="text-xs text-muted-foreground italic">
-                No Jira issues with start & due dates for this date
-              </p>
-            </div>
-          ) : (
-            member.issues.map((issue) => (
-              <IssueRow key={issue.id} issue={issue} />
-            ))
-          )}
-        </div>
+        member.issues.length === 0 ? (
+          <div className="py-6 px-4 text-center">
+            <p className="text-xs text-muted-foreground italic">No Jira issues with start &amp; due dates for this date</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/80">
+                  <th className="w-6 pl-4 pr-2 py-2.5" />
+                  <th className="w-7 px-2 py-2.5" />
+                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-28">Key</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500">Summary</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-36">Status</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-28">Priority</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-36">Dates</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-zinc-500 w-32">Remaining</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/80">
+                {member.issues.map((issue) => (
+                  <TimelineTableRow key={issue.id} issue={issue} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
       )}
     </div>
   );
@@ -951,9 +957,12 @@ function UnplannedPersonTable({
 
   return (
     <div className="rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/50 shadow-sm overflow-hidden">
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setCollapsed((c) => !c)}
-        className="w-full flex items-center gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800/80 text-left hover:bg-zinc-50/50 dark:hover:bg-zinc-800/20 transition-colors"
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setCollapsed((c) => !c); }}
+        className="w-full flex items-center gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800/80 text-left hover:bg-zinc-50/50 dark:hover:bg-zinc-800/20 transition-colors cursor-pointer select-none"
       >
         <div className="size-7 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[11px] font-bold text-zinc-500 shrink-0">
           {initials(person.name)}
@@ -1002,7 +1011,7 @@ function UnplannedPersonTable({
           size={14}
           className={`text-zinc-400 shrink-0 transition-transform duration-200 ${collapsed ? "-rotate-90" : "rotate-90"}`}
         />
-      </button>
+      </div>
       {!collapsed && (
         <>
           {searchOpen && (
