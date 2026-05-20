@@ -573,15 +573,8 @@ function MemberTimelineCard({ member }: { member: TimelineMember }) {
   const { counts } = member;
   const [collapsed, setCollapsed] = useState(false);
 
-  const accentBorder =
-    counts.overdue > 0
-      ? "border-l-4 border-l-red-500"
-      : counts.atRisk > 0
-      ? "border-l-4 border-l-amber-400"
-      : "border-l-4 border-l-zinc-200 dark:border-l-zinc-700";
-
   return (
-    <div className={`rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/50 shadow-sm overflow-hidden ${accentBorder}`}>
+    <div className="rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/50 shadow-sm overflow-hidden">
       {/* Header */}
       <div
         role="button"
