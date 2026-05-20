@@ -218,7 +218,7 @@ function DatePicker({
         <Button
           variant="outline"
           size="sm"
-          className="h-7 gap-2 font-medium min-w-[120px] justify-start"
+          className="h-7 gap-2 font-medium min-w-[120px] justify-start bg-white dark:bg-zinc-900 shadow-sm"
         >
           <RiCalendarLine size={14} className="text-muted-foreground" />
           {value ? formatDisplayDate(value) : (placeholder ?? "Pick date")}
@@ -293,7 +293,7 @@ function DateFilterBar({
     <div className="flex flex-col gap-3 mb-6">
       <div className="flex items-center gap-2 flex-wrap">
         {/* Mode toggle */}
-        <div className="inline-flex rounded-md border border-zinc-200 dark:border-zinc-700 p-0.5 bg-white dark:bg-zinc-900 shadow-sm">
+        <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-700 p-0.5 bg-zinc-100 dark:bg-zinc-800 shadow-sm">
           <button
             onClick={() => setMode("single")}
             className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
