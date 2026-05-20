@@ -17,6 +17,8 @@ import {
   RiFilter3Line,
   RiInboxLine,
   RiSearchLine,
+  RiArrowUpSLine,
+  RiArrowDownSLine,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -30,6 +32,7 @@ import type {
   IssueLabel,
 } from "@/app/api/observer/boards/[boardId]/timeline/route";
 import type { UnplannedResponse, UnplannedPersonGroup } from "@/app/api/observer/boards/[boardId]/unplanned/route";
+import { statusCategoryStyles, priorityStyles, issueTypeStyles } from "@/components/project-tracking/helpers";
 import { TeamGanttClient } from "@/components/observer/team-gantt-client";
 
 // ---------------------------------------------------------------------------
@@ -215,7 +218,7 @@ function DatePicker({
         <Button
           variant="outline"
           size="sm"
-          className="gap-2 font-medium min-w-[120px] justify-start"
+          className="h-7 gap-2 font-medium min-w-[120px] justify-start"
         >
           <RiCalendarLine size={14} className="text-muted-foreground" />
           {value ? formatDisplayDate(value) : (placeholder ?? "Pick date")}
@@ -433,66 +436,35 @@ function SummaryCards({
   summary: TimelineResponse["summary"];
   onUnplannedClick: () => void;
 }) {
-  const cards = [
-    {
-      label: "Active",
-      value: summary.active,
-      icon: <RiTimeLine size={16} />,
-      color: "text-blue-600 dark:text-blue-400",
-      bg: "bg-blue-50 dark:bg-blue-950/30",
-    },
-    {
-      label: "At Risk",
-      value: summary.atRisk,
-      icon: <RiAlertLine size={16} />,
-      color: "text-amber-600 dark:text-amber-400",
-      bg: "bg-amber-50 dark:bg-amber-950/30",
-    },
-    {
-      label: "Overdue",
-      value: summary.overdue,
-      icon: <RiFireLine size={16} />,
-      color: "text-red-600 dark:text-red-400",
-      bg: "bg-red-50 dark:bg-red-950/30",
-    },
-    {
-      label: "Completed",
-      value: summary.completed,
-      icon: <RiCheckboxCircleLine size={16} />,
-      color: "text-emerald-600 dark:text-emerald-400",
-      bg: "bg-emerald-50 dark:bg-emerald-950/30",
-    },
+  const stats: { label: string; value: number; dot: string | null }[] = [
+    { label: "Active", value: summary.active, dot: null },
+    { label: "At Risk", value: summary.atRisk, dot: summary.atRisk > 0 ? "bg-amber-400" : null },
+    { label: "Overdue", value: summary.overdue, dot: summary.overdue > 0 ? "bg-red-500" : null },
+    { label: "Completed", value: summary.completed, dot: null },
   ];
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
-      {cards.map((card) => (
-        <div
-          key={card.label}
-          className="rounded-xl border border-zinc-200/70 dark:border-zinc-800/70 bg-white dark:bg-zinc-900/50 px-4 py-3 shadow-sm"
-        >
-          <div className={`inline-flex size-7 items-center justify-center rounded-lg ${card.bg} ${card.color} mb-2`}>
-            {card.icon}
-          </div>
-          <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-50 leading-none mb-1">
-            {card.value}
-          </p>
-          <p className="text-xs text-muted-foreground font-medium">{card.label}</p>
+    <div className="flex items-stretch mb-6 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 divide-x divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+      {stats.map((stat) => (
+        <div key={stat.label} className="flex items-center gap-2.5 px-5 py-3 flex-1">
+          {stat.dot && <span className={`size-1.5 rounded-full shrink-0 ${stat.dot}`} />}
+          <span className="text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
+            {stat.value}
+          </span>
+          <span className="text-xs text-zinc-400 dark:text-zinc-500">{stat.label}</span>
         </div>
       ))}
 
-      {/* Unplanned — clickable */}
       <button
         onClick={onUnplannedClick}
-        className="rounded-xl border border-dashed border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900/50 px-4 py-3 shadow-sm text-left hover:border-zinc-400 dark:hover:border-zinc-600 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors group"
+        className="flex items-center gap-2.5 px-5 py-3 flex-1 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors group"
       >
-        <div className="inline-flex size-7 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 mb-2 group-hover:bg-zinc-200 dark:group-hover:bg-zinc-700 transition-colors">
-          <RiQuestionLine size={16} />
-        </div>
-        <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-50 leading-none mb-1">
+        <span className="text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
           {summary.unplanned}
-        </p>
-        <p className="text-xs text-muted-foreground font-medium">Unplanned →</p>
+        </span>
+        <span className="text-xs text-zinc-400 dark:text-zinc-500 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors">
+          Unplanned →
+        </span>
       </button>
     </div>
   );
@@ -694,58 +666,76 @@ function currentQuarterNum(): number {
   return Math.ceil((new Date().getMonth() + 1) / 3);
 }
 
-function UnplannedIssueRow({ issue }: { issue: UnplannedIssue }) {
+const UNPLANNED_PAGE_SIZE = 10;
+
+function UnplannedTableRow({ issue }: { issue: UnplannedIssue }) {
   const jiraUrl = `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`;
+  const tStyles = issueTypeStyles(issue.issueType);
+  const sStyles = statusCategoryStyles(issue.statusCategory);
+  const pStyles = priorityStyles(issue.priority);
 
   return (
-    <div className="flex items-start gap-3 px-4 py-3 hover:bg-zinc-50/60 dark:hover:bg-zinc-800/20 transition-colors">
-      <span className="mt-1.5 size-2 rounded-full bg-zinc-300 dark:bg-zinc-600 shrink-0" />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-start justify-between gap-3">
-          <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200 leading-snug">
-            {issue.summary}
-          </p>
-          <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
-            {issue.missingStart && (
-              <span className="text-[10px] font-bold uppercase tracking-tight px-1.5 py-0.5 rounded-md border bg-orange-50 text-orange-700 border-orange-100 dark:bg-orange-950/40 dark:text-orange-400 dark:border-orange-900/50 whitespace-nowrap">
-                No Start
-              </span>
-            )}
-            {issue.missingDue && (
-              <span className="text-[10px] font-bold uppercase tracking-tight px-1.5 py-0.5 rounded-md border bg-red-50 text-red-700 border-red-100 dark:bg-red-950/40 dark:text-red-400 dark:border-red-900/50 whitespace-nowrap">
-                No Due Date
-              </span>
-            )}
-            <span
-              className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-bold tracking-tight uppercase whitespace-nowrap ${statusChipClass(issue.statusCategory)}`}
-            >
-              {issue.status}
-            </span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground/80">
-          <a
-            href={jiraUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-mono font-semibold hover:text-primary transition-colors flex items-center gap-0.5"
-          >
-            {issue.jiraKey}
-            <RiExternalLinkLine size={10} className="opacity-60" />
-          </a>
-          <span className="text-zinc-300 dark:text-zinc-700">·</span>
-          <span className="truncate max-w-[160px]">{issue.projectName}</span>
-          {issue.priority && (
-            <>
-              <span className="text-zinc-300 dark:text-zinc-700">·</span>
-              <span className={`font-medium ${priorityColor(issue.priority)}`}>
-                {issue.priority}
-              </span>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+    <tr className="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900/60 transition-colors">
+      <td className="px-3 py-2">
+        <span
+          className={`flex size-5 items-center justify-center rounded text-[10px] font-bold ${tStyles.bg} ${tStyles.text}`}
+          title={issue.issueType}
+        >
+          {tStyles.abbr}
+        </span>
+      </td>
+      <td className="px-3 py-2">
+        <a
+          href={jiraUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-mono font-semibold text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 inline-flex items-center gap-0.5"
+        >
+          {issue.jiraKey}
+          <RiExternalLinkLine size={10} className="opacity-60" />
+        </a>
+      </td>
+      <td className="px-3 py-2 max-w-0">
+        <a
+          href={jiraUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block truncate font-medium text-zinc-800 hover:text-zinc-950 dark:text-zinc-200 dark:hover:text-zinc-50"
+          title={issue.summary}
+        >
+          {issue.summary}
+        </a>
+      </td>
+      <td className="px-3 py-2">
+        <span className={`inline-block rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${sStyles.badge}`}>
+          {issue.status}
+        </span>
+      </td>
+      <td className="px-3 py-2">
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`size-1.5 rounded-full ${pStyles.dot}`} />
+          <span className={`font-medium ${pStyles.text}`}>{issue.priority ?? "—"}</span>
+        </span>
+      </td>
+      <td className="px-3 py-2">
+        {issue.missingStart ? (
+          <span className="text-[10px] font-bold uppercase tracking-tight px-1.5 py-0.5 rounded-md border bg-orange-50 text-orange-700 border-orange-100 dark:bg-orange-950/40 dark:text-orange-400 dark:border-orange-900/50 whitespace-nowrap">
+            Missing
+          </span>
+        ) : (
+          <span className="text-zinc-300 dark:text-zinc-600">—</span>
+        )}
+      </td>
+      <td className="px-3 py-2">
+        {issue.missingDue ? (
+          <span className="text-[10px] font-bold uppercase tracking-tight px-1.5 py-0.5 rounded-md border bg-red-50 text-red-700 border-red-100 dark:bg-red-950/40 dark:text-red-400 dark:border-red-900/50 whitespace-nowrap">
+            Missing
+          </span>
+        ) : (
+          <span className="text-zinc-300 dark:text-zinc-600">—</span>
+        )}
+      </td>
+    </tr>
   );
 }
 
@@ -768,7 +758,151 @@ function getRelevantQuarters(pastCount: number) {
   return result;
 }
 
-function UnplannedPersonCard({
+function TableMultiSelect({
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string;
+  options: string[];
+  selected: string[];
+  onChange: (vals: string[]) => void;
+}) {
+  function toggle(val: string) {
+    onChange(selected.includes(val) ? selected.filter((v) => v !== val) : [...selected, val]);
+  }
+  const active = selected.length > 0;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          className={`inline-flex h-6 items-center gap-1 rounded-md border px-2 text-[11px] font-medium transition-colors ${
+            active
+              ? "border-primary/40 bg-primary/5 text-primary dark:bg-primary/10"
+              : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          }`}
+        >
+          {label}
+          {active && (
+            <span className="rounded-full bg-primary px-1 py-px text-[9px] font-bold text-primary-foreground leading-none">
+              {selected.length}
+            </span>
+          )}
+          <RiArrowDownSLine size={11} className="opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-44 p-0">
+        {options.length === 0 ? (
+          <p className="px-3 py-3 text-center text-xs text-zinc-400">No options</p>
+        ) : (
+          <div className="max-h-52 overflow-y-auto py-1">
+            {options.map((opt) => (
+              <div
+                key={opt}
+                onClick={() => toggle(opt)}
+                className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              >
+                <span
+                  className={`flex size-3.5 shrink-0 items-center justify-center rounded border ${
+                    selected.includes(opt)
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-zinc-300 dark:border-zinc-600"
+                  }`}
+                >
+                  {selected.includes(opt) && (
+                    <svg viewBox="0 0 10 10" className="size-2.5" fill="none">
+                      <path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </span>
+                <span className="truncate text-zinc-700 dark:text-zinc-300">{opt}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {selected.length > 0 && (
+          <div className="border-t border-zinc-100 px-3 py-1.5 dark:border-zinc-800">
+            <button onClick={() => onChange([])} className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
+              Clear
+            </button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function TableSortControl({
+  sortBy,
+  sortDir,
+  onChange,
+}: {
+  sortBy: TableLocalFilter["sortBy"];
+  sortDir: "asc" | "desc";
+  onChange: (sortBy: TableLocalFilter["sortBy"], sortDir: "asc" | "desc") => void;
+}) {
+  const current = TABLE_SORT_OPTS.find((o) => o.value === sortBy) ?? TABLE_SORT_OPTS[0];
+  return (
+    <div className="flex items-center gap-0.5">
+      <Popover>
+        <PopoverTrigger asChild>
+          <button className="inline-flex h-6 items-center gap-1 rounded-l-md border border-zinc-200 bg-white px-2 text-[11px] font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800">
+            Sort: {current.label}
+            <RiArrowDownSLine size={11} className="opacity-50" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-36 p-0">
+          <div className="py-1">
+            {TABLE_SORT_OPTS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => onChange(opt.value, sortDir)}
+                className={`flex w-full items-center px-3 py-1.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
+                  sortBy === opt.value ? "font-semibold text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-400"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
+      <button
+        onClick={() => onChange(sortBy, sortDir === "asc" ? "desc" : "asc")}
+        className="inline-flex h-6 items-center rounded-r-md border border-l-0 border-zinc-200 bg-white px-1.5 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+        title={sortDir === "asc" ? "Ascending" : "Descending"}
+      >
+        {sortDir === "asc" ? <RiArrowUpSLine size={12} /> : <RiArrowDownSLine size={12} />}
+      </button>
+    </div>
+  );
+}
+
+type TableLocalFilter = {
+  issueType: string[];
+  priority: string[];
+  status: string[];
+  sortBy: "jiraKey" | "summary" | "status" | "priority";
+  sortDir: "asc" | "desc";
+};
+
+const DEFAULT_TABLE_FILTER: TableLocalFilter = {
+  issueType: [],
+  priority: [],
+  status: [],
+  sortBy: "jiraKey",
+  sortDir: "asc",
+};
+
+const TABLE_SORT_OPTS = [
+  { value: "jiraKey", label: "Key" },
+  { value: "summary", label: "Summary" },
+  { value: "status", label: "Status" },
+  { value: "priority", label: "Priority" },
+] as const;
+
+function UnplannedPersonTable({
   person,
   filtered,
   typeSummary,
@@ -778,6 +912,42 @@ function UnplannedPersonCard({
   typeSummary: string;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [localFilter, setLocalFilter] = useState<TableLocalFilter>(DEFAULT_TABLE_FILTER);
+  const [page, setPage] = useState(1);
+
+  const availableTypes = useMemo(() => [...new Set(filtered.map((i) => i.issueType))].sort(), [filtered]);
+  const availablePriorities = useMemo(() => [...new Set(filtered.map((i) => i.priority).filter((p): p is string => p != null))].sort(), [filtered]);
+  const availableStatuses = useMemo(() => [...new Set(filtered.map((i) => i.status))].sort(), [filtered]);
+
+  const activeFilterCount = localFilter.issueType.length + localFilter.priority.length + localFilter.status.length;
+
+  useEffect(() => { setPage(1); }, [filtered, query, localFilter]);
+
+  const needle = query.trim().toLowerCase();
+  let visible = needle
+    ? filtered.filter((i) => i.summary.toLowerCase().includes(needle) || i.jiraKey.toLowerCase().includes(needle))
+    : filtered;
+
+  if (localFilter.issueType.length) visible = visible.filter((i) => localFilter.issueType.includes(i.issueType));
+  if (localFilter.priority.length) visible = visible.filter((i) => i.priority != null && localFilter.priority.includes(i.priority));
+  if (localFilter.status.length) visible = visible.filter((i) => localFilter.status.includes(i.status));
+
+  visible = [...visible].sort((a, b) => {
+    let cmp = 0;
+    switch (localFilter.sortBy) {
+      case "summary": cmp = a.summary.localeCompare(b.summary); break;
+      case "status":  cmp = a.status.localeCompare(b.status); break;
+      case "priority": cmp = (a.priority ?? "zzz").localeCompare(b.priority ?? "zzz"); break;
+      default: cmp = a.jiraKey.localeCompare(b.jiraKey);
+    }
+    return localFilter.sortDir === "asc" ? cmp : -cmp;
+  });
+
+  const totalPages = Math.ceil(visible.length / UNPLANNED_PAGE_SIZE);
+  const pageItems = visible.slice((page - 1) * UNPLANNED_PAGE_SIZE, page * UNPLANNED_PAGE_SIZE);
 
   return (
     <div className="rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/50 shadow-sm overflow-hidden">
@@ -797,17 +967,148 @@ function UnplannedPersonCard({
           </div>
           <p className="text-[11px] text-muted-foreground">{typeSummary}</p>
         </div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setFilterOpen((f) => {
+              if (f) setLocalFilter(DEFAULT_TABLE_FILTER);
+              return !f;
+            });
+          }}
+          className={`relative p-1 rounded transition-colors shrink-0 ${filterOpen ? "text-primary" : "text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"}`}
+          title="Filter &amp; sort"
+        >
+          <RiFilter3Line size={13} />
+          {activeFilterCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground leading-none">
+              {activeFilterCount}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setSearchOpen((s) => {
+              if (s) setQuery("");
+              return !s;
+            });
+          }}
+          className={`p-1 rounded transition-colors shrink-0 ${searchOpen ? "text-primary" : "text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"}`}
+          title="Search"
+        >
+          <RiSearchLine size={13} />
+        </button>
         <RiArrowLeftSLine
           size={14}
           className={`text-zinc-400 shrink-0 transition-transform duration-200 ${collapsed ? "-rotate-90" : "rotate-90"}`}
         />
       </button>
       {!collapsed && (
-        <div className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
-          {filtered.map((issue) => (
-            <UnplannedIssueRow key={issue.id} issue={issue} />
-          ))}
-        </div>
+        <>
+          {searchOpen && (
+            <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/80">
+              <div className="relative">
+                <RiSearchLine size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                <input
+                  autoFocus
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search by key or title…"
+                  className="w-full pl-7 pr-3 py-1.5 text-xs rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
+            </div>
+          )}
+          {filterOpen && (
+            <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/80 flex items-center gap-2 flex-wrap">
+              <TableMultiSelect
+                label="Type"
+                options={availableTypes}
+                selected={localFilter.issueType}
+                onChange={(vals) => setLocalFilter((f) => ({ ...f, issueType: vals }))}
+              />
+              <TableMultiSelect
+                label="Priority"
+                options={availablePriorities}
+                selected={localFilter.priority}
+                onChange={(vals) => setLocalFilter((f) => ({ ...f, priority: vals }))}
+              />
+              <TableMultiSelect
+                label="Status"
+                options={availableStatuses}
+                selected={localFilter.status}
+                onChange={(vals) => setLocalFilter((f) => ({ ...f, status: vals }))}
+              />
+              <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-700 mx-0.5" />
+              <TableSortControl
+                sortBy={localFilter.sortBy}
+                sortDir={localFilter.sortDir}
+                onChange={(sortBy, sortDir) => setLocalFilter((f) => ({ ...f, sortBy, sortDir }))}
+              />
+              {activeFilterCount > 0 && (
+                <button
+                  onClick={() => setLocalFilter(DEFAULT_TABLE_FILTER)}
+                  className="ml-1 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 underline underline-offset-2"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+          )}
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/80">
+                  <th className="w-8 px-3 py-2.5" />
+                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-28">Key</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500">Summary</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-36">Status</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-28">Priority</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-24">Start</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-24">Due</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/80">
+                {pageItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-6 text-center text-xs text-zinc-400">
+                      No issues match your search.
+                    </td>
+                  </tr>
+                ) : (
+                  pageItems.map((issue) => (
+                    <UnplannedTableRow key={issue.id} issue={issue} />
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-2.5 border-t border-zinc-100 dark:border-zinc-800/80 text-xs text-zinc-500">
+              <span>
+                Showing {(page - 1) * UNPLANNED_PAGE_SIZE + 1}–{Math.min(page * UNPLANNED_PAGE_SIZE, filtered.length)} of {filtered.length}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage((p) => p - 1)}
+                  disabled={page <= 1}
+                  className="rounded border border-zinc-200 px-2.5 py-1 font-medium hover:bg-zinc-50 disabled:pointer-events-none disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                >
+                  Previous
+                </button>
+                <span className="px-2">{page} / {totalPages}</span>
+                <button
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={page >= totalPages}
+                  className="rounded border border-zinc-200 px-2.5 py-1 font-medium hover:bg-zinc-50 disabled:pointer-events-none disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -1004,7 +1305,7 @@ function UnplannedWithDateFilter({ boardId }: { boardId: string }) {
                   .join(" · ");
 
                 return (
-                  <UnplannedPersonCard
+                  <UnplannedPersonTable
                     key={person.email}
                     person={person}
                     filtered={filtered}
@@ -1151,11 +1452,7 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
 
       {loading ? (
         <div className="space-y-3 animate-pulse">
-          <div className="grid grid-cols-5 gap-3 mb-6">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="h-20 bg-zinc-100 dark:bg-zinc-800/50 rounded-xl" />
-            ))}
-          </div>
+          <div className="h-11 bg-zinc-100 dark:bg-zinc-800/50 rounded-lg mb-6" />
           {[...Array(3)].map((_, i) => (
             <div key={i} className="h-40 bg-zinc-100 dark:bg-zinc-800/50 rounded-xl" />
           ))}
