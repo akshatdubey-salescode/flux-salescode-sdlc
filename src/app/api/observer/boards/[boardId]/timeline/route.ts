@@ -82,7 +82,11 @@ function extractStartDate(cf: Record<string, unknown>): string | null {
 }
 
 function extractDueDate(cf: Record<string, unknown>): string | null {
-  const val = cf["duedate"] ?? cf["due_date"] ?? cf["customfield_10021"];
+  const val =
+    cf["duedate"] ??
+    cf["due_date"] ??
+    cf["customfield_10021"] ??
+    cf["customfield_11449"]; // end date field used in some projects
   return typeof val === "string" && val ? val.slice(0, 10) : null;
 }
 

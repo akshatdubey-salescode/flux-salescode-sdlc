@@ -6,13 +6,15 @@ import { requireAuth } from "@/lib/auth/server";
 
 export async function GET() {
   try {
-    await requireAuth();
+    const user = await requireAuth();
 
     const boards = await db
       .select({
         id: observerBoards.id,
         name: observerBoards.name,
         description: observerBoards.description,
+        managerName: observerBoards.managerName,
+        managerEmail: observerBoards.managerEmail,
         createdBy: observerBoards.createdBy,
         createdAt: observerBoards.createdAt,
         updatedAt: observerBoards.updatedAt,
@@ -31,7 +33,11 @@ export async function GET() {
     }
 
     return NextResponse.json(
-      boards.map((b) => ({ ...b, memberCount: countMap[b.id] ?? 0 }))
+      boards.map((b) => ({
+        ...b,
+        memberCount: countMap[b.id] ?? 0,
+        isOwned: b.createdBy === user.id,
+      }))
     );
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -42,7 +48,12 @@ export async function POST(request: Request) {
   try {
     const user = await requireAuth();
     const body = await request.json();
-    const { name, description } = body as { name: string; description?: string };
+    const { name, description, managerName, managerEmail } = body as {
+      name: string;
+      description?: string;
+      managerName?: string;
+      managerEmail?: string;
+    };
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
@@ -53,6 +64,8 @@ export async function POST(request: Request) {
       .values({
         name: name.trim(),
         description: description?.trim() || null,
+        managerName: managerName?.trim() || null,
+        managerEmail: managerEmail?.trim() || null,
         createdBy: user.id,
       })
       .returning();

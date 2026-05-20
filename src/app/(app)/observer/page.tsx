@@ -19,6 +19,8 @@ export default async function ObserverPage() {
       id: observerBoards.id,
       name: observerBoards.name,
       description: observerBoards.description,
+      managerName: observerBoards.managerName,
+      managerEmail: observerBoards.managerEmail,
       createdBy: observerBoards.createdBy,
       createdAt: observerBoards.createdAt,
       updatedAt: observerBoards.updatedAt,
@@ -45,6 +47,7 @@ export default async function ObserverPage() {
   const boardsWithCount = boards.map((b) => ({
     ...b,
     memberCount: countMap[b.id] ?? 0,
+    isOwned: b.createdBy === user.id,
   }));
 
   return (
@@ -62,7 +65,7 @@ export default async function ObserverPage() {
 
       <main className="flex-1 p-6">
         <div className="max-w-5xl mx-auto">
-          <BoardsListClient initialBoards={boardsWithCount} userId={user.id} />
+          <BoardsListClient initialBoards={boardsWithCount} />
         </div>
       </main>
     </div>
