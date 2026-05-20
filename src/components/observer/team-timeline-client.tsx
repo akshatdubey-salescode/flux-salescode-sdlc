@@ -31,7 +31,7 @@ import type {
   UnplannedIssue,
   IssueLabel,
 } from "@/app/api/observer/boards/[boardId]/timeline/route";
-import type { UnplannedResponse, UnplannedPersonGroup } from "@/app/api/observer/boards/[boardId]/unplanned/route";
+import type { UnplannedResponse, UnplannedPersonGroup, UnplannedIssueItem } from "@/app/api/observer/boards/[boardId]/unplanned/route";
 import { statusCategoryStyles, priorityStyles, issueTypeStyles } from "@/components/project-tracking/helpers";
 import { TeamGanttClient } from "@/components/observer/team-gantt-client";
 
@@ -882,7 +882,7 @@ type TableLocalFilter = {
   issueType: string[];
   priority: string[];
   status: string[];
-  sortBy: "jiraKey" | "summary" | "status" | "priority";
+  sortBy: "createdAt" | "jiraKey" | "summary" | "status" | "priority";
   sortDir: "asc" | "desc";
 };
 
@@ -890,11 +890,12 @@ const DEFAULT_TABLE_FILTER: TableLocalFilter = {
   issueType: [],
   priority: [],
   status: [],
-  sortBy: "jiraKey",
-  sortDir: "asc",
+  sortBy: "createdAt",
+  sortDir: "desc",
 };
 
 const TABLE_SORT_OPTS = [
+  { value: "createdAt", label: "Created" },
   { value: "jiraKey", label: "Key" },
   { value: "summary", label: "Summary" },
   { value: "status", label: "Status" },
@@ -907,7 +908,7 @@ function UnplannedPersonTable({
   typeSummary,
 }: {
   person: UnplannedPersonGroup;
-  filtered: UnplannedIssue[];
+  filtered: UnplannedIssueItem[];
   typeSummary: string;
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -937,6 +938,7 @@ function UnplannedPersonTable({
   visible = [...visible].sort((a, b) => {
     let cmp = 0;
     switch (localFilter.sortBy) {
+      case "createdAt": cmp = (a.createdAt ?? "").localeCompare(b.createdAt ?? ""); break;
       case "summary": cmp = a.summary.localeCompare(b.summary); break;
       case "status":  cmp = a.status.localeCompare(b.status); break;
       case "priority": cmp = (a.priority ?? "zzz").localeCompare(b.priority ?? "zzz"); break;
