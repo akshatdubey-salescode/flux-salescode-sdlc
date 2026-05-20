@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { desc } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
@@ -10,9 +10,6 @@ import {
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
 import { BoardsListClient } from "@/components/observer/boards-list-client";
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { RiCheckboxCircleLine } from "@remixicon/react";
 
 export default async function ObserverPage() {
   const user = await requireAuth();
@@ -22,11 +19,11 @@ export default async function ObserverPage() {
       id: observerBoards.id,
       name: observerBoards.name,
       description: observerBoards.description,
+      createdBy: observerBoards.createdBy,
       createdAt: observerBoards.createdAt,
       updatedAt: observerBoards.updatedAt,
     })
     .from(observerBoards)
-    .where(eq(observerBoards.createdBy, user.id))
     .orderBy(desc(observerBoards.updatedAt));
 
   const allMembers =
@@ -61,19 +58,11 @@ export default async function ObserverPage() {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-        <div className="ml-auto">
-          <Button variant="outline" size="sm" asChild className="h-8">
-            <Link href="/observer/check-in">
-              <RiCheckboxCircleLine className="mr-1.5 size-4" />
-              My Check-in
-            </Link>
-          </Button>
-        </div>
       </header>
 
       <main className="flex-1 p-6">
         <div className="max-w-5xl mx-auto">
-          <BoardsListClient initialBoards={boardsWithCount} />
+          <BoardsListClient initialBoards={boardsWithCount} userId={user.id} />
         </div>
       </main>
     </div>

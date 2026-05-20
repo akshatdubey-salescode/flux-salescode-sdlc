@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { observerBoards } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
@@ -8,8 +8,18 @@ type Params = { params: Promise<{ boardId: string }> };
 
 export async function PATCH(request: Request, { params }: Params) {
   try {
-    await requireAuth();
+    const user = await requireAuth();
     const { boardId } = await params;
+
+    const [owned] = await db
+      .select({ id: observerBoards.id })
+      .from(observerBoards)
+      .where(and(eq(observerBoards.id, boardId), eq(observerBoards.createdBy, user.id)));
+
+    if (!owned) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const body = (await request.json()) as { stalenessThresholdDays?: number };
 
     const { stalenessThresholdDays } = body;

@@ -5,13 +5,10 @@ import Link from "next/link";
 import {
   RiRefreshLine,
   RiInboxLine,
-  RiChat1Line,
-  RiCalendarLine,
   RiDeleteBin6Line,
 } from "@remixicon/react";
 
-type Declaration = {
-  declarationId: string;
+type ActiveIssue = {
   jiraIssueId: string;
   jiraKey: string;
   summary: string;
@@ -20,10 +17,6 @@ type Declaration = {
   priority: string | null;
   projectName: string;
   jiraBaseUrl: string;
-  comment: string | null;
-  expectedCompletionDate: string | null;
-  declaredAt: string;
-  updatedAt: string;
 };
 
 type PulseMember = {
@@ -32,12 +25,8 @@ type PulseMember = {
   email: string;
   loadScore: number;
   loadLabel: "Free" | "Light" | "Moderate" | "Heavy";
-  activeDeclarations: Declaration[];
-  pendingQueueCount: number;
+  activeIssues: ActiveIssue[];
   stalledCount: number;
-  lastCheckInDate: string | null;
-  lastCheckInAt: string | null;
-  checkedInToday: boolean;
 };
 
 type Props = {
@@ -132,8 +121,7 @@ export function TeamPulseClient({ boardId, onRemoveMember }: Props) {
 }
 
 function MemberRow({ member, onRemove }: { member: PulseMember; onRemove?: () => void }) {
-  const { loadLabel, checkedInToday, stalledCount } = member;
-  const today = new Date().toISOString().split("T")[0];
+  const { loadLabel, stalledCount } = member;
 
   const loadColor = {
     Free:     "text-emerald-600 dark:text-emerald-400",
@@ -143,7 +131,7 @@ function MemberRow({ member, onRemove }: { member: PulseMember; onRemove?: () =>
   }[loadLabel];
 
   return (
-    <div className={`p-5 rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/50 shadow-sm transition-opacity ${!checkedInToday ? "opacity-60" : ""}`}>
+    <div className="p-5 rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/50 shadow-sm">
       {/* Member header */}
       <div className="flex items-center justify-between gap-4 mb-5">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -167,31 +155,16 @@ function MemberRow({ member, onRemove }: { member: PulseMember; onRemove?: () =>
                   <span className="font-medium text-amber-600 dark:text-amber-400">{stalledCount} stalled</span>
                 </>
               )}
-              {member.pendingQueueCount > 0 && (
-                <>
-                  <span className="text-zinc-300 dark:text-zinc-800">·</span>
-                  <span className="">{member.pendingQueueCount} queued</span>
-                </>
-              )}
             </div>
           </div>
         </div>
         <div className="flex items-center gap-4 shrink-0">
-          <div className="text-right flex flex-col items-end gap-0.5">
-            <span className={`text-[10px] font-bold uppercase tracking-widest ${checkedInToday ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>
-              {checkedInToday
-                ? "checked in"
-                : member.lastCheckInDate
-                  ? `last ${formatDate(member.lastCheckInDate)}`
-                  : "no check-ins"}
-            </span>
-            <Link
-              href={`/observer/developer/${encodeURIComponent(member.email)}`}
-              className="text-[11px] font-medium text-primary hover:text-primary/80 transition-colors"
-            >
-              Full profile →
-            </Link>
-          </div>
+          <Link
+            href={`/observer/developer/${encodeURIComponent(member.email)}`}
+            className="text-[11px] font-medium text-primary hover:text-primary/80 transition-colors"
+          >
+            Full profile →
+          </Link>
           {onRemove && (
             <button
               onClick={onRemove}
@@ -204,15 +177,15 @@ function MemberRow({ member, onRemove }: { member: PulseMember; onRemove?: () =>
         </div>
       </div>
 
-      {/* Declarations */}
-      {member.activeDeclarations.length === 0 ? (
+      {/* Active issues */}
+      {member.activeIssues.length === 0 ? (
         <div className="bg-zinc-50/50 dark:bg-zinc-800/20 rounded-lg py-3 px-4 border border-dashed border-zinc-200 dark:border-zinc-800">
-          <p className="text-xs text-muted-foreground italic">No active declarations for today</p>
+          <p className="text-xs text-muted-foreground italic">No in-progress issues</p>
         </div>
       ) : (
         <div className="space-y-1">
-          {member.activeDeclarations.map((decl) => (
-            <DeclRow key={decl.declarationId} decl={decl} today={today} />
+          {member.activeIssues.map((issue) => (
+            <IssueRow key={issue.jiraIssueId} issue={issue} />
           ))}
         </div>
       )}
@@ -220,44 +193,23 @@ function MemberRow({ member, onRemove }: { member: PulseMember; onRemove?: () =>
   );
 }
 
-function DeclRow({ decl, today }: { decl: Declaration; today: string }) {
-  const [showComment, setShowComment] = useState(false);
-  const expDate = decl.expectedCompletionDate;
-  const isOverdue = expDate && expDate < today;
-  const isToday = expDate === today;
-  const jiraUrl = `${decl.jiraBaseUrl.replace(/\/$/, "")}/browse/${decl.jiraKey}`;
+function IssueRow({ issue }: { issue: ActiveIssue }) {
+  const jiraUrl = `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`;
 
   return (
-    <div className="group/decl py-2 px-3 -mx-3 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-900/40 transition-colors">
+    <div className="py-2 px-3 -mx-3 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-900/40 transition-colors">
       <div className="flex items-start gap-3 min-w-0">
         <span
           className="shrink-0 mt-2 size-1.5 rounded-full"
-          style={{ background: statusColor(decl.statusCategory) }}
+          style={{ background: statusColor(issue.statusCategory) }}
         />
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-4">
             <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200 leading-tight">
-              {decl.summary}
+              {issue.summary}
             </span>
-            <div className="flex items-center gap-2.5 shrink-0 mt-0.5">
-              {expDate && (
-                <span className={`flex items-center gap-1 text-[11px] font-medium ${isOverdue ? "text-red-500" : isToday ? "text-amber-500" : "text-muted-foreground"}`}>
-                  <RiCalendarLine size={11} />
-                  {formatDateShort(expDate)}
-                </span>
-              )}
-              <StatusChip status={decl.status} statusCategory={decl.statusCategory} />
-              {decl.comment && (
-                <button
-                  onClick={() => setShowComment((v) => !v)}
-                  className={`transition-colors ${showComment ? "text-zinc-600 dark:text-zinc-300" : "text-zinc-300 dark:text-zinc-600 hover:text-zinc-400"}`}
-                >
-                  <RiChat1Line size={12} />
-                </button>
-              )}
-            </div>
+            <StatusChip status={issue.status} statusCategory={issue.statusCategory} />
           </div>
-          
           <div className="flex items-center gap-2 mt-1.5 text-[11px] text-muted-foreground/80 font-medium">
             <a
               href={jiraUrl}
@@ -265,26 +217,19 @@ function DeclRow({ decl, today }: { decl: Declaration; today: string }) {
               rel="noopener noreferrer"
               className="font-mono hover:text-primary transition-colors"
             >
-              {decl.jiraKey}
+              {issue.jiraKey}
             </a>
             <span className="text-zinc-300 dark:text-zinc-800">·</span>
-            <span className="truncate max-w-[200px]">{decl.projectName}</span>
-            {decl.priority && (
+            <span className="truncate max-w-[200px]">{issue.projectName}</span>
+            {issue.priority && (
               <>
                 <span className="text-zinc-300 dark:text-zinc-800">·</span>
-                <span className={priorityColor(decl.priority)}>{decl.priority}</span>
+                <span className={priorityColor(issue.priority)}>{issue.priority}</span>
               </>
             )}
           </div>
         </div>
       </div>
-      {showComment && decl.comment && (
-        <div className="pl-4.5 mt-2">
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 bg-zinc-50/50 dark:bg-zinc-800/30 p-2 rounded-md border border-zinc-100 dark:border-zinc-800/50">
-            {decl.comment}
-          </p>
-        </div>
-      )}
     </div>
   );
 }
@@ -319,28 +264,4 @@ function priorityColor(priority: string): string {
     case "medium":  return "text-amber-600 dark:text-amber-400 font-semibold";
     default:        return "";
   }
-}
-
-function formatDate(dateStr: string): string {
-  try {
-    const d = new Date(dateStr);
-    const diffDays = Math.floor((Date.now() - d.getTime()) / 86400000);
-    if (diffDays === 0) return "today";
-    if (diffDays === 1) return "yesterday";
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  } catch { return dateStr; }
-}
-
-function formatDateShort(dateStr: string): string {
-  try {
-    const d = new Date(dateStr + "T00:00:00");
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
-    if (diff === 0) return "today";
-    if (diff === 1) return "tomorrow";
-    if (diff === -1) return "yesterday";
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  } catch { return dateStr; }
 }

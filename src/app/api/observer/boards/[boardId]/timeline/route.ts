@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
@@ -118,7 +118,7 @@ type IssueRow = {
 
 export async function GET(req: Request, { params }: Params) {
   try {
-    const user = await requireAuth();
+    await requireAuth();
     const { boardId } = await params;
     const url = new URL(req.url);
     const today = new Date().toISOString().split("T")[0];
@@ -132,12 +132,7 @@ export async function GET(req: Request, { params }: Params) {
     const [board] = await db
       .select()
       .from(observerBoards)
-      .where(
-        and(
-          eq(observerBoards.id, boardId),
-          eq(observerBoards.createdBy, user.id)
-        )
-      );
+      .where(eq(observerBoards.id, boardId));
 
     if (!board) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });

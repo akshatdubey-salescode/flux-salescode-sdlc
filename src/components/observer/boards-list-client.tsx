@@ -45,6 +45,7 @@ type Board = {
   id: string;
   name: string;
   description: string | null;
+  createdBy: string;
   createdAt: Date;
   updatedAt: Date;
   memberCount: number;
@@ -52,9 +53,10 @@ type Board = {
 
 type Props = {
   initialBoards: Board[];
+  userId: string;
 };
 
-export function BoardsListClient({ initialBoards }: Props) {
+export function BoardsListClient({ initialBoards, userId }: Props) {
   const router = useRouter();
   const [boards, setBoards] = useState<Board[]>(initialBoards);
   const [createOpen, setCreateOpen] = useState(false);
@@ -147,6 +149,7 @@ export function BoardsListClient({ initialBoards }: Props) {
             <BoardCard
               key={board.id}
               board={board}
+              isOwner={board.createdBy === userId}
               onEdit={() => openEdit(board)}
               onDelete={() => setDeleteBoard(board)}
             />
@@ -251,10 +254,12 @@ export function BoardsListClient({ initialBoards }: Props) {
 
 function BoardCard({
   board,
+  isOwner,
   onEdit,
   onDelete,
 }: {
   board: Board;
+  isOwner: boolean;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -276,27 +281,29 @@ function BoardCard({
             </div>
           </div>
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
-              <RiMoreLine size={18} />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
-            <DropdownMenuItem onClick={onEdit} className="gap-2">
-              <RiEdit2Line size={14} />
-              Edit
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={onDelete}
-              className="gap-2 text-destructive focus:text-destructive"
-            >
-              <RiDeleteBin6Line size={14} />
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {isOwner && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
+                <RiMoreLine size={18} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuItem onClick={onEdit} className="gap-2">
+                <RiEdit2Line size={14} />
+                Edit
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={onDelete}
+                className="gap-2 text-destructive focus:text-destructive"
+              >
+                <RiDeleteBin6Line size={14} />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
       {board.description && (

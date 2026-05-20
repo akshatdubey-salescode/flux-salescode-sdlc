@@ -8,13 +8,13 @@ type Params = { params: Promise<{ boardId: string }> };
 
 export async function GET(_req: Request, { params }: Params) {
   try {
-    const user = await requireAuth();
+    await requireAuth();
     const { boardId } = await params;
 
     const [board] = await db
       .select()
       .from(observerBoards)
-      .where(and(eq(observerBoards.id, boardId), eq(observerBoards.createdBy, user.id)));
+      .where(eq(observerBoards.id, boardId));
 
     if (!board) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });

@@ -3,11 +3,8 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
-  RiCheckboxCircleLine,
   RiInboxLine,
   RiBarChartLine,
-  RiCalendarLine,
-  RiChat1Line,
 } from "@remixicon/react";
 import {
   PieChart,
@@ -39,21 +36,6 @@ type Insights = {
   statusDistribution: { status: string; status_category: string; count: number }[];
 };
 
-type TodayDeclaration = {
-  id: string;
-  comment: string | null;
-  expected_completion_date: string | null;
-  created_at: string;
-  updated_at: string;
-  jira_issue_id: string;
-  jira_key: string;
-  summary: string;
-  status: string;
-  status_category: string | null;
-  priority: string | null;
-  project_name: string;
-};
-
 const PRIORITY_COLORS: Record<string, string> = {
   Highest: "var(--chart-1)",
   Critical: "var(--chart-1)",
@@ -75,31 +57,18 @@ type Props = {
   email: string;
   boardId?: string;
   boardName?: string;
-  stalenessThreshold?: number;
 };
 
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
-export function DeveloperInsightsClient({ email, boardId, boardName, stalenessThreshold = 5 }: Props) {
+export function DeveloperInsightsClient({ email, boardId, boardName }: Props) {
   const [insights, setInsights] = useState<Insights | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [showInsights, setShowInsights] = useState(false);
-  const [todayDecls, setTodayDecls] = useState<TodayDeclaration[]>([]);
-  const [declsLoading, setDeclsLoading] = useState(true);
 
   const initials = email.split("@")[0].slice(0, 2).toUpperCase();
-
-  // Load today's declarations
-  useEffect(() => {
-    setDeclsLoading(true);
-    fetch(`/api/observer/developer/${encodeURIComponent(email)}/declarations?stalenessThreshold=${stalenessThreshold}`)
-      .then((r) => r.json())
-      .then((data) => setTodayDecls(data.todayDeclarations ?? []))
-      .catch(() => {})
-      .finally(() => setDeclsLoading(false));
-  }, [email, stalenessThreshold]);
 
   // Load insights only when toggled on
   useEffect(() => {
@@ -111,8 +80,6 @@ export function DeveloperInsightsClient({ email, boardId, boardName, stalenessTh
       .catch(() => {})
       .finally(() => setInsightsLoading(false));
   }, [showInsights, email, insights]);
-
-  const today = new Date().toISOString().split("T")[0];
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -154,39 +121,6 @@ export function DeveloperInsightsClient({ email, boardId, boardName, stalenessTh
       {showInsights && (
         <InsightsPanel insights={insights} loading={insightsLoading} />
       )}
-
-      {/* Today's Declarations */}
-      <div>
-        <div className="flex items-center gap-2 mb-2">
-          <RiCheckboxCircleLine size={14} className="text-emerald-500" />
-          <h2 className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
-            Today&apos;s Declarations
-          </h2>
-          {todayDecls.length > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {todayDecls.length}
-            </span>
-          )}
-        </div>
-        {declsLoading ? (
-          <div className="space-y-0 animate-pulse">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className="h-10 border-b border-zinc-100 dark:border-zinc-800/60 bg-zinc-50 dark:bg-zinc-900/40" />
-            ))}
-          </div>
-        ) : todayDecls.length === 0 ? (
-          <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
-            <RiInboxLine size={14} className="text-zinc-300 dark:text-zinc-700" />
-            No declarations for today.
-          </div>
-        ) : (
-          <div className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
-            {todayDecls.map((decl) => (
-              <DeclRow key={decl.id} decl={decl} today={today} />
-            ))}
-          </div>
-        )}
-      </div>
 
       {/* Open Work Queue — reuse my-tasks table */}
       <div>
@@ -376,128 +310,3 @@ function NoData() {
   return <div className="flex items-center justify-center h-28 text-xs text-muted-foreground">No data available</div>;
 }
 
-// ---------------------------------------------------------------------------
-// Declaration row (flat, Notion-style)
-// ---------------------------------------------------------------------------
-
-function DeclRow({ decl, today }: { decl: TodayDeclaration; today: string }) {
-  const [showComment, setShowComment] = useState(false);
-  const expDate = decl.expected_completion_date;
-  const isOverdue = expDate && expDate < today;
-  const isToday = expDate === today;
-
-  return (
-    <div className="group/decl py-2.5 px-3 -mx-3 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-900/40 transition-colors">
-      <div className="flex items-start gap-3 min-w-0">
-        <span
-          className="shrink-0 mt-2 size-1.5 rounded-full"
-          style={{ background: statusCategoryColor(decl.status_category) }}
-        />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-4">
-            <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200 leading-tight">
-              {decl.summary}
-            </span>
-            <div className="flex items-center gap-2.5 shrink-0 mt-0.5">
-              {expDate && (
-                <span className={`flex items-center gap-1 text-[11px] font-medium ${
-                  isOverdue ? "text-red-500" : isToday ? "text-amber-500" : "text-muted-foreground"
-                }`}>
-                  <RiCalendarLine size={11} />
-                  {formatDateShort(expDate)}
-                </span>
-              )}
-              <DeclStatusChip status={decl.status} statusCategory={decl.status_category} />
-              {decl.comment && (
-                <button
-                  onClick={() => setShowComment((v) => !v)}
-                  className={`transition-colors ${
-                    showComment
-                      ? "text-zinc-600 dark:text-zinc-300"
-                      : "text-zinc-300 dark:text-zinc-600 hover:text-zinc-400"
-                  }`}
-                  title={showComment ? "Hide comment" : "Show comment"}
-                >
-                  <RiChat1Line size={12} />
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 mt-1.5 text-[11px] text-muted-foreground/80 font-medium">
-            <span className="font-mono">{decl.jira_key}</span>
-            <span className="text-zinc-300 dark:text-zinc-800">·</span>
-            <span className="truncate max-w-[240px]">{decl.project_name}</span>
-            {decl.priority && (
-              <>
-                <span className="text-zinc-300 dark:text-zinc-800">·</span>
-                <span className={priorityTextColor(decl.priority)}>{decl.priority}</span>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-      {showComment && decl.comment && (
-        <div className="pl-4.5 mt-2">
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 bg-zinc-50/50 dark:bg-zinc-800/30 p-2 rounded-md border border-zinc-100 dark:border-zinc-800/50">
-            {decl.comment}
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
-
-function DeclStatusChip({ status, statusCategory }: { status: string; statusCategory: string | null }) {
-  const cat = (statusCategory ?? "").toLowerCase();
-  const cls =
-    cat.includes("done") || cat.includes("complete")
-      ? "text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-100/50 dark:border-emerald-900/50"
-      : cat.includes("progress") || cat === "indeterminate"
-        ? "text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-100/50 dark:border-amber-900/50"
-        : "text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800 border-zinc-200/50 dark:border-zinc-700/50";
-  return (
-    <span className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-bold tracking-tight uppercase whitespace-nowrap ${cls}`}>
-      {status}
-    </span>
-  );
-}
-
-function statusCategoryColor(cat: string | null): string {
-  const c = (cat ?? "").toLowerCase();
-  if (c.includes("done") || c.includes("complete")) return "#10b981";
-  if (c.includes("progress") || c === "indeterminate") return "#f59e0b";
-  return "#94a3b8";
-}
-
-function priorityTextColor(priority: string): string {
-  switch (priority?.toLowerCase()) {
-    case "critical":
-    case "highest":
-      return "text-red-600 dark:text-red-400 font-semibold";
-    case "high":
-      return "text-orange-600 dark:text-orange-400 font-semibold";
-    case "medium":
-      return "text-amber-600 dark:text-amber-400 font-semibold";
-    default:
-      return "text-muted-foreground";
-  }
-}
-
-function formatDateShort(dateStr: string): string {
-  try {
-    const d = new Date(dateStr + "T00:00:00");
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
-    if (diff === 0) return "today";
-    if (diff === 1) return "tomorrow";
-    if (diff === -1) return "yesterday";
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  } catch {
-    return dateStr;
-  }
-}
