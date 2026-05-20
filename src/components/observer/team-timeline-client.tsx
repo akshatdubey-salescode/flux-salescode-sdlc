@@ -293,7 +293,7 @@ function DateFilterBar({
     <div className="flex flex-col gap-3 mb-6">
       <div className="flex items-center gap-2 flex-wrap">
         {/* Mode toggle */}
-        <div className="inline-flex rounded-md border border-zinc-200 dark:border-zinc-800 p-0.5 bg-zinc-50 dark:bg-zinc-900">
+        <div className="inline-flex rounded-md border border-zinc-200 dark:border-zinc-700 p-0.5 bg-white dark:bg-zinc-900 shadow-sm">
           <button
             onClick={() => setMode("single")}
             className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
@@ -324,7 +324,7 @@ function DateFilterBar({
               onClick={() =>
                 onChange({ mode: "single", date: offsetDate(filter.date, -1) })
               }
-              className="size-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 transition-colors text-zinc-500"
+              className="size-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors text-zinc-500"
               title="Previous day"
             >
               <RiArrowLeftSLine size={15} />
@@ -339,7 +339,7 @@ function DateFilterBar({
               onClick={() =>
                 onChange({ mode: "single", date: offsetDate(filter.date, 1) })
               }
-              className="size-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 transition-colors text-zinc-500"
+              className="size-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors text-zinc-500"
               title="Next day"
             >
               <RiArrowRightSLine size={15} />
@@ -353,7 +353,7 @@ function DateFilterBar({
                   className={`px-2.5 py-1 text-xs rounded-md border font-medium transition-colors ${
                     filter.date === chip.date
                       ? "bg-primary text-primary-foreground border-primary"
-                      : "border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
+                      : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800"
                   }`}
                 >
                   {chip.label}
@@ -401,7 +401,7 @@ function DateFilterBar({
                     filter.start === chip.start &&
                     filter.end === chip.end
                       ? "bg-primary text-primary-foreground border-primary"
-                      : "border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
+                      : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800"
                   }`}
                 >
                   {chip.label}
@@ -1195,7 +1195,7 @@ function UnplannedWithDateFilter({ boardId }: { boardId: string }) {
               className={`px-2.5 py-1 text-xs rounded-md border font-medium transition-colors ${
                 typeFilter === id
                   ? "bg-primary text-primary-foreground border-primary"
-                  : "border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
+                  : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800"
               }`}
             >
               {{ all: "All", missing_start: "Missing Start", missing_due: "Missing Due", missing_both: "Missing Both" }[id]}
