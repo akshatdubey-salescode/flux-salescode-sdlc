@@ -575,7 +575,7 @@ function MemberTimelineCard({
   onSwitchToUnplanned,
 }: {
   member: TimelineMember;
-  onSwitchToUnplanned?: () => void;
+  onSwitchToUnplanned?: (name: string) => void;
 }) {
   const { counts } = member;
   const [collapsed, setCollapsed] = useState(false);
@@ -659,7 +659,7 @@ function MemberTimelineCard({
               {member.unplannedCount > 3 && (
                 <div className="border-t border-zinc-100 dark:border-zinc-800 px-4 py-2">
                   <button
-                    onClick={(e) => { e.stopPropagation(); onSwitchToUnplanned?.(); }}
+                    onClick={(e) => { e.stopPropagation(); onSwitchToUnplanned?.(member.name); }}
                     className="text-xs font-medium text-orange-500 hover:text-orange-600 dark:text-orange-400 dark:hover:text-orange-300 transition-colors"
                   >
                     +{member.unplannedCount - 3} more unplanned →
@@ -1185,6 +1185,10 @@ function UnplannedWithDateFilter({ boardId }: { boardId: string }) {
   const debouncedUq = useDebounce(uqInput, 350);
   const uMounted = useRef(false);
 
+  // Sync when uq is set externally (e.g. clicking "+N more unplanned" from a member card)
+  const urlUq = searchParams.get("uq") ?? "";
+  useEffect(() => { setUqInput(urlUq); }, [urlUq]);
+
   const [data, setData] = useState<UnplannedResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -1574,7 +1578,7 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
                     ) : (
                       <div className="space-y-4">
                         {filteredMembers.map((member) => (
-                          <MemberTimelineCard key={member.memberId} member={member} onSwitchToUnplanned={() => setActiveTab("unplanned")} />
+                          <MemberTimelineCard key={member.memberId} member={member} onSwitchToUnplanned={(name) => updateParams({ tab: "unplanned", uq: name })} />
                         ))}
                       </div>
                     )}
