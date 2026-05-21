@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { requireAuth } from "@/lib/auth/server";
 import { db } from "@/lib/db";
-import { freshdeskTickets, jiraProjects } from "@/lib/db/schema";
+import { freshdeskTickets, jiraIssues, jiraProjects } from "@/lib/db/schema";
 
 export async function GET(
   _req: Request,
@@ -23,8 +23,31 @@ export async function GET(
     .where(eq(freshdeskTickets.projectId, projectId))
     .orderBy(desc(freshdeskTickets.fdCreatedAt));
 
+  // Batch-fetch jiraCreatedAt for all linked issues in one query
+  const linkedIds = tickets
+    .map((t) => t.linkedJiraIssueId)
+    .filter((id): id is string => id !== null);
+
+  const jiraCreatedAtMap = new Map<string, Date | null>();
+  if (linkedIds.length > 0) {
+    const jiraRows = await db
+      .select({ id: jiraIssues.id, jiraCreatedAt: jiraIssues.jiraCreatedAt })
+      .from(jiraIssues)
+      .where(inArray(jiraIssues.id, linkedIds));
+    for (const row of jiraRows) {
+      jiraCreatedAtMap.set(row.id, row.jiraCreatedAt ?? null);
+    }
+  }
+
+  const enriched = tickets.map((t) => ({
+    ...t,
+    jiraCreatedAt: t.linkedJiraIssueId
+      ? (jiraCreatedAtMap.get(t.linkedJiraIssueId) ?? null)
+      : null,
+  }));
+
   return NextResponse.json({
-    tickets,
+    tickets: enriched,
     jiraBaseUrl: project?.jiraBaseUrl ?? null,
   });
 }
