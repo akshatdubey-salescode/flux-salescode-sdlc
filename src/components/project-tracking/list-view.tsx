@@ -302,7 +302,7 @@ function IssueRow({
       </td>
 
       {/* Key */}
-      <td className="px-3 py-2">
+      <td className="px-3 py-2 whitespace-nowrap">
         {issue.jiraBaseUrl ? (
           <a
             href={`${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`}
