@@ -188,6 +188,8 @@ function MultiSelect({ label, options, selected, onChange }: {
   selected: string[];
   onChange: (values: string[]) => void;
 }) {
+  const [search, setSearch] = useState("");
+
   function toggle(value: string) {
     if (selected.includes(value)) {
       onChange(selected.filter((v) => v !== value));
@@ -197,9 +199,12 @@ function MultiSelect({ label, options, selected, onChange }: {
   }
 
   const hasSelection = selected.length > 0;
+  const filtered = search
+    ? options.filter((o) => o.label.toLowerCase().includes(search.toLowerCase()))
+    : options;
 
   return (
-    <Popover>
+    <Popover onOpenChange={(open) => { if (!open) setSearch(""); }}>
       <PopoverTrigger asChild>
         <button
           className={cn(
@@ -219,13 +224,24 @@ function MultiSelect({ label, options, selected, onChange }: {
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-52 p-0">
-        {options.length === 0 ? (
+        <div className="border-b border-zinc-100 p-1.5 dark:border-zinc-800">
+          <div className="relative">
+            <RiSearchLine className="absolute left-2 top-1/2 -translate-y-1/2 size-3 text-zinc-400 pointer-events-none" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search…"
+              className="h-6 pl-6 text-xs"
+            />
+          </div>
+        </div>
+        {filtered.length === 0 ? (
           <p className="px-3 py-4 text-center text-xs text-zinc-400">
-            No options
+            No results
           </p>
         ) : (
-          <div className="max-h-60 overflow-y-auto py-1">
-            {options.map((opt) => (
+          <div className="max-h-52 overflow-y-auto py-1">
+            {filtered.map((opt) => (
               <div
                 key={opt.value}
                 className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
