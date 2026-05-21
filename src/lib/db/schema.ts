@@ -536,6 +536,39 @@ export const observerBoardMembers = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Feature Requests — submitted by org members to propose new product features
+// ---------------------------------------------------------------------------
+
+export const featureRequests = pgTable(
+  "feature_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    title: text("title").notNull(),
+    description: text("description").notNull(),
+    useCaseProblem: text("use_case_problem"),
+    priority: text("priority", { enum: ["low", "medium", "high"] })
+      .notNull()
+      .default("medium"),
+    submittedBy: text("submitted_by")
+      .notNull()
+      .references(() => users.id),
+    submittedByEmail: text("submitted_by_email").notNull(),
+    submittedByName: text("submitted_by_name"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("feature_requests_submitted_by_idx").on(t.submittedBy),
+    index("feature_requests_priority_idx").on(t.priority),
+    index("feature_requests_created_at_idx").on(t.createdAt),
+  ]
+);
+
+// ---------------------------------------------------------------------------
 // Type exports
 // ---------------------------------------------------------------------------
 
@@ -563,4 +596,6 @@ export type ObserverBoard = typeof observerBoards.$inferSelect;
 export type NewObserverBoard = typeof observerBoards.$inferInsert;
 export type ObserverBoardMember = typeof observerBoardMembers.$inferSelect;
 export type NewObserverBoardMember = typeof observerBoardMembers.$inferInsert;
+export type FeatureRequest = typeof featureRequests.$inferSelect;
+export type NewFeatureRequest = typeof featureRequests.$inferInsert;
 
