@@ -9,9 +9,31 @@ import { UserInsightsDashboard } from "./user-insights-dashboard";
 import { usePinnedTasks } from "./use-pinned-tasks";
 import type { MyTasksFields, MyTasksFilterState, TrackingIssue } from "./helpers";
 
+const SHOW_COMPLETED_KEY = "myTasks.showCompleted";
+
+function readShowCompletedPref(): boolean {
+  try {
+    return localStorage.getItem(SHOW_COMPLETED_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function saveShowCompletedPref(value: boolean) {
+  try {
+    localStorage.setItem(SHOW_COMPLETED_KEY, value ? "true" : "false");
+  } catch {
+    // ignore
+  }
+}
+
 function readFilters(
   searchParams: ReturnType<typeof useSearchParams>
 ): MyTasksFilterState {
+  const urlShowCompleted = searchParams.get("showCompleted");
+  const showCompleted =
+    urlShowCompleted !== null ? urlShowCompleted === "true" : readShowCompletedPref();
+
   return {
     q: searchParams.get("q") ?? "",
     projects: searchParams.get("projects")?.split(",").filter(Boolean) ?? [],
@@ -24,7 +46,7 @@ function readFilters(
     dateFrom: searchParams.get("dateFrom") ?? "",
     dateTo: searchParams.get("dateTo") ?? "",
     hasComments: searchParams.get("hasComments") === "true",
-    showCompleted: searchParams.get("showCompleted") === "true",
+    showCompleted,
     sortBy: searchParams.get("sortBy") ?? "created",
     sortDir: searchParams.get("sortDir") === "asc" ? "asc" : "desc",
     view: "list", // Only list view for My Tasks for now
@@ -80,6 +102,9 @@ export function MyTasksView({
       } else {
         params.set(key, value!);
       }
+    }
+    if ("showCompleted" in updates) {
+      saveShowCompletedPref(updates.showCompleted === "true");
     }
     router.replace(`?${params.toString()}`, { scroll: false });
   }
