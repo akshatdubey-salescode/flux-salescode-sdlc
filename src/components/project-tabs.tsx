@@ -10,6 +10,7 @@ import { SlaEngineTab } from "@/components/sla-engine";
 import { ProjectTrackingTab } from "@/components/project-tracking";
 import { StatusMappingTabContent } from "@/components/status-mapping-editor";
 import { ProjectOverviewDashboard } from "@/components/project-overview/project-dashboard";
+import { ClientIssuesTab } from "@/components/client-issues";
 
 type SyncJob = {
   id: string;
@@ -21,18 +22,23 @@ type SyncJob = {
 
 type Props = {
   projectId: string;
+  jiraProjectKey: string;
   isAdmin: boolean;
   isSuperuser: boolean;
 };
 
-const VALID_TABS = ["overview", "project-tracking", "sla-engine", "status-mapping"] as const;
+const VALID_TABS = ["overview", "project-tracking", "sla-engine", "status-mapping", "client-issues"] as const;
 type Tab = (typeof VALID_TABS)[number];
 
 function isValidTab(value: string | null): value is Tab {
   return VALID_TABS.includes(value as Tab);
 }
 
-export function ProjectTabs({ projectId, isAdmin, isSuperuser }: Props) {
+// Projects that have Freshdesk integration enabled
+const FRESHDESK_ENABLED_KEYS = ["CAV"];
+
+export function ProjectTabs({ projectId, jiraProjectKey, isAdmin, isSuperuser }: Props) {
+  const hasFreshdesk = FRESHDESK_ENABLED_KEYS.includes(jiraProjectKey);
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawTab = searchParams.get("tab");
@@ -114,6 +120,9 @@ export function ProjectTabs({ projectId, isAdmin, isSuperuser }: Props) {
           {isAdmin && (
             <TabsTrigger value="status-mapping">Status Mapping</TabsTrigger>
           )}
+          {hasFreshdesk && (
+            <TabsTrigger value="client-issues">Client Issues</TabsTrigger>
+          )}
         </TabsList>
         {isSuperuser && (
           <Button variant="outline" size="sm" onClick={handleForceSync} disabled={isSyncing}>
@@ -144,6 +153,11 @@ export function ProjectTabs({ projectId, isAdmin, isSuperuser }: Props) {
             {isAdmin && (
               <TabsContent value="status-mapping">
                 <StatusMappingTabContent projectId={projectId} />
+              </TabsContent>
+            )}
+            {hasFreshdesk && (
+              <TabsContent value="client-issues">
+                <ClientIssuesTab projectId={projectId} />
               </TabsContent>
             )}
           </>

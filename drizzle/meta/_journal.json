@@ -127,6 +127,13 @@
       "when": 1779368642487,
       "tag": "0017_living_madame_masque",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1779387315833,
+      "tag": "0018_steady_thunderball",
+      "breakpoints": true
     }
   ]
 }

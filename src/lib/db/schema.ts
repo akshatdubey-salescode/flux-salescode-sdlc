@@ -569,6 +569,62 @@ export const featureRequests = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Freshdesk Tickets — synced mirror of Freshdesk support tickets
+// ---------------------------------------------------------------------------
+
+export const freshdeskTickets = pgTable(
+  "freshdesk_tickets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Flux project this ticket belongs to (used to scope the dashboard)
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => jiraProjects.id, { onDelete: "cascade" }),
+    // Freshdesk ticket number (plain integer, e.g. 1042)
+    fdTicketId: integer("fd_ticket_id").notNull(),
+    subject: text("subject").notNull(),
+    // Freshdesk numeric status: 2=Open 3=Pending 4=Resolved 5=Closed
+    fdStatus: integer("fd_status").notNull(),
+    fdStatusLabel: text("fd_status_label").notNull(),
+    // Freshdesk numeric priority: 1=Low 2=Medium 3=High 4=Urgent
+    fdPriority: integer("fd_priority").notNull(),
+    fdPriorityLabel: text("fd_priority_label").notNull(),
+    ticketType: text("ticket_type"),
+    requesterName: text("requester_name"),
+    requesterEmail: text("requester_email"),
+    fdCompanyId: text("fd_company_id"),
+    fdCompanyName: text("fd_company_name"),
+    dueBy: timestamp("due_by", { withTimezone: true }),
+    frDueBy: timestamp("fr_due_by", { withTimezone: true }),
+    isEscalated: boolean("is_escalated").notNull().default(false),
+    frEscalated: boolean("fr_escalated").notNull().default(false),
+    // Linked Jira issue — populated when customfield_11699 on the Jira issue
+    // matches this ticket's fdTicketId
+    linkedJiraIssueId: uuid("linked_jira_issue_id").references(
+      () => jiraIssues.id,
+      { onDelete: "set null" }
+    ),
+    linkedJiraKey: text("linked_jira_key"),
+    linkedJiraStatus: text("linked_jira_status"),
+    linkedJiraAssigneeName: text("linked_jira_assignee_name"),
+    fdCreatedAt: timestamp("fd_created_at", { withTimezone: true }),
+    fdUpdatedAt: timestamp("fd_updated_at", { withTimezone: true }),
+    syncedAt: timestamp("synced_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("freshdesk_tickets_project_fd_id_idx").on(
+      t.projectId,
+      t.fdTicketId
+    ),
+    index("freshdesk_tickets_project_idx").on(t.projectId),
+    index("freshdesk_tickets_status_idx").on(t.fdStatus),
+    index("freshdesk_tickets_linked_jira_idx").on(t.linkedJiraIssueId),
+  ]
+);
+
+// ---------------------------------------------------------------------------
 // Type exports
 // ---------------------------------------------------------------------------
 
@@ -598,4 +654,6 @@ export type ObserverBoardMember = typeof observerBoardMembers.$inferSelect;
 export type NewObserverBoardMember = typeof observerBoardMembers.$inferInsert;
 export type FeatureRequest = typeof featureRequests.$inferSelect;
 export type NewFeatureRequest = typeof featureRequests.$inferInsert;
+export type FreshdeskTicket = typeof freshdeskTickets.$inferSelect;
+export type NewFreshdeskTicket = typeof freshdeskTickets.$inferInsert;
 

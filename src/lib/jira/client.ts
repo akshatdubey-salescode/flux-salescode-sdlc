@@ -96,6 +96,7 @@ const ISSUE_FIELDS = [
   "customfield_10014", // start date (epic / alternate)
   "customfield_10021", // due date (alternate)
   "customfield_11449", // end date (Applicate)
+  "customfield_11699", // Freshdesk Ticket ID
 ].join(",");
 
 export class JiraClient {

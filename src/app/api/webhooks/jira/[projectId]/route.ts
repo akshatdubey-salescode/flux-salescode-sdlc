@@ -10,6 +10,11 @@ import {
   deleteComment,
   recordStatusTransition,
 } from "@/lib/jira/sync";
+import {
+  relinkFreshdeskTicket,
+  updateLinkedJiraStatus,
+  FRESHDESK_CUSTOM_FIELD,
+} from "@/lib/freshdesk/sync";
 import type { JiraIssueRaw, JiraCommentRaw } from "@/lib/jira/client";
 
 // Jira webhook payload types
@@ -79,32 +84,47 @@ export async function POST(
         if (issue) {
           await upsertIssue(projectId, issue);
 
-          // If the changelog includes a status transition, record it explicitly
-          // so we accurately track time-in-status without waiting for a full sync.
-          if (changelog?.items) {
-            const statusItem = changelog.items.find(
-              (i) => i.field === "status"
-            );
-            if (statusItem && statusItem.fromString && statusItem.toString) {
-              const [existingIssue] = await db
-                .select({ id: jiraIssues.id })
-                .from(jiraIssues)
-                .where(
-                  and(
-                    eq(jiraIssues.projectId, projectId),
-                    eq(jiraIssues.jiraId, issue.id)
-                  )
-                )
-                .limit(1);
+          const [existingIssue] = await db
+            .select({
+              id: jiraIssues.id,
+              jiraKey: jiraIssues.jiraKey,
+              status: jiraIssues.status,
+              assigneeName: jiraIssues.assigneeName,
+            })
+            .from(jiraIssues)
+            .where(
+              and(
+                eq(jiraIssues.projectId, projectId),
+                eq(jiraIssues.jiraId, issue.id)
+              )
+            )
+            .limit(1);
 
-              if (existingIssue) {
+          if (existingIssue && changelog?.items) {
+            for (const item of changelog.items) {
+              // Status transition → record history + update linked FD ticket
+              if (item.field === "status" && item.fromString && item.toString) {
                 await recordStatusTransition(
                   existingIssue.id,
-                  statusItem.fromString,
-                  statusItem.toString,
+                  item.fromString,
+                  item.toString,
                   new Date(payload.timestamp),
                   null,
                   null
+                );
+                // Keep the linked Freshdesk ticket's Jira status in sync
+                await updateLinkedJiraStatus(existingIssue.id, item.toString);
+              }
+
+              // Freshdesk Ticket ID field updated → re-link immediately
+              if (item.field === FRESHDESK_CUSTOM_FIELD || item.field === "Freshdesk Ticket ID") {
+                const fdId = item.toString ? parseInt(item.toString, 10) : null;
+                await relinkFreshdeskTicket(
+                  existingIssue.id,
+                  existingIssue.jiraKey,
+                  existingIssue.status,
+                  existingIssue.assigneeName,
+                  isNaN(fdId ?? NaN) ? null : fdId
                 );
               }
             }
