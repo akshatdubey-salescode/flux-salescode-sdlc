@@ -9,6 +9,7 @@ import {
   RiChatSmileLine,
   RiPushpinLine,
   RiPushpinFill,
+  RiExternalLinkLine,
 } from "@remixicon/react";
 import { cn } from "@/lib/utils";
 import {
@@ -302,25 +303,49 @@ function IssueRow({
 
       {/* Key */}
       <td className="px-3 py-2">
-        <Link
-          href={`/issues/${issue.jiraKey}`}
-          prefetch={false}
-          className="font-mono font-semibold text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
-        >
-          {issue.jiraKey}
-        </Link>
+        {issue.jiraBaseUrl ? (
+          <a
+            href={`${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono font-semibold text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 inline-flex items-center gap-0.5"
+          >
+            {issue.jiraKey}
+            <RiExternalLinkLine className="size-2.5 opacity-60" />
+          </a>
+        ) : (
+          <Link
+            href={`/issues/${issue.jiraKey}`}
+            prefetch={false}
+            className="font-mono font-semibold text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+          >
+            {issue.jiraKey}
+          </Link>
+        )}
       </td>
 
       {/* Summary */}
       <td className="px-3 py-2 max-w-0">
-        <Link
-          href={`/issues/${issue.jiraKey}`}
-          prefetch={false}
-          className="block truncate font-medium text-zinc-800 hover:text-zinc-950 dark:text-zinc-200 dark:hover:text-zinc-50"
-          title={issue.summary}
-        >
-          {issue.summary}
-        </Link>
+        {issue.jiraBaseUrl ? (
+          <a
+            href={`${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block truncate font-medium text-zinc-800 hover:text-zinc-950 dark:text-zinc-200 dark:hover:text-zinc-50"
+            title={issue.summary}
+          >
+            {issue.summary}
+          </a>
+        ) : (
+          <Link
+            href={`/issues/${issue.jiraKey}`}
+            prefetch={false}
+            className="block truncate font-medium text-zinc-800 hover:text-zinc-950 dark:text-zinc-200 dark:hover:text-zinc-50"
+            title={issue.summary}
+          >
+            {issue.summary}
+          </Link>
+        )}
       </td>
 
       {/* Status */}

@@ -153,12 +153,14 @@ export async function GET(req: NextRequest) {
     jiraCreatedAt: jiraIssues.jiraCreatedAt,
     jiraUpdatedAt: jiraIssues.jiraUpdatedAt,
     commentCount,
+    jiraBaseUrl: jiraProjects.jiraBaseUrl,
   };
 
   const [issues, countResult] = await Promise.all([
     db
       .select(selectFields)
       .from(jiraIssues)
+      .innerJoin(jiraProjects, eq(jiraIssues.projectId, jiraProjects.id))
       .where(where)
       .orderBy(orderExpr)
       .limit(pageSize)

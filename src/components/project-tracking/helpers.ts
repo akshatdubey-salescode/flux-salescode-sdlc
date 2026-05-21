@@ -14,6 +14,7 @@ export type TrackingIssue = {
   jiraCreatedAt: string | null;
   jiraUpdatedAt: string | null;
   commentCount: number;
+  jiraBaseUrl: string | null;
 };
 
 export type TrackingFields = {
