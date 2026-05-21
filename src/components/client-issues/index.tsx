@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition, useMemo, useRef } from "react";
+import React, { useEffect, useState, useTransition, useMemo, useRef } from "react";
 import {
   RiRefreshLine,
   RiExternalLinkLine,
@@ -14,14 +14,17 @@ import {
 import { Button } from "@/components/ui/button";
 import type { FreshdeskTicket } from "@/lib/db/schema";
 
-type TicketWithJiraDate = FreshdeskTicket & { jiraCreatedAt: string | null };
+type TicketWithJiraDate = FreshdeskTicket & {
+  jiraCreatedAt: string | null;
+  jiraPriority: string | null;
+};
 
 // ─── column definitions ───────────────────────────────────────────────────────
 
 type ColumnId =
   | "ticket" | "subject" | "fdStatus" | "priority"
-  | "jiraTicket" | "jiraStatus" | "requester"
-  | "fdCreated" | "jiraCreated" | "response" | "daysOpen" | "sla";
+  | "jiraTicket" | "jiraStatus" | "jiraAssignee" | "jiraPriority"
+  | "requester" | "fdCreated" | "jiraCreated" | "response" | "daysOpen" | "sla";
 
 interface ColDef {
   id: ColumnId;
@@ -36,8 +39,10 @@ const COLUMNS: ColDef[] = [
   { id: "fdStatus",    label: "FD Status",    defaultVisible: true  },
   { id: "priority",    label: "Priority",     defaultVisible: true  },
   { id: "jiraTicket",  label: "Jira Ticket",  defaultVisible: true  },
-  { id: "jiraStatus",  label: "Jira Status",  defaultVisible: true  },
-  { id: "requester",   label: "Requester",    defaultVisible: true  },
+  { id: "jiraStatus",   label: "Jira Status",    defaultVisible: true  },
+  { id: "jiraAssignee", label: "Jira Assignee", defaultVisible: true  },
+  { id: "jiraPriority", label: "Jira Priority", defaultVisible: true  },
+  { id: "requester",    label: "Requester",     defaultVisible: true  },
   { id: "fdCreated",   label: "FD Created",   defaultVisible: true  },
   { id: "jiraCreated", label: "Jira Created", defaultVisible: false },
   { id: "response",    label: "Response",     defaultVisible: true  },
@@ -80,6 +85,15 @@ function jiraStatusColor(status: string | null) {
   if (s.includes("progress")) return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300";
   if (s.includes("review") || s.includes("qa")) return "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300";
   if (s.includes("block")) return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300";
+  return "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400";
+}
+
+function jiraPriorityColor(priority: string | null) {
+  if (!priority) return "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400";
+  const p = priority.toLowerCase();
+  if (p === "highest" || p === "critical") return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300";
+  if (p === "high") return "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300";
+  if (p === "medium") return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300";
   return "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400";
 }
 
@@ -141,8 +155,10 @@ const CSV_COLS: { id: ColumnId; header: string; get: (t: TicketWithJiraDate) => 
   { id: "fdStatus",    header: "FD Status",        get: (t) => t.fdStatusLabel },
   { id: "priority",    header: "Priority",         get: (t) => t.fdPriorityLabel },
   { id: "jiraTicket",  header: "Jira Key",         get: (t) => t.linkedJiraKey },
-  { id: "jiraStatus",  header: "Jira Status",      get: (t) => t.linkedJiraStatus },
-  { id: "requester",   header: "Requester",        get: (t) => t.requesterName },
+  { id: "jiraStatus",   header: "Jira Status",    get: (t) => t.linkedJiraStatus },
+  { id: "jiraAssignee", header: "Jira Assignee",  get: (t) => t.linkedJiraAssigneeName },
+  { id: "jiraPriority", header: "Jira Priority",  get: (t) => t.jiraPriority },
+  { id: "requester",    header: "Requester",      get: (t) => t.requesterName },
   { id: "fdCreated",   header: "FD Created",       get: (t) => fmtDate(t.fdCreatedAt ? String(t.fdCreatedAt) : null) },
   { id: "jiraCreated", header: "Jira Created",     get: (t) => fmtDate(t.jiraCreatedAt) },
   { id: "response",    header: "Response (days)",  get: (t) => { const r = responseDays(t.fdCreatedAt ? String(t.fdCreatedAt) : null, t.jiraCreatedAt ?? null); return r !== null ? r : ""; } },
@@ -265,17 +281,30 @@ type DateRange = "all" | "7d" | "30d" | "90d";
 interface Filters {
   search: string;
   fdStatus: string;
-  priority: string;
+  fdPriority: string;
+  ticketType: string;
   jiraLink: JiraLinkFilter;
+  jiraStatus: string;
+  jiraAssignee: string;
+  jiraPriority: string;
   sla: SlaFilter;
+  escalated: string;   // "" = all | "yes" = escalated only
   sort: SortKey;
   dateRange: DateRange;
 }
 
 const DEFAULT_FILTERS: Filters = {
-  search: "", fdStatus: "", priority: "",
-  jiraLink: "all", sla: "all", sort: "newest", dateRange: "all",
+  search: "", fdStatus: "", fdPriority: "", ticketType: "",
+  jiraLink: "all", jiraStatus: "", jiraAssignee: "", jiraPriority: "",
+  sla: "all", escalated: "", sort: "newest", dateRange: "all",
 };
+
+interface FilterOptions {
+  ticketTypes: string[];
+  jiraStatuses: string[];
+  jiraAssignees: string[];
+  jiraPriorities: string[];
+}
 
 function Select({ value, onChange, options }: {
   value: string;
@@ -294,12 +323,15 @@ function Select({ value, onChange, options }: {
 }
 
 function hasActiveFilters(f: Filters) {
-  return f.search !== "" || f.fdStatus !== "" || f.priority !== "" ||
-    f.jiraLink !== "all" || f.sla !== "all" || f.sort !== "newest" || f.dateRange !== "all";
+  return (
+    f.search !== "" || f.fdStatus !== "" || f.fdPriority !== "" || f.ticketType !== "" ||
+    f.jiraLink !== "all" || f.jiraStatus !== "" || f.jiraAssignee !== "" || f.jiraPriority !== "" ||
+    f.sla !== "all" || f.escalated !== "" || f.sort !== "newest" || f.dateRange !== "all"
+  );
 }
 
 function FilterBar({
-  filters, onChange, filteredCount, totalCount, onExport, visibleCols, onToggleCol,
+  filters, onChange, filteredCount, totalCount, onExport, visibleCols, onToggleCol, options,
 }: {
   filters: Filters;
   onChange: (f: Partial<Filters>) => void;
@@ -308,11 +340,28 @@ function FilterBar({
   onExport: () => void;
   visibleCols: Set<ColumnId>;
   onToggleCol: (id: ColumnId) => void;
+  options: FilterOptions;
 }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const activeFilterCount = [
+    filters.fdStatus !== "",
+    filters.fdPriority !== "",
+    filters.ticketType !== "",
+    filters.dateRange !== "all",
+    filters.jiraLink !== "all",
+    filters.jiraStatus !== "",
+    filters.jiraAssignee !== "",
+    filters.jiraPriority !== "",
+    filters.sla !== "all",
+    filters.escalated !== "",
+  ].filter(Boolean).length;
+
   return (
     <div className="mb-3 space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[180px]">
+      {/* Always-visible top bar */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1 min-w-[160px]">
           <RiSearchLine className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
           <input
             type="text"
@@ -322,49 +371,138 @@ function FilterBar({
             className="h-8 w-full rounded-md border border-zinc-200 bg-white pl-7 pr-3 text-xs text-zinc-700 shadow-sm placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
           />
         </div>
-        <Select value={filters.dateRange} onChange={(v) => onChange({ dateRange: v as DateRange })}
-          options={[{ value: "all", label: "All time" }, { value: "7d", label: "Last 7 days" }, { value: "30d", label: "Last 30 days" }, { value: "90d", label: "Last 90 days" }]}
-        />
-        <Select value={filters.fdStatus} onChange={(v) => onChange({ fdStatus: v })}
-          options={[{ value: "", label: "All Statuses" }, { value: "2", label: "Open" }, { value: "3", label: "Pending" }, { value: "6", label: "Waiting (Cust.)" }, { value: "7", label: "Waiting (3rd Party)" }, { value: "4", label: "Resolved" }, { value: "5", label: "Closed" }]}
-        />
-        <Select value={filters.priority} onChange={(v) => onChange({ priority: v })}
-          options={[{ value: "", label: "All Priorities" }, { value: "4", label: "Urgent" }, { value: "3", label: "High" }, { value: "2", label: "Medium" }, { value: "1", label: "Low" }]}
-        />
-        <Select value={filters.jiraLink} onChange={(v) => onChange({ jiraLink: v as JiraLinkFilter })}
-          options={[{ value: "all", label: "All tickets" }, { value: "linked", label: "Linked to Jira" }, { value: "unlinked", label: "Not linked" }]}
-        />
-        <Select value={filters.sla} onChange={(v) => onChange({ sla: v as SlaFilter })}
-          options={[{ value: "all", label: "All SLA" }, { value: "breached", label: "SLA Breached" }, { value: "at_risk", label: "SLA At Risk" }]}
-        />
         <Select value={filters.sort} onChange={(v) => onChange({ sort: v as SortKey })}
-          options={[{ value: "newest", label: "Newest first" }, { value: "oldest", label: "Oldest first" }, { value: "priority", label: "Priority: high → low" }, { value: "days", label: "Days open: most → least" }, { value: "response", label: "Response: slowest first" }]}
+          options={[
+            { value: "newest", label: "Newest first" },
+            { value: "oldest", label: "Oldest first" },
+            { value: "priority", label: "Priority: high → low" },
+            { value: "days", label: "Days open: most" },
+            { value: "response", label: "Response: slowest" },
+          ]}
         />
-        {hasActiveFilters(filters) && (
-          <button onClick={() => onChange(DEFAULT_FILTERS)} className="text-xs text-zinc-500 underline-offset-2 hover:text-zinc-700 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200">
-            Clear
-          </button>
-        )}
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs shadow-sm transition-colors ${
+            activeFilterCount > 0 || expanded
+              ? "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+              : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          }`}
+        >
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 16 16" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M2 4h12M4 8h8M6 12h4" />
+          </svg>
+          Filters
+          {activeFilterCount > 0 && (
+            <span className="ml-0.5 rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+              {activeFilterCount}
+            </span>
+          )}
+        </button>
+        <ColumnToggle visibleCols={visibleCols} onToggle={onToggleCol} />
+        <button
+          onClick={onExport}
+          disabled={filteredCount === 0}
+          className="flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-xs text-zinc-600 shadow-sm hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          <RiDownloadLine className="h-3.5 w-3.5" />
+          Export
+        </button>
       </div>
 
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          <span className="font-medium text-zinc-700 dark:text-zinc-300">{filteredCount}</span>
-          {filteredCount !== totalCount && <> of {totalCount}</>}{" "}
-          ticket{filteredCount !== 1 ? "s" : ""}
-        </p>
-        <div className="flex items-center gap-2">
-          <ColumnToggle visibleCols={visibleCols} onToggle={onToggleCol} />
-          <button
-            onClick={onExport}
-            disabled={filteredCount === 0}
-            className="flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-xs text-zinc-600 shadow-sm hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            <RiDownloadLine className="h-3.5 w-3.5" />
-            Export CSV
-          </button>
+      {/* Expandable filter panel */}
+      {expanded && (
+        <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <LabeledSelect label="Date range">
+              <Select value={filters.dateRange} onChange={(v) => onChange({ dateRange: v as DateRange })}
+                options={[{ value: "all", label: "All time" }, { value: "7d", label: "Last 7 days" }, { value: "30d", label: "Last 30 days" }, { value: "90d", label: "Last 90 days" }]}
+              />
+            </LabeledSelect>
+            <LabeledSelect label="FD Status">
+              <Select value={filters.fdStatus} onChange={(v) => onChange({ fdStatus: v })}
+                options={[{ value: "", label: "All" }, { value: "2", label: "Open" }, { value: "3", label: "Pending" }, { value: "6", label: "Waiting (Cust.)" }, { value: "7", label: "Waiting (3rd)" }, { value: "4", label: "Resolved" }, { value: "5", label: "Closed" }]}
+              />
+            </LabeledSelect>
+            <LabeledSelect label="FD Priority">
+              <Select value={filters.fdPriority} onChange={(v) => onChange({ fdPriority: v })}
+                options={[{ value: "", label: "All" }, { value: "4", label: "Urgent" }, { value: "3", label: "High" }, { value: "2", label: "Medium" }, { value: "1", label: "Low" }]}
+              />
+            </LabeledSelect>
+            <LabeledSelect label="SLA">
+              <Select value={filters.sla} onChange={(v) => onChange({ sla: v as SlaFilter })}
+                options={[{ value: "all", label: "All" }, { value: "breached", label: "Breached" }, { value: "at_risk", label: "At risk" }]}
+              />
+            </LabeledSelect>
+            <LabeledSelect label="Escalated">
+              <Select value={filters.escalated} onChange={(v) => onChange({ escalated: v })}
+                options={[{ value: "", label: "All" }, { value: "yes", label: "Escalated only" }]}
+              />
+            </LabeledSelect>
+            <LabeledSelect label="Jira Link">
+              <Select value={filters.jiraLink} onChange={(v) => onChange({ jiraLink: v as JiraLinkFilter })}
+                options={[{ value: "all", label: "All" }, { value: "linked", label: "Linked" }, { value: "unlinked", label: "Not linked" }]}
+              />
+            </LabeledSelect>
+            {options.jiraStatuses.length > 0 && (
+              <LabeledSelect label="Jira Status">
+                <Select value={filters.jiraStatus} onChange={(v) => onChange({ jiraStatus: v })}
+                  options={[{ value: "", label: "All" }, ...options.jiraStatuses.map((s) => ({ value: s, label: s }))]}
+                />
+              </LabeledSelect>
+            )}
+            {options.jiraAssignees.length > 0 && (
+              <LabeledSelect label="Jira Assignee">
+                <Select value={filters.jiraAssignee} onChange={(v) => onChange({ jiraAssignee: v })}
+                  options={[{ value: "", label: "All" }, ...options.jiraAssignees.map((a) => ({ value: a, label: a }))]}
+                />
+              </LabeledSelect>
+            )}
+            {options.jiraPriorities.length > 0 && (
+              <LabeledSelect label="Jira Priority">
+                <Select value={filters.jiraPriority} onChange={(v) => onChange({ jiraPriority: v })}
+                  options={[{ value: "", label: "All" }, ...options.jiraPriorities.map((p) => ({ value: p, label: p }))]}
+                />
+              </LabeledSelect>
+            )}
+            {options.ticketTypes.length > 0 && (
+              <LabeledSelect label="Ticket Type">
+                <Select value={filters.ticketType} onChange={(v) => onChange({ ticketType: v })}
+                  options={[{ value: "", label: "All" }, ...options.ticketTypes.map((t) => ({ value: t, label: t }))]}
+                />
+              </LabeledSelect>
+            )}
+          </div>
+          {activeFilterCount > 0 && (
+            <div className="mt-3 border-t border-zinc-200 pt-2.5 dark:border-zinc-700">
+              <button
+                onClick={() => onChange(DEFAULT_FILTERS)}
+                className="text-xs text-zinc-500 underline-offset-2 hover:text-zinc-700 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200"
+              >
+                Clear all filters
+              </button>
+            </div>
+          )}
         </div>
-      </div>
+      )}
+
+      {/* Count row */}
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        <span className="font-medium text-zinc-700 dark:text-zinc-300">{filteredCount}</span>
+        {filteredCount !== totalCount && <> of {totalCount}</>}{" "}
+        ticket{filteredCount !== 1 ? "s" : ""}
+        {activeFilterCount > 0 && (
+          <span className="ml-1 text-zinc-400">· {activeFilterCount} filter{activeFilterCount !== 1 ? "s" : ""} active</span>
+        )}
+      </p>
+    </div>
+  );
+}
+
+function LabeledSelect({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[10px] font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">{label}</span>
+      <div className="[&>select]:w-full">{children}</div>
     </div>
   );
 }
@@ -428,9 +566,14 @@ export function ClientIssuesTab({ projectId }: { projectId: string }) {
       result = result.filter((t) => t.subject?.toLowerCase().includes(q) || String(t.fdTicketId).includes(q));
     }
     if (filters.fdStatus) result = result.filter((t) => t.fdStatus === parseInt(filters.fdStatus, 10));
-    if (filters.priority) result = result.filter((t) => t.fdPriority === parseInt(filters.priority, 10));
+    if (filters.fdPriority) result = result.filter((t) => t.fdPriority === parseInt(filters.fdPriority, 10));
+    if (filters.ticketType) result = result.filter((t) => t.ticketType === filters.ticketType);
     if (filters.jiraLink === "linked") result = result.filter((t) => !!t.linkedJiraKey);
     else if (filters.jiraLink === "unlinked") result = result.filter((t) => !t.linkedJiraKey);
+    if (filters.jiraStatus) result = result.filter((t) => t.linkedJiraStatus === filters.jiraStatus);
+    if (filters.jiraAssignee) result = result.filter((t) => t.linkedJiraAssigneeName === filters.jiraAssignee);
+    if (filters.jiraPriority) result = result.filter((t) => t.jiraPriority === filters.jiraPriority);
+    if (filters.escalated === "yes") result = result.filter((t) => t.isEscalated);
     if (filters.sla === "breached") result = result.filter(isSlaBreach);
     else if (filters.sla === "at_risk") result = result.filter(isSlaAtRisk);
 
@@ -447,6 +590,13 @@ export function ClientIssuesTab({ projectId }: { projectId: string }) {
     });
     return result;
   }, [tickets, filters]);
+
+  const filterOptions = useMemo<FilterOptions>(() => ({
+    ticketTypes: [...new Set(tickets.map((t) => t.ticketType).filter((v): v is string => !!v))].sort(),
+    jiraStatuses: [...new Set(tickets.map((t) => t.linkedJiraStatus).filter((v): v is string => !!v))].sort(),
+    jiraAssignees: [...new Set(tickets.map((t) => t.linkedJiraAssigneeName).filter((v): v is string => !!v))].sort(),
+    jiraPriorities: [...new Set(tickets.map((t) => t.jiraPriority).filter((v): v is string => !!v))].sort(),
+  }), [tickets]);
 
   const fdBaseUrl = process.env.NEXT_PUBLIC_FRESHDESK_BASE_URL;
 
@@ -494,6 +644,7 @@ export function ClientIssuesTab({ projectId }: { projectId: string }) {
             onExport={() => exportToCsv(filtered, visibleCols)}
             visibleCols={visibleCols}
             onToggleCol={toggleCol}
+            options={filterOptions}
           />
 
           {filtered.length === 0 ? (
@@ -510,8 +661,10 @@ export function ClientIssuesTab({ projectId }: { projectId: string }) {
                     {col("fdStatus")    && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">FD Status</th>}
                     {col("priority")    && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500">Priority</th>}
                     {col("jiraTicket")  && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Jira Ticket</th>}
-                    {col("jiraStatus")  && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Jira Status</th>}
-                    {col("requester")   && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500">Requester</th>}
+                    {col("jiraStatus")   && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Jira Status</th>}
+                    {col("jiraAssignee") && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Jira Assignee</th>}
+                    {col("jiraPriority") && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Jira Priority</th>}
+                    {col("requester")    && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500">Requester</th>}
                     {col("fdCreated")   && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">FD Created</th>}
                     {col("jiraCreated") && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Jira Created</th>}
                     {col("response")    && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap" title="Days between FD ticket creation and Jira issue creation">Response</th>}
@@ -580,6 +733,22 @@ export function ClientIssuesTab({ projectId }: { projectId: string }) {
                             {ticket.linkedJiraStatus ? (
                               <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${jiraStatusColor(ticket.linkedJiraStatus)}`}>
                                 {ticket.linkedJiraStatus}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-zinc-400">—</span>
+                            )}
+                          </td>
+                        )}
+                        {col("jiraAssignee") && (
+                          <td className="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
+                            {ticket.linkedJiraAssigneeName ?? <span className="text-zinc-400">—</span>}
+                          </td>
+                        )}
+                        {col("jiraPriority") && (
+                          <td className="px-4 py-3">
+                            {ticket.jiraPriority ? (
+                              <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${jiraPriorityColor(ticket.jiraPriority)}`}>
+                                {ticket.jiraPriority}
                               </span>
                             ) : (
                               <span className="text-xs text-zinc-400">—</span>
