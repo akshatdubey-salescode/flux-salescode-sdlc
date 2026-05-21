@@ -121,7 +121,7 @@ export function ProjectTabs({ projectId, jiraProjectKey, isAdmin, isSuperuser }:
             <TabsTrigger value="status-mapping">Status Mapping</TabsTrigger>
           )}
           {hasFreshdesk && (
-            <TabsTrigger value="client-issues">Client Issues</TabsTrigger>
+            <TabsTrigger value="client-issues">Client Issue Tracker</TabsTrigger>
           )}
         </TabsList>
         {isSuperuser && (
