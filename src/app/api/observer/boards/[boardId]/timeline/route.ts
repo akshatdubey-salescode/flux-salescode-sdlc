@@ -37,6 +37,7 @@ export type UnplannedIssue = {
   jiraBaseUrl: string;
   missingStart: boolean;
   missingDue: boolean;
+  createdAt: string | null;
 };
 
 export type TimelineMember = {
@@ -45,6 +46,8 @@ export type TimelineMember = {
   email: string;
   issues: TimelineIssue[];
   counts: { active: number; atRisk: number; overdue: number; done: number };
+  unplannedCount: number;
+  unplannedPreview: UnplannedIssue[];
 };
 
 export type UnplannedMember = {
@@ -118,6 +121,7 @@ type IssueRow = {
   custom_fields: Record<string, unknown>;
   project_name: string;
   jira_base_url: string;
+  jira_created_at: string | null;
 };
 
 export async function GET(req: Request, { params }: Params) {
@@ -175,7 +179,8 @@ export async function GET(req: Request, { params }: Params) {
         ji.assignee_email,
         ji.custom_fields,
         jp.name          AS project_name,
-        jp.jira_base_url AS jira_base_url
+        jp.jira_base_url AS jira_base_url,
+        ji.jira_created_at
       FROM jira_issues ji
       JOIN jira_projects jp ON jp.id = ji.project_id
       WHERE ji.assignee_email IN (${emailsIn})
@@ -205,6 +210,7 @@ export async function GET(req: Request, { params }: Params) {
           jiraBaseUrl: raw.jira_base_url,
           missingStart: !startDate,
           missingDue: !dueDate,
+          createdAt: raw.jira_created_at ?? null,
         });
         unplannedByEmail.set(email, list);
         continue;
@@ -261,6 +267,16 @@ export async function GET(req: Request, { params }: Params) {
       const issues = timelineByEmail.get(member.email) ?? [];
       issues.sort((a, b) => labelOrder[a.label] - labelOrder[b.label]);
 
+      const unplanned = unplannedByEmail.get(member.email) ?? [];
+      const unplannedPreview = [...unplanned]
+        .sort((a, b) => {
+          if (!a.createdAt && !b.createdAt) return 0;
+          if (!a.createdAt) return 1;
+          if (!b.createdAt) return -1;
+          return b.createdAt.localeCompare(a.createdAt);
+        })
+        .slice(0, 3);
+
       return {
         memberId: member.id,
         name: member.name,
@@ -272,6 +288,8 @@ export async function GET(req: Request, { params }: Params) {
           overdue: issues.filter((i) => i.label === "overdue").length,
           done: issues.filter((i) => i.label === "done").length,
         },
+        unplannedCount: unplanned.length,
+        unplannedPreview,
       };
     });
 

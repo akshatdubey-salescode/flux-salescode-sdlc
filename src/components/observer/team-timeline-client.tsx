@@ -570,9 +570,16 @@ function TimelineTableRow({ issue }: { issue: TimelineIssue }) {
   );
 }
 
-function MemberTimelineCard({ member }: { member: TimelineMember }) {
+function MemberTimelineCard({
+  member,
+  onSwitchToUnplanned,
+}: {
+  member: TimelineMember;
+  onSwitchToUnplanned?: () => void;
+}) {
   const { counts } = member;
   const [collapsed, setCollapsed] = useState(false);
+  const hasNoPlanned = member.issues.length === 0;
 
   return (
     <div className="rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/50 shadow-sm overflow-hidden">
@@ -605,6 +612,9 @@ function MemberTimelineCard({ member }: { member: TimelineMember }) {
             {counts.active === 0 && counts.done === 0 && (
               <span className="text-zinc-400 dark:text-zinc-500">No issues on this date</span>
             )}
+            {member.unplannedCount > 0 && (
+              <span className="text-orange-500 dark:text-orange-400">{member.unplannedCount} unplanned</span>
+            )}
           </div>
           <Link
             href={`/observer/developer/${encodeURIComponent(member.email)}`}
@@ -622,10 +632,46 @@ function MemberTimelineCard({ member }: { member: TimelineMember }) {
 
       {/* Issues table */}
       {!collapsed && (
-        member.issues.length === 0 ? (
-          <div className="py-6 px-4 text-center">
-            <p className="text-xs text-muted-foreground italic">No Jira issues with start &amp; due dates for this date</p>
-          </div>
+        hasNoPlanned ? (
+          member.unplannedPreview.length > 0 ? (
+            <div>
+              <div className="px-4 pt-3 pb-1">
+                <p className="text-[11px] text-muted-foreground italic">No issues with start &amp; due dates for this date. Showing latest unplanned tasks:</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/80">
+                      <th className="w-7 px-3 py-2.5" />
+                      <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-28">Key</th>
+                      <th className="px-3 py-2.5 text-left font-medium text-zinc-500">Summary</th>
+                      <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-36">Status</th>
+                      <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-28">Priority</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/80">
+                    {member.unplannedPreview.map((issue) => (
+                      <UnplannedTableRow key={issue.id} issue={issue} preview />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {member.unplannedCount > 3 && (
+                <div className="border-t border-zinc-100 dark:border-zinc-800 px-4 py-2">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onSwitchToUnplanned?.(); }}
+                    className="text-xs font-medium text-orange-500 hover:text-orange-600 dark:text-orange-400 dark:hover:text-orange-300 transition-colors"
+                  >
+                    +{member.unplannedCount - 3} more unplanned →
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="py-6 px-4 text-center">
+              <p className="text-xs text-muted-foreground italic">No Jira issues with start &amp; due dates for this date</p>
+            </div>
+          )
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
@@ -668,7 +714,7 @@ function currentQuarterNum(): number {
 
 const UNPLANNED_PAGE_SIZE = 10;
 
-function UnplannedTableRow({ issue }: { issue: UnplannedIssue }) {
+function UnplannedTableRow({ issue, preview }: { issue: UnplannedIssue; preview?: boolean }) {
   const jiraUrl = `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`;
   const tStyles = issueTypeStyles(issue.issueType);
   const sStyles = statusCategoryStyles(issue.statusCategory);
@@ -717,24 +763,28 @@ function UnplannedTableRow({ issue }: { issue: UnplannedIssue }) {
           <span className={`font-medium ${pStyles.text}`}>{issue.priority ?? "—"}</span>
         </span>
       </td>
-      <td className="px-3 py-2">
-        {issue.missingStart ? (
-          <span className="text-[10px] font-bold uppercase tracking-tight px-1.5 py-0.5 rounded-md border bg-orange-50 text-orange-700 border-orange-100 dark:bg-orange-950/40 dark:text-orange-400 dark:border-orange-900/50 whitespace-nowrap">
-            Missing
-          </span>
-        ) : (
-          <span className="text-zinc-300 dark:text-zinc-600">—</span>
-        )}
-      </td>
-      <td className="px-3 py-2">
-        {issue.missingDue ? (
-          <span className="text-[10px] font-bold uppercase tracking-tight px-1.5 py-0.5 rounded-md border bg-red-50 text-red-700 border-red-100 dark:bg-red-950/40 dark:text-red-400 dark:border-red-900/50 whitespace-nowrap">
-            Missing
-          </span>
-        ) : (
-          <span className="text-zinc-300 dark:text-zinc-600">—</span>
-        )}
-      </td>
+      {!preview && (
+        <>
+          <td className="px-3 py-2">
+            {issue.missingStart ? (
+              <span className="text-[10px] font-bold uppercase tracking-tight px-1.5 py-0.5 rounded-md border bg-orange-50 text-orange-700 border-orange-100 dark:bg-orange-950/40 dark:text-orange-400 dark:border-orange-900/50 whitespace-nowrap">
+                Missing
+              </span>
+            ) : (
+              <span className="text-zinc-300 dark:text-zinc-600">—</span>
+            )}
+          </td>
+          <td className="px-3 py-2">
+            {issue.missingDue ? (
+              <span className="text-[10px] font-bold uppercase tracking-tight px-1.5 py-0.5 rounded-md border bg-red-50 text-red-700 border-red-100 dark:bg-red-950/40 dark:text-red-400 dark:border-red-900/50 whitespace-nowrap">
+                Missing
+              </span>
+            ) : (
+              <span className="text-zinc-300 dark:text-zinc-600">—</span>
+            )}
+          </td>
+        </>
+      )}
     </tr>
   );
 }
@@ -1524,7 +1574,7 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
                     ) : (
                       <div className="space-y-4">
                         {filteredMembers.map((member) => (
-                          <MemberTimelineCard key={member.memberId} member={member} />
+                          <MemberTimelineCard key={member.memberId} member={member} onSwitchToUnplanned={() => setActiveTab("unplanned")} />
                         ))}
                       </div>
                     )}
