@@ -581,15 +581,17 @@ function MemberTimelineCard({
   const [collapsed, setCollapsed] = useState(false);
   const hasNoPlanned = member.issues.length === 0;
 
+  const showingUnplanned = hasNoPlanned && member.unplannedPreview.length > 0;
+
   return (
-    <div className="rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/50 shadow-sm overflow-hidden">
+    <div className={`rounded-xl border shadow-sm overflow-hidden ${showingUnplanned ? "border-orange-200 dark:border-orange-800/50 bg-white dark:bg-zinc-900/50" : "border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/50"}`}>
       {/* Header */}
       <div
         role="button"
         tabIndex={0}
         onClick={() => setCollapsed((c) => !c)}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setCollapsed((c) => !c); }}
-        className="w-full flex items-center justify-between gap-4 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800/80 text-left hover:bg-zinc-50/50 dark:hover:bg-zinc-800/20 transition-colors cursor-pointer select-none"
+        className={`w-full flex items-center justify-between gap-4 px-4 py-3 border-b text-left transition-colors cursor-pointer select-none ${showingUnplanned ? "border-orange-100 dark:border-orange-900/40 bg-orange-50/40 dark:bg-orange-950/10 hover:bg-orange-50/70 dark:hover:bg-orange-950/20" : "border-zinc-100 dark:border-zinc-800/80 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/20"}`}
       >
         <div className="flex items-center gap-3 min-w-0">
           <div className="size-8 rounded-full bg-gradient-to-br from-zinc-100 to-zinc-50 dark:from-zinc-800 dark:to-zinc-900 border border-zinc-200 dark:border-zinc-700 flex items-center justify-center text-[11px] font-bold text-zinc-500 shrink-0">
@@ -634,22 +636,27 @@ function MemberTimelineCard({
       {!collapsed && (
         hasNoPlanned ? (
           member.unplannedPreview.length > 0 ? (
-            <div>
-              <div className="px-4 pt-3 pb-1">
-                <p className="text-[11px] text-muted-foreground italic">No issues with start &amp; due dates for this date. Showing latest unplanned tasks:</p>
+            <div className="bg-orange-50/30 dark:bg-orange-950/10">
+              {/* Unplanned banner */}
+              <div className="flex items-center gap-2 px-4 py-2.5 border-b border-orange-100 dark:border-orange-900/30">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-100 dark:bg-orange-900/40 border border-orange-200 dark:border-orange-800/50 px-2.5 py-0.5 text-[11px] font-semibold text-orange-700 dark:text-orange-400">
+                  <RiInboxLine size={11} />
+                  Unplanned backlog
+                </span>
+                <span className="text-[11px] text-orange-600/70 dark:text-orange-500/60">No tasks with dates fall on this day — showing latest unplanned tasks</span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/80">
+                    <tr className="border-b border-orange-100 dark:border-orange-900/30 bg-orange-50/60 dark:bg-orange-950/20">
                       <th className="w-7 px-3 py-2.5" />
-                      <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-28">Key</th>
-                      <th className="px-3 py-2.5 text-left font-medium text-zinc-500">Summary</th>
-                      <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-36">Status</th>
-                      <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-28">Priority</th>
+                      <th className="px-3 py-2.5 text-left font-medium text-orange-700/60 dark:text-orange-400/60 w-28">Key</th>
+                      <th className="px-3 py-2.5 text-left font-medium text-orange-700/60 dark:text-orange-400/60">Summary</th>
+                      <th className="px-3 py-2.5 text-left font-medium text-orange-700/60 dark:text-orange-400/60 w-36">Status</th>
+                      <th className="px-3 py-2.5 text-left font-medium text-orange-700/60 dark:text-orange-400/60 w-28">Priority</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/80">
+                  <tbody className="divide-y divide-orange-100/60 dark:divide-orange-900/20">
                     {member.unplannedPreview.map((issue) => (
                       <UnplannedTableRow key={issue.id} issue={issue} preview />
                     ))}
@@ -657,7 +664,7 @@ function MemberTimelineCard({
                 </table>
               </div>
               {member.unplannedCount > 3 && (
-                <div className="border-t border-zinc-100 dark:border-zinc-800 px-4 py-2">
+                <div className="border-t border-orange-100 dark:border-orange-900/30 px-4 py-2">
                   <button
                     onClick={(e) => { e.stopPropagation(); onSwitchToUnplanned?.(member.name); }}
                     className="text-xs font-medium text-orange-500 hover:text-orange-600 dark:text-orange-400 dark:hover:text-orange-300 transition-colors"
