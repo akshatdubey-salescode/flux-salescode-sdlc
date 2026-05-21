@@ -275,7 +275,7 @@ export async function GET(req: Request, { params }: Params) {
           if (!b.createdAt) return -1;
           return b.createdAt.localeCompare(a.createdAt);
         })
-        .slice(0, 3);
+        .slice(0, 5);
 
       return {
         memberId: member.id,

@@ -663,13 +663,13 @@ function MemberTimelineCard({
                   </tbody>
                 </table>
               </div>
-              {member.unplannedCount > 3 && (
+              {member.unplannedCount > 5 && (
                 <div className="border-t border-orange-100 dark:border-orange-900/30 px-4 py-2">
                   <button
                     onClick={(e) => { e.stopPropagation(); onSwitchToUnplanned?.(member.name); }}
                     className="text-xs font-medium text-orange-500 hover:text-orange-600 dark:text-orange-400 dark:hover:text-orange-300 transition-colors"
                   >
-                    +{member.unplannedCount - 3} more unplanned →
+                    +{member.unplannedCount - 5} more unplanned →
                   </button>
                 </div>
               )}
