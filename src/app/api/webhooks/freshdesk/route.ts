@@ -23,15 +23,21 @@ interface FreshdeskWebhookPayload {
 const CAV_PROJECT_KEY = "CAV";
 
 export async function POST(req: Request) {
+  console.log("[freshdesk-webhook] received request");
+
   let body: FreshdeskWebhookPayload;
   try {
     body = await req.json();
   } catch {
+    console.error("[freshdesk-webhook] failed to parse JSON body");
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  console.log("[freshdesk-webhook] payload:", JSON.stringify(body));
+
   const t = body?.freshdesk_webhook;
   if (!t?.ticket_id) {
+    console.error("[freshdesk-webhook] missing ticket_id in payload");
     return NextResponse.json({ error: "Missing ticket_id" }, { status: 400 });
   }
 
@@ -43,6 +49,7 @@ export async function POST(req: Request) {
     .limit(1);
 
   if (!project) {
+    console.error("[freshdesk-webhook] CAV project not found in DB");
     return NextResponse.json({ error: "CAV project not found" }, { status: 404 });
   }
 
@@ -51,6 +58,7 @@ export async function POST(req: Request) {
   const priority = parseInt(String(t.ticket_priority), 10);
 
   if (isNaN(ticketId) || isNaN(status) || isNaN(priority)) {
+    console.error("[freshdesk-webhook] invalid numeric fields — ticketId=%s status=%s priority=%s", t.ticket_id, t.ticket_status, t.ticket_priority);
     return NextResponse.json({ error: "Invalid numeric fields" }, { status: 400 });
   }
 
@@ -74,26 +82,32 @@ export async function POST(req: Request) {
     syncedAt: new Date(),
   };
 
-  // Upsert — inserts new tickets, updates existing ones
-  await db
-    .insert(freshdeskTickets)
-    .values(values)
-    .onConflictDoUpdate({
-      target: [freshdeskTickets.projectId, freshdeskTickets.fdTicketId],
-      set: {
-        subject: values.subject,
-        fdStatus: values.fdStatus,
-        fdStatusLabel: values.fdStatusLabel,
-        fdPriority: values.fdPriority,
-        fdPriorityLabel: values.fdPriorityLabel,
-        ticketType: values.ticketType,
-        requesterName: values.requesterName,
-        requesterEmail: values.requesterEmail,
-        dueBy: values.dueBy,
-        fdUpdatedAt: values.fdUpdatedAt,
-        syncedAt: values.syncedAt,
-      },
-    });
+  try {
+    // Upsert — inserts new tickets, updates existing ones
+    await db
+      .insert(freshdeskTickets)
+      .values(values)
+      .onConflictDoUpdate({
+        target: [freshdeskTickets.projectId, freshdeskTickets.fdTicketId],
+        set: {
+          subject: values.subject,
+          fdStatus: values.fdStatus,
+          fdStatusLabel: values.fdStatusLabel,
+          fdPriority: values.fdPriority,
+          fdPriorityLabel: values.fdPriorityLabel,
+          ticketType: values.ticketType,
+          requesterName: values.requesterName,
+          requesterEmail: values.requesterEmail,
+          dueBy: values.dueBy,
+          fdUpdatedAt: values.fdUpdatedAt,
+          syncedAt: values.syncedAt,
+        },
+      });
+  } catch (err) {
+    console.error("[freshdesk-webhook] DB upsert failed for ticket %d:", ticketId, err);
+    return NextResponse.json({ error: "DB error" }, { status: 500 });
+  }
 
+  console.log("[freshdesk-webhook] upserted ticket %d (project %s)", ticketId, project.id);
   return NextResponse.json({ ok: true });
 }
