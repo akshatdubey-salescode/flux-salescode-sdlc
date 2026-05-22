@@ -20,6 +20,15 @@ function parseIntOrLabel(value: number | string, labelMap: Record<string, number
   return parseInt(String(value), 10);
 }
 
+// Freshdesk sends dates as "May 22 2026 at 04:49 PM IST" — not parseable by Date directly.
+// Strip "at" and the trailing timezone abbreviation before parsing.
+function parseFdDate(raw: string | null | undefined, fallback?: Date): Date | null {
+  if (!raw || raw.trim() === "") return fallback ?? null;
+  const normalized = raw.replace(" at ", " ").replace(/\s+[A-Z]{2,5}$/, "").trim();
+  const d = new Date(normalized);
+  return isNaN(d.getTime()) ? (fallback ?? null) : d;
+}
+
 interface FreshdeskWebhookPayload {
   freshdesk_webhook: {
     ticket_id: number | string;
@@ -78,8 +87,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid numeric fields" }, { status: 400 });
   }
 
-  const dueByRaw = t.ticket_due_by_time;
-  const dueByDate = dueByRaw && dueByRaw !== "" ? new Date(dueByRaw) : null;
+  const dueByDate = parseFdDate(t.ticket_due_by_time);
 
   const values = {
     projectId: project.id,
@@ -93,8 +101,8 @@ export async function POST(req: Request) {
     requesterName: t.requester_name || null,
     requesterEmail: t.requester_email || null,
     dueBy: dueByDate,
-    fdCreatedAt: t.ticket_created_at ? new Date(t.ticket_created_at) : new Date(),
-    fdUpdatedAt: t.ticket_updated_at ? new Date(t.ticket_updated_at) : new Date(),
+    fdCreatedAt: parseFdDate(t.ticket_created_at, new Date())!,
+    fdUpdatedAt: parseFdDate(t.ticket_updated_at, new Date())!,
     syncedAt: new Date(),
   };
 
