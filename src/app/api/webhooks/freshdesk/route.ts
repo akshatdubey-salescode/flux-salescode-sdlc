@@ -6,10 +6,10 @@ import { fdStatusLabel, fdPriorityLabel } from "@/lib/freshdesk/client";
 
 interface FreshdeskWebhookPayload {
   freshdesk_webhook: {
-    ticket_id: number;
+    ticket_id: number | string;
     ticket_subject: string;
-    ticket_status: number;
-    ticket_priority: number;
+    ticket_status: number | string;
+    ticket_priority: number | string;
     ticket_type: string;
     requester_name: string;
     requester_email: string;
@@ -46,18 +46,29 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "CAV project not found" }, { status: 404 });
   }
 
+  const ticketId = parseInt(String(t.ticket_id), 10);
+  const status   = parseInt(String(t.ticket_status), 10);
+  const priority = parseInt(String(t.ticket_priority), 10);
+
+  if (isNaN(ticketId) || isNaN(status) || isNaN(priority)) {
+    return NextResponse.json({ error: "Invalid numeric fields" }, { status: 400 });
+  }
+
+  const dueByRaw = t.ticket_due_by_time;
+  const dueByDate = dueByRaw && dueByRaw !== "" ? new Date(dueByRaw) : null;
+
   const values = {
     projectId: project.id,
-    fdTicketId: t.ticket_id,
+    fdTicketId: ticketId,
     subject: t.ticket_subject,
-    fdStatus: t.ticket_status,
-    fdStatusLabel: fdStatusLabel(t.ticket_status),
-    fdPriority: t.ticket_priority,
-    fdPriorityLabel: fdPriorityLabel(t.ticket_priority),
-    ticketType: t.ticket_type ?? null,
-    requesterName: t.requester_name ?? null,
-    requesterEmail: t.requester_email ?? null,
-    dueBy: t.ticket_due_by_time ? new Date(t.ticket_due_by_time) : null,
+    fdStatus: status,
+    fdStatusLabel: fdStatusLabel(status),
+    fdPriority: priority,
+    fdPriorityLabel: fdPriorityLabel(priority),
+    ticketType: t.ticket_type || null,
+    requesterName: t.requester_name || null,
+    requesterEmail: t.requester_email || null,
+    dueBy: dueByDate,
     fdCreatedAt: new Date(t.ticket_created_at),
     fdUpdatedAt: new Date(t.ticket_updated_at),
     syncedAt: new Date(),
