@@ -4,6 +4,22 @@ import { db } from "@/lib/db";
 import { freshdeskTickets, jiraProjects } from "@/lib/db/schema";
 import { fdStatusLabel, fdPriorityLabel } from "@/lib/freshdesk/client";
 
+const FD_STATUS_BY_LABEL: Record<string, number> = {
+  "Open": 2, "Pending": 3, "Resolved": 4, "Closed": 5,
+  "Waiting on Customer": 6, "Waiting on Third Party": 7,
+};
+
+const FD_PRIORITY_BY_LABEL: Record<string, number> = {
+  "Low": 1, "Medium": 2, "High": 3, "Urgent": 4,
+};
+
+function parseIntOrLabel(value: number | string, labelMap: Record<string, number>): number {
+  if (typeof value === "number") return value;
+  const fromLabel = labelMap[value];
+  if (fromLabel !== undefined) return fromLabel;
+  return parseInt(String(value), 10);
+}
+
 interface FreshdeskWebhookPayload {
   freshdesk_webhook: {
     ticket_id: number | string;
@@ -54,8 +70,8 @@ export async function POST(req: Request) {
   }
 
   const ticketId = parseInt(String(t.ticket_id), 10);
-  const status   = parseInt(String(t.ticket_status), 10);
-  const priority = parseInt(String(t.ticket_priority), 10);
+  const status   = parseIntOrLabel(t.ticket_status, FD_STATUS_BY_LABEL);
+  const priority = parseIntOrLabel(t.ticket_priority, FD_PRIORITY_BY_LABEL);
 
   if (isNaN(ticketId) || isNaN(status) || isNaN(priority)) {
     console.error("[freshdesk-webhook] invalid numeric fields — ticketId=%s status=%s priority=%s", t.ticket_id, t.ticket_status, t.ticket_priority);
@@ -77,8 +93,8 @@ export async function POST(req: Request) {
     requesterName: t.requester_name || null,
     requesterEmail: t.requester_email || null,
     dueBy: dueByDate,
-    fdCreatedAt: new Date(t.ticket_created_at),
-    fdUpdatedAt: new Date(t.ticket_updated_at),
+    fdCreatedAt: t.ticket_created_at ? new Date(t.ticket_created_at) : new Date(),
+    fdUpdatedAt: t.ticket_updated_at ? new Date(t.ticket_updated_at) : new Date(),
     syncedAt: new Date(),
   };
 
