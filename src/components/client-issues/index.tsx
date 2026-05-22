@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useTransition, useMemo, useRef } from "react";
+import React, { useEffect, useState, useTransition, useRef, useCallback } from "react";
 import {
   RiRefreshLine,
   RiExternalLinkLine,
@@ -10,6 +10,8 @@ import {
   RiSearchLine,
   RiDownloadLine,
   RiLayoutColumnLine,
+  RiArrowLeftSLine,
+  RiArrowRightSLine,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import type { FreshdeskTicket } from "@/lib/db/schema";
@@ -122,15 +124,15 @@ function responseTimeColor(days: number) {
   return "text-red-600 dark:text-red-400";
 }
 
+function isSlaBreach(ticket: FreshdeskTicket): boolean {
+  if (!ticket.dueBy) return false;
+  return new Date(ticket.dueBy).getTime() < Date.now() && ticket.fdStatus !== 4 && ticket.fdStatus !== 5;
+}
+
 function isSlaAtRisk(ticket: FreshdeskTicket): boolean {
   if (!ticket.dueBy) return false;
   const msLeft = new Date(ticket.dueBy).getTime() - Date.now();
   return msLeft > 0 && msLeft < 4 * 60 * 60 * 1000;
-}
-
-function isSlaBreach(ticket: FreshdeskTicket): boolean {
-  if (!ticket.dueBy) return false;
-  return new Date(ticket.dueBy).getTime() < Date.now() && ticket.fdStatus !== 4 && ticket.fdStatus !== 5;
 }
 
 function slaLabel(ticket: FreshdeskTicket): string {
@@ -166,7 +168,7 @@ const CSV_COLS: { id: ColumnId; header: string; get: (t: TicketWithJiraDate) => 
   { id: "sla",         header: "SLA",              get: (t) => slaLabel(t) },
 ];
 
-function exportToCsv(tickets: TicketWithJiraDate[], visibleCols: Set<ColumnId>) {
+function downloadCsv(tickets: TicketWithJiraDate[], visibleCols: Set<ColumnId>) {
   const cols = CSV_COLS.filter((c) => visibleCols.has(c.id));
   const headers = cols.map((c) => c.header);
   const rows = tickets.map((t) => cols.map((c) => csvCell(c.get(t))).join(","));
@@ -247,17 +249,20 @@ function ColumnToggle({
 
 // ─── summary cards ───────────────────────────────────────────────────────────
 
-function SummaryCards({ tickets }: { tickets: TicketWithJiraDate[] }) {
-  const open = tickets.filter((t) => t.fdStatus === 2).length;
-  const unlinked = tickets.filter((t) => !t.linkedJiraKey && t.fdStatus !== 4 && t.fdStatus !== 5).length;
-  const breached = tickets.filter(isSlaBreach).length;
-  const resolved = tickets.filter((t) => t.fdStatus === 4 || t.fdStatus === 5).length;
+interface Stats {
+  open: number;
+  unlinked: number;
+  slaBreached: number;
+  resolved: number;
+}
+
+function SummaryCards({ stats }: { stats: Stats }) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 mb-4">
-      <StatCard label="Open" value={open} color="text-blue-600 dark:text-blue-400" />
-      <StatCard label="Unlinked to Jira" value={unlinked} color={unlinked > 0 ? "text-orange-600 dark:text-orange-400" : "text-zinc-500"} />
-      <StatCard label="SLA Breached" value={breached} color={breached > 0 ? "text-red-600 dark:text-red-400" : "text-zinc-500"} />
-      <StatCard label="Resolved" value={resolved} color="text-green-600 dark:text-green-400" />
+      <StatCard label="Open" value={stats.open} color="text-blue-600 dark:text-blue-400" />
+      <StatCard label="Unlinked to Jira" value={stats.unlinked} color={stats.unlinked > 0 ? "text-orange-600 dark:text-orange-400" : "text-zinc-500"} />
+      <StatCard label="SLA Breached" value={stats.slaBreached} color={stats.slaBreached > 0 ? "text-red-600 dark:text-red-400" : "text-zinc-500"} />
+      <StatCard label="Resolved" value={stats.resolved} color="text-green-600 dark:text-green-400" />
     </div>
   );
 }
@@ -288,7 +293,7 @@ interface Filters {
   jiraAssignee: string;
   jiraPriority: string;
   sla: SlaFilter;
-  escalated: string;   // "" = all | "yes" = escalated only
+  escalated: string;
   sort: SortKey;
   dateRange: DateRange;
 }
@@ -322,22 +327,14 @@ function Select({ value, onChange, options }: {
   );
 }
 
-function hasActiveFilters(f: Filters) {
-  return (
-    f.search !== "" || f.fdStatus !== "" || f.fdPriority !== "" || f.ticketType !== "" ||
-    f.jiraLink !== "all" || f.jiraStatus !== "" || f.jiraAssignee !== "" || f.jiraPriority !== "" ||
-    f.sla !== "all" || f.escalated !== "" || f.sort !== "newest" || f.dateRange !== "all"
-  );
-}
-
 function FilterBar({
-  filters, onChange, filteredCount, totalCount, onExport, visibleCols, onToggleCol, options,
+  filters, onChange, total, onExport, exporting, visibleCols, onToggleCol, options,
 }: {
   filters: Filters;
   onChange: (f: Partial<Filters>) => void;
-  filteredCount: number;
-  totalCount: number;
+  total: number;
   onExport: () => void;
+  exporting: boolean;
   visibleCols: Set<ColumnId>;
   onToggleCol: (id: ColumnId) => void;
   options: FilterOptions;
@@ -359,7 +356,6 @@ function FilterBar({
 
   return (
     <div className="mb-3 space-y-2">
-      {/* Always-visible top bar */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1 min-w-[160px]">
           <RiSearchLine className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
@@ -401,15 +397,14 @@ function FilterBar({
         <ColumnToggle visibleCols={visibleCols} onToggle={onToggleCol} />
         <button
           onClick={onExport}
-          disabled={filteredCount === 0}
+          disabled={total === 0 || exporting}
           className="flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-xs text-zinc-600 shadow-sm hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
         >
-          <RiDownloadLine className="h-3.5 w-3.5" />
-          Export
+          <RiDownloadLine className={`h-3.5 w-3.5 ${exporting ? "animate-spin" : ""}`} />
+          {exporting ? "Exporting…" : "Export"}
         </button>
       </div>
 
-      {/* Expandable filter panel */}
       {expanded && (
         <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -484,16 +479,6 @@ function FilterBar({
           )}
         </div>
       )}
-
-      {/* Count row */}
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">
-        <span className="font-medium text-zinc-700 dark:text-zinc-300">{filteredCount}</span>
-        {filteredCount !== totalCount && <> of {totalCount}</>}{" "}
-        ticket{filteredCount !== 1 ? "s" : ""}
-        {activeFilterCount > 0 && (
-          <span className="ml-1 text-zinc-400">· {activeFilterCount} filter{activeFilterCount !== 1 ? "s" : ""} active</span>
-        )}
-      </p>
     </div>
   );
 }
@@ -507,16 +492,120 @@ function LabeledSelect({ label, children }: { label: string; children: React.Rea
   );
 }
 
+// ─── pagination ───────────────────────────────────────────────────────────────
+
+function Pagination({
+  page, total, pageSize, onPageChange,
+}: {
+  page: number;
+  total: number;
+  pageSize: number;
+  onPageChange: (p: number) => void;
+}) {
+  const totalPages = Math.ceil(total / pageSize);
+  if (totalPages <= 1) return null;
+
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, total);
+
+  // Build page number list: first, ..., prev, current, next, ..., last
+  const pages: (number | "...")[] = [];
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pages.push(i);
+  } else {
+    pages.push(1);
+    if (page > 3) pages.push("...");
+    for (let i = Math.max(2, page - 1); i <= Math.min(totalPages - 1, page + 1); i++) pages.push(i);
+    if (page < totalPages - 2) pages.push("...");
+    pages.push(totalPages);
+  }
+
+  return (
+    <div className="mt-4 flex items-center justify-between">
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        Showing <span className="font-medium text-zinc-700 dark:text-zinc-300">{from}–{to}</span> of{" "}
+        <span className="font-medium text-zinc-700 dark:text-zinc-300">{total}</span> tickets
+      </p>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => onPageChange(page - 1)}
+          disabled={page === 1}
+          className="flex h-7 w-7 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+        >
+          <RiArrowLeftSLine className="h-4 w-4" />
+        </button>
+        {pages.map((p, i) =>
+          p === "..." ? (
+            <span key={`ellipsis-${i}`} className="px-1 text-xs text-zinc-400">…</span>
+          ) : (
+            <button
+              key={p}
+              onClick={() => onPageChange(p as number)}
+              className={`flex h-7 min-w-[28px] items-center justify-center rounded-md border px-2 text-xs font-medium transition-colors ${
+                p === page
+                  ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-600 dark:bg-blue-900/30 dark:text-blue-300"
+                  : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              }`}
+            >
+              {p}
+            </button>
+          )
+        )}
+        <button
+          onClick={() => onPageChange(page + 1)}
+          disabled={page >= totalPages}
+          className="flex h-7 w-7 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+        >
+          <RiArrowRightSLine className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── main component ───────────────────────────────────────────────────────────
 
+const PAGE_SIZE = 25;
+
+interface Meta {
+  stats: Stats;
+  filterOptions: FilterOptions;
+  jiraBaseUrl: string | null;
+}
+
+function buildParams(filters: Filters, page: number, pageSize: number): string {
+  const sp = new URLSearchParams();
+  sp.set("page", String(page));
+  sp.set("pageSize", String(pageSize));
+  if (filters.search) sp.set("search", filters.search);
+  if (filters.fdStatus) sp.set("fdStatus", filters.fdStatus);
+  if (filters.fdPriority) sp.set("fdPriority", filters.fdPriority);
+  if (filters.ticketType) sp.set("ticketType", filters.ticketType);
+  if (filters.jiraLink !== "all") sp.set("jiraLink", filters.jiraLink);
+  if (filters.jiraStatus) sp.set("jiraStatus", filters.jiraStatus);
+  if (filters.jiraAssignee) sp.set("jiraAssignee", filters.jiraAssignee);
+  if (filters.jiraPriority) sp.set("jiraPriority", filters.jiraPriority);
+  if (filters.sla !== "all") sp.set("sla", filters.sla);
+  if (filters.escalated) sp.set("escalated", filters.escalated);
+  if (filters.sort !== "newest") sp.set("sort", filters.sort);
+  if (filters.dateRange !== "all") sp.set("dateRange", filters.dateRange);
+  return sp.toString();
+}
+
 export function ClientIssuesTab({ projectId }: { projectId: string }) {
+  const [meta, setMeta] = useState<Meta | null>(null);
+  const [metaLoading, setMetaLoading] = useState(true);
   const [tickets, setTickets] = useState<TicketWithJiraDate[]>([]);
-  const [jiraBaseUrl, setJiraBaseUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageLoading, setPageLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [syncing, startSync] = useTransition();
   const [syncResult, setSyncResult] = useState<{ synced: number; linked: number } | null>(null);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [visibleCols, setVisibleCols] = useState<Set<ColumnId>>(new Set(DEFAULT_VISIBLE));
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tableRef = useRef<HTMLDivElement>(null);
 
   function toggleCol(id: ColumnId) {
     setVisibleCols((prev) => {
@@ -528,18 +617,48 @@ export function ClientIssuesTab({ projectId }: { projectId: string }) {
 
   function col(id: ColumnId) { return visibleCols.has(id); }
 
-  async function load() {
-    setLoading(true);
-    const res = await fetch(`/api/freshdesk/tickets/${projectId}`);
+  const fetchMeta = useCallback(async () => {
+    const res = await fetch(`/api/freshdesk/tickets/${projectId}/meta`);
+    if (res.ok) {
+      const data = await res.json();
+      setMeta(data);
+    }
+    setMetaLoading(false);
+  }, [projectId]);
+
+  const fetchTickets = useCallback(async (f: Filters, p: number) => {
+    setPageLoading(true);
+    const res = await fetch(`/api/freshdesk/tickets/${projectId}?${buildParams(f, p, PAGE_SIZE)}`);
     if (res.ok) {
       const data = await res.json();
       setTickets(data.tickets ?? []);
-      setJiraBaseUrl(data.jiraBaseUrl ?? null);
+      setTotal(data.total ?? 0);
+      setPage(p);
     }
-    setLoading(false);
+    setPageLoading(false);
+  }, [projectId]);
+
+  useEffect(() => {
+    setMetaLoading(true);
+    fetchMeta();
+    fetchTickets(DEFAULT_FILTERS, 1);
+  }, [projectId, fetchMeta, fetchTickets]);
+
+  function handleFilterChange(patch: Partial<Filters>) {
+    const newFilters = { ...filters, ...patch };
+    setFilters(newFilters);
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const delay = "search" in patch ? 300 : 0;
+    debounceRef.current = setTimeout(() => {
+      fetchTickets(newFilters, 1);
+    }, delay);
   }
 
-  useEffect(() => { load(); }, [projectId]);
+  function handlePageChange(newPage: number) {
+    fetchTickets(filters, newPage);
+    tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   function handleSync() {
     startSync(async () => {
@@ -548,59 +667,30 @@ export function ClientIssuesTab({ projectId }: { projectId: string }) {
       if (res.ok) {
         const data = await res.json();
         setSyncResult(data);
-        await load();
+        await Promise.all([fetchMeta(), fetchTickets(filters, 1)]);
       }
     });
   }
 
-  const filtered = useMemo(() => {
-    let result = [...tickets];
-
-    if (filters.dateRange !== "all") {
-      const days = filters.dateRange === "7d" ? 7 : filters.dateRange === "30d" ? 30 : 90;
-      const cutoff = Date.now() - days * 86_400_000;
-      result = result.filter((t) => t.fdCreatedAt && new Date(t.fdCreatedAt).getTime() >= cutoff);
+  async function handleExport() {
+    setExporting(true);
+    const res = await fetch(`/api/freshdesk/tickets/${projectId}?${buildParams(filters, 1, 10000)}`);
+    if (res.ok) {
+      const data = await res.json();
+      downloadCsv(data.tickets ?? [], visibleCols);
     }
-    if (filters.search) {
-      const q = filters.search.toLowerCase();
-      result = result.filter((t) => t.subject?.toLowerCase().includes(q) || String(t.fdTicketId).includes(q));
-    }
-    if (filters.fdStatus) result = result.filter((t) => t.fdStatus === parseInt(filters.fdStatus, 10));
-    if (filters.fdPriority) result = result.filter((t) => t.fdPriority === parseInt(filters.fdPriority, 10));
-    if (filters.ticketType) result = result.filter((t) => t.ticketType === filters.ticketType);
-    if (filters.jiraLink === "linked") result = result.filter((t) => !!t.linkedJiraKey);
-    else if (filters.jiraLink === "unlinked") result = result.filter((t) => !t.linkedJiraKey);
-    if (filters.jiraStatus) result = result.filter((t) => t.linkedJiraStatus === filters.jiraStatus);
-    if (filters.jiraAssignee) result = result.filter((t) => t.linkedJiraAssigneeName === filters.jiraAssignee);
-    if (filters.jiraPriority) result = result.filter((t) => t.jiraPriority === filters.jiraPriority);
-    if (filters.escalated === "yes") result = result.filter((t) => t.isEscalated);
-    if (filters.sla === "breached") result = result.filter(isSlaBreach);
-    else if (filters.sla === "at_risk") result = result.filter(isSlaAtRisk);
-
-    result.sort((a, b) => {
-      if (filters.sort === "oldest") return new Date(a.fdCreatedAt!).getTime() - new Date(b.fdCreatedAt!).getTime();
-      if (filters.sort === "priority") return (b.fdPriority ?? 0) - (a.fdPriority ?? 0);
-      if (filters.sort === "days") return daysOpen(b.fdCreatedAt ? String(b.fdCreatedAt) : null) - daysOpen(a.fdCreatedAt ? String(a.fdCreatedAt) : null);
-      if (filters.sort === "response") {
-        const ra = responseDays(a.fdCreatedAt ? String(a.fdCreatedAt) : null, a.jiraCreatedAt) ?? -1;
-        const rb = responseDays(b.fdCreatedAt ? String(b.fdCreatedAt) : null, b.jiraCreatedAt) ?? -1;
-        return rb - ra;
-      }
-      return new Date(b.fdCreatedAt!).getTime() - new Date(a.fdCreatedAt!).getTime();
-    });
-    return result;
-  }, [tickets, filters]);
-
-  const filterOptions = useMemo<FilterOptions>(() => ({
-    ticketTypes: [...new Set(tickets.map((t) => t.ticketType).filter((v): v is string => !!v))].sort(),
-    jiraStatuses: [...new Set(tickets.map((t) => t.linkedJiraStatus).filter((v): v is string => !!v))].sort(),
-    jiraAssignees: [...new Set(tickets.map((t) => t.linkedJiraAssigneeName).filter((v): v is string => !!v))].sort(),
-    jiraPriorities: [...new Set(tickets.map((t) => t.jiraPriority).filter((v): v is string => !!v))].sort(),
-  }), [tickets]);
+    setExporting(false);
+  }
 
   const fdBaseUrl = process.env.NEXT_PUBLIC_FRESHDESK_BASE_URL;
+  const jiraBaseUrl = meta?.jiraBaseUrl ?? null;
+  const filterOptions = meta?.filterOptions ?? {
+    ticketTypes: [], jiraStatuses: [], jiraAssignees: [], jiraPriorities: [],
+  };
+  const stats = meta?.stats ?? { open: 0, unlinked: 0, slaBreached: 0, resolved: 0 };
+  const isInitialLoading = metaLoading && tickets.length === 0;
 
-  if (loading) {
+  if (isInitialLoading) {
     return (
       <div className="space-y-3">
         {[...Array(5)].map((_, i) => (
@@ -628,9 +718,9 @@ export function ClientIssuesTab({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      <SummaryCards tickets={tickets} />
+      <SummaryCards stats={stats} />
 
-      {tickets.length === 0 ? (
+      {total === 0 && !pageLoading && tickets.length === 0 && Object.values(filters).every((v) => v === DEFAULT_FILTERS[Object.keys(DEFAULT_FILTERS).find((k) => DEFAULT_FILTERS[k as keyof Filters] === v) as keyof Filters]) ? (
         <div className="rounded-lg border border-dashed border-zinc-200 p-12 text-center dark:border-zinc-800">
           <p className="text-sm text-zinc-400">No tickets synced yet. Click "Sync now" to pull CavinKare tickets from Freshdesk.</p>
         </div>
@@ -638,21 +728,67 @@ export function ClientIssuesTab({ projectId }: { projectId: string }) {
         <>
           <FilterBar
             filters={filters}
-            onChange={(p) => setFilters((prev) => ({ ...prev, ...p }))}
-            filteredCount={filtered.length}
-            totalCount={tickets.length}
-            onExport={() => exportToCsv(filtered, visibleCols)}
+            onChange={handleFilterChange}
+            total={total}
+            onExport={handleExport}
+            exporting={exporting}
             visibleCols={visibleCols}
             onToggleCol={toggleCol}
             options={filterOptions}
           />
 
-          {filtered.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-zinc-200 p-8 text-center dark:border-zinc-800">
-              <p className="text-sm text-zinc-400">No tickets match the current filters.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+          {/* Count row */}
+          <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+            <span className="font-medium text-zinc-700 dark:text-zinc-300">{total}</span>{" "}
+            ticket{total !== 1 ? "s" : ""}
+            {Object.entries(filters).some(([k, v]) => {
+              const def = DEFAULT_FILTERS[k as keyof Filters];
+              return v !== def;
+            }) && (
+              <span className="ml-1 text-zinc-400">· filtered</span>
+            )}
+          </p>
+
+          <div ref={tableRef} className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+            {pageLoading ? (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
+                    {col("ticket")      && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Ticket</th>}
+                    {col("subject")     && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500">Subject</th>}
+                    {col("fdStatus")    && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">FD Status</th>}
+                    {col("priority")    && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500">Priority</th>}
+                    {col("jiraTicket")  && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Jira Ticket</th>}
+                    {col("jiraStatus")   && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Jira Status</th>}
+                    {col("jiraAssignee") && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Jira Assignee</th>}
+                    {col("jiraPriority") && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Jira Priority</th>}
+                    {col("requester")    && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500">Requester</th>}
+                    {col("fdCreated")   && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">FD Created</th>}
+                    {col("jiraCreated") && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Jira Created</th>}
+                    {col("response")    && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Response</th>}
+                    {col("daysOpen")    && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Days Open</th>}
+                    {col("sla")         && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500">SLA</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                  {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+                    <tr key={i} className="bg-white dark:bg-zinc-950">
+                      {COLUMNS.filter((c) => visibleCols.has(c.id)).map((c) => (
+                        <td key={c.id} className="px-4 py-3">
+                          <div className="h-4 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800"
+                            style={{ width: c.id === "subject" ? "180px" : c.id === "ticket" ? "56px" : "80px" }}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : tickets.length === 0 ? (
+              <div className="p-8 text-center">
+                <p className="text-sm text-zinc-400">No tickets match the current filters.</p>
+              </div>
+            ) : (
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
@@ -673,7 +809,7 @@ export function ClientIssuesTab({ projectId }: { projectId: string }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                  {filtered.map((ticket) => {
+                  {tickets.map((ticket) => {
                     const breach = isSlaBreach(ticket);
                     const atRisk = isSlaAtRisk(ticket);
                     const fd = ticket.fdCreatedAt ? String(ticket.fdCreatedAt) : null;
@@ -804,8 +940,15 @@ export function ClientIssuesTab({ projectId }: { projectId: string }) {
                   })}
                 </tbody>
               </table>
-            </div>
-          )}
+            )}
+          </div>
+
+          <Pagination
+            page={page}
+            total={total}
+            pageSize={PAGE_SIZE}
+            onPageChange={handlePageChange}
+          />
         </>
       )}
     </div>

@@ -1,15 +1,37 @@
 import { NextResponse } from "next/server";
-import { desc, eq, inArray } from "drizzle-orm";
+import {
+  and, or, eq, ilike, sql, isNull, isNotNull,
+  desc, asc, gte, lt, gt, not, inArray, getTableColumns,
+  type SQL,
+} from "drizzle-orm";
 import { requireAuth } from "@/lib/auth/server";
 import { db } from "@/lib/db";
 import { freshdeskTickets, jiraIssues, jiraProjects } from "@/lib/db/schema";
 
+const DEFAULT_PAGE_SIZE = 25;
+
 export async function GET(
-  _req: Request,
+  req: Request,
   props: { params: Promise<{ projectId: string }> }
 ) {
   await requireAuth();
   const { projectId } = await props.params;
+  const sp = new URL(req.url).searchParams;
+
+  const page = Math.max(1, parseInt(sp.get("page") ?? "1", 10));
+  const pageSize = Math.min(10000, Math.max(1, parseInt(sp.get("pageSize") ?? String(DEFAULT_PAGE_SIZE), 10)));
+  const search = sp.get("search") ?? "";
+  const fdStatus = sp.get("fdStatus") ?? "";
+  const fdPriority = sp.get("fdPriority") ?? "";
+  const ticketType = sp.get("ticketType") ?? "";
+  const jiraLink = sp.get("jiraLink") ?? "all";
+  const jiraStatus = sp.get("jiraStatus") ?? "";
+  const jiraAssignee = sp.get("jiraAssignee") ?? "";
+  const jiraPriority = sp.get("jiraPriority") ?? "";
+  const sla = sp.get("sla") ?? "all";
+  const escalated = sp.get("escalated") ?? "";
+  const sort = sp.get("sort") ?? "newest";
+  const dateRange = sp.get("dateRange") ?? "all";
 
   const [project] = await db
     .select({ jiraBaseUrl: jiraProjects.jiraBaseUrl })
@@ -17,44 +39,92 @@ export async function GET(
     .where(eq(jiraProjects.id, projectId))
     .limit(1);
 
-  const tickets = await db
-    .select()
-    .from(freshdeskTickets)
-    .where(eq(freshdeskTickets.projectId, projectId))
-    .orderBy(desc(freshdeskTickets.fdCreatedAt));
+  // Build WHERE conditions
+  const conditions: (SQL | undefined)[] = [eq(freshdeskTickets.projectId, projectId)];
 
-  // Batch-fetch Jira fields for all linked issues in one query
-  const linkedIds = tickets
-    .map((t) => t.linkedJiraIssueId)
-    .filter((id): id is string => id !== null);
-
-  type JiraExtra = { jiraCreatedAt: Date | null; jiraPriority: string | null };
-  const jiraExtraMap = new Map<string, JiraExtra>();
-  if (linkedIds.length > 0) {
-    const jiraRows = await db
-      .select({
-        id: jiraIssues.id,
-        jiraCreatedAt: jiraIssues.jiraCreatedAt,
-        priority: jiraIssues.priority,
-      })
-      .from(jiraIssues)
-      .where(inArray(jiraIssues.id, linkedIds));
-    for (const row of jiraRows) {
-      jiraExtraMap.set(row.id, {
-        jiraCreatedAt: row.jiraCreatedAt ?? null,
-        jiraPriority: row.priority ?? null,
-      });
-    }
+  if (dateRange !== "all") {
+    const days = dateRange === "7d" ? 7 : dateRange === "30d" ? 30 : 90;
+    conditions.push(gte(freshdeskTickets.fdCreatedAt, new Date(Date.now() - days * 86_400_000)));
   }
 
-  const enriched = tickets.map((t) => ({
-    ...t,
-    jiraCreatedAt: t.linkedJiraIssueId ? (jiraExtraMap.get(t.linkedJiraIssueId)?.jiraCreatedAt ?? null) : null,
-    jiraPriority:  t.linkedJiraIssueId ? (jiraExtraMap.get(t.linkedJiraIssueId)?.jiraPriority  ?? null) : null,
-  }));
+  if (search) {
+    conditions.push(
+      or(
+        ilike(freshdeskTickets.subject, `%${search}%`),
+        sql`${freshdeskTickets.fdTicketId}::text like ${`%${search}%`}`
+      )
+    );
+  }
+
+  if (fdStatus) conditions.push(eq(freshdeskTickets.fdStatus, parseInt(fdStatus, 10)));
+  if (fdPriority) conditions.push(eq(freshdeskTickets.fdPriority, parseInt(fdPriority, 10)));
+  if (ticketType) conditions.push(eq(freshdeskTickets.ticketType, ticketType));
+
+  if (jiraLink === "linked") conditions.push(isNotNull(freshdeskTickets.linkedJiraKey));
+  else if (jiraLink === "unlinked") conditions.push(isNull(freshdeskTickets.linkedJiraKey));
+
+  if (jiraStatus) conditions.push(eq(freshdeskTickets.linkedJiraStatus, jiraStatus));
+  if (jiraAssignee) conditions.push(eq(freshdeskTickets.linkedJiraAssigneeName, jiraAssignee));
+  if (jiraPriority) conditions.push(eq(jiraIssues.priority, jiraPriority));
+
+  if (sla === "breached") {
+    conditions.push(
+      and(
+        isNotNull(freshdeskTickets.dueBy),
+        lt(freshdeskTickets.dueBy, new Date()),
+        not(inArray(freshdeskTickets.fdStatus, [4, 5]))
+      )
+    );
+  } else if (sla === "at_risk") {
+    const now = new Date();
+    const fourHoursFromNow = new Date(now.getTime() + 4 * 60 * 60 * 1000);
+    conditions.push(
+      and(
+        isNotNull(freshdeskTickets.dueBy),
+        gt(freshdeskTickets.dueBy, now),
+        lt(freshdeskTickets.dueBy, fourHoursFromNow),
+        not(inArray(freshdeskTickets.fdStatus, [4, 5]))
+      )
+    );
+  }
+
+  if (escalated === "yes") conditions.push(eq(freshdeskTickets.isEscalated, true));
+
+  const whereClause = and(...conditions);
+
+  // ORDER BY
+  const orderBy =
+    sort === "oldest"   ? asc(freshdeskTickets.fdCreatedAt) :
+    sort === "priority" ? desc(freshdeskTickets.fdPriority) :
+    sort === "days"     ? asc(freshdeskTickets.fdCreatedAt) :
+    sort === "response" ? sql`(${jiraIssues.jiraCreatedAt} - ${freshdeskTickets.fdCreatedAt}) desc nulls last` :
+    desc(freshdeskTickets.fdCreatedAt);
+
+  const [countResult, tickets] = await Promise.all([
+    db
+      .select({ count: sql<number>`cast(count(*) as integer)` })
+      .from(freshdeskTickets)
+      .leftJoin(jiraIssues, eq(freshdeskTickets.linkedJiraIssueId, jiraIssues.id))
+      .where(whereClause),
+    db
+      .select({
+        ...getTableColumns(freshdeskTickets),
+        jiraCreatedAt: jiraIssues.jiraCreatedAt,
+        jiraPriority: jiraIssues.priority,
+      })
+      .from(freshdeskTickets)
+      .leftJoin(jiraIssues, eq(freshdeskTickets.linkedJiraIssueId, jiraIssues.id))
+      .where(whereClause)
+      .orderBy(orderBy)
+      .limit(pageSize)
+      .offset((page - 1) * pageSize),
+  ]);
 
   return NextResponse.json({
-    tickets: enriched,
+    tickets,
+    total: countResult[0]?.count ?? 0,
+    page,
+    pageSize,
     jiraBaseUrl: project?.jiraBaseUrl ?? null,
   });
 }
