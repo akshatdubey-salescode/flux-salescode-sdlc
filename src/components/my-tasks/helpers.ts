@@ -10,6 +10,8 @@ export type MyTasksFields = TrackingFields & {
 
 export type MyTasksFilterState = FilterState & {
   projects: string[];
+  qstart: string;
+  qend: string;
 };
 
 export * from "../project-tracking/helpers";

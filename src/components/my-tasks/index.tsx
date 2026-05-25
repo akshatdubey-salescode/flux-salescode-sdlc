@@ -45,6 +45,8 @@ function readFilters(
     labels: searchParams.get("labels")?.split(",").filter(Boolean) ?? [],
     dateFrom: searchParams.get("dateFrom") ?? "",
     dateTo: searchParams.get("dateTo") ?? "",
+    qstart: searchParams.get("qstart") ?? "",
+    qend: searchParams.get("qend") ?? "",
     hasComments: searchParams.get("hasComments") === "true",
     showCompleted,
     sortBy: searchParams.get("sortBy") ?? "created",
@@ -87,6 +89,8 @@ export function MyTasksView({
     labels: filters.labels,
     dateFrom: filters.dateFrom,
     dateTo: filters.dateTo,
+    qstart: filters.qstart,
+    qend: filters.qend,
     hasComments: filters.hasComments,
     showCompleted: filters.showCompleted,
     sortBy: filters.sortBy,
@@ -134,8 +138,10 @@ export function MyTasksView({
     if (parsed.reporter.length) params.set("reporter", parsed.reporter.join(","));
     if (parsed.issueType.length) params.set("issueType", parsed.issueType.join(","));
     if (parsed.labels.length) params.set("labels", parsed.labels.join(","));
-    if (parsed.dateFrom) params.set("dateFrom", parsed.dateFrom);
-    if (parsed.dateTo) params.set("dateTo", parsed.dateTo);
+    const effectiveDateFrom = parsed.qstart || parsed.dateFrom;
+    const effectiveDateTo = parsed.qend || parsed.dateTo;
+    if (effectiveDateFrom) params.set("dateFrom", effectiveDateFrom);
+    if (effectiveDateTo) params.set("dateTo", effectiveDateTo);
     if (parsed.hasComments) params.set("hasComments", "true");
     if (parsed.showCompleted) params.set("showCompleted", "true");
     params.set("sortBy", parsed.sortBy);

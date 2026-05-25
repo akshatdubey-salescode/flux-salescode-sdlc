@@ -7,6 +7,7 @@ import {
   RiCloseLine,
   RiArrowUpSLine,
   RiArrowDownSLine,
+  RiInformationLine,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,9 +25,11 @@ import {
 } from "@/components/ui/sheet";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { SORT_OPTIONS } from "../project-tracking/helpers";
 import type { MyTasksFilterState, MyTasksFields } from "./helpers";
+import { getRelevantQuarters } from "@/lib/date-utils";
 
 type Props = {
   filters: MyTasksFilterState;
@@ -47,8 +50,8 @@ export function MyTasksFilterBar({ filters, fields, onUpdate, total }: Props) {
     filters.reporter.length > 0,
     filters.issueType.length > 0,
     filters.labels.length > 0,
-    !!filters.dateFrom,
-    !!filters.dateTo,
+    !!(filters.qstart || filters.dateFrom),
+    !!(filters.qend || filters.dateTo),
     filters.hasComments,
   ].filter(Boolean).length;
 
@@ -72,6 +75,8 @@ export function MyTasksFilterBar({ filters, fields, onUpdate, total }: Props) {
       labels: null,
       dateFrom: null,
       dateTo: null,
+      qstart: null,
+      qend: null,
       hasComments: null,
       page: "1",
     });
@@ -396,6 +401,15 @@ function ActiveChips({
         }),
     })
   );
+  if (filters.qstart && filters.qend) {
+    const match = getRelevantQuarters().find(
+      (q) => q.start === filters.qstart && q.end === filters.qend
+    );
+    chips.push({
+      label: match ? `${match.label} ${match.year}` : `Quarter: ${filters.qstart}`,
+      onRemove: () => onUpdate({ qstart: null, qend: null, page: "1" }),
+    });
+  }
   if (filters.dateFrom)
     chips.push({
       label: `From: ${filters.dateFrom}`,
@@ -463,6 +477,87 @@ function MoreFiltersSheet({
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto space-y-5 p-6">
+          {/* Quarter */}
+          <FilterSection label="Creation Quarter">
+            <div className="flex gap-1.5 flex-wrap">
+              {getRelevantQuarters().map((c) => {
+                const active = filters.qstart === c.start && filters.qend === c.end;
+                return (
+                  <TooltipProvider key={`${c.label}-${c.year}`}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() =>
+                            onUpdate({
+                              qstart: active ? null : c.start,
+                              qend: active ? null : c.end,
+                              dateFrom: null,
+                              dateTo: null,
+                              page: "1",
+                            })
+                          }
+                          className={cn(
+                            "h-7 px-2.5 rounded-md border text-[11px] font-medium transition-colors flex items-center gap-1.5",
+                            active
+                              ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                              : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                          )}
+                        >
+                          <span className="font-semibold">{c.label}</span>
+                          <span className="opacity-60 text-[10px]">{c.year}</span>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-[10px]">
+                        <p className="font-medium">{c.sublabel} {c.year}</p>
+                        <p className="text-zinc-400">Jiras created in this quarter.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                );
+              })}
+            </div>
+          </FilterSection>
+
+          {/* Date range */}
+          <FilterSection label="Created Date">
+            <div className="space-y-1.5">
+              <div>
+                <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-zinc-400">
+                  From
+                </p>
+                <Input
+                  type="date"
+                  value={filters.dateFrom}
+                  onChange={(e) =>
+                    onUpdate({
+                      dateFrom: e.target.value || null,
+                      qstart: null,
+                      qend: null,
+                      page: "1",
+                    })
+                  }
+                />
+              </div>
+              <div>
+                <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-zinc-400">
+                  To
+                </p>
+                <Input
+                  type="date"
+                  value={filters.dateTo}
+                  onChange={(e) =>
+                    onUpdate({
+                      dateTo: e.target.value || null,
+                      qstart: null,
+                      qend: null,
+                      page: "1",
+                    })
+                  }
+                />
+              </div>
+            </div>
+          </FilterSection>
+
           {/* Status */}
           {fields && fields.statuses.length > 0 && (
             <FilterSection label="Status">
@@ -520,36 +615,6 @@ function MoreFiltersSheet({
               </div>
             </FilterSection>
           )}
-
-          {/* Date range */}
-          <FilterSection label="Created Date">
-            <div className="space-y-1.5">
-              <div>
-                <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-zinc-400">
-                  From
-                </p>
-                <Input
-                  type="date"
-                  value={filters.dateFrom}
-                  onChange={(e) =>
-                    onUpdate({ dateFrom: e.target.value || null, page: "1" })
-                  }
-                />
-              </div>
-              <div>
-                <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-zinc-400">
-                  To
-                </p>
-                <Input
-                  type="date"
-                  value={filters.dateTo}
-                  onChange={(e) =>
-                    onUpdate({ dateTo: e.target.value || null, page: "1" })
-                  }
-                />
-              </div>
-            </div>
-          </FilterSection>
 
           {/* Has comments */}
           <FilterSection label="Other">
