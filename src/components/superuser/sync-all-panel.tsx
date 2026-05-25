@@ -9,6 +9,17 @@ import {
   RiLoader4Line,
   RiRefreshLine,
 } from "@remixicon/react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -200,14 +211,36 @@ export function SyncAllPanel({ projects }: { projects: Project[] }) {
               Cancel
             </Button>
           )}
-          <Button
-            onClick={handleSyncAll}
-            disabled={isRunning || selected.size === 0}
-            className="gap-2 shrink-0"
-          >
-            <RiRefreshLine className={cn("size-4", isRunning && "animate-spin")} />
-            {isRunning ? "Syncing…" : isDone ? "Sync Again" : "Sync Selected"}
-          </Button>
+          {isRunning ? (
+            <Button disabled className="gap-2 shrink-0">
+              <RiRefreshLine className="size-4 animate-spin" />
+              Syncing…
+            </Button>
+          ) : (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button disabled={selected.size === 0} className="gap-2 shrink-0">
+                  <RiRefreshLine className="size-4" />
+                  {isDone ? "Sync Again" : "Sync Selected"}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Sync {selected.size} project{selected.size !== 1 ? "s" : ""}?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Resyncing is an expensive and time-consuming operation. It will re-fetch all
+                    issues from Jira for the selected projects sequentially. This may take several
+                    minutes to complete and cannot be undone mid-sync without leaving data in a
+                    partial state.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleSyncAll}>Proceed</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
       </div>
 
