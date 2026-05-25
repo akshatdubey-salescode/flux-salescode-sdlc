@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { eq, and } from "drizzle-orm";
-import { updateTag } from "next/cache";
+import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
 import { freshdeskTickets, jiraProjects } from "@/lib/db/schema";
 import { fdStatusLabel, fdPriorityLabel } from "@/lib/freshdesk/client";
@@ -134,6 +134,6 @@ export async function POST(req: Request) {
   }
 
   console.log("[freshdesk-webhook] upserted ticket %d (project %s)", ticketId, project.id);
-  updateTag("jira-issues");
+  revalidateTag("jira-issues", "max");
   return NextResponse.json({ ok: true });
 }

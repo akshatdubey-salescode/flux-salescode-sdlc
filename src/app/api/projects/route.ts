@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { cacheLife, cacheTag, updateTag } from "next/cache";
+import { cacheLife, cacheTag, revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
 import { jiraProjects } from "@/lib/db/schema";
 import { requireAuth, requireRole } from "@/lib/auth/server";
@@ -112,7 +112,7 @@ export async function POST(request: Request) {
   // can be re-synced via the /sync endpoint afterward)
   const syncResult = await syncProject(project.id);
 
-  updateTag("projects");
+  revalidateTag("projects", "max");
 
   return Response.json(
     {

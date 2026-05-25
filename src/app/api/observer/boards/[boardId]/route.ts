@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { eq, and } from "drizzle-orm";
-import { updateTag } from "next/cache";
+import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
@@ -67,7 +67,7 @@ export async function PATCH(request: Request, { params }: Params) {
       .where(eq(observerBoards.id, boardId))
       .returning();
 
-    updateTag(`board:${boardId}`);
+    revalidateTag(`board:${boardId}`, "max");
     return NextResponse.json(updated);
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -90,7 +90,7 @@ export async function DELETE(_req: Request, { params }: Params) {
 
     await db.delete(observerBoards).where(eq(observerBoards.id, boardId));
 
-    updateTag(`board:${boardId}`);
+    revalidateTag(`board:${boardId}`, "max");
     return NextResponse.json({ success: true });
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

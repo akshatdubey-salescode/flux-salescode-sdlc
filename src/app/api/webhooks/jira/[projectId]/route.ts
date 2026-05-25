@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { eq, and } from "drizzle-orm";
-import { updateTag } from "next/cache";
+import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
 import { jiraProjects, jiraIssues } from "@/lib/db/schema";
 import { decrypt } from "@/lib/crypto";
@@ -189,8 +189,8 @@ export async function POST(
     return new Response("Internal error", { status: 500 });
   }
 
-  updateTag("jira-issues");
-  updateTag(`project:${projectId}`);
+  revalidateTag("jira-issues", "max");
+  revalidateTag(`project:${projectId}`, "max");
 
   return new Response("OK", { status: 200 });
 }

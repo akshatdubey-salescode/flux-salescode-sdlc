@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { desc } from "drizzle-orm";
-import { cacheLife, cacheTag, updateTag } from "next/cache";
+import { cacheLife, cacheTag, revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
       })
       .returning();
 
-    updateTag("jira-issues");
+    revalidateTag("jira-issues", "max");
     return NextResponse.json(board, { status: 201 });
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
