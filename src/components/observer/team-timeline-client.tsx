@@ -19,11 +19,13 @@ import {
   RiSearchLine,
   RiArrowUpSLine,
   RiArrowDownSLine,
+  RiInformationLine,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type {
   TimelineResponse,
   TimelineMember,
@@ -246,9 +248,15 @@ function DatePicker({
 function DateFilterBar({
   filter,
   onChange,
+  quarterStart,
+  quarterEnd,
+  onQuarterChange,
 }: {
   filter: DateFilter;
   onChange: (f: DateFilter) => void;
+  quarterStart: string;
+  quarterEnd: string;
+  onQuarterChange: (start: string, end: string) => void;
 }) {
   const today = todayStr();
 
@@ -290,9 +298,12 @@ function DateFilterBar({
     },
   ];
 
+  const quarterChips = getRelevantQuarters();
+
   return (
     <div className="flex flex-col gap-3 mb-6">
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
         {/* Mode toggle */}
         <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-700 p-0.5 bg-zinc-100 dark:bg-zinc-800 shadow-sm">
           <button
@@ -411,6 +422,42 @@ function DateFilterBar({
             </div>
           </>
         )}
+        </div>
+
+        {/* Quarter chips — extreme right (independent of date filter) */}
+        <div className="flex items-center gap-1.5">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="flex items-center justify-center size-4 rounded-full text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 cursor-default transition-colors">
+                  <RiInformationLine size={14} />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-xs text-left leading-snug">
+                Shows only Jiras created within the selected quarter.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <div className="flex gap-1">
+          {quarterChips.map((c) => {
+            const active = quarterStart === c.start && quarterEnd === c.end;
+            return (
+              <button
+                key={`${c.label}-${c.year}`}
+                onClick={() => onQuarterChange(c.start, c.end)}
+                className={`flex flex-col items-center px-3 py-1 rounded-lg border text-xs font-semibold transition-colors leading-tight ${
+                  active
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                }`}
+              >
+                <span>{c.label} <span className="font-normal opacity-60 text-[10px]">{c.year}</span></span>
+                <span className={`text-[10px] font-normal ${active ? "opacity-75" : "text-muted-foreground"}`}>{c.sublabel}</span>
+              </button>
+            );
+          })}
+          </div>
+        </div>
       </div>
 
       {/* Active range label */}
@@ -433,9 +480,11 @@ function DateFilterBar({
 function SummaryCards({
   summary,
   onUnplannedClick,
+  quarterLabel,
 }: {
   summary: TimelineResponse["summary"];
   onUnplannedClick: () => void;
+  quarterLabel?: string;
 }) {
   const stats: { label: string; value: number; dot: string | null }[] = [
     { label: "Active", value: summary.active, dot: null },
@@ -464,7 +513,7 @@ function SummaryCards({
           {summary.unplanned}
         </span>
         <span className="text-xs text-zinc-400 dark:text-zinc-500 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors">
-          Unplanned →
+          Unplanned{quarterLabel ? ` in ${quarterLabel}` : ""} →
         </span>
       </button>
     </div>
@@ -709,14 +758,30 @@ function MemberTimelineCard({
 
 type UnplannedFilter = "all" | "missing_start" | "missing_due" | "missing_both";
 
-function quarterBounds(year: number, q: number): { start: string; end: string } {
-  const starts = [`${year}-01-01`, `${year}-04-01`, `${year}-07-01`, `${year}-10-01`];
-  const ends   = [`${year}-03-31`, `${year}-06-30`, `${year}-09-30`, `${year}-12-31`];
-  return { start: starts[q - 1], end: ends[q - 1] };
+// Indian Financial Year: Q1=Apr–Jun, Q2=Jul–Sep, Q3=Oct–Dec, Q4=Jan–Mar
+function quarterBounds(fyStartYear: number, q: number): { start: string; end: string } {
+  const y = fyStartYear;
+  const dates = [
+    { start: `${y}-04-01`,   end: `${y}-06-30`   }, // Q1 Apr–Jun
+    { start: `${y}-07-01`,   end: `${y}-09-30`   }, // Q2 Jul–Sep
+    { start: `${y}-10-01`,   end: `${y}-12-31`   }, // Q3 Oct–Dec
+    { start: `${y+1}-01-01`, end: `${y+1}-03-31` }, // Q4 Jan–Mar (next cal year)
+  ];
+  return dates[q - 1];
+}
+
+// Returns the calendar year in which the current FY started (April)
+function currentFyStartYear(): number {
+  const now = new Date();
+  return now.getMonth() + 1 >= 4 ? now.getFullYear() : now.getFullYear() - 1;
 }
 
 function currentQuarterNum(): number {
-  return Math.ceil((new Date().getMonth() + 1) / 3);
+  const month = new Date().getMonth() + 1;
+  if (month >= 4 && month <= 6) return 1;
+  if (month >= 7 && month <= 9) return 2;
+  if (month >= 10) return 3;
+  return 4; // Jan–Mar
 }
 
 const UNPLANNED_PAGE_SIZE = 10;
@@ -800,19 +865,13 @@ function UnplannedTableRow({ issue, preview }: { issue: UnplannedIssue; preview?
 // Unplanned tab with creation-date filter (uses its own API)
 // ---------------------------------------------------------------------------
 
-function getRelevantQuarters(pastCount: number) {
-  const now = new Date();
-  const curYear = now.getFullYear();
-  const curQ = Math.ceil((now.getMonth() + 1) / 3);
-  const monthRanges = ["Jan–Mar", "Apr–Jun", "Jul–Sep", "Oct–Dec"];
-  const result = [];
-  for (let i = pastCount; i >= 0; i--) {
-    let q = curQ - i;
-    let y = curYear;
-    while (q <= 0) { q += 4; y--; }
-    result.push({ label: `Q${q}`, year: y, sublabel: monthRanges[q - 1], ...quarterBounds(y, q) });
-  }
-  return result;
+function getRelevantQuarters() {
+  const monthRanges = ["Apr–Jun", "Jul–Sep", "Oct–Dec", "Jan–Mar"];
+  const fyStart = currentFyStartYear();
+  return [1, 2, 3, 4].map((q) => {
+    const displayYear = q === 4 ? fyStart + 1 : fyStart;
+    return { label: `Q${q}`, year: displayYear, sublabel: monthRanges[q - 1], ...quarterBounds(fyStart, q) };
+  });
 }
 
 function TableMultiSelect({
@@ -1176,16 +1235,10 @@ function UnplannedPersonTable({
   );
 }
 
-function UnplannedWithDateFilter({ boardId }: { boardId: string }) {
+function UnplannedWithDateFilter({ boardId, start, end }: { boardId: string; start: string; end: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const thisQ = currentQuarterNum();
-  const thisYear = new Date().getFullYear();
-  const defaultBounds = quarterBounds(thisYear, thisQ);
-
-  const start = searchParams.get("ustart") ?? defaultBounds.start;
-  const end = searchParams.get("uend") ?? defaultBounds.end;
   const typeFilter = (searchParams.get("utype") ?? "all") as UnplannedFilter;
 
   const [uqInput, setUqInput] = useState(() => searchParams.get("uq") ?? "");
@@ -1233,9 +1286,6 @@ function UnplannedWithDateFilter({ boardId }: { boardId: string }) {
     router.replace(`?${params.toString()}`, { scroll: false });
   }, [debouncedUq]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Past 2 quarters + current quarter (no future)
-  const quarterChips = getRelevantQuarters(2);
-
   function filterIssues(issues: UnplannedPersonGroup["issues"]) {
     if (typeFilter === "missing_start") return issues.filter((i) => i.missingStart);
     if (typeFilter === "missing_due")   return issues.filter((i) => i.missingDue);
@@ -1265,40 +1315,10 @@ function UnplannedWithDateFilter({ boardId }: { boardId: string }) {
           ))}
         </div>
 
-        {/* Right: quarter chips + custom date pickers */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex gap-1">
-            {quarterChips.map((c) => {
-              const active = start === c.start && end === c.end;
-              return (
-                <button
-                  key={`${c.label}-${c.year}`}
-                  onClick={() => updateUnplannedParams({ ustart: c.start, uend: c.end })}
-                  className={`flex flex-col items-center px-3 py-1 rounded-lg border text-xs font-semibold transition-colors leading-tight ${
-                    active
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
-                  }`}
-                >
-                  <span>{c.label} <span className="font-normal opacity-60 text-[10px]">{c.year}</span></span>
-                  <span className={`text-[10px] font-normal ${active ? "opacity-75" : "text-muted-foreground"}`}>{c.sublabel}</span>
-                </button>
-              );
-            })}
-          </div>
-          <div className="w-px h-8 bg-zinc-200 dark:bg-zinc-700 mx-0.5" />
-          <DatePicker
-            value={start}
-            onChange={(d) => updateUnplannedParams({ ustart: d > end ? end : d })}
-            placeholder="From"
-          />
-          <span className="text-xs text-muted-foreground">→</span>
-          <DatePicker
-            value={end}
-            onChange={(d) => updateUnplannedParams({ uend: d < start ? start : d })}
-            placeholder="To"
-          />
-        </div>
+        {/* Right: active date range label */}
+        <span className="text-xs text-muted-foreground">
+          {formatDisplayDate(start)} → {formatDisplayDate(end)}
+        </span>
       </div>
 
       {/* Search */}
@@ -1409,6 +1429,11 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
   const spTstart = searchParams.get("tstart") ?? todayStr();
   const spTend = searchParams.get("tend") ?? offsetDate(todayStr(), 6);
 
+  // Quarter filter — independent of date filter, controls unplanned Jiras by creation date
+  const defaultQBounds = quarterBounds(currentFyStartYear(), currentQuarterNum());
+  const ustart = searchParams.get("ustart") ?? defaultQBounds.start;
+  const uend = searchParams.get("uend") ?? defaultQBounds.end;
+
   // Local state for search so every keystroke doesn't trigger router.replace
   const [qInput, setQInput] = useState(() => searchParams.get("q") ?? "");
   const debouncedQ = useDebounce(qInput, 350);
@@ -1450,6 +1475,10 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
     }
   }
 
+  function setQuarter(start: string, end: string) {
+    updateParams({ ustart: start, uend: end });
+  }
+
   // Sync debounced search to URL (skip first mount to avoid redundant replace)
   useEffect(() => {
     if (!isMounted.current) { isMounted.current = true; return; }
@@ -1459,18 +1488,19 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
     router.replace(`?${params.toString()}`, { scroll: false });
   }, [debouncedQ]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function buildUrl(f: DateFilter): string {
+  function buildUrl(f: DateFilter, qs: string, qe: string): string {
     const base = `/api/observer/boards/${boardId}/timeline`;
-    if (f.mode === "single") return `${base}?date=${f.date}`;
-    return `${base}?start=${f.start}&end=${f.end}`;
+    const qPart = `ustart=${qs}&uend=${qe}`;
+    if (f.mode === "single") return `${base}?date=${f.date}&${qPart}`;
+    return `${base}?start=${f.start}&end=${f.end}&${qPart}`;
   }
 
   const load = useCallback(
-    async (f: DateFilter) => {
+    async (f: DateFilter, qs: string, qe: string) => {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(buildUrl(f));
+        const res = await fetch(buildUrl(f, qs, qe));
         if (res.ok) {
           setData(await res.json());
         } else {
@@ -1483,12 +1513,12 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
         setLoading(false);
       }
     },
-    [boardId]
+    [boardId] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   useEffect(() => {
-    load(filter);
-  }, [filter, load]);
+    load(filter, ustart, uend);
+  }, [filter, ustart, uend, load]);
 
   // Gantt dates derived from the top-level filter (single date → 7-day window)
   const ganttStart = filter.mode === "single" ? filter.date : filter.start;
@@ -1503,7 +1533,7 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
       <div className="py-12 text-center">
         <p className="text-sm text-destructive mb-2">{error}</p>
         <button
-          onClick={() => load(filter)}
+          onClick={() => load(filter, ustart, uend)}
           className="text-xs text-muted-foreground hover:text-foreground underline"
         >
           Try again
@@ -1514,7 +1544,13 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
 
   return (
     <div>
-      <DateFilterBar filter={filter} onChange={setFilter} />
+      <DateFilterBar
+        filter={filter}
+        onChange={setFilter}
+        quarterStart={ustart}
+        quarterEnd={uend}
+        onQuarterChange={setQuarter}
+      />
 
       {loading ? (
         <div className="space-y-3 animate-pulse">
@@ -1528,6 +1564,11 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
           <SummaryCards
             summary={data.summary}
             onUnplannedClick={() => setActiveTab("unplanned")}
+            quarterLabel={(() => {
+              const chips = getRelevantQuarters();
+              const match = chips.find(c => c.start === ustart && c.end === uend);
+              return match ? `${match.label} ${match.year}` : undefined;
+            })()}
           />
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -1539,7 +1580,7 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
               </TabsList>
 
               <button
-                onClick={() => load(filter)}
+                onClick={() => load(filter, ustart, uend)}
                 disabled={loading}
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
@@ -1599,7 +1640,7 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
             </TabsContent>
 
             <TabsContent value="unplanned">
-              <UnplannedWithDateFilter boardId={boardId} />
+              <UnplannedWithDateFilter boardId={boardId} start={ustart} end={uend} />
             </TabsContent>
           </Tabs>
         </>

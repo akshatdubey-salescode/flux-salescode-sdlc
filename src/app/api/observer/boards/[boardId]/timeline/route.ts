@@ -136,7 +136,9 @@ export async function GET(req: Request, { params }: Params) {
     const filterStart = url.searchParams.get("start") ?? singleDate ?? today;
     const filterEnd = url.searchParams.get("end") ?? singleDate ?? today;
 
-    const data = await fetchBoardTimeline(boardId, filterStart, filterEnd, today);
+    const uFilterStart = url.searchParams.get("ustart") ?? null;
+    const uFilterEnd = url.searchParams.get("uend") ?? null;
+    const data = await fetchBoardTimeline(boardId, filterStart, filterEnd, today, uFilterStart, uFilterEnd);
     if (data === null) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json(data);
   } catch (err) {
@@ -149,7 +151,9 @@ async function fetchBoardTimeline(
   boardId: string,
   filterStart: string,
   filterEnd: string,
-  referenceDate: string
+  referenceDate: string,
+  uFilterStart: string | null = null,
+  uFilterEnd: string | null = null,
 ) {
   "use cache";
   cacheLife("minutes");
@@ -210,6 +214,13 @@ async function fetchBoardTimeline(
     const email = raw.assignee_email;
 
     if (!startDate || !dueDate) {
+      // Filter by creation date if quarter bounds provided
+      if (uFilterStart && uFilterEnd && raw.jira_created_at) {
+        const createdDate = raw.jira_created_at.slice(0, 10);
+        if (createdDate < uFilterStart || createdDate > uFilterEnd) continue;
+      } else if (uFilterStart && uFilterEnd && !raw.jira_created_at) {
+        continue; // exclude issues with no creation date when a quarter filter is active
+      }
       const list = unplannedByEmail.get(email) ?? [];
       list.push({
         id: raw.id,
