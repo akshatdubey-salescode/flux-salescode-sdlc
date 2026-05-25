@@ -130,15 +130,15 @@ const LABEL_CONFIG: Record<
     badgeText: "At Risk",
   },
   on_track: {
-    dot: "bg-emerald-500",
-    border: "border-l-emerald-500",
-    badge: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400",
+    dot: "bg-blue-500",
+    border: "border-l-blue-500",
+    badge: "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400",
     badgeText: "On Track",
   },
   done: {
-    dot: "bg-zinc-400",
-    border: "border-l-zinc-300 dark:border-l-zinc-700",
-    badge: "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
+    dot: "bg-emerald-500",
+    border: "border-l-emerald-500",
+    badge: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400",
     badgeText: "Done",
   },
 };
@@ -153,7 +153,7 @@ function priorityColor(priority: string | null): string {
     case "medium":
       return "text-amber-600 dark:text-amber-400";
     default:
-      return "text-zinc-400 dark:text-zinc-500";
+      return "text-muted-foreground";
   }
 }
 
@@ -163,7 +163,7 @@ function statusChipClass(statusCategory: string | null): string {
     return "text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-100 dark:border-emerald-900/50";
   if (cat.includes("progress") || cat === "indeterminate")
     return "text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-100 dark:border-amber-900/50";
-  return "text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700";
+  return "text-muted-foreground bg-muted border-border";
 }
 
 // ---------------------------------------------------------------------------
@@ -218,7 +218,7 @@ function DatePicker({
         <Button
           variant="outline"
           size="sm"
-          className="h-7 gap-2 font-medium min-w-[120px] justify-start bg-white dark:bg-zinc-900 shadow-sm"
+          className="h-7 gap-2 font-medium min-w-[120px] justify-start bg-background shadow-sm"
         >
           <RiCalendarLine size={14} className="text-muted-foreground" />
           {value ? formatDisplayDate(value) : (placeholder ?? "Pick date")}
@@ -303,13 +303,13 @@ function DateFilterBar({
       <div className="flex items-center gap-x-6 gap-y-3 flex-wrap">
         <div className="flex items-center gap-2">
           {/* Mode toggle */}
-          <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-700 p-0.5 bg-zinc-100 dark:bg-zinc-800 shadow-sm">
+          <div className="inline-flex rounded-lg border border-border p-0.5 bg-muted text-muted-foreground shadow-sm">
             <button
               onClick={() => setMode("single")}
               className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
                 filter.mode === "single"
-                  ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50 shadow-sm"
-                  : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               Single Date
@@ -318,15 +318,15 @@ function DateFilterBar({
               onClick={() => setMode("range")}
               className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
                 filter.mode === "range"
-                  ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50 shadow-sm"
-                  : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               Date Range
             </button>
           </div>
 
-          <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-700 mx-1" />
+          <div className="w-px h-4 bg-border mx-1" />
 
           <div className="flex items-center gap-2">
             {filter.mode === "single" ? (
@@ -336,7 +336,7 @@ function DateFilterBar({
                     onClick={() =>
                       onChange({ mode: "single", date: offsetDate(filter.date, -1) })
                     }
-                    className="size-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors text-zinc-500"
+                    className="size-7 flex items-center justify-center rounded-md border border-input bg-background shadow-sm hover:bg-muted transition-colors text-muted-foreground"
                     title="Previous day"
                   >
                     <RiArrowLeftSLine size={15} />
@@ -351,7 +351,7 @@ function DateFilterBar({
                     onClick={() =>
                       onChange({ mode: "single", date: offsetDate(filter.date, 1) })
                     }
-                    className="size-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors text-zinc-500"
+                    className="size-7 flex items-center justify-center rounded-md border border-input bg-background shadow-sm hover:bg-muted transition-colors text-muted-foreground"
                     title="Next day"
                   >
                     <RiArrowRightSLine size={15} />
@@ -366,7 +366,7 @@ function DateFilterBar({
                       className={`px-2.5 py-1 text-xs rounded-md border font-medium transition-colors ${
                         filter.date === chip.date
                           ? "bg-primary text-primary-foreground border-primary"
-                          : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                          : "border-input bg-background text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground"
                       }`}
                     >
                       {chip.label}
@@ -416,7 +416,7 @@ function DateFilterBar({
                         filter.start === chip.start &&
                         filter.end === chip.end
                           ? "bg-primary text-primary-foreground border-primary"
-                          : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                          : "border-input bg-background text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground"
                       }`}
                     >
                       {chip.label}
@@ -430,9 +430,9 @@ function DateFilterBar({
 
         {/* Quarter chips — independent of date filter */}
         <div className="flex items-center gap-2">
-          <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-700 mx-1 hidden lg:block" />
+          <div className="w-px h-4 bg-border mx-1 hidden lg:block" />
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest hidden sm:inline">Quarter</span>
+            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest hidden sm:inline">Quarter</span>
             <div className="flex gap-1">
             {quarterChips.map((c) => {
               const active = quarterStart === c.start && quarterEnd === c.end;
@@ -445,7 +445,7 @@ function DateFilterBar({
                         className={`h-7 px-2.5 rounded-md border text-xs font-medium transition-colors flex items-center gap-1.5 ${
                           active
                             ? "bg-primary text-primary-foreground border-primary"
-                            : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                            : "border-input bg-background text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground"
                         }`}
                       >
                         <span className="font-semibold">{c.label}</span>
@@ -467,15 +467,15 @@ function DateFilterBar({
 
       {/* Active range label */}
       {filter.mode === "range" && (
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800 w-fit">
-          <RiInformationLine size={14} className="text-zinc-400" />
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-muted/50 border border-border w-fit">
+          <RiInformationLine size={14} className="text-muted-foreground" />
           <p className="text-[11px] text-muted-foreground">
             Showing issues active between{" "}
-            <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+            <span className="font-semibold text-foreground">
               {formatDisplayDate(filter.start)}
             </span>{" "}
             and{" "}
-            <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+            <span className="font-semibold text-foreground">
               {formatDisplayDate(filter.end)}
             </span>
           </p>
@@ -502,25 +502,25 @@ function SummaryCards({
   ];
 
   return (
-    <div className="flex items-stretch mb-6 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 divide-x divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+    <div className="flex items-stretch mb-6 rounded-lg border border-border bg-card divide-x divide-border overflow-hidden">
       {stats.map((stat) => (
         <div key={stat.label} className="flex items-center gap-2.5 px-5 py-3 flex-1">
           {stat.dot && <span className={`size-1.5 rounded-full shrink-0 ${stat.dot}`} />}
-          <span className="text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
+          <span className="text-sm font-semibold tabular-nums text-foreground">
             {stat.value}
           </span>
-          <span className="text-xs text-zinc-400 dark:text-zinc-500">{stat.label}</span>
+          <span className="text-xs text-muted-foreground">{stat.label}</span>
         </div>
       ))}
 
       <button
         onClick={onUnplannedClick}
-        className="flex items-center gap-2.5 px-5 py-3 flex-1 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors group"
+        className="flex items-center gap-2.5 px-5 py-3 flex-1 text-left hover:bg-muted/50 transition-colors group"
       >
-        <span className="text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">
+        <span className="text-sm font-semibold tabular-nums text-foreground">
           {summary.unplanned}
         </span>
-        <span className="text-xs text-zinc-400 dark:text-zinc-500 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors">
+        <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
           Unplanned{quarterLabel ? ` in ${quarterLabel}` : ""} →
         </span>
       </button>
@@ -556,8 +556,8 @@ function TimelineTableRow({ issue }: { issue: TimelineIssue }) {
   return (
     <tr className={`transition-colors ${
       issue.label === "done"
-        ? "bg-zinc-50/50 dark:bg-zinc-900/20 hover:bg-zinc-50 dark:hover:bg-zinc-900/40"
-        : "bg-white dark:bg-zinc-950 hover:bg-zinc-50 dark:hover:bg-zinc-900/60"
+        ? "bg-muted/40 hover:bg-muted/60"
+        : "bg-card hover:bg-muted/40"
     }`}>
       {/* Label dot */}
       <td className="pl-4 pr-2 py-2.5">
@@ -579,7 +579,7 @@ function TimelineTableRow({ issue }: { issue: TimelineIssue }) {
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
-          className="font-mono font-semibold text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 inline-flex items-center gap-0.5"
+          className="font-mono font-semibold text-muted-foreground hover:text-foreground inline-flex items-center gap-0.5"
         >
           {issue.jiraKey}
           <RiExternalLinkLine size={10} className="opacity-60" />
@@ -592,10 +592,10 @@ function TimelineTableRow({ issue }: { issue: TimelineIssue }) {
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
-          className={`block truncate font-medium hover:text-zinc-950 dark:hover:text-zinc-50 ${
+          className={`block truncate font-medium hover:text-foreground ${
             issue.label === "done"
-              ? "text-zinc-400 dark:text-zinc-500 line-through"
-              : "text-zinc-800 dark:text-zinc-200"
+              ? "text-muted-foreground line-through"
+              : "text-foreground"
           }`}
           title={issue.summary}
         >
@@ -616,12 +616,12 @@ function TimelineTableRow({ issue }: { issue: TimelineIssue }) {
         </span>
       </td>
       {/* Date range */}
-      <td className="px-3 py-2.5 whitespace-nowrap text-xs text-zinc-400 dark:text-zinc-500">
+      <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">
         {formatDateRange(issue.startDate, issue.dueDate)}
       </td>
       {/* Days remaining */}
       <td className="px-3 py-2.5 text-right whitespace-nowrap text-xs">
-        {daysText ? <span className={daysColor}>{daysText}</span> : <span className="text-zinc-300 dark:text-zinc-600">—</span>}
+        {daysText ? <span className={daysColor}>{daysText}</span> : <span className="text-muted-foreground/30">—</span>}
       </td>
     </tr>
   );
@@ -649,21 +649,21 @@ function MemberTimelineCard({
   const qLabel = match ? `${match.label} ${match.year}` : "selected quarter";
 
   return (
-    <div className={`rounded-xl border shadow-sm overflow-hidden ${showingUnplanned ? "border-orange-200 dark:border-orange-800/50 bg-white dark:bg-zinc-900/50" : "border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:border-zinc-900/50"}`}>
+    <div className={`rounded-xl border shadow-sm overflow-hidden ${showingUnplanned ? "border-orange-200 dark:border-orange-800/50 bg-card" : "border-border bg-card"}`}>
       {/* Header */}
       <div
         role="button"
         tabIndex={0}
         onClick={() => setCollapsed((c) => !c)}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setCollapsed((c) => !c); }}
-        className={`w-full flex items-center justify-between gap-4 px-4 py-3 border-b text-left transition-colors cursor-pointer select-none ${showingUnplanned ? "border-orange-100 dark:border-orange-900/40 bg-orange-50/40 dark:bg-orange-950/10 hover:bg-orange-50/70 dark:hover:bg-orange-950/20" : "border-zinc-100 dark:border-zinc-800/80 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/20"}`}
+        className={`w-full flex items-center justify-between gap-4 px-4 py-3 border-b text-left transition-colors cursor-pointer select-none ${showingUnplanned ? "border-orange-100 dark:border-orange-900/40 bg-orange-50/40 dark:bg-orange-950/10 hover:bg-orange-50/70 dark:hover:bg-orange-950/20" : "border-border hover:bg-muted/50"}`}
       >
         <div className="flex items-center gap-3 min-w-0">
-          <div className="size-8 rounded-full bg-gradient-to-br from-zinc-100 to-zinc-50 dark:from-zinc-800 dark:to-zinc-900 border border-zinc-200 dark:border-zinc-700 flex items-center justify-center text-[11px] font-bold text-zinc-500 shrink-0">
+          <div className="size-8 rounded-full bg-muted border border-border flex items-center justify-center text-[11px] font-bold text-muted-foreground shrink-0">
             {initials(member.name)}
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-bold text-zinc-900 dark:text-zinc-50 truncate">{member.name}</p>
+            <p className="text-sm font-bold text-foreground truncate">{member.name}</p>
             <p className="text-[11px] text-muted-foreground truncate">{member.email}</p>
           </div>
         </div>
@@ -675,9 +675,9 @@ function MemberTimelineCard({
             {counts.active - counts.atRisk - counts.overdue > 0 && (
               <span className="text-blue-600 dark:text-blue-400">{counts.active - counts.atRisk - counts.overdue} active</span>
             )}
-            {counts.done > 0 && <span className="text-zinc-400 dark:text-zinc-500">{counts.done} done</span>}
+            {counts.done > 0 && <span className="text-muted-foreground">{counts.done} done</span>}
             {counts.active === 0 && counts.done === 0 && (
-              <span className="text-zinc-400 dark:text-zinc-500">No issues on this date</span>
+              <span className="text-muted-foreground">No issues on this date</span>
             )}
             {member.unplannedCount > 0 && (
               <span className="text-orange-500 dark:text-orange-400">{member.unplannedCount} unplanned</span>
@@ -692,7 +692,7 @@ function MemberTimelineCard({
           </Link>
           <RiArrowLeftSLine
             size={14}
-            className={`text-zinc-400 transition-transform duration-200 ${collapsed ? "-rotate-90" : "rotate-90"}`}
+            className={`text-muted-foreground transition-transform duration-200 ${collapsed ? "-rotate-90" : "rotate-90"}`}
           />
         </div>
       </div>
@@ -748,18 +748,18 @@ function MemberTimelineCard({
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/80">
+                <tr className="border-b border-border bg-muted/50">
                   <th className="w-6 pl-4 pr-2 py-2.5" />
                   <th className="w-7 px-2 py-2.5" />
-                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-28">Key</th>
-                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500">Summary</th>
-                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-36">Status</th>
-                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-28">Priority</th>
-                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-36">Dates</th>
-                  <th className="px-3 py-2.5 text-right font-medium text-zinc-500 w-32">Remaining</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-28">Key</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">Summary</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-36">Status</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-28">Priority</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-36">Dates</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground w-32">Remaining</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/80">
+              <tbody className="divide-y divide-border">
                 {member.issues.map((issue) => (
                   <TimelineTableRow key={issue.id} issue={issue} />
                 ))}
@@ -783,7 +783,7 @@ function UnplannedTableRow({ issue, preview }: { issue: UnplannedIssue; preview?
   const pStyles = priorityStyles(issue.priority);
 
   return (
-    <tr className="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900/60 transition-colors">
+    <tr className="bg-card hover:bg-muted/40 transition-colors">
       <td className="px-3 py-2">
         <span
           className={`flex size-5 items-center justify-center rounded text-[10px] font-bold ${tStyles.bg} ${tStyles.text}`}
@@ -797,7 +797,7 @@ function UnplannedTableRow({ issue, preview }: { issue: UnplannedIssue; preview?
           href={jiraUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="font-mono font-semibold text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 inline-flex items-center gap-0.5"
+          className="font-mono font-semibold text-muted-foreground hover:text-foreground inline-flex items-center gap-0.5"
         >
           {issue.jiraKey}
           <RiExternalLinkLine size={10} className="opacity-60" />
@@ -808,7 +808,7 @@ function UnplannedTableRow({ issue, preview }: { issue: UnplannedIssue; preview?
           href={jiraUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="block truncate font-medium text-zinc-800 hover:text-zinc-950 dark:text-zinc-200 dark:hover:text-zinc-50"
+          className="block truncate font-medium text-foreground hover:text-foreground/80"
           title={issue.summary}
         >
           {issue.summary}
@@ -833,7 +833,7 @@ function UnplannedTableRow({ issue, preview }: { issue: UnplannedIssue; preview?
                 Missing
               </span>
             ) : (
-              <span className="text-zinc-300 dark:text-zinc-600">—</span>
+              <span className="text-muted-foreground/30">—</span>
             )}
           </td>
           <td className="px-3 py-2">
@@ -842,7 +842,7 @@ function UnplannedTableRow({ issue, preview }: { issue: UnplannedIssue; preview?
                 Missing
               </span>
             ) : (
-              <span className="text-zinc-300 dark:text-zinc-600">—</span>
+              <span className="text-muted-foreground/30">—</span>
             )}
           </td>
         </>
@@ -877,7 +877,7 @@ function TableMultiSelect({
           className={`inline-flex h-6 items-center gap-1 rounded-md border px-2 text-[11px] font-medium transition-colors ${
             active
               ? "border-primary/40 bg-primary/5 text-primary dark:bg-primary/10"
-              : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              : "border-input bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
           }`}
         >
           {label}
@@ -891,20 +891,20 @@ function TableMultiSelect({
       </PopoverTrigger>
       <PopoverContent align="start" className="w-44 p-0">
         {options.length === 0 ? (
-          <p className="px-3 py-3 text-center text-xs text-zinc-400">No options</p>
+          <p className="px-3 py-3 text-center text-xs text-muted-foreground">No options</p>
         ) : (
           <div className="max-h-52 overflow-y-auto py-1">
             {options.map((opt) => (
               <div
                 key={opt}
                 onClick={() => toggle(opt)}
-                className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted"
               >
                 <span
                   className={`flex size-3.5 shrink-0 items-center justify-center rounded border ${
                     selected.includes(opt)
                       ? "border-primary bg-primary text-primary-foreground"
-                      : "border-zinc-300 dark:border-zinc-600"
+                      : "border-input"
                   }`}
                 >
                   {selected.includes(opt) && (
@@ -913,14 +913,14 @@ function TableMultiSelect({
                     </svg>
                   )}
                 </span>
-                <span className="truncate text-zinc-700 dark:text-zinc-300">{opt}</span>
+                <span className="truncate text-foreground">{opt}</span>
               </div>
             ))}
           </div>
         )}
         {selected.length > 0 && (
-          <div className="border-t border-zinc-100 px-3 py-1.5 dark:border-zinc-800">
-            <button onClick={() => onChange([])} className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
+          <div className="border-t border-border px-3 py-1.5">
+            <button onClick={() => onChange([])} className="text-xs text-muted-foreground hover:text-foreground">
               Clear
             </button>
           </div>
@@ -944,7 +944,7 @@ function TableSortControl({
     <div className="flex items-center gap-0.5">
       <Popover>
         <PopoverTrigger asChild>
-          <button className="inline-flex h-6 items-center gap-1 rounded-l-md border border-zinc-200 bg-white px-2 text-[11px] font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800">
+          <button className="inline-flex h-6 items-center gap-1 rounded-l-md border border-input bg-background px-2 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
             Sort: {current.label}
             <RiArrowDownSLine size={11} className="opacity-50" />
           </button>
@@ -955,8 +955,8 @@ function TableSortControl({
               <button
                 key={opt.value}
                 onClick={() => onChange(opt.value, sortDir)}
-                className={`flex w-full items-center px-3 py-1.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
-                  sortBy === opt.value ? "font-semibold text-zinc-900 dark:text-zinc-100" : "text-zinc-600 dark:text-zinc-400"
+                className={`flex w-full items-center px-3 py-1.5 text-xs hover:bg-muted ${
+                  sortBy === opt.value ? "font-semibold text-foreground" : "text-muted-foreground"
                 }`}
               >
                 {opt.label}
@@ -967,7 +967,7 @@ function TableSortControl({
       </Popover>
       <button
         onClick={() => onChange(sortBy, sortDir === "asc" ? "desc" : "asc")}
-        className="inline-flex h-6 items-center rounded-r-md border border-l-0 border-zinc-200 bg-white px-1.5 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+        className="inline-flex h-6 items-center rounded-r-md border border-l-0 border-input bg-background px-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
         title={sortDir === "asc" ? "Ascending" : "Descending"}
       >
         {sortDir === "asc" ? <RiArrowUpSLine size={12} /> : <RiArrowDownSLine size={12} />}
@@ -1049,20 +1049,20 @@ function UnplannedPersonTable({
   const pageItems = visible.slice((page - 1) * UNPLANNED_PAGE_SIZE, page * UNPLANNED_PAGE_SIZE);
 
   return (
-    <div className="rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/50 shadow-sm overflow-hidden">
+    <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
       <div
         role="button"
         tabIndex={0}
         onClick={() => setCollapsed((c) => !c)}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setCollapsed((c) => !c); }}
-        className="w-full flex items-center gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800/80 text-left hover:bg-zinc-50/50 dark:hover:bg-zinc-800/20 transition-colors cursor-pointer select-none"
+        className="w-full flex items-center gap-3 px-4 py-3 border-b border-border text-left hover:bg-muted/50 transition-colors cursor-pointer select-none"
       >
-        <div className="size-7 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[11px] font-bold text-zinc-500 shrink-0">
+        <div className="size-7 rounded-full bg-muted flex items-center justify-center text-[11px] font-bold text-muted-foreground shrink-0">
           {initials(person.name)}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{person.name}</p>
+            <p className="text-sm font-semibold text-foreground">{person.name}</p>
             {person.isManager && (
               <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">Manager</span>
             )}
@@ -1077,7 +1077,7 @@ function UnplannedPersonTable({
               return !f;
             });
           }}
-          className={`relative p-1 rounded transition-colors shrink-0 ${filterOpen ? "text-primary" : "text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"}`}
+          className={`relative p-1 rounded transition-colors shrink-0 ${filterOpen ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
           title="Filter &amp; sort"
         >
           <RiFilter3Line size={13} />
@@ -1095,20 +1095,20 @@ function UnplannedPersonTable({
               return !s;
             });
           }}
-          className={`p-1 rounded transition-colors shrink-0 ${searchOpen ? "text-primary" : "text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"}`}
+          className={`p-1 rounded transition-colors shrink-0 ${searchOpen ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
           title="Search"
         >
           <RiSearchLine size={13} />
         </button>
         <RiArrowLeftSLine
           size={14}
-          className={`text-zinc-400 shrink-0 transition-transform duration-200 ${collapsed ? "-rotate-90" : "rotate-90"}`}
+          className={`text-muted-foreground shrink-0 transition-transform duration-200 ${collapsed ? "-rotate-90" : "rotate-90"}`}
         />
       </div>
       {!collapsed && (
         <>
           {searchOpen && (
-            <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/80">
+            <div className="px-3 py-2 border-b border-border">
               <div className="relative">
                 <RiSearchLine size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                 <input
@@ -1117,13 +1117,13 @@ function UnplannedPersonTable({
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search by key or title…"
-                  className="w-full pl-7 pr-3 py-1.5 text-xs rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  className="w-full pl-7 pr-3 py-1.5 text-xs rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30"
                 />
               </div>
             </div>
           )}
           {filterOpen && (
-            <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800/80 flex items-center gap-2 flex-wrap">
+            <div className="px-3 py-2 border-b border-border flex items-center gap-2 flex-wrap">
               <TableMultiSelect
                 label="Type"
                 options={availableTypes}
@@ -1142,7 +1142,7 @@ function UnplannedPersonTable({
                 selected={localFilter.status}
                 onChange={(vals) => setLocalFilter((f) => ({ ...f, status: vals }))}
               />
-              <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-700 mx-0.5" />
+              <div className="h-4 w-px bg-border mx-0.5" />
               <TableSortControl
                 sortBy={localFilter.sortBy}
                 sortDir={localFilter.sortDir}
@@ -1151,7 +1151,7 @@ function UnplannedPersonTable({
               {activeFilterCount > 0 && (
                 <button
                   onClick={() => setLocalFilter(DEFAULT_TABLE_FILTER)}
-                  className="ml-1 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 underline underline-offset-2"
+                  className="ml-1 text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
                 >
                   Clear filters
                 </button>
@@ -1161,20 +1161,20 @@ function UnplannedPersonTable({
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/80">
+                <tr className="border-b border-border bg-muted/50">
                   <th className="w-8 px-3 py-2.5" />
-                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-28">Key</th>
-                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500">Summary</th>
-                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-36">Status</th>
-                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-28">Priority</th>
-                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-24">Start</th>
-                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-24">Due</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-28">Key</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">Summary</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-36">Status</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-28">Priority</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-24">Start</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-24">Due</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/80">
+              <tbody className="divide-y divide-border">
                 {pageItems.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-6 text-center text-xs text-zinc-400">
+                    <td colSpan={7} className="px-4 py-6 text-center text-xs text-muted-foreground">
                       No issues match your search.
                     </td>
                   </tr>
@@ -1187,7 +1187,7 @@ function UnplannedPersonTable({
             </table>
           </div>
           {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-2.5 border-t border-zinc-100 dark:border-zinc-800/80 text-xs text-zinc-500">
+            <div className="flex items-center justify-between px-4 py-2.5 border-t border-border text-xs text-muted-foreground">
               <span>
                 Showing {(page - 1) * UNPLANNED_PAGE_SIZE + 1}–{Math.min(page * UNPLANNED_PAGE_SIZE, filtered.length)} of {filtered.length}
               </span>
@@ -1195,7 +1195,7 @@ function UnplannedPersonTable({
                 <button
                   onClick={() => setPage((p) => p - 1)}
                   disabled={page <= 1}
-                  className="rounded border border-zinc-200 px-2.5 py-1 font-medium hover:bg-zinc-50 disabled:pointer-events-none disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                  className="rounded border border-input px-2.5 py-1 font-medium hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
                 >
                   Previous
                 </button>
@@ -1203,7 +1203,7 @@ function UnplannedPersonTable({
                 <button
                   onClick={() => setPage((p) => p + 1)}
                   disabled={page >= totalPages}
-                  className="rounded border border-zinc-200 px-2.5 py-1 font-medium hover:bg-zinc-50 disabled:pointer-events-none disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                  className="rounded border border-input px-2.5 py-1 font-medium hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
                 >
                   Next
                 </button>
@@ -1288,7 +1288,7 @@ function UnplannedWithDateFilter({ boardId, start, end }: { boardId: string; sta
               className={`px-2.5 py-1 text-xs rounded-md border font-medium transition-colors ${
                 typeFilter === id
                   ? "bg-primary text-primary-foreground border-primary"
-                  : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                  : "border-input bg-background text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground"
               }`}
             >
               {{ all: "All", missing_start: "Missing Start", missing_due: "Missing Due", missing_both: "Missing Both" }[id]}
@@ -1310,11 +1310,11 @@ function UnplannedWithDateFilter({ boardId, start, end }: { boardId: string; sta
           value={uqInput}
           onChange={(e) => setUqInput(e.target.value)}
           placeholder="Search by name, email or Jira title…"
-          className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-primary/30"
+          className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30"
         />
       </div>
 
-      {loading && <div className="h-40 bg-zinc-100 dark:bg-zinc-800/50 rounded-xl animate-pulse" />}
+      {loading && <div className="h-40 bg-muted rounded-xl animate-pulse" />}
 
       {!loading && data && (() => {
         const uNeedle = uqInput.trim().toLowerCase();
@@ -1342,7 +1342,7 @@ function UnplannedWithDateFilter({ boardId, start, end }: { boardId: string; sta
               <div className="size-12 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center mb-3">
                 <RiCheckboxCircleLine size={22} className="text-emerald-600 dark:text-emerald-400" />
               </div>
-              <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-1">All issues are planned</p>
+              <p className="text-sm font-semibold text-foreground mb-1">All issues are planned</p>
               <p className="text-xs text-muted-foreground">No planned or unplanned jiras that were created in the {qLabel}</p>
             </div>
           );
@@ -1352,7 +1352,7 @@ function UnplannedWithDateFilter({ boardId, start, end }: { boardId: string; sta
           <>
             {/* Total count summary */}
             <div className="flex items-center gap-2 mb-4">
-              <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+              <span className="text-sm font-semibold text-foreground">
                 {filteredTotal} unplanned
               </span>
               <span className="text-xs text-muted-foreground">
@@ -1539,9 +1539,9 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
 
       {loading ? (
         <div className="space-y-3 animate-pulse">
-          <div className="h-11 bg-zinc-100 dark:bg-zinc-800/50 rounded-lg mb-6" />
+          <div className="h-11 bg-muted rounded-lg mb-6" />
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-40 bg-zinc-100 dark:bg-zinc-800/50 rounded-xl" />
+            <div key={i} className="h-40 bg-muted rounded-xl" />
           ))}
         </div>
       ) : data ? (
@@ -1577,7 +1577,7 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
             <TabsContent value="timeline">
               {data.members.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-center">
-                  <RiInboxLine size={28} className="text-zinc-300 dark:text-zinc-700 mb-3" />
+                  <RiInboxLine size={28} className="text-muted-foreground mb-3" />
                   <p className="text-sm text-muted-foreground">
                     No members on this board yet.
                   </p>
@@ -1601,7 +1601,7 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
                         value={qInput}
                         onChange={(e) => setQInput(e.target.value)}
                         placeholder="Search by name, email or Jira title…"
-                        className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                        className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30"
                       />
                     </div>
                     {filteredMembers.length === 0 ? (

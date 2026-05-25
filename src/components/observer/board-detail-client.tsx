@@ -170,11 +170,11 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
         {/* Board header */}
         <div className="flex items-start justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
               {board.name}
             </h1>
             {board.description && (
-              <p className="text-sm text-zinc-500 mt-1">{board.description}</p>
+              <p className="text-sm text-muted-foreground mt-1">{board.description}</p>
             )}
             <p className="text-xs text-muted-foreground mt-1">
               {members.length} {members.length === 1 ? "member" : "members"}
@@ -218,7 +218,7 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
       <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
         <SheetContent className="w-[400px] sm:w-[440px] flex flex-col p-0 gap-0">
           {/* Header */}
-          <div className="px-6 py-5 border-b border-zinc-100 dark:border-zinc-800 shrink-0">
+          <div className="px-6 py-5 border-b border-border shrink-0">
             <SheetHeader>
               <SheetTitle className="text-base font-semibold tracking-tight">Manage Team</SheetTitle>
             </SheetHeader>
@@ -227,10 +227,10 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
 
           <div className="flex-1 overflow-y-auto px-6 py-5 space-y-7">
             {/* Staleness setting */}
-            <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/60 p-4 space-y-3">
+            <div className="rounded-xl border border-border bg-muted/60 p-4 space-y-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200">
+                  <p className="text-[13px] font-semibold text-foreground">
                     Staleness threshold
                   </p>
                   <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
@@ -248,7 +248,7 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
                       if (!isNaN(v) && v >= 1 && v <= 90)
                         handleStalenessChange(v);
                     }}
-                    className="w-14 h-8 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-center text-sm font-semibold text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-primary/30 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-14 h-8 rounded-lg border border-input bg-background text-center text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-ring/30 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                   <span className="text-xs font-medium text-muted-foreground">days</span>
                 </div>
@@ -259,8 +259,8 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <p className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200">Members</p>
-                  <span className="text-[11px] font-bold tabular-nums px-1.5 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">
+                  <p className="text-[13px] font-semibold text-foreground">Members</p>
+                  <span className="text-[11px] font-bold tabular-nums px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground">
                     {members.length}
                   </span>
                 </div>
@@ -280,14 +280,14 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
               </div>
 
               {members.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-10 rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 text-center">
-                  <div className="size-9 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center mb-2">
-                    <RiUserLine size={16} className="text-zinc-400" />
+                <div className="flex flex-col items-center justify-center py-10 rounded-xl border border-dashed border-border text-center">
+                  <div className="size-9 rounded-full bg-muted flex items-center justify-center mb-2">
+                    <RiUserLine size={16} className="text-muted-foreground" />
                   </div>
                   <p className="text-xs text-muted-foreground">No members added yet.</p>
                 </div>
               ) : (
-                <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden divide-y divide-zinc-100 dark:divide-zinc-800">
+                <div className="rounded-xl border border-border overflow-hidden divide-y divide-border">
                   {members.map((member) => {
                     const initials = member.name
                       .split(" ")
@@ -308,14 +308,14 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
                     return (
                       <div
                         key={member.id}
-                        className="group flex items-center justify-between gap-3 px-4 py-3 bg-white dark:bg-zinc-900/50 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors"
+                        className="group flex items-center justify-between gap-3 px-4 py-3 bg-card hover:bg-muted/40 transition-colors"
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <div className={`size-8 rounded-full bg-gradient-to-br ${color} flex items-center justify-center text-[11px] font-bold text-white shrink-0 shadow-sm`}>
                             {initials}
                           </div>
                           <div className="min-w-0">
-                            <p className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200 truncate leading-tight">
+                            <p className="text-[13px] font-semibold text-foreground truncate leading-tight">
                               {member.name}
                             </p>
                             <p className="text-[11px] text-muted-foreground truncate">
@@ -325,7 +325,7 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
                         </div>
                         <button
                           onClick={() => setRemoveMember(member)}
-                          className="opacity-0 group-hover:opacity-100 text-zinc-300 dark:text-zinc-600 hover:text-destructive transition-all shrink-0"
+                          className="opacity-0 group-hover:opacity-100 text-muted-foreground/50 hover:text-destructive transition-all shrink-0"
                           title="Remove from board"
                         >
                           <RiDeleteBin6Line size={15} />
@@ -439,14 +439,14 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
 
 function EmptyMembersState({ onAdd }: { onAdd: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-zinc-300 bg-white px-8 py-16 text-center dark:border-zinc-700 dark:bg-zinc-900">
+    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card px-8 py-16 text-center">
       <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 mb-4">
         <RiUserLine size={22} className="text-primary" />
       </div>
-      <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-50 mb-2">
+      <h3 className="text-base font-semibold text-foreground mb-2">
         No members yet
       </h3>
-      <p className="text-sm text-zinc-500 dark:text-zinc-400 max-w-xs mb-5">
+      <p className="text-sm text-muted-foreground max-w-xs mb-5">
         Add team members to start tracking their Jira workload and timeline.
       </p>
       <Button size="sm" onClick={onAdd} className="gap-1.5">

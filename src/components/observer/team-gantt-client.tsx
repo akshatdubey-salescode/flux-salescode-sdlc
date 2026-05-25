@@ -73,7 +73,7 @@ const BAR_CLASSES: Record<IssueLabel, string> = {
   on_track: "bg-blue-500 hover:bg-blue-600 text-white",
   at_risk:  "bg-amber-400 hover:bg-amber-500 text-amber-950",
   overdue:  "bg-red-500 hover:bg-red-600 text-white",
-  done:     "bg-zinc-300 hover:bg-zinc-400 text-zinc-600 dark:bg-zinc-600 dark:hover:bg-zinc-500 dark:text-zinc-200",
+  done:     "bg-emerald-500 hover:bg-emerald-600 text-white dark:bg-emerald-600 dark:hover:bg-emerald-500",
 };
 
 
@@ -435,7 +435,7 @@ export function TeamGanttClient({ boardId, start, end }: Props) {
                 ["bg-blue-500", "On Track"],
                 ["bg-amber-400", "At Risk"],
                 ["bg-red-500", "Overdue"],
-                ["bg-zinc-300 dark:bg-zinc-600", "Done"],
+                ["bg-emerald-500 dark:bg-emerald-600", "Done"],
               ] as [string, string][]
             ).map(([bg, label]) => (
               <span key={label} className="flex items-center gap-1">
