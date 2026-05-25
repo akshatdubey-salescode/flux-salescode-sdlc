@@ -8,6 +8,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UserInsightsDashboard } from "./user-insights-dashboard";
 import { usePinnedTasks } from "./use-pinned-tasks";
 import type { MyTasksFields, MyTasksFilterState, TrackingIssue } from "./helpers";
+import {
+  quarterBounds,
+  currentFyStartYear,
+  currentQuarterNum,
+} from "@/lib/date-utils";
 
 const SHOW_COMPLETED_KEY = "myTasks.showCompleted";
 
@@ -34,6 +39,21 @@ function readFilters(
   const showCompleted =
     urlShowCompleted !== null ? urlShowCompleted === "true" : readShowCompletedPref();
 
+  const qstartParam = searchParams.get("qstart");
+  const qendParam = searchParams.get("qend");
+
+  let qstart = "";
+  let qend = "";
+
+  if (qstartParam === null) {
+    const defaultBounds = quarterBounds(currentFyStartYear(), currentQuarterNum());
+    qstart = defaultBounds.start;
+    qend = defaultBounds.end;
+  } else if (qstartParam !== "all") {
+    qstart = qstartParam;
+    qend = qendParam ?? "";
+  }
+
   return {
     q: searchParams.get("q") ?? "",
     projects: searchParams.get("projects")?.split(",").filter(Boolean) ?? [],
@@ -45,8 +65,8 @@ function readFilters(
     labels: searchParams.get("labels")?.split(",").filter(Boolean) ?? [],
     dateFrom: searchParams.get("dateFrom") ?? "",
     dateTo: searchParams.get("dateTo") ?? "",
-    qstart: searchParams.get("qstart") ?? "",
-    qend: searchParams.get("qend") ?? "",
+    qstart,
+    qend,
     hasComments: searchParams.get("hasComments") === "true",
     showCompleted,
     sortBy: searchParams.get("sortBy") ?? "created",
@@ -126,6 +146,16 @@ export function MyTasksView({
       .then(setFields)
       .catch(() => {});
   }, [targetEmail]);
+
+  useEffect(() => {
+    if (searchParams.get("qstart") === null) {
+      const defaultBounds = quarterBounds(currentFyStartYear(), currentQuarterNum());
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("qstart", defaultBounds.start);
+      params.set("qend", defaultBounds.end);
+      router.replace(`?${params.toString()}`, { scroll: false });
+    }
+  }, [searchParams, router]);
 
   useEffect(() => {
     const params = new URLSearchParams();

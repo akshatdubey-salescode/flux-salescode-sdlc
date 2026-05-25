@@ -75,8 +75,8 @@ export function MyTasksFilterBar({ filters, fields, onUpdate, total }: Props) {
       labels: null,
       dateFrom: null,
       dateTo: null,
-      qstart: null,
-      qend: null,
+      qstart: "all",
+      qend: "all",
       hasComments: null,
       page: "1",
     });
@@ -407,7 +407,7 @@ function ActiveChips({
     );
     chips.push({
       label: match ? `${match.label} ${match.year}` : `Quarter: ${filters.qstart}`,
-      onRemove: () => onUpdate({ qstart: null, qend: null, page: "1" }),
+      onRemove: () => onUpdate({ qstart: "all", qend: "all", page: "1" }),
     });
   }
   if (filters.dateFrom)
@@ -489,8 +489,8 @@ function MoreFiltersSheet({
                         <button
                           onClick={() =>
                             onUpdate({
-                              qstart: active ? null : c.start,
-                              qend: active ? null : c.end,
+                              qstart: active ? "all" : c.start,
+                              qend: active ? "all" : c.end,
                               dateFrom: null,
                               dateTo: null,
                               page: "1",
@@ -531,8 +531,8 @@ function MoreFiltersSheet({
                   onChange={(e) =>
                     onUpdate({
                       dateFrom: e.target.value || null,
-                      qstart: null,
-                      qend: null,
+                      qstart: "all",
+                      qend: "all",
                       page: "1",
                     })
                   }
@@ -548,8 +548,8 @@ function MoreFiltersSheet({
                   onChange={(e) =>
                     onUpdate({
                       dateTo: e.target.value || null,
-                      qstart: null,
-                      qend: null,
+                      qstart: "all",
+                      qend: "all",
                       page: "1",
                     })
                   }
