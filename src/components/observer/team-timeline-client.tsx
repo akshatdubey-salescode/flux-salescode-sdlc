@@ -302,176 +302,186 @@ function DateFilterBar({
 
   return (
     <div className="flex flex-col gap-3 mb-6">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2 flex-wrap">
-        {/* Mode toggle */}
-        <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-700 p-0.5 bg-zinc-100 dark:bg-zinc-800 shadow-sm">
-          <button
-            onClick={() => setMode("single")}
-            className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
-              filter.mode === "single"
-                ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50 shadow-sm"
-                : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
-            }`}
-          >
-            Single Date
-          </button>
-          <button
-            onClick={() => setMode("range")}
-            className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
-              filter.mode === "range"
-                ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50 shadow-sm"
-                : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
-            }`}
-          >
-            Date Range
-          </button>
+      <div className="flex items-center gap-x-6 gap-y-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          {/* Mode toggle */}
+          <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-700 p-0.5 bg-zinc-100 dark:bg-zinc-800 shadow-sm">
+            <button
+              onClick={() => setMode("single")}
+              className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                filter.mode === "single"
+                  ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50 shadow-sm"
+                  : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+              }`}
+            >
+              Single Date
+            </button>
+            <button
+              onClick={() => setMode("range")}
+              className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                filter.mode === "range"
+                  ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50 shadow-sm"
+                  : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+              }`}
+            >
+              Date Range
+            </button>
+          </div>
+
+          <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-700 mx-1" />
+
+          <div className="flex items-center gap-2">
+            {filter.mode === "single" ? (
+              <>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() =>
+                      onChange({ mode: "single", date: offsetDate(filter.date, -1) })
+                    }
+                    className="size-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors text-zinc-500"
+                    title="Previous day"
+                  >
+                    <RiArrowLeftSLine size={15} />
+                  </button>
+
+                  <DatePicker
+                    value={filter.date}
+                    onChange={(d) => onChange({ mode: "single", date: d })}
+                  />
+
+                  <button
+                    onClick={() =>
+                      onChange({ mode: "single", date: offsetDate(filter.date, 1) })
+                    }
+                    className="size-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors text-zinc-500"
+                    title="Next day"
+                  >
+                    <RiArrowRightSLine size={15} />
+                  </button>
+                </div>
+
+                <div className="flex gap-1 ml-1">
+                  {singleChips.map((chip) => (
+                    <button
+                      key={chip.label}
+                      onClick={() => onChange({ mode: "single", date: chip.date })}
+                      className={`px-2.5 py-1 text-xs rounded-md border font-medium transition-colors ${
+                        filter.date === chip.date
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                      }`}
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-1.5">
+                  <DatePicker
+                    value={filter.start}
+                    onChange={(d) =>
+                      onChange({
+                        mode: "range",
+                        start: d,
+                        end: d > filter.end ? d : filter.end,
+                      })
+                    }
+                    placeholder="Start date"
+                  />
+
+                  <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest px-1">to</span>
+
+                  <DatePicker
+                    value={filter.end}
+                    onChange={(d) =>
+                      onChange({
+                        mode: "range",
+                        start: filter.start > d ? d : filter.start,
+                        end: d,
+                      })
+                    }
+                    placeholder="End date"
+                  />
+                </div>
+
+                <div className="flex gap-1 ml-1">
+                  {rangeChips.map((chip) => (
+                    <button
+                      key={chip.label}
+                      onClick={() =>
+                        onChange({ mode: "range", start: chip.start, end: chip.end })
+                      }
+                      className={`px-2.5 py-1 text-xs rounded-md border font-medium transition-colors ${
+                        filter.mode === "range" &&
+                        filter.start === chip.start &&
+                        filter.end === chip.end
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                      }`}
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
-        <div className="w-px h-5 bg-zinc-200 dark:bg-zinc-700" />
-
-        {filter.mode === "single" ? (
-          <>
-            <button
-              onClick={() =>
-                onChange({ mode: "single", date: offsetDate(filter.date, -1) })
-              }
-              className="size-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors text-zinc-500"
-              title="Previous day"
-            >
-              <RiArrowLeftSLine size={15} />
-            </button>
-
-            <DatePicker
-              value={filter.date}
-              onChange={(d) => onChange({ mode: "single", date: d })}
-            />
-
-            <button
-              onClick={() =>
-                onChange({ mode: "single", date: offsetDate(filter.date, 1) })
-              }
-              className="size-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors text-zinc-500"
-              title="Next day"
-            >
-              <RiArrowRightSLine size={15} />
-            </button>
-
-            <div className="flex gap-1 ml-1">
-              {singleChips.map((chip) => (
-                <button
-                  key={chip.label}
-                  onClick={() => onChange({ mode: "single", date: chip.date })}
-                  className={`px-2.5 py-1 text-xs rounded-md border font-medium transition-colors ${
-                    filter.date === chip.date
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800"
-                  }`}
-                >
-                  {chip.label}
-                </button>
-              ))}
+        {/* Quarter chips — independent of date filter */}
+        <div className="flex items-center gap-2">
+          <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-700 mx-1 hidden lg:block" />
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest hidden sm:inline">Quarter</span>
+            <div className="flex gap-1">
+            {quarterChips.map((c) => {
+              const active = quarterStart === c.start && quarterEnd === c.end;
+              return (
+                <TooltipProvider key={`${c.label}-${c.year}`}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => onQuarterChange(c.start, c.end)}
+                        className={`h-7 px-2.5 rounded-md border text-xs font-medium transition-colors flex items-center gap-1.5 ${
+                          active
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                        }`}
+                      >
+                        <span className="font-semibold">{c.label}</span>
+                        <span className="opacity-60 text-[10px]">{c.year}</span>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">
+                      <p className="font-medium">{c.sublabel} {c.year}</p>
+                      <p className="text-zinc-400">Shows jiras created in this quarter.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              );
+            })}
             </div>
-          </>
-        ) : (
-          <>
-            <DatePicker
-              value={filter.start}
-              onChange={(d) =>
-                onChange({
-                  mode: "range",
-                  start: d,
-                  end: d > filter.end ? d : filter.end,
-                })
-              }
-              placeholder="Start date"
-            />
-
-            <span className="text-xs text-muted-foreground font-medium">to</span>
-
-            <DatePicker
-              value={filter.end}
-              onChange={(d) =>
-                onChange({
-                  mode: "range",
-                  start: filter.start > d ? d : filter.start,
-                  end: d,
-                })
-              }
-              placeholder="End date"
-            />
-
-            <div className="flex gap-1 ml-1">
-              {rangeChips.map((chip) => (
-                <button
-                  key={chip.label}
-                  onClick={() =>
-                    onChange({ mode: "range", start: chip.start, end: chip.end })
-                  }
-                  className={`px-2.5 py-1 text-xs rounded-md border font-medium transition-colors ${
-                    filter.mode === "range" &&
-                    filter.start === chip.start &&
-                    filter.end === chip.end
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800"
-                  }`}
-                >
-                  {chip.label}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-        </div>
-
-        {/* Quarter chips — extreme right (independent of date filter) */}
-        <div className="flex items-center gap-1.5">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="flex items-center justify-center size-4 rounded-full text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 cursor-default transition-colors">
-                  <RiInformationLine size={14} />
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-xs text-left leading-snug">
-                Shows only Jiras created within the selected quarter.
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <div className="flex gap-1">
-          {quarterChips.map((c) => {
-            const active = quarterStart === c.start && quarterEnd === c.end;
-            return (
-              <button
-                key={`${c.label}-${c.year}`}
-                onClick={() => onQuarterChange(c.start, c.end)}
-                className={`flex flex-col items-center px-3 py-1 rounded-lg border text-xs font-semibold transition-colors leading-tight ${
-                  active
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800"
-                }`}
-              >
-                <span>{c.label} <span className="font-normal opacity-60 text-[10px]">{c.year}</span></span>
-                <span className={`text-[10px] font-normal ${active ? "opacity-75" : "text-muted-foreground"}`}>{c.sublabel}</span>
-              </button>
-            );
-          })}
           </div>
         </div>
       </div>
 
       {/* Active range label */}
       {filter.mode === "range" && (
-        <p className="text-xs text-muted-foreground">
-          Showing issues active between{" "}
-          <span className="font-medium text-zinc-700 dark:text-zinc-300">
-            {formatDisplayDate(filter.start)}
-          </span>{" "}
-          and{" "}
-          <span className="font-medium text-zinc-700 dark:text-zinc-300">
-            {formatDisplayDate(filter.end)}
-          </span>
-        </p>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800 w-fit">
+          <RiInformationLine size={14} className="text-zinc-400" />
+          <p className="text-[11px] text-muted-foreground">
+            Showing issues active between{" "}
+            <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+              {formatDisplayDate(filter.start)}
+            </span>{" "}
+            and{" "}
+            <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+              {formatDisplayDate(filter.end)}
+            </span>
+          </p>
+        </div>
       )}
     </div>
   );
@@ -622,9 +632,13 @@ function TimelineTableRow({ issue }: { issue: TimelineIssue }) {
 function MemberTimelineCard({
   member,
   onSwitchToUnplanned,
+  quarterStart,
+  quarterEnd,
 }: {
   member: TimelineMember;
   onSwitchToUnplanned?: (name: string) => void;
+  quarterStart: string;
+  quarterEnd: string;
 }) {
   const { counts } = member;
   const [collapsed, setCollapsed] = useState(false);
@@ -632,8 +646,12 @@ function MemberTimelineCard({
 
   const showingUnplanned = hasNoPlanned && member.unplannedPreview.length > 0;
 
+  const chips = getRelevantQuarters();
+  const match = chips.find((c) => c.start === quarterStart && c.end === quarterEnd);
+  const qLabel = match ? `${match.label} ${match.year}` : "selected quarter";
+
   return (
-    <div className={`rounded-xl border shadow-sm overflow-hidden ${showingUnplanned ? "border-orange-200 dark:border-orange-800/50 bg-white dark:bg-zinc-900/50" : "border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-900/50"}`}>
+    <div className={`rounded-xl border shadow-sm overflow-hidden ${showingUnplanned ? "border-orange-200 dark:border-orange-800/50 bg-white dark:bg-zinc-900/50" : "border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:border-zinc-900/50"}`}>
       {/* Header */}
       <div
         role="button"
@@ -718,14 +736,14 @@ function MemberTimelineCard({
                     onClick={(e) => { e.stopPropagation(); onSwitchToUnplanned?.(member.name); }}
                     className="text-xs font-medium text-orange-500 hover:text-orange-600 dark:text-orange-400 dark:hover:text-orange-300 transition-colors"
                   >
-                    +{member.unplannedCount - 5} more unplanned →
+                    +{member.unplannedCount - 5} more unplanned in {qLabel} →
                   </button>
                 </div>
               )}
             </div>
           ) : (
             <div className="py-6 px-4 text-center">
-              <p className="text-xs text-muted-foreground italic">No Jira issues with start &amp; due dates for this date</p>
+              <p className="text-xs text-muted-foreground italic">No planned or unplanned jiras that were created in the {qLabel}</p>
             </div>
           )
         ) : (
@@ -867,10 +885,30 @@ function UnplannedTableRow({ issue, preview }: { issue: UnplannedIssue; preview?
 
 function getRelevantQuarters() {
   const monthRanges = ["Apr–Jun", "Jul–Sep", "Oct–Dec", "Jan–Mar"];
-  const fyStart = currentFyStartYear();
-  return [1, 2, 3, 4].map((q) => {
-    const displayYear = q === 4 ? fyStart + 1 : fyStart;
-    return { label: `Q${q}`, year: displayYear, sublabel: monthRanges[q - 1], ...quarterBounds(fyStart, q) };
+  const currentQ = currentQuarterNum();
+  const currentFy = currentFyStartYear();
+
+  // Pragmatic window: Last 2, Current, Next
+  return [-2, -1, 0, 1].map((offset) => {
+    let q = currentQ + offset;
+    let fy = currentFy;
+
+    while (q < 1) {
+      q += 4;
+      fy -= 1;
+    }
+    while (q > 4) {
+      q -= 4;
+      fy += 1;
+    }
+
+    const displayYear = q === 4 ? fy + 1 : fy;
+    return {
+      label: `Q${q}`,
+      year: displayYear,
+      sublabel: monthRanges[q - 1],
+      ...quarterBounds(fy, q),
+    };
   });
 }
 
@@ -1352,13 +1390,17 @@ function UnplannedWithDateFilter({ boardId, start, end }: { boardId: string; sta
         );
 
         if (filteredTotal === 0) {
+          const chips = getRelevantQuarters();
+          const match = chips.find(c => c.start === start && c.end === end);
+          const qLabel = match ? `${match.label} ${match.year}` : "selected quarter";
+
           return (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="size-12 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center mb-3">
                 <RiCheckboxCircleLine size={22} className="text-emerald-600 dark:text-emerald-400" />
               </div>
               <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-1">All issues are planned</p>
-              <p className="text-xs text-muted-foreground">No unplanned issues found for this date range.</p>
+              <p className="text-xs text-muted-foreground">No planned or unplanned jiras that were created in the {qLabel}</p>
             </div>
           );
         }
@@ -1626,7 +1668,13 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
                     ) : (
                       <div className="space-y-4">
                         {filteredMembers.map((member) => (
-                          <MemberTimelineCard key={member.memberId} member={member} onSwitchToUnplanned={(name) => updateParams({ tab: "unplanned", uq: name })} />
+                          <MemberTimelineCard
+                            key={member.memberId}
+                            member={member}
+                            onSwitchToUnplanned={(name) => updateParams({ tab: "unplanned", uq: name })}
+                            quarterStart={ustart}
+                            quarterEnd={uend}
+                          />
                         ))}
                       </div>
                     )}
