@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireAuth } from "@/lib/auth/server";
+import { isEnabled, FEATURE_FLAGS } from "@/lib/feature-flags";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
   Breadcrumb,
@@ -13,6 +15,8 @@ import { RequirementBuilderForm } from "@/components/requirement-builder";
 
 export default async function NewRequirementPage() {
   await requireAuth();
+  const enabled = await isEnabled(FEATURE_FLAGS.REQUIREMENT_BUILDER);
+  if (!enabled) redirect("/requirements");
 
   return (
     <div className="flex flex-col min-h-svh">

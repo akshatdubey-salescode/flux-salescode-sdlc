@@ -625,6 +625,19 @@ export const freshdeskTickets = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Feature Flags — runtime toggles for gating features without deploys
+// ---------------------------------------------------------------------------
+
+export const featureFlags = pgTable("feature_flags", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  description: text("description"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
 // Type exports
 // ---------------------------------------------------------------------------
 
@@ -656,4 +669,5 @@ export type FeatureRequest = typeof featureRequests.$inferSelect;
 export type NewFeatureRequest = typeof featureRequests.$inferInsert;
 export type FreshdeskTicket = typeof freshdeskTickets.$inferSelect;
 export type NewFreshdeskTicket = typeof freshdeskTickets.$inferInsert;
+export type FeatureFlag = typeof featureFlags.$inferSelect;
 

@@ -19,12 +19,14 @@ import {
   RiFolderLine,
   RiUserSettingsLine,
   RiExternalLinkLine,
+  RiFlag2Line,
 } from "@remixicon/react";
 import type { JiraProject } from "@/lib/db/schema";
 
 type Props = {
   projects: Pick<JiraProject, "id" | "name" | "jiraProjectKey">[];
   isSuperUser: boolean;
+  requirementBuilderEnabled: boolean;
 };
 
 type JiraResult = {
@@ -38,7 +40,7 @@ type JiraResult = {
 
 const JIRA_RESULT_LIMIT = 8;
 
-export function CommandPalette({ projects, isSuperUser }: Props) {
+export function CommandPalette({ projects, isSuperUser, requirementBuilderEnabled }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [jiraResults, setJiraResults] = useState<JiraResult[]>([]);
@@ -98,9 +100,12 @@ export function CommandPalette({ projects, isSuperUser }: Props) {
   const q = query.toLowerCase();
 
   const filteredNav = [
-    ...NAV_ITEMS,
+    ...NAV_ITEMS.filter(({ href }) => href !== "/requirements" || requirementBuilderEnabled),
     ...(isSuperUser
-      ? [{ label: "User Management", href: "/admin/users", icon: RiUserSettingsLine }]
+      ? [
+          { label: "User Management", href: "/admin/users", icon: RiUserSettingsLine },
+          { label: "Superuser Tools", href: "/superuser", icon: RiFlag2Line },
+        ]
       : []),
   ].filter((item) => !q || item.label.toLowerCase().includes(q));
 

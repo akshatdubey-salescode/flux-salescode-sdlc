@@ -134,6 +134,13 @@
       "when": 1779387315833,
       "tag": "0018_steady_thunderball",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1779705688012,
+      "tag": "0019_abandoned_mister_sinister",
+      "breakpoints": true
     }
   ]
 }

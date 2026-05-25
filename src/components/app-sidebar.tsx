@@ -19,6 +19,7 @@ import {
   RiArrowUpSLine,
   RiTeamLine,
   RiCloseLine,
+  RiFlag2Line,
 } from "@remixicon/react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -55,6 +56,7 @@ import type { AuthUser } from "@/lib/auth/server";
 type Props = {
   user: AuthUser;
   projects: Pick<JiraProject, "id" | "name" | "jiraProjectKey">[];
+  requirementBuilderEnabled: boolean;
 };
 
 export const NAV_ITEMS = [
@@ -66,7 +68,7 @@ export const NAV_ITEMS = [
   { label: "All Projects", href: "/projects", icon: RiBriefcaseLine },
 ];
 
-export function AppSidebar({ user, projects }: Props) {
+export function AppSidebar({ user, projects, requirementBuilderEnabled }: Props) {
   const pathname = usePathname();
   const { user: clerkUser } = useUser();
 
@@ -148,7 +150,10 @@ export function AppSidebar({ user, projects }: Props) {
         <SidebarGroup className="shrink-0">
           <SidebarGroupContent>
             <SidebarMenu>
-              {NAV_ITEMS.map(({ label, href, icon: Icon }) => (
+              {NAV_ITEMS.filter(
+                ({ href }) =>
+                  href !== "/requirements" || requirementBuilderEnabled
+              ).map(({ label, href, icon: Icon }) => (
                 <SidebarMenuItem key={href}>
                   <SidebarMenuButton
                     asChild
@@ -173,19 +178,34 @@ export function AppSidebar({ user, projects }: Props) {
                 </SidebarMenuItem>
               ))}
               {user.role === "SUPERUSER" && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname === "/admin/users"}
-                    tooltip="User Management"
-                    className="transition-all hover:bg-sidebar-accent hover:translate-x-0.5"
-                  >
-                    <Link href="/admin/users">
-                      <RiUserSettingsLine className="text-muted-foreground group-data-[active=true]:text-primary" />
-                      <span className="font-medium">User Management</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                <>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={pathname === "/admin/users"}
+                      tooltip="User Management"
+                      className="transition-all hover:bg-sidebar-accent hover:translate-x-0.5"
+                    >
+                      <Link href="/admin/users">
+                        <RiUserSettingsLine className="text-muted-foreground group-data-[active=true]:text-primary" />
+                        <span className="font-medium">User Management</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={pathname.startsWith("/superuser")}
+                      tooltip="Superuser Tools"
+                      className="transition-all hover:bg-sidebar-accent hover:translate-x-0.5"
+                    >
+                      <Link href="/superuser">
+                        <RiFlag2Line className="text-muted-foreground group-data-[active=true]:text-primary" />
+                        <span className="font-medium">Superuser Tools</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </>
               )}
             </SidebarMenu>
           </SidebarGroupContent>
