@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { sql } from "drizzle-orm";
+import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
@@ -75,7 +76,6 @@ export type TimelineResponse = {
 };
 
 function extractStartDate(cf: Record<string, unknown>): string | null {
-  // Jira Software "Start date" field — most common IDs
   const val =
     cf["customfield_10015"] ??
     cf["customfield_10014"] ??
@@ -85,24 +85,26 @@ function extractStartDate(cf: Record<string, unknown>): string | null {
 }
 
 function extractDueDate(cf: Record<string, unknown>): string | null {
+  // due_date is primary; fall back to end_date if absent
   const val =
     cf["duedate"] ??
     cf["due_date"] ??
     cf["customfield_10021"] ??
-    cf["customfield_11449"]; // end date field used in some projects
+    cf["end_date"] ??
+    cf["customfield_11449"];
   return typeof val === "string" && val ? val.slice(0, 10) : null;
 }
 
 function classifyIssue(
   statusCategory: string | null,
   dueDate: string,
-  selectedDate: string
+  referenceDate: string
 ): IssueLabel {
   const cat = (statusCategory ?? "").toLowerCase();
   if (cat === "done" || cat.includes("complete")) return "done";
 
   const daysRemaining = Math.ceil(
-    (new Date(dueDate).getTime() - new Date(selectedDate).getTime()) / 86400000
+    (new Date(dueDate).getTime() - new Date(referenceDate).getTime()) / 86400000
   );
   if (daysRemaining < 0) return "overdue";
   if (daysRemaining <= 3) return "at_risk";
@@ -130,114 +132,85 @@ export async function GET(req: Request, { params }: Params) {
     const { boardId } = await params;
     const url = new URL(req.url);
     const today = new Date().toISOString().split("T")[0];
-    // Support both single-date (?date=) and range (?start=&end=) modes
     const singleDate = url.searchParams.get("date");
     const filterStart = url.searchParams.get("start") ?? singleDate ?? today;
     const filterEnd = url.searchParams.get("end") ?? singleDate ?? today;
-    // Classification (overdue / at-risk) is always relative to today
-    const referenceDate = today;
 
-    const [board] = await db
-      .select()
-      .from(observerBoards)
-      .where(eq(observerBoards.id, boardId));
+    const data = await fetchBoardTimeline(boardId, filterStart, filterEnd, today);
+    if (data === null) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json(data);
+  } catch (err) {
+    console.error("[timeline] error:", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
 
-    if (!board) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
-    }
+async function fetchBoardTimeline(
+  boardId: string,
+  filterStart: string,
+  filterEnd: string,
+  referenceDate: string
+) {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag("jira-issues", `board:${boardId}`);
 
-    const members = await db
-      .select()
-      .from(observerBoardMembers)
-      .where(eq(observerBoardMembers.boardId, boardId));
+  const [board] = await db
+    .select()
+    .from(observerBoards)
+    .where(eq(observerBoards.id, boardId));
 
-    if (members.length === 0) {
-      return NextResponse.json({
-        filterStart,
-        filterEnd,
-        summary: { active: 0, atRisk: 0, overdue: 0, completed: 0, unplanned: 0 },
-        members: [],
-        unplanned: { totalCount: 0, byMember: [] },
-      } satisfies TimelineResponse);
-    }
+  if (!board) return null;
 
-    const emails = members.map((m) => m.email);
-    const emailsIn = sql.join(
-      emails.map((e) => sql`${e}`),
-      sql`, `
-    );
+  const members = await db
+    .select()
+    .from(observerBoardMembers)
+    .where(eq(observerBoardMembers.boardId, boardId));
 
-    const issuesRes = await db.execute(sql`
-      SELECT
-        ji.id,
-        ji.jira_key,
-        ji.summary,
-        ji.status,
-        ji.status_category,
-        ji.priority,
-        ji.issue_type,
-        ji.assignee_email,
-        ji.custom_fields,
-        jp.name          AS project_name,
-        jp.jira_base_url AS jira_base_url,
-        ji.jira_created_at
-      FROM jira_issues ji
-      JOIN jira_projects jp ON jp.id = ji.project_id
-      WHERE ji.assignee_email IN (${emailsIn})
-      ORDER BY ji.assignee_email, ji.jira_key
-    `);
+  if (members.length === 0) {
+    return {
+      filterStart,
+      filterEnd,
+      summary: { active: 0, atRisk: 0, overdue: 0, completed: 0, unplanned: 0 },
+      members: [],
+      unplanned: { totalCount: 0, byMember: [] },
+    } satisfies TimelineResponse;
+  }
 
-    const timelineByEmail = new Map<string, TimelineIssue[]>();
-    const unplannedByEmail = new Map<string, UnplannedIssue[]>();
+  const emails = members.map((m) => m.email);
+  const emailsIn = sql.join(emails.map((e) => sql`${e}`), sql`, `);
 
-    for (const raw of issuesRes.rows as IssueRow[]) {
-      const cf = (raw.custom_fields as Record<string, unknown>) ?? {};
-      const startDate = extractStartDate(cf);
-      const dueDate = extractDueDate(cf);
-      const email = raw.assignee_email;
+  const issuesRes = await db.execute(sql`
+    SELECT
+      ji.id,
+      ji.jira_key,
+      ji.summary,
+      ji.status,
+      ji.status_category,
+      ji.priority,
+      ji.issue_type,
+      ji.assignee_email,
+      ji.custom_fields,
+      jp.name          AS project_name,
+      jp.jira_base_url AS jira_base_url,
+      ji.jira_created_at
+    FROM jira_issues ji
+    JOIN jira_projects jp ON jp.id = ji.project_id
+    WHERE ji.assignee_email IN (${emailsIn})
+    ORDER BY ji.assignee_email, ji.jira_key
+  `);
 
-      if (!startDate || !dueDate) {
-        const list = unplannedByEmail.get(email) ?? [];
-        list.push({
-          id: raw.id,
-          jiraKey: raw.jira_key,
-          summary: raw.summary,
-          status: raw.status,
-          statusCategory: raw.status_category,
-          priority: raw.priority,
-          issueType: raw.issue_type,
-          projectName: raw.project_name,
-          jiraBaseUrl: raw.jira_base_url,
-          missingStart: !startDate,
-          missingDue: !dueDate,
-          createdAt: raw.jira_created_at ?? null,
-        });
-        unplannedByEmail.set(email, list);
-        continue;
-      }
+  const timelineByEmail = new Map<string, TimelineIssue[]>();
+  const unplannedByEmail = new Map<string, UnplannedIssue[]>();
 
-      // Range overlap: issue window must intersect the filter window
-      // issue.startDate <= filterEnd  AND  issue.dueDate >= filterStart
-      if (startDate > filterEnd || dueDate < filterStart) continue;
+  for (const raw of issuesRes.rows as IssueRow[]) {
+    const cf = (raw.custom_fields as Record<string, unknown>) ?? {};
+    const startDate = extractStartDate(cf);
+    const dueDate = extractDueDate(cf);
+    const email = raw.assignee_email;
 
-      const cat = (raw.status_category ?? "").toLowerCase();
-      const isDoneStatus =
-        cat === "done" || cat.includes("complete") || cat.includes("closed");
-
-      // Drop completed issues whose window ended before the filter range starts
-      if (isDoneStatus && dueDate < filterStart) continue;
-
-      // Classify overdue/at-risk always relative to today, not the filter window
-      const label = classifyIssue(raw.status_category, dueDate, referenceDate);
-      const isDone = label === "done";
-      const daysRemaining = isDone
-        ? null
-        : Math.ceil(
-            (new Date(dueDate).getTime() - new Date(referenceDate).getTime()) /
-              86400000
-          );
-
-      const list = timelineByEmail.get(email) ?? [];
+    if (!startDate || !dueDate) {
+      const list = unplannedByEmail.get(email) ?? [];
       list.push({
         id: raw.id,
         jiraKey: raw.jira_key,
@@ -246,95 +219,122 @@ export async function GET(req: Request, { params }: Params) {
         statusCategory: raw.status_category,
         priority: raw.priority,
         issueType: raw.issue_type,
-        startDate,
-        dueDate,
-        daysRemaining,
-        label,
         projectName: raw.project_name,
         jiraBaseUrl: raw.jira_base_url,
+        missingStart: !startDate,
+        missingDue: !dueDate,
+        createdAt: raw.jira_created_at ?? null,
       });
-      timelineByEmail.set(email, list);
+      unplannedByEmail.set(email, list);
+      continue;
     }
 
-    const labelOrder: Record<IssueLabel, number> = {
-      overdue: 0,
-      at_risk: 1,
-      on_track: 2,
-      done: 3,
-    };
+    if (startDate > filterEnd || dueDate < filterStart) continue;
 
-    const memberResults: TimelineMember[] = members.map((member) => {
-      const issues = timelineByEmail.get(member.email) ?? [];
-      issues.sort((a, b) => labelOrder[a.label] - labelOrder[b.label]);
+    const cat = (raw.status_category ?? "").toLowerCase();
+    const isDoneStatus =
+      cat === "done" || cat.includes("complete") || cat.includes("closed");
 
-      const unplanned = unplannedByEmail.get(member.email) ?? [];
-      const unplannedPreview = [...unplanned]
-        .sort((a, b) => {
-          if (!a.createdAt && !b.createdAt) return 0;
-          if (!a.createdAt) return 1;
-          if (!b.createdAt) return -1;
-          return b.createdAt.localeCompare(a.createdAt);
-        })
-        .slice(0, 5);
+    if (isDoneStatus && dueDate < filterStart) continue;
 
-      return {
-        memberId: member.id,
-        name: member.name,
-        email: member.email,
-        issues,
-        counts: {
-          active: issues.filter((i) => i.label !== "done").length,
-          atRisk: issues.filter((i) => i.label === "at_risk").length,
-          overdue: issues.filter((i) => i.label === "overdue").length,
-          done: issues.filter((i) => i.label === "done").length,
-        },
-        unplannedCount: unplanned.length,
-        unplannedPreview,
-      };
+    const label = classifyIssue(raw.status_category, dueDate, referenceDate);
+    const isDone = label === "done";
+    const daysRemaining = isDone
+      ? null
+      : Math.ceil(
+          (new Date(dueDate).getTime() - new Date(referenceDate).getTime()) / 86400000
+        );
+
+    const list = timelineByEmail.get(email) ?? [];
+    list.push({
+      id: raw.id,
+      jiraKey: raw.jira_key,
+      summary: raw.summary,
+      status: raw.status,
+      statusCategory: raw.status_category,
+      priority: raw.priority,
+      issueType: raw.issue_type,
+      startDate,
+      dueDate,
+      daysRemaining,
+      label,
+      projectName: raw.project_name,
+      jiraBaseUrl: raw.jira_base_url,
     });
-
-    // Most urgent members first
-    memberResults.sort((a, b) => {
-      const scoreA = a.counts.overdue * 10 + a.counts.atRisk;
-      const scoreB = b.counts.overdue * 10 + b.counts.atRisk;
-      return scoreB - scoreA;
-    });
-
-    const allIssues = memberResults.flatMap((m) => m.issues);
-    const allUnplanned = [...unplannedByEmail.values()].flat();
-
-    const summary = {
-      active: allIssues.filter((i) => i.label !== "done").length,
-      atRisk: allIssues.filter((i) => i.label === "at_risk").length,
-      overdue: allIssues.filter((i) => i.label === "overdue").length,
-      completed: allIssues.filter((i) => i.label === "done").length,
-      unplanned: allUnplanned.length,
-    };
-
-    const unplannedByMember: UnplannedMember[] = members
-      .map((m) => ({
-        memberId: m.id,
-        name: m.name,
-        email: m.email,
-        issues: unplannedByEmail.get(m.email) ?? [],
-      }))
-      .filter((m) => m.issues.length > 0);
-
-    return NextResponse.json({
-      filterStart,
-      filterEnd,
-      summary,
-      members: memberResults,
-      unplanned: {
-        totalCount: allUnplanned.length,
-        byMember: unplannedByMember,
-      },
-    } satisfies TimelineResponse);
-  } catch (err) {
-    console.error("[timeline] error:", err);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    timelineByEmail.set(email, list);
   }
+
+  const labelOrder: Record<IssueLabel, number> = {
+    overdue: 0,
+    at_risk: 1,
+    on_track: 2,
+    done: 3,
+  };
+
+  const memberResults: TimelineMember[] = members.map((member) => {
+    const issues = timelineByEmail.get(member.email) ?? [];
+    issues.sort((a, b) => labelOrder[a.label] - labelOrder[b.label]);
+
+    const unplanned = unplannedByEmail.get(member.email) ?? [];
+    const unplannedPreview = [...unplanned]
+      .sort((a, b) => {
+        if (!a.createdAt && !b.createdAt) return 0;
+        if (!a.createdAt) return 1;
+        if (!b.createdAt) return -1;
+        return b.createdAt.localeCompare(a.createdAt);
+      })
+      .slice(0, 5);
+
+    return {
+      memberId: member.id,
+      name: member.name,
+      email: member.email,
+      issues,
+      counts: {
+        active: issues.filter((i) => i.label !== "done").length,
+        atRisk: issues.filter((i) => i.label === "at_risk").length,
+        overdue: issues.filter((i) => i.label === "overdue").length,
+        done: issues.filter((i) => i.label === "done").length,
+      },
+      unplannedCount: unplanned.length,
+      unplannedPreview,
+    };
+  });
+
+  memberResults.sort((a, b) => {
+    const scoreA = a.counts.overdue * 10 + a.counts.atRisk;
+    const scoreB = b.counts.overdue * 10 + b.counts.atRisk;
+    return scoreB - scoreA;
+  });
+
+  const allIssues = memberResults.flatMap((m) => m.issues);
+  const allUnplanned = [...unplannedByEmail.values()].flat();
+
+  const summary = {
+    active: allIssues.filter((i) => i.label !== "done").length,
+    atRisk: allIssues.filter((i) => i.label === "at_risk").length,
+    overdue: allIssues.filter((i) => i.label === "overdue").length,
+    completed: allIssues.filter((i) => i.label === "done").length,
+    unplanned: allUnplanned.length,
+  };
+
+  const unplannedByMember: UnplannedMember[] = members
+    .map((m) => ({
+      memberId: m.id,
+      name: m.name,
+      email: m.email,
+      issues: unplannedByEmail.get(m.email) ?? [],
+    }))
+    .filter((m) => m.issues.length > 0);
+
+  return {
+    filterStart,
+    filterEnd,
+    summary,
+    members: memberResults,
+    unplanned: {
+      totalCount: allUnplanned.length,
+      byMember: unplannedByMember,
+    },
+  } satisfies TimelineResponse;
 }
