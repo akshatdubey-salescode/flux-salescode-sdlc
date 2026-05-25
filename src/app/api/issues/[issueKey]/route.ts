@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { eq, asc } from "drizzle-orm";
+import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import {
   jiraIssues,
@@ -15,6 +16,15 @@ export async function GET(
 ) {
   await requireAuth();
   const { issueKey } = await params;
+  const data = await fetchIssue(issueKey);
+  if (!data) return Response.json({ error: "Issue not found" }, { status: 404 });
+  return Response.json(data);
+}
+
+async function fetchIssue(issueKey: string) {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag("jira-issues");
 
   const [issue] = await db
     .select({
@@ -37,9 +47,7 @@ export async function GET(
     .where(eq(jiraIssues.jiraKey, issueKey))
     .limit(1);
 
-  if (!issue) {
-    return Response.json({ error: "Issue not found" }, { status: 404 });
-  }
+  if (!issue) return null;
 
   const [project] = await db
     .select({ name: jiraProjects.name, jiraProjectKey: jiraProjects.jiraProjectKey })
@@ -76,5 +84,5 @@ export async function GET(
       .orderBy(asc(jiraComments.jiraCreatedAt)),
   ]);
 
-  return Response.json({ issue, project, statusHistory, comments });
+  return { issue, project, statusHistory, comments };
 }

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
+import { Suspense } from "react";
 import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
 import { cn } from "@/lib/utils";
@@ -44,17 +45,19 @@ export default function RootLayout({
         className={cn("h-full", "antialiased", geistSans.variable, geistMono.variable, "font-sans", inter.variable)}
         suppressHydrationWarning
       >
-        <body className="min-h-full flex flex-col" suppressHydrationWarning>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="system"
-            enableSystem
-            disableTransitionOnChange
-          >
-            <TooltipProvider>{children}</TooltipProvider>
-            <Toaster position="bottom-right" />
-          </ThemeProvider>
-        </body>
+        <Suspense fallback={null}>
+          <body className="min-h-full flex flex-col" suppressHydrationWarning>
+            <ThemeProvider
+              attribute="class"
+              defaultTheme="system"
+              enableSystem
+              disableTransitionOnChange
+            >
+              <TooltipProvider>{children}</TooltipProvider>
+              <Toaster position="bottom-right" />
+            </ThemeProvider>
+          </body>
+        </Suspense>
       </html>
     </ClerkProvider>
   );

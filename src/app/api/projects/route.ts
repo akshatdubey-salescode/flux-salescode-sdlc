@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { cacheLife, cacheTag, updateTag } from "next/cache";
 import { db } from "@/lib/db";
 import { jiraProjects } from "@/lib/db/schema";
 import { requireAuth, requireRole } from "@/lib/auth/server";
@@ -11,8 +12,15 @@ import { registerJiraWebhook } from "@/lib/jira/webhooks";
 
 export async function GET() {
   await requireAuth();
+  return Response.json(await fetchProjects());
+}
 
-  const projects = await db
+async function fetchProjects() {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag("projects");
+
+  return db
     .select({
       id: jiraProjects.id,
       name: jiraProjects.name,
@@ -25,8 +33,6 @@ export async function GET() {
     .from(jiraProjects)
     .where(eq(jiraProjects.isActive, true))
     .orderBy(jiraProjects.createdAt);
-
-  return Response.json(projects);
 }
 
 export async function POST(request: Request) {
@@ -105,6 +111,8 @@ export async function POST(request: Request) {
   // Initial sync (synchronous — bounded by Jira pagination; large projects
   // can be re-synced via the /sync endpoint afterward)
   const syncResult = await syncProject(project.id);
+
+  updateTag("projects");
 
   return Response.json(
     {

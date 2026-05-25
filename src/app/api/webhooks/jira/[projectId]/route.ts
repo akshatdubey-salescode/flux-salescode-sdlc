@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { eq, and } from "drizzle-orm";
+import { updateTag } from "next/cache";
 import { db } from "@/lib/db";
 import { jiraProjects, jiraIssues } from "@/lib/db/schema";
 import { decrypt } from "@/lib/crypto";
@@ -187,6 +188,9 @@ export async function POST(
     console.error(`[jira-webhook] error processing ${webhookEvent}:`, err);
     return new Response("Internal error", { status: 500 });
   }
+
+  updateTag("jira-issues");
+  updateTag(`project:${projectId}`);
 
   return new Response("OK", { status: 200 });
 }

@@ -11,17 +11,33 @@ import {
   lte,
   sql,
 } from "drizzle-orm";
+import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import { jiraIssues, jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
+
+type ProjectIssueFilters = {
+  q: string;
+  statusList: string[];
+  priorityList: string[];
+  assigneeList: string[];
+  reporterList: string[];
+  issueTypeList: string[];
+  labelsList: string[];
+  dateFrom: string;
+  dateTo: string;
+  hasComments: boolean;
+  sortBy: string;
+  sortDir: string;
+  pageSize: number;
+  page: number;
+};
 
 function buildOrderExpr(sortBy: string, sortDir: string) {
   const isAsc = sortDir === "asc";
   switch (sortBy) {
     case "created":
-      return isAsc
-        ? asc(jiraIssues.jiraCreatedAt)
-        : desc(jiraIssues.jiraCreatedAt);
+      return isAsc ? asc(jiraIssues.jiraCreatedAt) : desc(jiraIssues.jiraCreatedAt);
     case "priority":
       return isAsc
         ? sql`CASE WHEN ${jiraIssues.priority} = 'Highest' THEN 1 WHEN ${jiraIssues.priority} = 'High' THEN 2 WHEN ${jiraIssues.priority} = 'Medium' THEN 3 WHEN ${jiraIssues.priority} = 'Low' THEN 4 WHEN ${jiraIssues.priority} = 'Lowest' THEN 5 ELSE 6 END ASC`
@@ -33,9 +49,7 @@ function buildOrderExpr(sortBy: string, sortDir: string) {
         ? sql`(SELECT COUNT(*) FROM jira_comments WHERE jira_comments.issue_id = ${jiraIssues.id}) ASC`
         : sql`(SELECT COUNT(*) FROM jira_comments WHERE jira_comments.issue_id = ${jiraIssues.id}) DESC`;
     default:
-      return isAsc
-        ? asc(jiraIssues.jiraUpdatedAt)
-        : desc(jiraIssues.jiraUpdatedAt);
+      return isAsc ? asc(jiraIssues.jiraUpdatedAt) : desc(jiraIssues.jiraUpdatedAt);
   }
 }
 
@@ -52,49 +66,43 @@ export async function GET(
     .where(and(eq(jiraProjects.id, id), eq(jiraProjects.isActive, true)))
     .limit(1);
 
-  if (!project)
-    return Response.json({ error: "Project not found" }, { status: 404 });
+  if (!project) return Response.json({ error: "Project not found" }, { status: 404 });
 
   const { searchParams } = req.nextUrl;
 
-  const q = searchParams.get("q")?.trim() ?? "";
-  const statusList = (searchParams.get("status") ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const priorityList = (searchParams.get("priority") ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const assigneeList = (searchParams.get("assignee") ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const reporterList = (searchParams.get("reporter") ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const issueTypeList = (searchParams.get("issueType") ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const labelsList = (searchParams.get("labels") ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const dateFrom = searchParams.get("dateFrom") ?? "";
-  const dateTo = searchParams.get("dateTo") ?? "";
-  const hasComments = searchParams.get("hasComments") === "true";
-  const sortBy = searchParams.get("sortBy") ?? "updated";
-  const sortDir = searchParams.get("sortDir") === "asc" ? "asc" : "desc";
-  const pageSize = Math.min(
-    200,
-    Math.max(1, parseInt(searchParams.get("pageSize") ?? "50", 10))
-  );
-  const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
-  const offset = (page - 1) * pageSize;
+  const filters: ProjectIssueFilters = {
+    q: searchParams.get("q")?.trim() ?? "",
+    statusList: (searchParams.get("status") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    priorityList: (searchParams.get("priority") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    assigneeList: (searchParams.get("assignee") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    reporterList: (searchParams.get("reporter") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    issueTypeList: (searchParams.get("issueType") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    labelsList: (searchParams.get("labels") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    dateFrom: searchParams.get("dateFrom") ?? "",
+    dateTo: searchParams.get("dateTo") ?? "",
+    hasComments: searchParams.get("hasComments") === "true",
+    sortBy: searchParams.get("sortBy") ?? "updated",
+    sortDir: searchParams.get("sortDir") === "asc" ? "asc" : "desc",
+    pageSize: Math.min(200, Math.max(1, parseInt(searchParams.get("pageSize") ?? "50", 10))),
+    page: Math.max(1, parseInt(searchParams.get("page") ?? "1", 10)),
+  };
 
-  const conditions = [eq(jiraIssues.projectId, id)];
+  return Response.json(await fetchProjectIssues(id, filters));
+}
+
+async function fetchProjectIssues(projectId: string, filters: ProjectIssueFilters) {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag("jira-issues", `project:${projectId}`);
+
+  const {
+    q, statusList, priorityList, assigneeList, reporterList,
+    issueTypeList, labelsList, dateFrom, dateTo, hasComments,
+    sortBy, sortDir, pageSize, page,
+  } = filters;
+
+  const offset = (page - 1) * pageSize;
+  const conditions = [eq(jiraIssues.projectId, projectId)];
 
   if (q) {
     const searchCondition = or(
@@ -105,25 +113,17 @@ export async function GET(
   }
 
   if (statusList.length) conditions.push(inArray(jiraIssues.status, statusList));
-  if (priorityList.length)
-    conditions.push(inArray(jiraIssues.priority, priorityList));
-  if (assigneeList.length)
-    conditions.push(inArray(jiraIssues.assigneeEmail, assigneeList));
-  if (reporterList.length)
-    conditions.push(inArray(jiraIssues.reporterEmail, reporterList));
-  if (issueTypeList.length)
-    conditions.push(inArray(jiraIssues.issueType, issueTypeList));
+  if (priorityList.length) conditions.push(inArray(jiraIssues.priority, priorityList));
+  if (assigneeList.length) conditions.push(inArray(jiraIssues.assigneeEmail, assigneeList));
+  if (reporterList.length) conditions.push(inArray(jiraIssues.reporterEmail, reporterList));
+  if (issueTypeList.length) conditions.push(inArray(jiraIssues.issueType, issueTypeList));
 
   if (labelsList.length) {
-    const labelConditions = labelsList.map(
-      (label) => sql`${label} = ANY(${jiraIssues.labels})`
-    );
-    const labelsCondition = or(...labelConditions);
+    const labelsCondition = or(...labelsList.map((label) => sql`${label} = ANY(${jiraIssues.labels})`));
     if (labelsCondition) conditions.push(labelsCondition);
   }
 
-  if (dateFrom)
-    conditions.push(gte(jiraIssues.jiraCreatedAt, new Date(dateFrom)));
+  if (dateFrom) conditions.push(gte(jiraIssues.jiraCreatedAt, new Date(dateFrom)));
   if (dateTo) {
     const to = new Date(dateTo);
     to.setHours(23, 59, 59, 999);
@@ -137,31 +137,28 @@ export async function GET(
 
   const where = and(...conditions);
   const orderExpr = buildOrderExpr(sortBy, sortDir);
-
   const commentCount = sql<number>`(SELECT COUNT(*)::int FROM jira_comments WHERE jira_comments.issue_id = ${jiraIssues.id})`;
-
-  const selectFields = {
-    id: jiraIssues.id,
-    jiraKey: jiraIssues.jiraKey,
-    summary: jiraIssues.summary,
-    status: jiraIssues.status,
-    statusCategory: jiraIssues.statusCategory,
-    issueType: jiraIssues.issueType,
-    priority: jiraIssues.priority,
-    assigneeName: jiraIssues.assigneeName,
-    assigneeEmail: jiraIssues.assigneeEmail,
-    reporterName: jiraIssues.reporterName,
-    reporterEmail: jiraIssues.reporterEmail,
-    labels: jiraIssues.labels,
-    jiraCreatedAt: jiraIssues.jiraCreatedAt,
-    jiraUpdatedAt: jiraIssues.jiraUpdatedAt,
-    commentCount,
-    jiraBaseUrl: jiraProjects.jiraBaseUrl,
-  };
 
   const [issues, countResult] = await Promise.all([
     db
-      .select(selectFields)
+      .select({
+        id: jiraIssues.id,
+        jiraKey: jiraIssues.jiraKey,
+        summary: jiraIssues.summary,
+        status: jiraIssues.status,
+        statusCategory: jiraIssues.statusCategory,
+        issueType: jiraIssues.issueType,
+        priority: jiraIssues.priority,
+        assigneeName: jiraIssues.assigneeName,
+        assigneeEmail: jiraIssues.assigneeEmail,
+        reporterName: jiraIssues.reporterName,
+        reporterEmail: jiraIssues.reporterEmail,
+        labels: jiraIssues.labels,
+        jiraCreatedAt: jiraIssues.jiraCreatedAt,
+        jiraUpdatedAt: jiraIssues.jiraUpdatedAt,
+        commentCount,
+        jiraBaseUrl: jiraProjects.jiraBaseUrl,
+      })
       .from(jiraIssues)
       .innerJoin(jiraProjects, eq(jiraIssues.projectId, jiraProjects.id))
       .where(where)
@@ -176,11 +173,11 @@ export async function GET(
 
   const total = countResult[0]?.count ?? 0;
 
-  return Response.json({
+  return {
     issues,
     total,
     page,
     pageSize,
     totalPages: Math.ceil(total / pageSize),
-  });
+  };
 }

@@ -1,5 +1,6 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
@@ -51,6 +52,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
  * - Authenticated in Clerk but not in DB / wrong domain → /unauthorized
  */
 export async function requireAuth(): Promise<AuthUser> {
+  await connection();
   const { userId } = await auth();
 
   if (!userId) redirect("/sign-in");

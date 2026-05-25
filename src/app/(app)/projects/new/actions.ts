@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { randomBytes } from "crypto";
 import { requireRole } from "@/lib/auth/server";
 import { db } from "@/lib/db";
@@ -96,5 +96,6 @@ export async function createProject(
   }
 
   revalidatePath("/projects");
+  updateTag("projects");
   redirect(`/projects/${project.id}/status-mapping?onboarding=1`);
 }

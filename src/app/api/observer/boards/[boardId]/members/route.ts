@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { eq, and } from "drizzle-orm";
+import { updateTag } from "next/cache";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
@@ -52,6 +53,7 @@ export async function POST(request: Request, { params }: Params) {
       .set({ updatedAt: new Date() })
       .where(eq(observerBoards.id, boardId));
 
+    updateTag(`board:${boardId}`);
     return NextResponse.json(member, { status: 201 });
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

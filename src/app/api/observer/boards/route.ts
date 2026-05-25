@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { desc } from "drizzle-orm";
+import { cacheLife, cacheTag, updateTag } from "next/cache";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
@@ -7,41 +8,45 @@ import { requireAuth } from "@/lib/auth/server";
 export async function GET() {
   try {
     const user = await requireAuth();
-
-    const boards = await db
-      .select({
-        id: observerBoards.id,
-        name: observerBoards.name,
-        description: observerBoards.description,
-        managerName: observerBoards.managerName,
-        managerEmail: observerBoards.managerEmail,
-        createdBy: observerBoards.createdBy,
-        createdAt: observerBoards.createdAt,
-        updatedAt: observerBoards.updatedAt,
-      })
-      .from(observerBoards)
-      .orderBy(desc(observerBoards.updatedAt));
-
-    const allMembers = boards.length > 0
-      ? await db.select({ boardId: observerBoardMembers.boardId }).from(observerBoardMembers)
-      : [];
-
-    const countMap: Record<string, number> = {};
-    for (const b of boards) countMap[b.id] = 0;
-    for (const m of allMembers) {
-      if (m.boardId in countMap) countMap[m.boardId]++;
-    }
-
+    const boards = await fetchObserverBoards();
     return NextResponse.json(
-      boards.map((b) => ({
-        ...b,
-        memberCount: countMap[b.id] ?? 0,
-        isOwned: b.createdBy === user.id,
-      }))
+      boards.map((b) => ({ ...b, isOwned: b.createdBy === user.id }))
     );
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+}
+
+async function fetchObserverBoards() {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag("jira-issues");
+
+  const boards = await db
+    .select({
+      id: observerBoards.id,
+      name: observerBoards.name,
+      description: observerBoards.description,
+      managerName: observerBoards.managerName,
+      managerEmail: observerBoards.managerEmail,
+      createdBy: observerBoards.createdBy,
+      createdAt: observerBoards.createdAt,
+      updatedAt: observerBoards.updatedAt,
+    })
+    .from(observerBoards)
+    .orderBy(desc(observerBoards.updatedAt));
+
+  const allMembers = boards.length > 0
+    ? await db.select({ boardId: observerBoardMembers.boardId }).from(observerBoardMembers)
+    : [];
+
+  const countMap: Record<string, number> = {};
+  for (const b of boards) countMap[b.id] = 0;
+  for (const m of allMembers) {
+    if (m.boardId in countMap) countMap[m.boardId]++;
+  }
+
+  return boards.map((b) => ({ ...b, memberCount: countMap[b.id] ?? 0 }));
 }
 
 export async function POST(request: Request) {
@@ -70,6 +75,7 @@ export async function POST(request: Request) {
       })
       .returning();
 
+    updateTag("jira-issues");
     return NextResponse.json(board, { status: 201 });
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

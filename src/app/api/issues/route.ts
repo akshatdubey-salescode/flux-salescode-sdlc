@@ -1,7 +1,8 @@
 import type { NextRequest } from "next/server";
 import { eq, and, ilike, or, desc, sql } from "drizzle-orm";
+import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
-import { jiraIssues, jiraProjects } from "@/lib/db/schema";
+import { jiraIssues } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 
 const PAGE_SIZE = 25;
@@ -11,26 +12,31 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = req.nextUrl;
   const q = searchParams.get("q")?.trim() ?? "";
-  const projectId = searchParams.get("projectId") ?? undefined;
-  const status = searchParams.get("status") ?? undefined;
-  const assigneeEmail = searchParams.get("assignee") ?? undefined;
+  const projectId = searchParams.get("projectId") ?? "";
+  const status = searchParams.get("status") ?? "";
+  const assigneeEmail = searchParams.get("assignee") ?? "";
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
-  const offset = (page - 1) * PAGE_SIZE;
 
+  return Response.json(await fetchIssues(q, projectId, status, assigneeEmail, page));
+}
+
+async function fetchIssues(
+  q: string,
+  projectId: string,
+  status: string,
+  assigneeEmail: string,
+  page: number
+) {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag("jira-issues");
+
+  const offset = (page - 1) * PAGE_SIZE;
   const conditions = [];
 
-  if (projectId) {
-    conditions.push(eq(jiraIssues.projectId, projectId));
-  }
-
-  if (status) {
-    conditions.push(eq(jiraIssues.status, status));
-  }
-
-  if (assigneeEmail) {
-    conditions.push(eq(jiraIssues.assigneeEmail, assigneeEmail));
-  }
-
+  if (projectId) conditions.push(eq(jiraIssues.projectId, projectId));
+  if (status) conditions.push(eq(jiraIssues.status, status));
+  if (assigneeEmail) conditions.push(eq(jiraIssues.assigneeEmail, assigneeEmail));
   if (q) {
     conditions.push(
       or(
@@ -71,11 +77,11 @@ export async function GET(req: NextRequest) {
 
   const total = countResult[0]?.count ?? 0;
 
-  return Response.json({
+  return {
     issues,
     total,
     page,
     pageSize: PAGE_SIZE,
     totalPages: Math.ceil(total / PAGE_SIZE),
-  });
+  };
 }
