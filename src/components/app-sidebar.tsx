@@ -18,6 +18,7 @@ import {
   RiArrowDownSLine,
   RiArrowUpSLine,
   RiTeamLine,
+  RiCloseLine,
 } from "@remixicon/react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -46,6 +47,8 @@ import {
   AvatarFallback,
   AvatarImage,
 } from "@/components/ui/avatar";
+import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
 import type { JiraProject } from "@/lib/db/schema";
 import type { AuthUser } from "@/lib/auth/server";
 
@@ -67,6 +70,10 @@ export function AppSidebar({ user, projects }: Props) {
   const pathname = usePathname();
   const { user: clerkUser } = useUser();
 
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   const projectsScrollRef = useRef<HTMLDivElement>(null);
   const [hasMoreBelow, setHasMoreBelow] = useState(false);
   const [hasMoreAbove, setHasMoreAbove] = useState(false);
@@ -77,6 +84,15 @@ export function AppSidebar({ user, projects }: Props) {
     setHasMoreAbove(el.scrollTop > 4);
     setHasMoreBelow(el.scrollHeight - el.scrollTop - el.clientHeight > 4);
   }, []);
+
+  useEffect(() => {
+    if (isSearching && searchInputRef.current) {
+      const timer = setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [isSearching]);
 
   useEffect(() => {
     const el = projectsScrollRef.current;
@@ -90,6 +106,15 @@ export function AppSidebar({ user, projects }: Props) {
       ro.disconnect();
     };
   }, [checkScroll]);
+
+  const filteredProjects = projects.filter((project) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      project.name.toLowerCase().includes(q) ||
+      project.jiraProjectKey?.toLowerCase().includes(q)
+    );
+  });
 
   return (
     <Sidebar collapsible="icon">
@@ -174,16 +199,69 @@ export function AppSidebar({ user, projects }: Props) {
             <SidebarGroupLabel className="text-[10px] font-bold uppercase tracking-widest text-zinc-500/70 dark:text-zinc-400/50">
               Projects
             </SidebarGroupLabel>
-            {user.role === "SUPERUSER" && (
-              <Link
-                href="/projects/new"
-                className="rounded-md p-1 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground transition-all"
-                title="Add Project"
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => {
+                  if (isSearching) {
+                    setIsSearching(false);
+                    setSearchQuery("");
+                  } else {
+                    setIsSearching(true);
+                  }
+                }}
+                className={cn(
+                  "rounded-md p-1 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground transition-all duration-150",
+                  isSearching && "bg-sidebar-accent text-foreground"
+                )}
+                title="Search Projects"
               >
-                <RiAddLine size={14} />
-              </Link>
-            )}
+                <RiSearchLine size={13} />
+              </button>
+              {user.role === "SUPERUSER" && (
+                <Link
+                  href="/projects/new"
+                  className="rounded-md p-1 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground transition-all"
+                  title="Add Project"
+                >
+                  <RiAddLine size={14} />
+                </Link>
+              )}
+            </div>
           </div>
+
+          {/* Animated Search input */}
+          <div
+            className={cn(
+              "overflow-hidden transition-all duration-300 ease-in-out px-2 group-data-[collapsible=icon]:hidden",
+              isSearching ? "max-h-10 opacity-100 mb-2 mt-1" : "max-h-0 opacity-0 mb-0 mt-0 pointer-events-none"
+            )}
+          >
+            <div className="relative">
+              <RiSearchLine className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3 text-muted-foreground/60 pointer-events-none" />
+              <Input
+                ref={searchInputRef}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Filter projects..."
+                className="h-7 pl-7 pr-7 text-xs bg-zinc-50/50 dark:bg-zinc-900/50 focus-visible:ring-1 focus-visible:ring-ring/30 focus-visible:border-ring/60"
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setIsSearching(false);
+                    setSearchQuery("");
+                  }
+                }}
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-muted-foreground/60 hover:text-foreground rounded transition-colors"
+                >
+                  <RiCloseLine className="size-3" />
+                </button>
+              )}
+            </div>
+          </div>
+
           {hasMoreAbove && (
             <div className="pointer-events-none shrink-0 flex justify-center pt-1 pb-2 group-data-[collapsible=icon]:hidden">
               <RiArrowUpSLine className="size-4 text-zinc-400" />
@@ -195,21 +273,27 @@ export function AppSidebar({ user, projects }: Props) {
             className="min-h-0 flex-1 overflow-y-auto no-scrollbar"
           >
             <SidebarMenu>
-              {projects.map((project) => (
-                <SidebarMenuItem key={project.id}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname.startsWith(`/projects/${project.id}`)}
-                    tooltip={project.name}
-                    className="hover:translate-x-0.5 transition-transform"
-                  >
-                    <Link href={`/projects/${project.id}`}>
-                      <RiFolderLine className="text-muted-foreground group-data-[active=true]:text-primary" />
-                      <span className="truncate">{project.name}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {filteredProjects.length === 0 ? (
+                <div className="px-3 py-4 text-center text-xs text-muted-foreground/60 group-data-[collapsible=icon]:hidden">
+                  No projects found
+                </div>
+              ) : (
+                filteredProjects.map((project) => (
+                  <SidebarMenuItem key={project.id}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={pathname.startsWith(`/projects/${project.id}`)}
+                      tooltip={project.name}
+                      className="hover:translate-x-0.5 transition-transform"
+                    >
+                      <Link href={`/projects/${project.id}`}>
+                        <RiFolderLine className="text-muted-foreground group-data-[active=true]:text-primary" />
+                        <span className="truncate">{project.name}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
 
