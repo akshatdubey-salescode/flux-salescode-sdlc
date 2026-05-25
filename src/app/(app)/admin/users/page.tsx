@@ -1,4 +1,4 @@
-import { asc, count, ilike, isNull } from "drizzle-orm";
+import { asc, count, ilike, isNull, sql } from "drizzle-orm";
 import { requireRole } from "@/lib/auth/server";
 import { db } from "@/lib/db";
 import { users, jiraIssues } from "@/lib/db/schema";
@@ -54,7 +54,15 @@ export default async function UserManagementPage(props: {
     })
     .from(users)
     .where(whereClause)
-    .orderBy(asc(users.createdAt))
+    .orderBy(
+      sql`CASE 
+        WHEN ${users.role} = 'SUPERUSER' THEN 1 
+        WHEN ${users.role} = 'ADMIN' THEN 2 
+        WHEN ${users.role} = 'USER' THEN 3 
+        ELSE 4 
+      END`,
+      asc(users.createdAt)
+    )
     .limit(PAGE_SIZE)
     .offset((page - 1) * PAGE_SIZE);
 
