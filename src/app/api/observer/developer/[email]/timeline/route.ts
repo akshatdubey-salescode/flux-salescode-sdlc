@@ -85,7 +85,7 @@ export async function GET(req: Request, { params }: Params) {
     const { email } = await params;
     const decodedEmail = decodeURIComponent(email).toLowerCase();
     const url = new URL(req.url);
-    const today = new Date().toISOString().split("T")[0];
+    const today = url.searchParams.get("today") ?? new Date().toISOString().split("T")[0];
     const filterStart = url.searchParams.get("start") ?? today;
     const filterEnd = url.searchParams.get("end") ?? today;
     const data = await fetchDeveloperTimeline(decodedEmail, filterStart, filterEnd, today);

@@ -114,7 +114,7 @@ export async function GET(req: Request, { params }: Params) {
     await requireAuth();
     const { boardId } = await params;
     const url = new URL(req.url);
-    const today = new Date().toISOString().split("T")[0];
+    const today = url.searchParams.get("today") ?? new Date().toISOString().split("T")[0];
     const singleDate = url.searchParams.get("date");
     const filterStart = url.searchParams.get("start") ?? singleDate ?? today;
     const filterEnd = url.searchParams.get("end") ?? singleDate ?? today;

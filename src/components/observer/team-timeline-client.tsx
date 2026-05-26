@@ -1475,7 +1475,7 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
 
   function buildUrl(f: DateFilter, qs: string, qe: string): string {
     const base = `/api/observer/boards/${boardId}/timeline`;
-    const qPart = `ustart=${qs}&uend=${qe}`;
+    const qPart = `ustart=${qs}&uend=${qe}&today=${todayStr()}`;
     if (f.mode === "single") return `${base}?date=${f.date}&${qPart}`;
     return `${base}?start=${f.start}&end=${f.end}&${qPart}`;
   }
