@@ -307,7 +307,7 @@ export function BoardsListClient({ initialBoards }: Props) {
             <Button variant="outline" onClick={() => setCreateOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleCreate} disabled={!name.trim() || saving}>
+            <Button onClick={handleCreate} disabled={!name.trim() || !managerName.trim() || !managerEmail.trim() || saving}>
               {saving ? "Creating…" : "Create Board"}
             </Button>
           </DialogFooter>

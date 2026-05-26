@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   RiAddLine,
   RiUserLine,
@@ -35,7 +36,14 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import type { ObserverBoard, ObserverBoardMember } from "@/lib/db/schema";
 
 type Member = ObserverBoardMember;
@@ -49,6 +57,7 @@ type Props = {
 };
 
 export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
+  const router = useRouter();
   const [members, setMembers] = useState<Member[]>(initialMembers);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -58,17 +67,33 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
   const [knownDevs, setKnownDevs] = useState<KnownDev[]>([]);
   const [filteredDevs, setFilteredDevs] = useState<KnownDev[]>([]);
   const [saving, setSaving] = useState(false);
-  const [stalenessThreshold, setStalenessThreshold] = useState(
-    board.stalenessThresholdDays
-  );
-  const [stalenessTimer, setStalenessTimer] =
-    useState<ReturnType<typeof setTimeout> | null>(null);
+  const [boardName, setBoardName] = useState(board.name);
+  const [boardDescription, setBoardDescription] = useState(board.description ?? "");
+  const [boardManagerName, setBoardManagerName] = useState(board.managerName ?? "");
+  const [boardManagerEmail, setBoardManagerEmail] = useState(board.managerEmail ?? "");
+  const [boardSaving, setBoardSaving] = useState(false);
 
-  useEffect(() => {
-    return () => {
-      if (stalenessTimer) clearTimeout(stalenessTimer);
-    };
-  }, [stalenessTimer]);
+  async function handleSaveBoard() {
+    setBoardSaving(true);
+    try {
+      const res = await fetch(`/api/observer/boards/${board.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: boardName.trim(),
+          description: boardDescription.trim() || undefined,
+          managerName: boardManagerName.trim() || undefined,
+          managerEmail: boardManagerEmail.trim() || undefined,
+        }),
+      });
+      if (res.ok) {
+        setSettingsOpen(false);
+        router.refresh();
+      }
+    } finally {
+      setBoardSaving(false);
+    }
+  }
 
   async function loadKnownDevs(query: string) {
     if (knownDevs.length === 0) {
@@ -150,19 +175,6 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
     setRemoveMember(null);
   }
 
-  function handleStalenessChange(val: number) {
-    setStalenessThreshold(val);
-    if (stalenessTimer) clearTimeout(stalenessTimer);
-    setStalenessTimer(
-      setTimeout(() => {
-        fetch(`/api/observer/boards/${board.id}/settings`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ stalenessThresholdDays: val }),
-        });
-      }, 600)
-    );
-  }
 
   return (
     <>
@@ -216,50 +228,81 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
 
       {/* Manage Team sheet */}
       <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <SheetContent className="w-[400px] sm:w-[440px] flex flex-col p-0 gap-0">
+        <SheetContent className="w-[400px] sm:w-[440px] flex flex-col p-0 gap-0" closeButtonClassName="top-2.5">
           {/* Header */}
-          <div className="px-6 py-5 border-b border-border shrink-0">
-            <SheetHeader>
-              <SheetTitle className="text-base font-semibold tracking-tight">Manage Team</SheetTitle>
+          <div className="px-4 py-3 border-b border-border shrink-0">
+            <SheetHeader className="p-0">
+              <SheetTitle className="text-sm font-semibold">Manage Team</SheetTitle>
             </SheetHeader>
-            <p className="text-xs text-muted-foreground mt-0.5">{board.name}</p>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-7">
-            {/* Staleness setting */}
-            <div className="rounded-xl border border-border bg-muted/60 p-4 space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[13px] font-semibold text-foreground">
-                    Staleness threshold
-                  </p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-                    Issues inactive beyond this many days are flagged as stalled.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <input
-                    type="number"
-                    min={1}
-                    max={90}
-                    value={stalenessThreshold}
-                    onChange={(e) => {
-                      const v = parseInt(e.target.value, 10);
-                      if (!isNaN(v) && v >= 1 && v <= 90)
-                        handleStalenessChange(v);
-                    }}
-                    className="w-14 h-8 rounded-lg border border-input bg-background text-center text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-ring/30 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  />
-                  <span className="text-xs font-medium text-muted-foreground">days</span>
-                </div>
-              </div>
-            </div>
+          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
+            {/* Board details */}
+            <Accordion type="single" collapsible className="w-full">
+              <AccordionItem value="board-details" className="border-none">
+                <AccordionTrigger className="py-0 hover:no-underline">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Board Details</p>
+                </AccordionTrigger>
+                <AccordionContent className="pt-4 pb-0">
+                  <div className="space-y-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="sheet-board-name" className="text-xs">Name</Label>
+                      <Input
+                        id="sheet-board-name"
+                        value={boardName}
+                        onChange={(e) => setBoardName(e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="sheet-board-desc" className="text-xs">Description</Label>
+                      <Textarea
+                        id="sheet-board-desc"
+                        value={boardDescription}
+                        onChange={(e) => setBoardDescription(e.target.value)}
+                        rows={2}
+                        className="text-sm resize-none"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label htmlFor="sheet-mgr-name" className="text-xs">Manager name</Label>
+                        <Input
+                          id="sheet-mgr-name"
+                          value={boardManagerName}
+                          onChange={(e) => setBoardManagerName(e.target.value)}
+                          className="h-8 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="sheet-mgr-email" className="text-xs">Manager email</Label>
+                        <Input
+                          id="sheet-mgr-email"
+                          type="email"
+                          value={boardManagerEmail}
+                          onChange={(e) => setBoardManagerEmail(e.target.value)}
+                          className="h-8 text-sm"
+                        />
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={handleSaveBoard}
+                      disabled={!boardName.trim() || boardSaving}
+                      className="h-7 text-xs px-3"
+                    >
+                      {boardSaving ? "Saving…" : "Save Changes"}
+                    </Button>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
 
             {/* Members list */}
-            <div className="space-y-3">
+            <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <p className="text-[13px] font-semibold text-foreground">Members</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Members</p>
                   <span className="text-[11px] font-bold tabular-nums px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground">
                     {members.length}
                   </span>
