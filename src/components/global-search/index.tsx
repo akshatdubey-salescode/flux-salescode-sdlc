@@ -20,7 +20,6 @@ function readFilters(
     labels: searchParams.get("labels")?.split(",").filter(Boolean) ?? [],
     dateFrom: searchParams.get("dateFrom") ?? "",
     dateTo: searchParams.get("dateTo") ?? "",
-    hasComments: searchParams.get("hasComments") === "true",
     showCompleted: false,
     sortBy: searchParams.get("sortBy") ?? "updated",
     sortDir: searchParams.get("sortDir") === "asc" ? "asc" : "desc",
@@ -51,7 +50,6 @@ export function SearchView() {
     labels: filters.labels,
     dateFrom: filters.dateFrom,
     dateTo: filters.dateTo,
-    hasComments: filters.hasComments,
     sortBy: filters.sortBy,
     sortDir: filters.sortDir,
     page: filters.page,
@@ -90,7 +88,6 @@ export function SearchView() {
     if (parsed.labels.length) params.set("labels", parsed.labels.join(","));
     if (parsed.dateFrom) params.set("dateFrom", parsed.dateFrom);
     if (parsed.dateTo) params.set("dateTo", parsed.dateTo);
-    if (parsed.hasComments) params.set("hasComments", "true");
     params.set("sortBy", parsed.sortBy);
     params.set("sortDir", parsed.sortDir);
     params.set("pageSize", "50");

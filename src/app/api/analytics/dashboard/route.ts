@@ -61,28 +61,20 @@ async function fetchDashboardData(fromIso: string, toIso: string) {
     `),
 
     db.execute(sql`
-      SELECT COUNT(DISTINCT ji.id)::int AS count
-      FROM jira_status_history jsh
-      JOIN jira_issues ji ON ji.id = jsh.issue_id
+      SELECT COUNT(*)::int AS count
+      FROM jira_issues ji
       JOIN jira_projects jp ON jp.id = ji.project_id
-      JOIN project_status_mappings psm
-        ON psm.project_id = ji.project_id AND psm.raw_status = jsh.to_status
-      WHERE psm.canonical_status = 'DONE'
-        AND jsh.changed_at >= ${fromDate}
-        AND jsh.changed_at <= ${toDate}
+      WHERE ji.completed_at >= ${fromDate}
+        AND ji.completed_at <= ${toDate}
         AND jp.is_active = true
     `),
 
     db.execute(sql`
-      SELECT COUNT(DISTINCT ji.id)::int AS count
-      FROM jira_status_history jsh
-      JOIN jira_issues ji ON ji.id = jsh.issue_id
+      SELECT COUNT(*)::int AS count
+      FROM jira_issues ji
       JOIN jira_projects jp ON jp.id = ji.project_id
-      JOIN project_status_mappings psm
-        ON psm.project_id = ji.project_id AND psm.raw_status = jsh.to_status
-      WHERE psm.canonical_status = 'DONE'
-        AND jsh.changed_at >= ${prevFromDate}
-        AND jsh.changed_at < ${fromDate}
+      WHERE ji.completed_at >= ${prevFromDate}
+        AND ji.completed_at < ${fromDate}
         AND jp.is_active = true
     `),
 
@@ -113,19 +105,14 @@ async function fetchDashboardData(fromIso: string, toIso: string) {
 
     db.execute(sql`
       SELECT
-        date_trunc('week', jsh.changed_at) AS week,
+        date_trunc('week', ji.completed_at) AS week,
         ji.project_id,
         jp.name AS project_name,
-        COUNT(DISTINCT ji.id)::int AS completed
-      FROM jira_status_history jsh
-      JOIN jira_issues ji ON ji.id = jsh.issue_id
+        COUNT(*)::int AS completed
+      FROM jira_issues ji
       JOIN jira_projects jp ON jp.id = ji.project_id
-      JOIN project_status_mappings psm
-        ON psm.project_id = ji.project_id
-        AND psm.raw_status = jsh.to_status
-      WHERE psm.canonical_status = 'DONE'
-        AND jsh.changed_at >= ${fromDate}
-        AND jsh.changed_at <= ${toDate}
+      WHERE ji.completed_at >= ${fromDate}
+        AND ji.completed_at <= ${toDate}
         AND jp.is_active = true
       GROUP BY 1, 2, 3
       ORDER BY 1, 3
@@ -151,16 +138,15 @@ async function fetchDashboardData(fromIso: string, toIso: string) {
         SELECT
           ji.project_id,
           ji.id AS issue_id,
-          SUM(jsh.duration_seconds) AS total_active_seconds
-        FROM jira_status_history jsh
-        JOIN jira_issues ji ON ji.id = jsh.issue_id
+          SUM(tis.secs::numeric) AS total_active_seconds
+        FROM jira_issues ji
+        CROSS JOIN LATERAL jsonb_each_text(ji.time_in_status) AS tis(status, secs)
         JOIN project_status_mappings psm
           ON psm.project_id = ji.project_id
-          AND psm.raw_status = jsh.to_status
+          AND psm.raw_status = tis.status
         WHERE psm.canonical_status IN ('IN_PROGRESS', 'IN_REVIEW', 'IN_QA')
-          AND jsh.duration_seconds IS NOT NULL
-          AND jsh.changed_at >= ${fromDate}
-          AND jsh.changed_at <= ${toDate}
+          AND ji.completed_at >= ${fromDate}
+          AND ji.completed_at <= ${toDate}
         GROUP BY ji.project_id, ji.id
       )
       SELECT
@@ -197,16 +183,15 @@ async function fetchDashboardData(fromIso: string, toIso: string) {
           ji.project_id,
           ji.id,
           SUM(CASE WHEN psm.canonical_status IN ('IN_PROGRESS','IN_REVIEW','IN_QA')
-                  THEN jsh.duration_seconds ELSE 0 END) AS active_seconds,
-          SUM(jsh.duration_seconds) AS total_seconds
-        FROM jira_status_history jsh
-        JOIN jira_issues ji ON ji.id = jsh.issue_id
+                  THEN tis.secs::numeric ELSE 0 END) AS active_seconds,
+          SUM(tis.secs::numeric) AS total_seconds
+        FROM jira_issues ji
+        CROSS JOIN LATERAL jsonb_each_text(ji.time_in_status) AS tis(status, secs)
         JOIN project_status_mappings psm
           ON psm.project_id = ji.project_id
-          AND psm.raw_status = jsh.to_status
-        WHERE jsh.duration_seconds IS NOT NULL
-          AND jsh.changed_at >= ${fromDate}
-          AND jsh.changed_at <= ${toDate}
+          AND psm.raw_status = tis.status
+        WHERE ji.completed_at >= ${fromDate}
+          AND ji.completed_at <= ${toDate}
         GROUP BY ji.project_id, ji.id
       )
       SELECT
@@ -250,18 +235,18 @@ async function fetchDashboardData(fromIso: string, toIso: string) {
             ji2.assignee_name,
             ji2.id AS issue_id,
             SUM(CASE WHEN psm2.canonical_status IN ('IN_PROGRESS','IN_REVIEW','IN_QA')
-                     THEN jsh.duration_seconds ELSE 0 END) AS active_seconds
+                     THEN tis.secs::numeric ELSE 0 END) AS active_seconds
           FROM jira_issues ji2
           JOIN jira_projects jp2 ON jp2.id = ji2.project_id
-          JOIN jira_status_history jsh ON jsh.issue_id = ji2.id
+          CROSS JOIN LATERAL jsonb_each_text(ji2.time_in_status) AS tis(status, secs)
           JOIN project_status_mappings psm2
-            ON psm2.project_id = ji2.project_id AND psm2.raw_status = jsh.to_status
+            ON psm2.project_id = ji2.project_id AND psm2.raw_status = tis.status
           WHERE ji2.assignee_name IS NOT NULL
-            AND jsh.duration_seconds IS NOT NULL
+            AND ji2.completed_at IS NOT NULL
             AND jp2.is_active = true
           GROUP BY ji2.assignee_name, ji2.id
           HAVING SUM(CASE WHEN psm2.canonical_status IN ('IN_PROGRESS','IN_REVIEW','IN_QA')
-                          THEN jsh.duration_seconds ELSE 0 END) > 0
+                          THEN tis.secs::numeric ELSE 0 END) > 0
         ) sub
         JOIN jira_issues ji ON ji.assignee_name = sub.assignee_name AND ji.id = sub.issue_id
         GROUP BY ji.assignee_name
@@ -294,18 +279,12 @@ async function fetchDashboardData(fromIso: string, toIso: string) {
       WITH weekly AS (
         SELECT
           ji.assignee_name,
-          COUNT(DISTINCT CASE WHEN jsh.changed_at >= ${fromDate} AND jsh.changed_at <= ${toDate}
-                              THEN ji.id END)::int AS this_week,
-          COUNT(DISTINCT CASE WHEN jsh.changed_at >= ${prevFromDate} AND jsh.changed_at < ${fromDate}
-                              THEN ji.id END)::int AS last_week
-        FROM jira_status_history jsh
-        JOIN jira_issues ji ON ji.id = jsh.issue_id
+          COUNT(*) FILTER (WHERE ji.completed_at >= ${fromDate} AND ji.completed_at <= ${toDate})::int AS this_week,
+          COUNT(*) FILTER (WHERE ji.completed_at >= ${prevFromDate} AND ji.completed_at < ${fromDate})::int AS last_week
+        FROM jira_issues ji
         JOIN jira_projects jp ON jp.id = ji.project_id
-        JOIN project_status_mappings psm
-          ON psm.project_id = ji.project_id AND psm.raw_status = jsh.to_status
-        WHERE psm.canonical_status = 'DONE'
-          AND jsh.changed_at >= ${prevFromDate}
-          AND jsh.changed_at <= ${toDate}
+        WHERE ji.completed_at >= ${prevFromDate}
+          AND ji.completed_at <= ${toDate}
           AND ji.assignee_name IS NOT NULL
           AND jp.is_active = true
         GROUP BY ji.assignee_name

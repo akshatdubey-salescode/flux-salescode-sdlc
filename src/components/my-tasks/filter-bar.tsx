@@ -52,7 +52,6 @@ export function MyTasksFilterBar({ filters, fields, onUpdate, total }: Props) {
     filters.labels.length > 0,
     !!(filters.qstart || filters.dateFrom),
     !!(filters.qend || filters.dateTo),
-    filters.hasComments,
   ].filter(Boolean).length;
 
   function handleSearch(value: string) {
@@ -77,7 +76,6 @@ export function MyTasksFilterBar({ filters, fields, onUpdate, total }: Props) {
       dateTo: null,
       qstart: "all",
       qend: "all",
-      hasComments: null,
       page: "1",
     });
   }
@@ -420,11 +418,6 @@ function ActiveChips({
       label: `To: ${filters.dateTo}`,
       onRemove: () => onUpdate({ dateTo: null, page: "1" }),
     });
-  if (filters.hasComments)
-    chips.push({
-      label: "Has comments",
-      onRemove: () => onUpdate({ hasComments: null, page: "1" }),
-    });
 
   if (chips.length === 0) return null;
 
@@ -615,22 +608,6 @@ function MoreFiltersSheet({
               </div>
             </FilterSection>
           )}
-
-          {/* Has comments */}
-          <FilterSection label="Other">
-            <div className="flex items-center gap-2.5">
-              <Checkbox
-                id="mt-has-comments"
-                checked={filters.hasComments}
-                onCheckedChange={(checked) =>
-                  onUpdate({ hasComments: checked ? "true" : null, page: "1" })
-                }
-              />
-              <Label htmlFor="mt-has-comments" className="cursor-pointer text-xs font-normal text-zinc-700 dark:text-zinc-300">
-                Has comments
-              </Label>
-            </div>
-          </FilterSection>
         </div>
       </SheetContent>
     </Sheet>

@@ -26,7 +26,6 @@ type MyTaskFilters = {
   labelsList: string[];
   dateFrom: string;
   dateTo: string;
-  hasComments: boolean;
   showCompleted: boolean;
   sortBy: string;
   sortDir: string;
@@ -47,10 +46,6 @@ function buildOrderExpr(sortBy: string, sortDir: string) {
         : sql`CASE WHEN ${jiraIssues.priority} = 'Highest' THEN 1 WHEN ${jiraIssues.priority} = 'High' THEN 2 WHEN ${jiraIssues.priority} = 'Medium' THEN 3 WHEN ${jiraIssues.priority} = 'Low' THEN 4 WHEN ${jiraIssues.priority} = 'Lowest' THEN 5 ELSE 6 END DESC`;
     case "status":
       return isAsc ? asc(jiraIssues.status) : desc(jiraIssues.status);
-    case "comments":
-      return isAsc
-        ? sql`(SELECT COUNT(*) FROM jira_comments WHERE jira_comments.issue_id = ${jiraIssues.id}) ASC`
-        : sql`(SELECT COUNT(*) FROM jira_comments WHERE jira_comments.issue_id = ${jiraIssues.id}) DESC`;
     default:
       return isAsc
         ? asc(jiraIssues.jiraUpdatedAt)
@@ -76,7 +71,6 @@ export async function GET(req: NextRequest) {
     labelsList: (searchParams.get("labels") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
     dateFrom: searchParams.get("dateFrom") ?? "",
     dateTo: searchParams.get("dateTo") ?? "",
-    hasComments: searchParams.get("hasComments") === "true",
     showCompleted: searchParams.get("showCompleted") === "true",
     sortBy: searchParams.get("sortBy") ?? "created",
     sortDir: searchParams.get("sortDir") === "asc" ? "asc" : "desc",
@@ -94,7 +88,7 @@ async function fetchMyTasks(targetEmail: string, filters: MyTaskFilters) {
 
   const {
     q, projectList, statusList, priorityList, reporterList,
-    issueTypeList, labelsList, dateFrom, dateTo, hasComments,
+    issueTypeList, labelsList, dateFrom, dateTo,
     showCompleted, sortBy, sortDir, pageSize, page,
   } = filters;
 
@@ -131,11 +125,6 @@ async function fetchMyTasks(targetEmail: string, filters: MyTaskFilters) {
     to.setHours(23, 59, 59, 999);
     conditions.push(lte(jiraIssues.jiraCreatedAt, to));
   }
-  if (hasComments) {
-    conditions.push(
-      sql`(SELECT COUNT(*) FROM jira_comments WHERE jira_comments.issue_id = ${jiraIssues.id}) > 0`
-    );
-  }
   if (!showCompleted) {
     conditions.push(
       sql`LOWER(TRIM(${jiraIssues.statusCategory})) NOT IN ('done', 'complete')`
@@ -144,7 +133,6 @@ async function fetchMyTasks(targetEmail: string, filters: MyTaskFilters) {
 
   const where = and(...conditions);
   const orderExpr = buildOrderExpr(sortBy, sortDir);
-  const commentCount = sql<number>`(SELECT COUNT(*)::int FROM jira_comments WHERE jira_comments.issue_id = ${jiraIssues.id})`;
 
   const [issues, countResult] = await Promise.all([
     db
@@ -163,7 +151,6 @@ async function fetchMyTasks(targetEmail: string, filters: MyTaskFilters) {
         labels: jiraIssues.labels,
         jiraCreatedAt: jiraIssues.jiraCreatedAt,
         jiraUpdatedAt: jiraIssues.jiraUpdatedAt,
-        commentCount,
         jiraBaseUrl: jiraProjects.jiraBaseUrl,
       })
       .from(jiraIssues)

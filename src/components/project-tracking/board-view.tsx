@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { RiChatSmileLine } from "@remixicon/react";
 import { cn } from "@/lib/utils";
 import {
   TrackingIssue,
@@ -89,7 +88,6 @@ function buildColumnUrl(
   if (filters.labels.length) params.set("labels", filters.labels.join(","));
   if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
   if (filters.dateTo) params.set("dateTo", filters.dateTo);
-  if (filters.hasComments) params.set("hasComments", "true");
   params.set("sortBy", filters.sortBy);
   params.set("sortDir", filters.sortDir);
   params.set("status", status);
@@ -274,14 +272,8 @@ function IssueCard({ issue }: { issue: TrackingIssue }) {
         </div>
       )}
 
-      {/* Bottom row: comment count + assignee + time */}
+      {/* Bottom row: assignee + time */}
       <div className="flex items-center gap-2 text-zinc-400">
-        {issue.commentCount > 0 && (
-          <span className="flex items-center gap-0.5">
-            <RiChatSmileLine className="size-3" />
-            <span className="text-[10px]">{issue.commentCount}</span>
-          </span>
-        )}
         <span className="ml-auto flex items-center gap-1.5">
           {issue.assigneeName ? (
             <span

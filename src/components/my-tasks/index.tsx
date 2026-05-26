@@ -67,7 +67,6 @@ function readFilters(
     dateTo: searchParams.get("dateTo") ?? "",
     qstart,
     qend,
-    hasComments: searchParams.get("hasComments") === "true",
     showCompleted,
     sortBy: searchParams.get("sortBy") ?? "created",
     sortDir: searchParams.get("sortDir") === "asc" ? "asc" : "desc",
@@ -111,7 +110,6 @@ export function MyTasksView({
     dateTo: filters.dateTo,
     qstart: filters.qstart,
     qend: filters.qend,
-    hasComments: filters.hasComments,
     showCompleted: filters.showCompleted,
     sortBy: filters.sortBy,
     sortDir: filters.sortDir,
@@ -172,7 +170,6 @@ export function MyTasksView({
     const effectiveDateTo = parsed.qend || parsed.dateTo;
     if (effectiveDateFrom) params.set("dateFrom", effectiveDateFrom);
     if (effectiveDateTo) params.set("dateTo", effectiveDateTo);
-    if (parsed.hasComments) params.set("hasComments", "true");
     if (parsed.showCompleted) params.set("showCompleted", "true");
     params.set("sortBy", parsed.sortBy);
     params.set("sortDir", parsed.sortDir);

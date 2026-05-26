@@ -160,12 +160,27 @@ export const jiraIssues = pgTable(
       .default({}),
     jiraCreatedAt: timestamp("jira_created_at", { withTimezone: true }),
     jiraUpdatedAt: timestamp("jira_updated_at", { withTimezone: true }),
+    // Status-history rollup — derived from the Jira changelog at sync time so
+    // we don't persist the per-transition log. Powers throughput, cycle-time,
+    // flow-efficiency, velocity, and SLA analytics.
+    // Most recent transition from a non-DONE to a DONE canonical status. NULL
+    // until the issue is first completed; survives reopen, only advances on a
+    // fresh non-DONE→DONE transition.
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    // When the issue entered its current status. Drives SLA time-in-condition.
+    currentStatusSince: timestamp("current_status_since", { withTimezone: true }),
+    // Finalized seconds spent per raw status (open current segment excluded).
+    timeInStatus: jsonb("time_in_status")
+      .$type<Record<string, number>>()
+      .notNull()
+      .default({}),
     syncedAt: timestamp("synced_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (t) => [
     uniqueIndex("jira_issues_project_jira_id_idx").on(t.projectId, t.jiraId),
+    index("jira_issues_completed_at_idx").on(t.completedAt),
     index("jira_issues_jira_key_idx").on(t.jiraKey),
     index("jira_issues_status_idx").on(t.status),
     index("jira_issues_assignee_email_idx").on(t.assigneeEmail),
@@ -174,71 +189,6 @@ export const jiraIssues = pgTable(
       t.projectId,
       t.jiraUpdatedAt
     ),
-  ]
-);
-
-// ---------------------------------------------------------------------------
-// Jira Status History — append-only log of status transitions
-// Foundation for time-in-status analytics and SLA calculations.
-// ---------------------------------------------------------------------------
-
-export const jiraStatusHistory = pgTable(
-  "jira_status_history",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    issueId: uuid("issue_id")
-      .notNull()
-      .references(() => jiraIssues.id, { onDelete: "cascade" }),
-    fromStatus: text("from_status"), // NULL for the initial status on creation
-    toStatus: text("to_status").notNull(),
-    changedAt: timestamp("changed_at", { withTimezone: true }).notNull(),
-    changedByName: text("changed_by_name"),
-    changedByEmail: text("changed_by_email"),
-    // Time spent in fromStatus (seconds). NULL for the current/latest row —
-    // filled in when the next transition is recorded.
-    durationSeconds: integer("duration_seconds"),
-    syncedAt: timestamp("synced_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (t) => [
-    // Prevents duplicate inserts from webhook re-delivery
-    uniqueIndex("jira_status_history_issue_changed_at_idx").on(
-      t.issueId,
-      t.changedAt
-    ),
-    index("jira_status_history_issue_idx").on(t.issueId),
-  ]
-);
-
-// ---------------------------------------------------------------------------
-// Jira Comments
-// ---------------------------------------------------------------------------
-
-export const jiraComments = pgTable(
-  "jira_comments",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    issueId: uuid("issue_id")
-      .notNull()
-      .references(() => jiraIssues.id, { onDelete: "cascade" }),
-    jiraCommentId: text("jira_comment_id").notNull(),
-    authorAccountId: text("author_account_id"),
-    authorEmail: text("author_email"),
-    authorName: text("author_name"),
-    body: text("body"), // ADF as JSON string
-    jiraCreatedAt: timestamp("jira_created_at", { withTimezone: true }),
-    jiraUpdatedAt: timestamp("jira_updated_at", { withTimezone: true }),
-    syncedAt: timestamp("synced_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (t) => [
-    uniqueIndex("jira_comments_issue_comment_id_idx").on(
-      t.issueId,
-      t.jiraCommentId
-    ),
-    index("jira_comments_issue_idx").on(t.issueId),
   ]
 );
 
@@ -666,8 +616,6 @@ export type JiraProject = typeof jiraProjects.$inferSelect;
 export type NewJiraProject = typeof jiraProjects.$inferInsert;
 export type JiraIssue = typeof jiraIssues.$inferSelect;
 export type NewJiraIssue = typeof jiraIssues.$inferInsert;
-export type JiraStatusHistory = typeof jiraStatusHistory.$inferSelect;
-export type JiraComment = typeof jiraComments.$inferSelect;
 export type SlaRule = typeof slaRules.$inferSelect;
 export type SlaViolation = typeof slaViolations.$inferSelect;
 export type ProjectStatusMapping = typeof projectStatusMappings.$inferSelect;

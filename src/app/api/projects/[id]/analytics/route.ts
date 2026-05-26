@@ -52,21 +52,17 @@ async function fetchProjectAnalytics(projectId: string) {
     `),
 
     db.execute(sql`
-      SELECT COUNT(DISTINCT ji.id)::int AS count
-      FROM jira_status_history jsh
-      JOIN jira_issues ji ON ji.id = jsh.issue_id
-      WHERE ji.status_category = 'Done'
-        AND jsh.changed_at >= NOW() - INTERVAL '7 days'
+      SELECT COUNT(*)::int AS count
+      FROM jira_issues ji
+      WHERE ji.completed_at >= NOW() - INTERVAL '7 days'
         AND ji.project_id = ${projectId}
     `),
 
     db.execute(sql`
-      SELECT COUNT(DISTINCT ji.id)::int AS count
-      FROM jira_status_history jsh
-      JOIN jira_issues ji ON ji.id = jsh.issue_id
-      WHERE ji.status_category = 'Done'
-        AND jsh.changed_at >= NOW() - INTERVAL '14 days'
-        AND jsh.changed_at < NOW() - INTERVAL '7 days'
+      SELECT COUNT(*)::int AS count
+      FROM jira_issues ji
+      WHERE ji.completed_at >= NOW() - INTERVAL '14 days'
+        AND ji.completed_at < NOW() - INTERVAL '7 days'
         AND ji.project_id = ${projectId}
     `),
 
@@ -92,15 +88,10 @@ async function fetchProjectAnalytics(projectId: string) {
 
     db.execute(sql`
       SELECT
-        date_trunc('week', jsh.changed_at) AS week,
-        COUNT(DISTINCT ji.id)::int AS completed
-      FROM jira_status_history jsh
-      JOIN jira_issues ji ON ji.id = jsh.issue_id
-      JOIN project_status_mappings psm
-        ON psm.project_id = ji.project_id
-        AND psm.raw_status = jsh.to_status
-      WHERE psm.canonical_status = 'DONE'
-        AND jsh.changed_at >= NOW() - INTERVAL '8 weeks'
+        date_trunc('week', ji.completed_at) AS week,
+        COUNT(*)::int AS completed
+      FROM jira_issues ji
+      WHERE ji.completed_at >= NOW() - INTERVAL '8 weeks'
         AND ji.project_id = ${projectId}
       GROUP BY 1
       ORDER BY 1
@@ -111,14 +102,14 @@ async function fetchProjectAnalytics(projectId: string) {
         SELECT
           ji.issue_type,
           ji.id AS issue_id,
-          SUM(jsh.duration_seconds) AS total_active_seconds
-        FROM jira_status_history jsh
-        JOIN jira_issues ji ON ji.id = jsh.issue_id
+          SUM(tis.secs::numeric) AS total_active_seconds
+        FROM jira_issues ji
+        CROSS JOIN LATERAL jsonb_each_text(ji.time_in_status) AS tis(status, secs)
         JOIN project_status_mappings psm
           ON psm.project_id = ji.project_id
-          AND psm.raw_status = jsh.to_status
+          AND psm.raw_status = tis.status
         WHERE psm.canonical_status IN ('IN_PROGRESS', 'IN_REVIEW', 'IN_QA')
-          AND jsh.duration_seconds IS NOT NULL
+          AND ji.completed_at IS NOT NULL
           AND ji.project_id = ${projectId}
         GROUP BY ji.issue_type, ji.id
       )

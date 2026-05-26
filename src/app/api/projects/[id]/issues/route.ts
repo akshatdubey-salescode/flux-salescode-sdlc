@@ -26,7 +26,6 @@ type ProjectIssueFilters = {
   labelsList: string[];
   dateFrom: string;
   dateTo: string;
-  hasComments: boolean;
   sortBy: string;
   sortDir: string;
   pageSize: number;
@@ -44,10 +43,6 @@ function buildOrderExpr(sortBy: string, sortDir: string) {
         : sql`CASE WHEN ${jiraIssues.priority} = 'Highest' THEN 1 WHEN ${jiraIssues.priority} = 'High' THEN 2 WHEN ${jiraIssues.priority} = 'Medium' THEN 3 WHEN ${jiraIssues.priority} = 'Low' THEN 4 WHEN ${jiraIssues.priority} = 'Lowest' THEN 5 ELSE 6 END DESC`;
     case "status":
       return isAsc ? asc(jiraIssues.status) : desc(jiraIssues.status);
-    case "comments":
-      return isAsc
-        ? sql`(SELECT COUNT(*) FROM jira_comments WHERE jira_comments.issue_id = ${jiraIssues.id}) ASC`
-        : sql`(SELECT COUNT(*) FROM jira_comments WHERE jira_comments.issue_id = ${jiraIssues.id}) DESC`;
     default:
       return isAsc ? asc(jiraIssues.jiraUpdatedAt) : desc(jiraIssues.jiraUpdatedAt);
   }
@@ -80,7 +75,6 @@ export async function GET(
     labelsList: (searchParams.get("labels") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
     dateFrom: searchParams.get("dateFrom") ?? "",
     dateTo: searchParams.get("dateTo") ?? "",
-    hasComments: searchParams.get("hasComments") === "true",
     sortBy: searchParams.get("sortBy") ?? "updated",
     sortDir: searchParams.get("sortDir") === "asc" ? "asc" : "desc",
     pageSize: Math.min(200, Math.max(1, parseInt(searchParams.get("pageSize") ?? "50", 10))),
@@ -97,7 +91,7 @@ async function fetchProjectIssues(projectId: string, filters: ProjectIssueFilter
 
   const {
     q, statusList, priorityList, assigneeList, reporterList,
-    issueTypeList, labelsList, dateFrom, dateTo, hasComments,
+    issueTypeList, labelsList, dateFrom, dateTo,
     sortBy, sortDir, pageSize, page,
   } = filters;
 
@@ -137,15 +131,8 @@ async function fetchProjectIssues(projectId: string, filters: ProjectIssueFilter
     to.setHours(23, 59, 59, 999);
     conditions.push(lte(jiraIssues.jiraCreatedAt, to));
   }
-  if (hasComments) {
-    conditions.push(
-      sql`(SELECT COUNT(*) FROM jira_comments WHERE jira_comments.issue_id = ${jiraIssues.id}) > 0`
-    );
-  }
-
   const where = and(...conditions);
   const orderExpr = buildOrderExpr(sortBy, sortDir);
-  const commentCount = sql<number>`(SELECT COUNT(*)::int FROM jira_comments WHERE jira_comments.issue_id = ${jiraIssues.id})`;
 
   const [issues, countResult] = await Promise.all([
     db
@@ -164,7 +151,6 @@ async function fetchProjectIssues(projectId: string, filters: ProjectIssueFilter
         labels: jiraIssues.labels,
         jiraCreatedAt: jiraIssues.jiraCreatedAt,
         jiraUpdatedAt: jiraIssues.jiraUpdatedAt,
-        commentCount,
         jiraBaseUrl: jiraProjects.jiraBaseUrl,
       })
       .from(jiraIssues)

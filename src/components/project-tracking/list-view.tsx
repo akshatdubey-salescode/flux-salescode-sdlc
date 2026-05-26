@@ -6,7 +6,6 @@ import {
   RiArrowUpSLine,
   RiArrowDownSLine,
   RiArrowUpDownLine,
-  RiChatSmileLine,
   RiPushpinLine,
   RiPushpinFill,
   RiExternalLinkLine,
@@ -114,11 +113,6 @@ export function ListView({
                 </th>
                 <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-20">
                   Reporter
-                </th>
-                <th className="px-3 py-2.5 text-right font-medium text-zinc-500 w-8">
-                  <span title="Comments">
-                    <RiChatSmileLine className="size-3.5 ml-auto" />
-                  </span>
                 </th>
                 <SortableHeader
                   label="Updated"
@@ -398,14 +392,6 @@ function IssueRow({
         )}
       </td>
 
-      {/* Comments */}
-      <td className="px-3 py-2 text-right">
-        {issue.commentCount > 0 ? (
-          <span className="text-zinc-400">{issue.commentCount}</span>
-        ) : (
-          <span className="text-zinc-200 dark:text-zinc-700">—</span>
-        )}
-      </td>
 
       {/* Updated */}
       <td className="px-3 py-2 text-right text-zinc-400">

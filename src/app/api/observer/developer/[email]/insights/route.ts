@@ -36,26 +36,18 @@ async function fetchDeveloperInsights(email: string) {
     avgCycleTimeRes,
   ] = await Promise.all([
     db.execute(sql`
-      SELECT COUNT(DISTINCT ji.id)::int AS count
-      FROM jira_status_history jsh
-      JOIN jira_issues ji ON ji.id = jsh.issue_id
-      JOIN project_status_mappings psm
-        ON psm.project_id = ji.project_id AND psm.raw_status = jsh.to_status
-      WHERE psm.canonical_status = 'DONE'
-        AND (ji.assignee_email = ${email} OR ${email} = ANY(ji.additional_assignee_emails))
-        AND jsh.changed_at >= NOW() - INTERVAL '7 days'
+      SELECT COUNT(*)::int AS count
+      FROM jira_issues ji
+      WHERE (ji.assignee_email = ${email} OR ${email} = ANY(ji.additional_assignee_emails))
+        AND ji.completed_at >= NOW() - INTERVAL '7 days'
     `),
 
     db.execute(sql`
-      SELECT COUNT(DISTINCT ji.id)::int AS count
-      FROM jira_status_history jsh
-      JOIN jira_issues ji ON ji.id = jsh.issue_id
-      JOIN project_status_mappings psm
-        ON psm.project_id = ji.project_id AND psm.raw_status = jsh.to_status
-      WHERE psm.canonical_status = 'DONE'
-        AND (ji.assignee_email = ${email} OR ${email} = ANY(ji.additional_assignee_emails))
-        AND jsh.changed_at >= NOW() - INTERVAL '14 days'
-        AND jsh.changed_at < NOW() - INTERVAL '7 days'
+      SELECT COUNT(*)::int AS count
+      FROM jira_issues ji
+      WHERE (ji.assignee_email = ${email} OR ${email} = ANY(ji.additional_assignee_emails))
+        AND ji.completed_at >= NOW() - INTERVAL '14 days'
+        AND ji.completed_at < NOW() - INTERVAL '7 days'
     `),
 
     db.execute(sql`
@@ -135,22 +127,12 @@ async function fetchDeveloperInsights(email: string) {
 
     db.execute(sql`
       SELECT ROUND(AVG(
-        EXTRACT(EPOCH FROM (done_at.changed_at - ji.jira_created_at)) / 3600
+        EXTRACT(EPOCH FROM (ji.completed_at - ji.jira_created_at)) / 3600
       )::numeric, 1) AS avg_hours
       FROM jira_issues ji
-      JOIN (
-        SELECT DISTINCT ON (jsh.issue_id)
-          jsh.issue_id,
-          jsh.changed_at
-        FROM jira_status_history jsh
-        JOIN project_status_mappings psm
-          ON psm.project_id = (SELECT project_id FROM jira_issues WHERE id = jsh.issue_id)
-          AND psm.raw_status = jsh.to_status
-        WHERE psm.canonical_status = 'DONE'
-          AND jsh.changed_at >= NOW() - INTERVAL '30 days'
-        ORDER BY jsh.issue_id, jsh.changed_at ASC
-      ) done_at ON done_at.issue_id = ji.id
       WHERE (ji.assignee_email = ${email} OR ${email} = ANY(ji.additional_assignee_emails))
+        AND ji.completed_at >= NOW() - INTERVAL '30 days'
+        AND ji.jira_created_at IS NOT NULL
     `),
   ]);
 

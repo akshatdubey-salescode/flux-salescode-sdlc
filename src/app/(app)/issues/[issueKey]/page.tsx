@@ -1,13 +1,6 @@
 import { notFound } from "next/navigation";
-import { eq, asc } from "drizzle-orm";
-import { db } from "@/lib/db";
-import {
-  jiraIssues,
-  jiraProjects,
-  jiraStatusHistory,
-  jiraComments,
-} from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
+import { getIssueDetail } from "@/lib/jira/issue-detail";
 import { cn } from "@/lib/utils";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
@@ -24,42 +17,6 @@ import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/componen
 import { ChartInfo } from "@/components/ui/chart-info";
 import { Separator } from "@/components/ui/separator";
 import { StatusTimeChart } from "@/components/status-time-chart";
-
-// ---------------------------------------------------------------------------
-// Data fetching
-// ---------------------------------------------------------------------------
-
-async function getIssueTimeline(issueKey: string) {
-  const [issue] = await db
-    .select()
-    .from(jiraIssues)
-    .where(eq(jiraIssues.jiraKey, issueKey))
-    .limit(1);
-
-  if (!issue) return null;
-
-  const [project] = await db
-    .select({ id: jiraProjects.id, name: jiraProjects.name, jiraProjectKey: jiraProjects.jiraProjectKey, jiraBaseUrl: jiraProjects.jiraBaseUrl })
-    .from(jiraProjects)
-    .where(eq(jiraProjects.id, issue.projectId))
-    .limit(1);
-
-  const [statusHistory, comments] = await Promise.all([
-    db
-      .select()
-      .from(jiraStatusHistory)
-      .where(eq(jiraStatusHistory.issueId, issue.id))
-      .orderBy(asc(jiraStatusHistory.changedAt)),
-
-    db
-      .select()
-      .from(jiraComments)
-      .where(eq(jiraComments.issueId, issue.id))
-      .orderBy(asc(jiraComments.jiraCreatedAt)),
-  ]);
-
-  return { issue, project, statusHistory, comments };
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -150,27 +107,19 @@ export default async function IssuePage(props: {
   await requireAuth();
   const { issueKey } = await props.params;
 
-  const data = await getIssueTimeline(issueKey.toUpperCase());
+  const data = await getIssueDetail(issueKey.toUpperCase());
   if (!data) notFound();
 
   const { issue, project, statusHistory, comments } = data;
 
-  // Aggregate seconds per status for the bar chart.
+  // Aggregate seconds per status for the bar chart. durationSeconds is the time
+  // spent in each segment's toStatus; the open current segment (null duration)
+  // is added separately below.
   const statusTotals: Record<string, number> = {};
-  for (let i = 0; i < statusHistory.length; i++) {
-    const row = statusHistory[i];
-    if (!row.fromStatus) continue;
-
-    let seconds = row.durationSeconds;
-    if (seconds == null && i > 0) {
-      seconds = Math.floor(
-        (new Date(row.changedAt).getTime() -
-          new Date(statusHistory[i - 1].changedAt).getTime()) /
-          1000
-      );
-    }
+  for (const row of statusHistory) {
+    const seconds = row.durationSeconds;
     if (seconds != null && seconds > 0) {
-      statusTotals[row.fromStatus] = (statusTotals[row.fromStatus] ?? 0) + seconds;
+      statusTotals[row.toStatus] = (statusTotals[row.toStatus] ?? 0) + seconds;
     }
   }
   const lastTransition = statusHistory.at(-1);
@@ -188,29 +137,19 @@ export default async function IssuePage(props: {
 
   // Merge status history + comments into a single sorted timeline
   const events: TimelineEvent[] = [
-    ...statusHistory.map((h, i) => {
-      let durationSeconds = h.durationSeconds;
-      if (durationSeconds == null && h.fromStatus && i > 0) {
-        durationSeconds = Math.floor(
-          (new Date(h.changedAt).getTime() -
-            new Date(statusHistory[i - 1].changedAt).getTime()) /
-            1000
-        );
-      }
-      return {
-        kind: "status" as const,
-        id: h.id,
-        at: new Date(h.changedAt),
-        fromStatus: h.fromStatus,
-        toStatus: h.toStatus,
-        changedByName: h.changedByName,
-        durationSeconds,
-      };
-    }),
+    ...statusHistory.map((h) => ({
+      kind: "status" as const,
+      id: h.id,
+      at: new Date(h.changedAt),
+      fromStatus: h.fromStatus,
+      toStatus: h.toStatus,
+      changedByName: h.changedByName,
+      durationSeconds: h.durationSeconds,
+    })),
     ...comments.map((c) => ({
       kind: "comment" as const,
       id: c.id,
-      at: new Date(c.jiraCreatedAt ?? c.syncedAt),
+      at: new Date(c.jiraCreatedAt ?? new Date()),
       authorName: c.authorName,
       authorEmail: c.authorEmail,
       body: c.body,
@@ -399,13 +338,13 @@ export default async function IssuePage(props: {
                             </span>
                           )}
                         </p>
-                        {event.fromStatus && event.durationSeconds != null && (
+                        {event.durationSeconds != null && (
                           <p className="text-[10px] text-muted-foreground">
                             Spent{" "}
                             <span className="font-medium tabular-nums">
                               {formatDuration(event.durationSeconds)}
                             </span>{" "}
-                            in <span className="font-medium">{event.fromStatus}</span>
+                            in <span className="font-medium">{event.toStatus}</span>
                           </p>
                         )}
                       </div>

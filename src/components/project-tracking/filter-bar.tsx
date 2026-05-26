@@ -50,7 +50,6 @@ export function FilterBar({ filters, fields, onUpdate, total }: Props) {
     filters.labels.length > 0,
     !!filters.dateFrom,
     !!filters.dateTo,
-    filters.hasComments,
   ].filter(Boolean).length;
 
   function handleSearch(value: string) {
@@ -73,7 +72,6 @@ export function FilterBar({ filters, fields, onUpdate, total }: Props) {
       labels: null,
       dateFrom: null,
       dateTo: null,
-      hasComments: null,
       page: "1",
     });
   }
@@ -431,11 +429,6 @@ function ActiveChips({
       label: `To: ${filters.dateTo}`,
       onRemove: () => onUpdate({ dateTo: null, page: "1" }),
     });
-  if (filters.hasComments)
-    chips.push({
-      label: "Has comments",
-      onRemove: () => onUpdate({ hasComments: null, page: "1" }),
-    });
 
   if (chips.length === 0) return null;
 
@@ -583,22 +576,6 @@ function MoreFiltersSheet({
                   }
                 />
               </div>
-            </div>
-          </FilterSection>
-
-          {/* Has comments */}
-          <FilterSection label="Other">
-            <div className="flex items-center gap-2.5">
-              <Checkbox
-                id="pt-has-comments"
-                checked={filters.hasComments}
-                onCheckedChange={(checked) =>
-                  onUpdate({ hasComments: checked ? "true" : null, page: "1" })
-                }
-              />
-              <Label htmlFor="pt-has-comments" className="cursor-pointer text-xs font-normal text-zinc-700 dark:text-zinc-300">
-                Has comments
-              </Label>
             </div>
           </FilterSection>
         </div>

@@ -6,10 +6,9 @@ import { jiraProjects, jiraIssues } from "@/lib/db/schema";
 import { decrypt } from "@/lib/crypto";
 import {
   upsertIssue,
-  upsertComment,
   deleteIssue,
-  deleteComment,
   recordStatusTransition,
+  getDoneRawStatuses,
 } from "@/lib/jira/sync";
 import {
   relinkFreshdeskTicket,
@@ -72,7 +71,7 @@ export async function POST(
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { webhookEvent, issue, comment, changelog } = payload;
+  const { webhookEvent, issue, changelog } = payload;
 
   try {
     switch (webhookEvent) {
@@ -102,16 +101,21 @@ export async function POST(
             .limit(1);
 
           if (existingIssue && changelog?.items) {
+            const hasStatusChange = changelog.items.some(
+              (item) => item.field === "status" && item.fromString && item.toString
+            );
+            const doneRawStatuses = hasStatusChange
+              ? await getDoneRawStatuses(projectId)
+              : new Set<string>();
             for (const item of changelog.items) {
-              // Status transition → record history + update linked FD ticket
+              // Status transition → update rollup + linked FD ticket
               if (item.field === "status" && item.fromString && item.toString) {
                 await recordStatusTransition(
                   existingIssue.id,
                   item.fromString,
                   item.toString,
                   new Date(payload.timestamp),
-                  null,
-                  null
+                  doneRawStatuses
                 );
                 // Keep the linked Freshdesk ticket's Jira status in sync
                 await updateLinkedJiraStatus(existingIssue.id, item.toString);
@@ -139,46 +143,13 @@ export async function POST(
         break;
       }
 
+      // Comments are no longer persisted — the issue detail view fetches them
+      // from Jira at runtime. We only bust the cache (below) so that view
+      // refreshes.
       case "comment_created":
-      case "comment_updated": {
-        if (comment && issue) {
-          const [existingIssue] = await db
-            .select({ id: jiraIssues.id })
-            .from(jiraIssues)
-            .where(
-              and(
-                eq(jiraIssues.projectId, projectId),
-                eq(jiraIssues.jiraId, issue.id)
-              )
-            )
-            .limit(1);
-
-          if (existingIssue) {
-            await upsertComment(existingIssue.id, comment);
-          }
-        }
+      case "comment_updated":
+      case "comment_deleted":
         break;
-      }
-
-      case "comment_deleted": {
-        if (comment && issue) {
-          const [existingIssue] = await db
-            .select({ id: jiraIssues.id })
-            .from(jiraIssues)
-            .where(
-              and(
-                eq(jiraIssues.projectId, projectId),
-                eq(jiraIssues.jiraId, issue.id)
-              )
-            )
-            .limit(1);
-
-          if (existingIssue) {
-            await deleteComment(existingIssue.id, comment.id);
-          }
-        }
-        break;
-      }
 
       default:
         // Unknown event — acknowledge and ignore

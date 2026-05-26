@@ -34,7 +34,6 @@ function readFilters(
       searchParams.get("labels")?.split(",").filter(Boolean) ?? [],
     dateFrom: searchParams.get("dateFrom") ?? "",
     dateTo: searchParams.get("dateTo") ?? "",
-    hasComments: searchParams.get("hasComments") === "true",
     showCompleted: false,
     sortBy: searchParams.get("sortBy") ?? "updated",
     sortDir:
@@ -66,7 +65,6 @@ export function ProjectTrackingTab({ projectId }: Props) {
     labels: filters.labels,
     dateFrom: filters.dateFrom,
     dateTo: filters.dateTo,
-    hasComments: filters.hasComments,
     sortBy: filters.sortBy,
     sortDir: filters.sortDir,
     view: filters.view,
@@ -84,7 +82,6 @@ export function ProjectTrackingTab({ projectId }: Props) {
     labels: filters.labels,
     dateFrom: filters.dateFrom,
     dateTo: filters.dateTo,
-    hasComments: filters.hasComments,
     sortBy: filters.sortBy,
     sortDir: filters.sortDir,
   });
@@ -142,7 +139,6 @@ export function ProjectTrackingTab({ projectId }: Props) {
     if (parsed.labels.length) params.set("labels", parsed.labels.join(","));
     if (parsed.dateFrom) params.set("dateFrom", parsed.dateFrom);
     if (parsed.dateTo) params.set("dateTo", parsed.dateTo);
-    if (parsed.hasComments) params.set("hasComments", "true");
     params.set("sortBy", parsed.sortBy);
     params.set("sortDir", parsed.sortDir);
     // In board view, only fetch enough to get the total count

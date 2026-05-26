@@ -169,6 +169,13 @@
       "when": 1748217600000,
       "tag": "0023_unique_jira_project_key",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1779788780314,
+      "tag": "0024_jira_status_rollup",
+      "breakpoints": true
     }
   ]
 }

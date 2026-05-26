@@ -28,10 +28,6 @@ function buildOrderExpr(sortBy: string, sortDir: string) {
         : sql`CASE WHEN ${jiraIssues.priority} = 'Highest' THEN 1 WHEN ${jiraIssues.priority} = 'High' THEN 2 WHEN ${jiraIssues.priority} = 'Medium' THEN 3 WHEN ${jiraIssues.priority} = 'Low' THEN 4 WHEN ${jiraIssues.priority} = 'Lowest' THEN 5 ELSE 6 END DESC`;
     case "status":
       return isAsc ? asc(jiraIssues.status) : desc(jiraIssues.status);
-    case "comments":
-      return isAsc
-        ? sql`(SELECT COUNT(*) FROM jira_comments WHERE jira_comments.issue_id = ${jiraIssues.id}) ASC`
-        : sql`(SELECT COUNT(*) FROM jira_comments WHERE jira_comments.issue_id = ${jiraIssues.id}) DESC`;
     default:
       return isAsc
         ? asc(jiraIssues.jiraUpdatedAt)
@@ -75,7 +71,6 @@ export async function GET(req: NextRequest) {
     .filter(Boolean);
   const dateFrom = searchParams.get("dateFrom") ?? "";
   const dateTo = searchParams.get("dateTo") ?? "";
-  const hasComments = searchParams.get("hasComments") === "true";
   const sortBy = searchParams.get("sortBy") ?? "updated";
   const sortDir = searchParams.get("sortDir") === "asc" ? "asc" : "desc";
   const pageSize = Math.min(
@@ -131,16 +126,8 @@ export async function GET(req: NextRequest) {
     to.setHours(23, 59, 59, 999);
     conditions.push(lte(jiraIssues.jiraCreatedAt, to));
   }
-  if (hasComments) {
-    conditions.push(
-      sql`(SELECT COUNT(*) FROM jira_comments WHERE jira_comments.issue_id = ${jiraIssues.id}) > 0`
-    );
-  }
-
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const orderExpr = buildOrderExpr(sortBy, sortDir);
-
-  const commentCount = sql<number>`(SELECT COUNT(*)::int FROM jira_comments WHERE jira_comments.issue_id = ${jiraIssues.id})`;
 
   const selectFields = {
     id: jiraIssues.id,
@@ -157,7 +144,6 @@ export async function GET(req: NextRequest) {
     labels: jiraIssues.labels,
     jiraCreatedAt: jiraIssues.jiraCreatedAt,
     jiraUpdatedAt: jiraIssues.jiraUpdatedAt,
-    commentCount,
   };
 
   const [issues, countResult] = await Promise.all([

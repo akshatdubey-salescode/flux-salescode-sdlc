@@ -13,7 +13,6 @@ export type TrackingIssue = {
   labels: string[];
   jiraCreatedAt: string | null;
   jiraUpdatedAt: string | null;
-  commentCount: number;
   jiraBaseUrl: string | null;
 };
 
@@ -36,7 +35,6 @@ export type FilterState = {
   labels: string[];
   dateFrom: string;
   dateTo: string;
-  hasComments: boolean;
   showCompleted: boolean;
   sortBy: string;
   sortDir: "asc" | "desc";
@@ -189,5 +187,4 @@ export const SORT_OPTIONS = [
   { value: "created", label: "Created" },
   { value: "priority", label: "Priority" },
   { value: "status", label: "Status" },
-  { value: "comments", label: "Comments" },
 ] as const;

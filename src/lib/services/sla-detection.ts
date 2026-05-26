@@ -2,7 +2,6 @@ import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   jiraIssues,
-  jiraStatusHistory,
   slaRules,
   slaViolations,
   type JiraIssue,
@@ -49,55 +48,25 @@ function matchesConditionTree(issue: JiraIssue, tree: SlaConditionTree): boolean
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the timestamp when the issue entered the matching condition,
- * based on status history (most recent transition to the matching status).
- * Falls back to issue.syncedAt if no history entry matches.
+ * Returns the timestamp when the issue entered the matching condition.
+ *
+ * Detection only evaluates rules against an issue's *current* status, so for a
+ * status-based condition the entry time is exactly when the issue entered its
+ * current status (`currentStatusSince`). Non-status conditions have no transition
+ * to anchor to, so we fall back to syncedAt as a best-effort entry time.
  */
-async function getEnteredConditionAt(
-  issue: JiraIssue,
-  rule: SlaRule
-): Promise<Date> {
-  // Find the status condition(s) in the tree, if any
-  const statusConditions: SlaCondition[] = [];
-  for (const group of rule.conditions.groups) {
-    for (const cond of group.conditions) {
-      if (cond.field === "status" || cond.field === "status_category") {
-        statusConditions.push(cond);
-      }
-    }
-  }
+function getEnteredConditionAt(issue: JiraIssue, rule: SlaRule): Date {
+  const hasStatusCondition = rule.conditions.groups.some((group) =>
+    group.conditions.some(
+      (cond) => cond.field === "status" || cond.field === "status_category"
+    )
+  );
 
-  if (statusConditions.length === 0) {
-    // No status-based condition — use syncedAt as best-effort entry time
+  if (!hasStatusCondition) {
     return issue.syncedAt;
   }
 
-  // Find the most recent status history entry that matches
-  const history = await db
-    .select()
-    .from(jiraStatusHistory)
-    .where(eq(jiraStatusHistory.issueId, issue.id))
-    .orderBy(jiraStatusHistory.changedAt);
-
-  // Walk history in order; find the last transition into the matching status
-  let enteredAt: Date | null = null;
-  for (const entry of history) {
-    const mockIssue = { ...issue, status: entry.toStatus } as JiraIssue;
-    const matches = statusConditions.some((cond) =>
-      evaluateCondition(mockIssue, cond)
-    );
-    if (matches) {
-      if (enteredAt === null) {
-        enteredAt = entry.changedAt;
-      }
-      // Keep going — we want the most recent uninterrupted entry
-    } else {
-      // Issue left the condition, reset
-      enteredAt = null;
-    }
-  }
-
-  return enteredAt ?? issue.syncedAt;
+  return issue.currentStatusSince ?? issue.syncedAt;
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +131,7 @@ export async function detectViolations(projectId: string): Promise<ViolationResu
       // Skip if issue doesn't match this rule's conditions
       if (!matchesConditionTree(issue, rule.conditions)) continue;
 
-      const enteredAt = await getEnteredConditionAt(issue, rule);
+      const enteredAt = getEnteredConditionAt(issue, rule);
       const elapsedMs = now - enteredAt.getTime();
       const elapsedHours = elapsedMs / (60 * 60 * 1000);
 

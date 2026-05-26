@@ -1,13 +1,30 @@
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   jiraProjects,
   jiraIssues,
-  jiraStatusHistory,
-  jiraComments,
+  projectStatusMappings,
 } from "@/lib/db/schema";
-import { JiraClient, type JiraIssueRaw, type JiraCommentRaw } from "./client";
+import { JiraClient, type JiraIssueRaw } from "./client";
+import { computeRollup, applyTransition } from "./changelog";
 import { decrypt } from "@/lib/crypto";
+
+/**
+ * Raw status names for a project that map to the DONE canonical status.
+ * Used to detect completion transitions when building the per-issue rollup.
+ */
+export async function getDoneRawStatuses(projectId: string): Promise<Set<string>> {
+  const rows = await db
+    .select({ rawStatus: projectStatusMappings.rawStatus })
+    .from(projectStatusMappings)
+    .where(
+      and(
+        eq(projectStatusMappings.projectId, projectId),
+        eq(projectStatusMappings.canonicalStatus, "DONE")
+      )
+    );
+  return new Set(rows.map((r) => r.rawStatus));
+}
 
 const SYNC_CONCURRENCY = 5;
 
@@ -127,6 +144,8 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
     project
   );
 
+  const doneRawStatuses = await getDoneRawStatuses(projectId);
+
   let synced = 0;
   let errors = 0;
   const errorMessages: string[] = [];
@@ -144,7 +163,9 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
     for (let i = 0; i < result.issues.length; i += SYNC_CONCURRENCY) {
       const chunk = result.issues.slice(i, i + SYNC_CONCURRENCY);
       const results = await Promise.allSettled(
-        chunk.map((issue) => upsertIssue(projectId, issue, multiAssigneeFieldId ?? undefined))
+        chunk.map((issue) =>
+          upsertIssue(projectId, issue, multiAssigneeFieldId ?? undefined, doneRawStatuses)
+        )
       );
       for (let j = 0; j < results.length; j++) {
         const r = results[j];
@@ -178,7 +199,8 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
 export async function upsertIssue(
   projectId: string,
   raw: JiraIssueRaw,
-  multiAssigneeFieldId?: string
+  multiAssigneeFieldId?: string,
+  doneRawStatuses?: Set<string>
 ): Promise<void> {
   const f = raw.fields;
 
@@ -218,6 +240,17 @@ export async function upsertIssue(
     }
   }
 
+  // Derive the status rollup from the changelog. Bulk sync includes the full
+  // changelog (expand=changelog); webhook payloads usually don't, in which case
+  // the rollup is maintained incrementally by recordStatusTransition and we
+  // must not overwrite it here.
+  const hasChangelog = !!raw.changelog?.histories?.length;
+  const doneSet = hasChangelog
+    ? doneRawStatuses ?? (await getDoneRawStatuses(projectId))
+    : null;
+  const rollup = doneSet ? computeRollup(raw, doneSet) : null;
+  const createdAt = f.created ? new Date(f.created) : new Date();
+
   const issueValues = {
     projectId,
     jiraId: raw.id,
@@ -239,163 +272,55 @@ export async function upsertIssue(
     customFields,
     jiraCreatedAt: f.created ? new Date(f.created) : null,
     jiraUpdatedAt: f.updated ? new Date(f.updated) : null,
+    completedAt: rollup?.completedAt ?? null,
+    currentStatusSince: rollup?.currentStatusSince ?? createdAt,
+    timeInStatus: rollup?.timeInStatus ?? {},
     syncedAt: new Date(),
   };
 
-  const [issue] = await db
+  const updateSet: Record<string, unknown> = {
+    summary: issueValues.summary,
+    description: issueValues.description,
+    status: issueValues.status,
+    statusCategory: issueValues.statusCategory,
+    issueType: issueValues.issueType,
+    priority: issueValues.priority,
+    assigneeAccountId: issueValues.assigneeAccountId,
+    assigneeEmail: issueValues.assigneeEmail,
+    assigneeName: issueValues.assigneeName,
+    reporterAccountId: issueValues.reporterAccountId,
+    reporterEmail: issueValues.reporterEmail,
+    reporterName: issueValues.reporterName,
+    labels: issueValues.labels,
+    additionalAssigneeEmails: issueValues.additionalAssigneeEmails,
+    customFields: issueValues.customFields,
+    jiraCreatedAt: issueValues.jiraCreatedAt,
+    jiraUpdatedAt: issueValues.jiraUpdatedAt,
+    syncedAt: issueValues.syncedAt,
+  };
+  // Only refresh the rollup when we computed it from a full changelog.
+  if (rollup) {
+    updateSet.completedAt = issueValues.completedAt;
+    updateSet.currentStatusSince = issueValues.currentStatusSince;
+    updateSet.timeInStatus = issueValues.timeInStatus;
+  }
+
+  await db
     .insert(jiraIssues)
     .values(issueValues)
     .onConflictDoUpdate({
       target: [jiraIssues.projectId, jiraIssues.jiraId],
-      set: {
-        summary: issueValues.summary,
-        description: issueValues.description,
-        status: issueValues.status,
-        statusCategory: issueValues.statusCategory,
-        issueType: issueValues.issueType,
-        priority: issueValues.priority,
-        assigneeAccountId: issueValues.assigneeAccountId,
-        assigneeEmail: issueValues.assigneeEmail,
-        assigneeName: issueValues.assigneeName,
-        reporterAccountId: issueValues.reporterAccountId,
-        reporterEmail: issueValues.reporterEmail,
-        reporterName: issueValues.reporterName,
-        labels: issueValues.labels,
-        additionalAssigneeEmails: issueValues.additionalAssigneeEmails,
-        customFields: issueValues.customFields,
-        jiraCreatedAt: issueValues.jiraCreatedAt,
-        jiraUpdatedAt: issueValues.jiraUpdatedAt,
-        syncedAt: issueValues.syncedAt,
-      },
-    })
-    .returning();
-
-  // Sync status history from changelog
-  if (raw.changelog?.histories) {
-    await upsertStatusHistory(issue.id, raw);
-  }
-
-  // Sync comments — single batch insert instead of N sequential round-trips
-  const rawComments = f.comment?.comments ?? [];
-  if (rawComments.length > 0) {
-    const syncedAt = new Date();
-    await db
-      .insert(jiraComments)
-      .values(
-        rawComments.map((raw) => ({
-          issueId: issue.id,
-          jiraCommentId: raw.id,
-          authorAccountId: raw.author?.accountId ?? null,
-          authorEmail: raw.author?.emailAddress ?? null,
-          authorName: raw.author?.displayName ?? null,
-          body: raw.body ? JSON.stringify(raw.body) : null,
-          jiraCreatedAt: raw.created ? new Date(raw.created) : null,
-          jiraUpdatedAt: raw.updated ? new Date(raw.updated) : null,
-          syncedAt,
-        }))
-      )
-      .onConflictDoUpdate({
-        target: [jiraComments.issueId, jiraComments.jiraCommentId],
-        set: {
-          authorEmail: sql`excluded.author_email`,
-          authorName: sql`excluded.author_name`,
-          body: sql`excluded.body`,
-          jiraUpdatedAt: sql`excluded.jira_updated_at`,
-          syncedAt: sql`excluded.synced_at`,
-        },
-      });
-  }
+      set: updateSet,
+    });
 }
 
 // ---------------------------------------------------------------------------
 // Status history — build from Jira changelog
 // ---------------------------------------------------------------------------
 
-async function upsertStatusHistory(
-  issueId: string,
-  raw: JiraIssueRaw
-): Promise<void> {
-  const histories = raw.changelog?.histories ?? [];
-
-  // Collect all status-field changes sorted by time ascending
-  type StatusChange = {
-    fromStatus: string | null;
-    toStatus: string;
-    changedAt: Date;
-    changedByName: string;
-    changedByEmail: string | null;
-  };
-
-  const changes: StatusChange[] = [];
-
-  const sorted = [...histories].sort(
-    (a, b) => new Date(a.created).getTime() - new Date(b.created).getTime()
-  );
-
-  for (const history of sorted) {
-    for (const item of history.items) {
-      if (item.field === "status") {
-        changes.push({
-          fromStatus: item.fromString,
-          toStatus: item.toString ?? raw.fields.status.name,
-          changedAt: new Date(history.created),
-          changedByName: history.author.displayName,
-          changedByEmail: history.author.emailAddress ?? null,
-        });
-      }
-    }
-  }
-
-  if (changes.length === 0) return;
-
-  // Accumulate all rows then batch-insert — replaces N sequential round-trips
-  const historyRows: (typeof jiraStatusHistory.$inferInsert)[] = [];
-
-  // Reconstruct the initial status row from the first transition's fromStatus
-  const firstChange = changes[0];
-  if (firstChange.fromStatus) {
-    const createdAt = raw.fields.created
-      ? new Date(raw.fields.created)
-      : new Date();
-    historyRows.push({
-      issueId,
-      fromStatus: null,
-      toStatus: firstChange.fromStatus,
-      changedAt: createdAt,
-      changedByName: null,
-      changedByEmail: null,
-      durationSeconds: Math.floor(
-        (firstChange.changedAt.getTime() - createdAt.getTime()) / 1000
-      ),
-    });
-  }
-
-  for (let i = 0; i < changes.length; i++) {
-    const change = changes[i];
-    const next = changes[i + 1];
-    historyRows.push({
-      issueId,
-      fromStatus: change.fromStatus,
-      toStatus: change.toStatus,
-      changedAt: change.changedAt,
-      changedByName: change.changedByName,
-      changedByEmail: change.changedByEmail,
-      durationSeconds: next
-        ? Math.floor(
-            (next.changedAt.getTime() - change.changedAt.getTime()) / 1000
-          )
-        : null,
-    });
-  }
-
-  await db
-    .insert(jiraStatusHistory)
-    .values(historyRows)
-    .onConflictDoNothing();
-}
-
 // ---------------------------------------------------------------------------
-// Status transition from webhook — single transition, not full changelog
+// Status transition from webhook — single live transition. Maintains the
+// per-issue rollup incrementally (no full changelog available here).
 // ---------------------------------------------------------------------------
 
 export async function recordStatusTransition(
@@ -403,76 +328,42 @@ export async function recordStatusTransition(
   fromStatus: string,
   toStatus: string,
   changedAt: Date,
-  changedByName: string | null,
-  changedByEmail: string | null
+  doneRawStatuses: Set<string>
 ): Promise<void> {
-  // Update the previous row's durationSeconds now that we know when it ended
-  const [prev] = await db
-    .select()
-    .from(jiraStatusHistory)
-    .where(eq(jiraStatusHistory.issueId, issueId))
-    .orderBy(desc(jiraStatusHistory.changedAt))
+  const [issue] = await db
+    .select({
+      currentStatusSince: jiraIssues.currentStatusSince,
+      timeInStatus: jiraIssues.timeInStatus,
+      completedAt: jiraIssues.completedAt,
+    })
+    .from(jiraIssues)
+    .where(eq(jiraIssues.id, issueId))
     .limit(1);
 
-  if (prev && prev.durationSeconds === null) {
-    const durationSeconds = Math.floor(
-      (changedAt.getTime() - prev.changedAt.getTime()) / 1000
-    );
-    await db
-      .update(jiraStatusHistory)
-      .set({ durationSeconds })
-      .where(eq(jiraStatusHistory.id, prev.id));
-  }
+  if (!issue) return;
+
+  const rollup = applyTransition({
+    fromStatus,
+    toStatus,
+    changedAt,
+    prevStatusSince: issue.currentStatusSince,
+    prevTimeInStatus: issue.timeInStatus ?? {},
+    prevCompletedAt: issue.completedAt,
+    doneRawStatuses,
+  });
 
   await db
-    .insert(jiraStatusHistory)
-    .values({
-      issueId,
-      fromStatus,
-      toStatus,
-      changedAt,
-      changedByName,
-      changedByEmail,
-      durationSeconds: null,
+    .update(jiraIssues)
+    .set({
+      completedAt: rollup.completedAt,
+      currentStatusSince: rollup.currentStatusSince,
+      timeInStatus: rollup.timeInStatus,
     })
-    .onConflictDoNothing();
+    .where(eq(jiraIssues.id, issueId));
 }
 
 // ---------------------------------------------------------------------------
-// Comment upsert
-// ---------------------------------------------------------------------------
-
-export async function upsertComment(
-  issueId: string,
-  raw: JiraCommentRaw
-): Promise<void> {
-  await db
-    .insert(jiraComments)
-    .values({
-      issueId,
-      jiraCommentId: raw.id,
-      authorAccountId: raw.author?.accountId ?? null,
-      authorEmail: raw.author?.emailAddress ?? null,
-      authorName: raw.author?.displayName ?? null,
-      body: raw.body ? JSON.stringify(raw.body) : null,
-      jiraCreatedAt: raw.created ? new Date(raw.created) : null,
-      jiraUpdatedAt: raw.updated ? new Date(raw.updated) : null,
-      syncedAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: [jiraComments.issueId, jiraComments.jiraCommentId],
-      set: {
-        authorEmail: raw.author?.emailAddress ?? null,
-        authorName: raw.author?.displayName ?? null,
-        body: raw.body ? JSON.stringify(raw.body) : null,
-        jiraUpdatedAt: raw.updated ? new Date(raw.updated) : null,
-        syncedAt: new Date(),
-      },
-    });
-}
-
-// ---------------------------------------------------------------------------
-// Issue deletion (cascades to comments + status history)
+// Issue deletion
 // ---------------------------------------------------------------------------
 
 export async function deleteIssue(
@@ -483,23 +374,5 @@ export async function deleteIssue(
     .delete(jiraIssues)
     .where(
       and(eq(jiraIssues.projectId, projectId), eq(jiraIssues.jiraId, jiraId))
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Comment deletion
-// ---------------------------------------------------------------------------
-
-export async function deleteComment(
-  issueId: string,
-  jiraCommentId: string
-): Promise<void> {
-  await db
-    .delete(jiraComments)
-    .where(
-      and(
-        eq(jiraComments.issueId, issueId),
-        eq(jiraComments.jiraCommentId, jiraCommentId)
-      )
     );
 }
