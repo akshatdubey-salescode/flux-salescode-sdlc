@@ -40,12 +40,18 @@ async function discoverProjectFields(
 ): Promise<DiscoveredFields> {
   const fields = await client.fetchFields();
 
-  const multiAssigneeMatch = fields.find(
+  const multiUserPickerFields = fields.filter(
     (f) =>
       f.custom &&
       f.id !== "assignee" &&
-      f.schema?.custom === MULTI_USER_PICKER_TYPE
+      f.schema?.custom === MULTI_USER_PICKER_TYPE &&
+      f.name.toLowerCase() !== "assignee"
   );
+  // Prefer a field explicitly named "multiple assignee" (or similar); fall back to first match.
+  const multiAssigneeMatch =
+    multiUserPickerFields.find((f) =>
+      /multiple.{0,4}assignee/i.test(f.name)
+    ) ?? multiUserPickerFields[0];
   const multiAssigneeFieldId = multiAssigneeMatch?.id ?? "";
 
   // Exact-name match avoids picking up "Weekend Date" / "Intended End Date" etc.
