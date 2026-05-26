@@ -54,35 +54,41 @@ export const users = pgTable("users", {
 // Jira Projects — one row per onboarded Jira project
 // ---------------------------------------------------------------------------
 
-export const jiraProjects = pgTable("jira_projects", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  jiraBaseUrl: text("jira_base_url").notNull(), // https://org.atlassian.net
-  jiraProjectKey: text("jira_project_key").notNull(), // SC, DEV, etc.
-  jiraEmail: text("jira_email").notNull(),
-  jiraApiToken: text("jira_api_token").notNull(), // TODO: encrypt at rest
-  webhookSecret: text("webhook_secret").notNull(), // random hex; included in webhook URL
-  isActive: boolean("is_active").notNull().default(true),
-  headerImageUrl: text("header_image_url"),
-  headerColor: text("header_color"),
-  lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
-  // Auto-discovered Jira custom field ID for multi-user assignee picker.
-  // null = not yet attempted, "" = attempted and not found, "customfield_XXXXX" = found.
-  multiAssigneeFieldId: text("multi_assignee_field_id"),
-  // Auto-discovered Jira custom field IDs for end date / start date.
-  // null = not yet attempted, [] = attempted and not found, [...] = found.
-  endDateFieldIds: text("end_date_field_ids").array(),
-  startDateFieldIds: text("start_date_field_ids").array(),
-  createdBy: text("created_by")
-    .notNull()
-    .references(() => users.id),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const jiraProjects = pgTable(
+  "jira_projects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    jiraBaseUrl: text("jira_base_url").notNull(), // https://org.atlassian.net
+    jiraProjectKey: text("jira_project_key").notNull(), // SC, DEV, etc.
+    jiraEmail: text("jira_email").notNull(),
+    jiraApiToken: text("jira_api_token").notNull(), // TODO: encrypt at rest
+    webhookSecret: text("webhook_secret").notNull(), // random hex; included in webhook URL
+    isActive: boolean("is_active").notNull().default(true),
+    headerImageUrl: text("header_image_url"),
+    headerColor: text("header_color"),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    // Auto-discovered Jira custom field ID for multi-user assignee picker.
+    // null = not yet attempted, "" = attempted and not found, "customfield_XXXXX" = found.
+    multiAssigneeFieldId: text("multi_assignee_field_id"),
+    // Auto-discovered Jira custom field IDs for end date / start date.
+    // null = not yet attempted, [] = attempted and not found, [...] = found.
+    endDateFieldIds: text("end_date_field_ids").array(),
+    startDateFieldIds: text("start_date_field_ids").array(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("jira_projects_base_url_key_idx").on(t.jiraBaseUrl, t.jiraProjectKey),
+  ]
+);
 
 // ---------------------------------------------------------------------------
 // Project Status Mappings — maps raw Jira statuses to canonical buckets

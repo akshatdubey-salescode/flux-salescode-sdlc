@@ -162,6 +162,13 @@
       "when": 1779788780313,
       "tag": "0022_migrate_users_id_to_email",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1748217600000,
+      "tag": "0023_unique_jira_project_key",
+      "breakpoints": true
     }
   ]
 }

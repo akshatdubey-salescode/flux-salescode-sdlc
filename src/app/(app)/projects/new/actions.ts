@@ -7,6 +7,7 @@ import { requireRole } from "@/lib/auth/server";
 import { db } from "@/lib/db";
 import { jiraProjects } from "@/lib/db/schema";
 import { JiraClient } from "@/lib/jira/client";
+import { eq, and } from "drizzle-orm";
 import { encrypt } from "@/lib/crypto";
 import { registerJiraWebhook } from "@/lib/jira/webhooks";
 
@@ -64,6 +65,24 @@ export async function createProject(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { error: `Project key "${jiraProjectKey}" not found: ${msg}` };
+  }
+
+  // Guard against duplicate (base URL + project key) combinations
+  const existing = await db
+    .select({ id: jiraProjects.id })
+    .from(jiraProjects)
+    .where(
+      and(
+        eq(jiraProjects.jiraBaseUrl, jiraBaseUrl.replace(/\/$/, "")),
+        eq(jiraProjects.jiraProjectKey, jiraProjectKey)
+      )
+    )
+    .limit(1);
+
+  if (existing.length > 0) {
+    return {
+      error: `Project "${jiraProjectKey}" from ${jiraBaseUrl} is already onboarded.`,
+    };
   }
 
   const webhookSecret = randomBytes(32).toString("hex");
