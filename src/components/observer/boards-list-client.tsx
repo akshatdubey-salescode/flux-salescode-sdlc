@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -12,8 +12,6 @@ import {
   RiMoreLine,
   RiSearchLine,
   RiUserLine,
-  RiExternalLinkLine,
-  RiLoader4Line,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import {
@@ -57,132 +55,13 @@ type Board = {
   isOwned: boolean;
 };
 
-type PersonResult = {
-  name: string;
-  email: string;
-};
-
-// ---------------------------------------------------------------------------
-// People search
-// ---------------------------------------------------------------------------
-function PeopleSearch() {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<PersonResult[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (query.length < 2) {
-      setResults([]);
-      setOpen(false);
-      return;
-    }
-    setLoading(true);
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(
-          `/api/observer/people/search?q=${encodeURIComponent(query)}`
-        );
-        if (res.ok) {
-          const data = await res.json();
-          setResults(data);
-          setOpen(data.length > 0);
-        }
-      } finally {
-        setLoading(false);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [query]);
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
-
-  function avatarInitials(name: string) {
-    return name
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .toUpperCase()
-      .slice(0, 2);
-  }
-
-  return (
-    <div ref={containerRef} className="relative w-full max-w-sm">
-      <div className="relative">
-        <RiSearchLine
-          size={14}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
-        />
-        {loading && (
-          <RiLoader4Line
-            size={14}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground animate-spin"
-          />
-        )}
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search any team member…"
-          className="w-full h-9 pl-8 pr-8 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm text-zinc-800 dark:text-zinc-200 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors"
-        />
-      </div>
-
-      {open && results.length > 0 && (
-        <div className="absolute top-full mt-1.5 left-0 right-0 z-50 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xl overflow-hidden">
-          <p className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-zinc-100 dark:border-zinc-800">
-            People
-          </p>
-          {results.map((person) => (
-            <Link
-              key={person.email}
-              href={`/observer/developer/${encodeURIComponent(person.email)}`}
-              onClick={() => {
-                setOpen(false);
-                setQuery("");
-              }}
-              className="flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 transition-colors group"
-            >
-              <div className="size-7 rounded-full bg-gradient-to-br from-zinc-100 to-zinc-50 dark:from-zinc-800 dark:to-zinc-900 border border-zinc-200 dark:border-zinc-700 flex items-center justify-center text-[10px] font-bold text-zinc-500 shrink-0">
-                {avatarInitials(person.name)}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200 truncate">
-                  {person.name}
-                </p>
-                <p className="text-[11px] text-muted-foreground truncate">
-                  {person.email}
-                </p>
-              </div>
-              <RiExternalLinkLine
-                size={13}
-                className="text-zinc-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-              />
-            </Link>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 export function BoardsListClient({ initialBoards }: Props) {
   const router = useRouter();
   const [boards, setBoards] = useState<Board[]>(initialBoards);
+  const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [editBoard, setEditBoard] = useState<Board | null>(null);
   const [deleteBoard, setDeleteBoard] = useState<Board | null>(null);
@@ -192,8 +71,17 @@ export function BoardsListClient({ initialBoards }: Props) {
   const [managerEmail, setManagerEmail] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const myBoards = boards.filter((b) => b.isOwned);
-  const otherBoards = boards.filter((b) => !b.isOwned);
+  const needle = search.trim().toLowerCase();
+  const filtered = needle
+    ? boards.filter(
+        (b) =>
+          b.name.toLowerCase().includes(needle) ||
+          (b.managerName ?? "").toLowerCase().includes(needle)
+      )
+    : boards;
+
+  const myBoards = filtered.filter((b) => b.isOwned).sort((a, b) => a.name.localeCompare(b.name));
+  const otherBoards = filtered.filter((b) => !b.isOwned).sort((a, b) => a.name.localeCompare(b.name));
 
   async function handleCreate() {
     if (!name.trim()) return;
@@ -306,8 +194,17 @@ export function BoardsListClient({ initialBoards }: Props) {
       </div>
 
       {/* Search */}
-      <div className="mb-8">
-        <PeopleSearch />
+      <div className="relative mb-8 w-full max-w-sm">
+        <RiSearchLine
+          size={14}
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
+        />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search boards…"
+          className="w-full h-9 pl-8 pr-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm text-zinc-800 dark:text-zinc-200 placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors"
+        />
       </div>
 
       {boards.length === 0 ? (
