@@ -77,13 +77,13 @@ export async function POST(
   try {
     switch (webhookEvent) {
       case "jira:issue_created": {
-        if (issue) await upsertIssue(projectId, issue);
+        if (issue) await upsertIssue(projectId, issue, project.multiAssigneeFieldId ?? undefined);
         break;
       }
 
       case "jira:issue_updated": {
         if (issue) {
-          await upsertIssue(projectId, issue);
+          await upsertIssue(projectId, issue, project.multiAssigneeFieldId ?? undefined);
 
           const [existingIssue] = await db
             .select({

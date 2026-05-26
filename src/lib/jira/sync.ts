@@ -25,6 +25,82 @@ export type SyncResult = {
  * Full sync of all issues for a project. Paginates through the Jira API in
  * batches of 100 and upserts each issue + its comments + status history.
  */
+// The Jira custom field type key for multi-user pickers.
+const MULTI_USER_PICKER_TYPE = "com.atlassian.jira.plugin.system.customfieldtypes:multiuserpicker";
+
+type DiscoveredFields = {
+  multiAssigneeFieldId: string;
+  endDateFieldIds: string[];
+  startDateFieldIds: string[];
+};
+
+async function discoverProjectFields(
+  client: JiraClient,
+  projectId: string
+): Promise<DiscoveredFields> {
+  const fields = await client.fetchFields();
+
+  const multiAssigneeMatch = fields.find(
+    (f) =>
+      f.custom &&
+      f.id !== "assignee" &&
+      f.schema?.custom === MULTI_USER_PICKER_TYPE
+  );
+  const multiAssigneeFieldId = multiAssigneeMatch?.id ?? "";
+
+  // Exact-name match avoids picking up "Weekend Date" / "Intended End Date" etc.
+  const endDateFieldIds = fields
+    .filter((f) => f.custom && /^end\s*date$/i.test(f.name.trim()))
+    .map((f) => f.id);
+
+  const startDateFieldIds = fields
+    .filter((f) => f.custom && /^start\s*date$/i.test(f.name.trim()))
+    .map((f) => f.id);
+
+  await db
+    .update(jiraProjects)
+    .set({ multiAssigneeFieldId, endDateFieldIds, startDateFieldIds })
+    .where(eq(jiraProjects.id, projectId));
+
+  return { multiAssigneeFieldId, endDateFieldIds, startDateFieldIds };
+}
+
+/**
+ * Re-discovers the project's custom field IDs on every sync so renamed,
+ * added, or removed Jira fields propagate. On transient API failure we fall
+ * back to whatever was cached on the project row (avoids breaking the sync).
+ */
+export async function resolveProjectFieldConfig(
+  client: JiraClient,
+  project: {
+    id: string;
+    multiAssigneeFieldId: string | null;
+    endDateFieldIds: string[] | null;
+    startDateFieldIds: string[] | null;
+  }
+): Promise<{ multiAssigneeFieldId: string; extraFields: string[] }> {
+  let multiAssigneeFieldId: string | null = project.multiAssigneeFieldId;
+  let endDateFieldIds: string[] | null = project.endDateFieldIds;
+  let startDateFieldIds: string[] | null = project.startDateFieldIds;
+
+  try {
+    const discovered = await discoverProjectFields(client, project.id);
+    multiAssigneeFieldId = discovered.multiAssigneeFieldId;
+    endDateFieldIds = discovered.endDateFieldIds;
+    startDateFieldIds = discovered.startDateFieldIds;
+  } catch (err) {
+    // Transient API failure — keep the previously-cached values for this sync.
+    console.warn(`[sync] field discovery failed for project ${project.id}:`, err);
+  }
+
+  const extraFields: string[] = [];
+  if (multiAssigneeFieldId) extraFields.push(multiAssigneeFieldId);
+  if (endDateFieldIds?.length) extraFields.push(...endDateFieldIds);
+  if (startDateFieldIds?.length) extraFields.push(...startDateFieldIds);
+
+  return { multiAssigneeFieldId: multiAssigneeFieldId ?? "", extraFields };
+}
+
 export async function syncProject(projectId: string): Promise<SyncResult> {
   const [project] = await db
     .select()
@@ -40,6 +116,11 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
     apiToken: decrypt(project.jiraApiToken),
   });
 
+  const { multiAssigneeFieldId, extraFields } = await resolveProjectFieldConfig(
+    client,
+    project
+  );
+
   let synced = 0;
   let errors = 0;
   const errorMessages: string[] = [];
@@ -50,13 +131,14 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
     const result = await client.fetchIssues(
       project.jiraProjectKey,
       nextPageToken,
-      maxResults
+      maxResults,
+      extraFields
     );
 
     for (let i = 0; i < result.issues.length; i += SYNC_CONCURRENCY) {
       const chunk = result.issues.slice(i, i + SYNC_CONCURRENCY);
       const results = await Promise.allSettled(
-        chunk.map((issue) => upsertIssue(projectId, issue))
+        chunk.map((issue) => upsertIssue(projectId, issue, multiAssigneeFieldId ?? undefined))
       );
       for (let j = 0; j < results.length; j++) {
         const r = results[j];
@@ -89,7 +171,8 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
 
 export async function upsertIssue(
   projectId: string,
-  raw: JiraIssueRaw
+  raw: JiraIssueRaw,
+  multiAssigneeFieldId?: string
 ): Promise<void> {
   const f = raw.fields;
 
@@ -114,6 +197,21 @@ export async function upsertIssue(
     }
   }
 
+  // Extract additional assignee emails from the multi-user picker field.
+  // The field returns an array of user objects: [{accountId, emailAddress, displayName}]
+  const additionalAssigneeEmails: string[] = [];
+  if (multiAssigneeFieldId) {
+    const raw_additional = (f as Record<string, unknown>)[multiAssigneeFieldId];
+    if (Array.isArray(raw_additional)) {
+      for (const u of raw_additional) {
+        const email = (u as { emailAddress?: string })?.emailAddress;
+        if (email && typeof email === "string") {
+          additionalAssigneeEmails.push(email);
+        }
+      }
+    }
+  }
+
   const issueValues = {
     projectId,
     jiraId: raw.id,
@@ -131,6 +229,7 @@ export async function upsertIssue(
     reporterEmail: f.reporter?.emailAddress ?? null,
     reporterName: f.reporter?.displayName ?? null,
     labels: f.labels ?? [],
+    additionalAssigneeEmails,
     customFields,
     jiraCreatedAt: f.created ? new Date(f.created) : null,
     jiraUpdatedAt: f.updated ? new Date(f.updated) : null,
@@ -156,6 +255,7 @@ export async function upsertIssue(
         reporterEmail: issueValues.reporterEmail,
         reporterName: issueValues.reporterName,
         labels: issueValues.labels,
+        additionalAssigneeEmails: issueValues.additionalAssigneeEmails,
         customFields: issueValues.customFields,
         jiraCreatedAt: issueValues.jiraCreatedAt,
         jiraUpdatedAt: issueValues.jiraUpdatedAt,

@@ -141,6 +141,20 @@
       "when": 1779705688012,
       "tag": "0019_abandoned_mister_sinister",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1779788253696,
+      "tag": "0020_awesome_kate_bishop",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1779788780312,
+      "tag": "0021_steady_nuke",
+      "breakpoints": true
     }
   ]
 }

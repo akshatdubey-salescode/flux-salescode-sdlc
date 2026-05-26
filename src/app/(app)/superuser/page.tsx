@@ -7,7 +7,7 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
-import { RiFlag2Line, RiRefreshLine } from "@remixicon/react";
+import { RiFlag2Line, RiRefreshLine, RiLightbulbLine } from "@remixicon/react";
 
 const TOOLS = [
   {
@@ -21,6 +21,12 @@ const TOOLS = [
     icon: RiRefreshLine,
     title: "Sync Projects",
     description: "Force-sync all active Jira projects and monitor progress in real time.",
+  },
+  {
+    href: "/superuser/feature-requests",
+    icon: RiLightbulbLine,
+    title: "Feature Requests",
+    description: "View all feature requests submitted by users across the platform.",
   },
 ];
 

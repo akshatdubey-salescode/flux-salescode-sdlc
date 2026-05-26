@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, inArray, sql } from "drizzle-orm";
+import { and, eq, isNotNull, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { jiraIssues, jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
@@ -10,6 +10,11 @@ export async function GET(req: Request) {
   const forEmail = searchParams.get("forEmail")?.trim();
   const targetEmail = forEmail || user.email;
 
+  const isAssignee = or(
+    eq(jiraIssues.assigneeEmail, targetEmail),
+    sql`${targetEmail} = ANY(${jiraIssues.additionalAssigneeEmails})`
+  )!;
+
   const [statuses, priorities, issueTypes, reporterRows, labelRows, projectRows] =
     await Promise.all([
       db
@@ -18,36 +23,26 @@ export async function GET(req: Request) {
           statusCategory: jiraIssues.statusCategory,
         })
         .from(jiraIssues)
-        .where(eq(jiraIssues.assigneeEmail, targetEmail)),
+        .where(isAssignee),
       db
         .selectDistinct({ value: jiraIssues.priority })
         .from(jiraIssues)
-        .where(
-          and(
-            eq(jiraIssues.assigneeEmail, targetEmail),
-            isNotNull(jiraIssues.priority)
-          )
-        ),
+        .where(and(isAssignee, isNotNull(jiraIssues.priority))),
       db
         .selectDistinct({ value: jiraIssues.issueType })
         .from(jiraIssues)
-        .where(eq(jiraIssues.assigneeEmail, targetEmail)),
+        .where(isAssignee),
       db
         .selectDistinct({
           email: jiraIssues.reporterEmail,
           name: jiraIssues.reporterName,
         })
         .from(jiraIssues)
-        .where(
-          and(
-            eq(jiraIssues.assigneeEmail, targetEmail),
-            isNotNull(jiraIssues.reporterEmail)
-          )
-        ),
+        .where(and(isAssignee, isNotNull(jiraIssues.reporterEmail))),
       db
         .selectDistinct({ labels: jiraIssues.labels })
         .from(jiraIssues)
-        .where(eq(jiraIssues.assigneeEmail, targetEmail)),
+        .where(isAssignee),
       db
         .selectDistinct({
           id: jiraProjects.id,
@@ -56,7 +51,7 @@ export async function GET(req: Request) {
         })
         .from(jiraProjects)
         .innerJoin(jiraIssues, eq(jiraIssues.projectId, jiraProjects.id))
-        .where(eq(jiraIssues.assigneeEmail, targetEmail)),
+        .where(isAssignee),
     ]);
 
   const labels = [

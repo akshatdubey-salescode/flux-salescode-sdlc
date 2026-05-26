@@ -36,7 +36,13 @@ async function fetchIssues(
 
   if (projectId) conditions.push(eq(jiraIssues.projectId, projectId));
   if (status) conditions.push(eq(jiraIssues.status, status));
-  if (assigneeEmail) conditions.push(eq(jiraIssues.assigneeEmail, assigneeEmail));
+  if (assigneeEmail)
+    conditions.push(
+      or(
+        eq(jiraIssues.assigneeEmail, assigneeEmail),
+        sql`${assigneeEmail} = ANY(${jiraIssues.additionalAssigneeEmails})`
+      )!
+    );
   if (q) {
     conditions.push(
       or(

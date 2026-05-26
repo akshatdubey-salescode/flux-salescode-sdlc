@@ -103,8 +103,15 @@ export async function GET(req: NextRequest) {
   if (statusList.length) conditions.push(inArray(jiraIssues.status, statusList));
   if (priorityList.length)
     conditions.push(inArray(jiraIssues.priority, priorityList));
-  if (assigneeList.length)
-    conditions.push(inArray(jiraIssues.assigneeEmail, assigneeList));
+  if (assigneeList.length) {
+    const assigneeEmails = sql.join(assigneeList.map((e) => sql`${e}`), sql`, `);
+    conditions.push(
+      or(
+        inArray(jiraIssues.assigneeEmail, assigneeList),
+        sql`${jiraIssues.additionalAssigneeEmails} && ARRAY[${assigneeEmails}]::text[]`
+      )!
+    );
+  }
   if (reporterList.length)
     conditions.push(inArray(jiraIssues.reporterEmail, reporterList));
   if (issueTypeList.length)

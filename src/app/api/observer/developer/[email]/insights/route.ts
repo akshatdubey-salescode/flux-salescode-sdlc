@@ -42,7 +42,7 @@ async function fetchDeveloperInsights(email: string) {
       JOIN project_status_mappings psm
         ON psm.project_id = ji.project_id AND psm.raw_status = jsh.to_status
       WHERE psm.canonical_status = 'DONE'
-        AND ji.assignee_email = ${email}
+        AND (ji.assignee_email = ${email} OR ${email} = ANY(ji.additional_assignee_emails))
         AND jsh.changed_at >= NOW() - INTERVAL '7 days'
     `),
 
@@ -53,7 +53,7 @@ async function fetchDeveloperInsights(email: string) {
       JOIN project_status_mappings psm
         ON psm.project_id = ji.project_id AND psm.raw_status = jsh.to_status
       WHERE psm.canonical_status = 'DONE'
-        AND ji.assignee_email = ${email}
+        AND (ji.assignee_email = ${email} OR ${email} = ANY(ji.additional_assignee_emails))
         AND jsh.changed_at >= NOW() - INTERVAL '14 days'
         AND jsh.changed_at < NOW() - INTERVAL '7 days'
     `),
@@ -63,7 +63,7 @@ async function fetchDeveloperInsights(email: string) {
       FROM jira_issues ji
       LEFT JOIN project_status_mappings psm
         ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
-      WHERE ji.assignee_email = ${email}
+      WHERE (ji.assignee_email = ${email} OR ${email} = ANY(ji.additional_assignee_emails))
         AND (psm.canonical_status IS NULL OR psm.canonical_status NOT IN ('DONE', 'CANCELLED'))
     `),
 
@@ -72,7 +72,7 @@ async function fetchDeveloperInsights(email: string) {
         COALESCE(ji.priority, 'None') AS priority,
         COUNT(*)::int AS count
       FROM jira_issues ji
-      WHERE ji.assignee_email = ${email}
+      WHERE (ji.assignee_email = ${email} OR ${email} = ANY(ji.additional_assignee_emails))
       GROUP BY ji.priority
       ORDER BY count DESC
     `),
@@ -84,7 +84,7 @@ async function fetchDeveloperInsights(email: string) {
         COUNT(*)::int AS count
       FROM jira_issues ji
       JOIN jira_projects jp ON jp.id = ji.project_id
-      WHERE ji.assignee_email = ${email}
+      WHERE (ji.assignee_email = ${email} OR ${email} = ANY(ji.additional_assignee_emails))
       GROUP BY jp.id, jp.name, jp.jira_project_key
       ORDER BY count DESC
       LIMIT 10
@@ -95,7 +95,7 @@ async function fetchDeveloperInsights(email: string) {
         ji.issue_type AS issue_type,
         COUNT(*)::int AS count
       FROM jira_issues ji
-      WHERE ji.assignee_email = ${email}
+      WHERE (ji.assignee_email = ${email} OR ${email} = ANY(ji.additional_assignee_emails))
       GROUP BY ji.issue_type
       ORDER BY count DESC
     `),
@@ -108,7 +108,7 @@ async function fetchDeveloperInsights(email: string) {
       FROM jira_issues ji
       LEFT JOIN project_status_mappings psm
         ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
-      WHERE ji.assignee_email = ${email}
+      WHERE (ji.assignee_email = ${email} OR ${email} = ANY(ji.additional_assignee_emails))
         AND (psm.canonical_status IS NULL OR psm.canonical_status NOT IN ('DONE', 'CANCELLED'))
       GROUP BY ji.status
       ORDER BY count DESC
@@ -128,7 +128,7 @@ async function fetchDeveloperInsights(email: string) {
         jp.jira_project_key AS project_key
       FROM jira_issues ji
       JOIN jira_projects jp ON jp.id = ji.project_id
-      WHERE ji.assignee_email = ${email}
+      WHERE (ji.assignee_email = ${email} OR ${email} = ANY(ji.additional_assignee_emails))
       ORDER BY ji.jira_updated_at DESC NULLS LAST
       LIMIT 15
     `),
@@ -150,7 +150,7 @@ async function fetchDeveloperInsights(email: string) {
           AND jsh.changed_at >= NOW() - INTERVAL '30 days'
         ORDER BY jsh.issue_id, jsh.changed_at ASC
       ) done_at ON done_at.issue_id = ji.id
-      WHERE ji.assignee_email = ${email}
+      WHERE (ji.assignee_email = ${email} OR ${email} = ANY(ji.additional_assignee_emails))
     `),
   ]);
 

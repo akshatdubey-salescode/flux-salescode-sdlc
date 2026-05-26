@@ -20,6 +20,7 @@ import {
   RiTeamLine,
   RiCloseLine,
   RiFlag2Line,
+  RiLightbulbLine,
 } from "@remixicon/react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -391,6 +392,12 @@ export function AppSidebar({ user, projects, requirementBuilderEnabled }: Props)
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/feature-request" className="cursor-pointer">
+                    <RiLightbulbLine className="size-4" />
+                    Feature Request
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link href="/settings" className="cursor-pointer">
                     <RiSettings3Line className="size-4" />
