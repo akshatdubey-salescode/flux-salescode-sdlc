@@ -20,11 +20,13 @@ import {
   RiUserSettingsLine,
   RiExternalLinkLine,
   RiFlag2Line,
+  RiTeamLine,
 } from "@remixicon/react";
-import type { JiraProject } from "@/lib/db/schema";
+import type { JiraProject, ObserverBoard } from "@/lib/db/schema";
 
 type Props = {
   projects: Pick<JiraProject, "id" | "name" | "jiraProjectKey">[];
+  teams: Pick<ObserverBoard, "id" | "name">[];
   isSuperUser: boolean;
   requirementBuilderEnabled: boolean;
 };
@@ -40,7 +42,7 @@ type JiraResult = {
 
 const JIRA_RESULT_LIMIT = 8;
 
-export function CommandPalette({ projects, isSuperUser, requirementBuilderEnabled }: Props) {
+export function CommandPalette({ projects, teams, isSuperUser, requirementBuilderEnabled }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [jiraResults, setJiraResults] = useState<JiraResult[]>([]);
@@ -116,10 +118,15 @@ export function CommandPalette({ projects, isSuperUser, requirementBuilderEnable
       p.jiraProjectKey.toLowerCase().includes(q)
   );
 
+  const filteredTeams = teams.filter(
+    (t) => !q || t.name.toLowerCase().includes(q)
+  );
+
   const showEmpty =
     !jiraLoading &&
     filteredNav.length === 0 &&
     filteredProjects.length === 0 &&
+    filteredTeams.length === 0 &&
     jiraResults.length === 0;
 
   return (
@@ -138,7 +145,7 @@ export function CommandPalette({ projects, isSuperUser, requirementBuilderEnable
           </DialogPrimitive.Description>
           <Command shouldFilter={false}>
             <CommandInput
-              placeholder="Go to page, project, or search Jira…"
+              placeholder="Go to page, project, team, or search Jira…"
               value={query}
               onValueChange={setQuery}
             />
@@ -186,9 +193,27 @@ export function CommandPalette({ projects, isSuperUser, requirementBuilderEnable
                 </>
               )}
 
+              {filteredTeams.length > 0 && (
+                <>
+                  {(filteredNav.length > 0 || filteredProjects.length > 0) && <CommandSeparator />}
+                  <CommandGroup heading="Teams">
+                    {filteredTeams.map((t) => (
+                      <CommandItem
+                        key={t.id}
+                        value={t.name}
+                        onSelect={() => navigate(`/observer/${t.id}`)}
+                      >
+                        <RiTeamLine />
+                        <span className="flex-1 truncate">{t.name}</span>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </>
+              )}
+
               {jiraResults.length > 0 && (
                 <>
-                  {(filteredNav.length > 0 || filteredProjects.length > 0) && (
+                  {(filteredNav.length > 0 || filteredProjects.length > 0 || filteredTeams.length > 0) && (
                     <CommandSeparator />
                   )}
                   <CommandGroup heading="Jira Issues">
