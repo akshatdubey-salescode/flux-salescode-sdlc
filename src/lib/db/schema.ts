@@ -39,7 +39,7 @@ export const canonicalStatusEnum = pgEnum("canonical_status", [
 // ---------------------------------------------------------------------------
 
 export const users = pgTable("users", {
-  id: text("id").primaryKey(), // user email (Google identity)
+  id: text("id").primaryKey(), // Clerk user ID
   email: text("email").notNull().unique(),
   role: userRoleEnum("role").notNull().default("USER"),
   createdAt: timestamp("created_at", { withTimezone: true })

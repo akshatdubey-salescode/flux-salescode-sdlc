@@ -48,7 +48,7 @@ export default function PrivacyPage() {
             <Subsection title="2.1 Account Information">
               <p>
                 When you sign in, we collect your name, email address, and profile
-                image from your Salescode.ai Google account.
+                image from your Salescode.ai Google account via Clerk authentication.
               </p>
             </Subsection>
             <Subsection title="2.2 Atlassian OAuth Tokens">
@@ -143,7 +143,7 @@ export default function PrivacyPage() {
             </p>
             <ul>
               <li><strong>Atlassian</strong> — OAuth provider and Jira issue tracking</li>
-              <li><strong>Google</strong> — Sign-in (OAuth) for @salescode.ai accounts</li>
+              <li><strong>Clerk</strong> — Authentication and user management</li>
               <li><strong>GitHub</strong> — Repository metadata for the AI requirement builder</li>
             </ul>
           </Section>

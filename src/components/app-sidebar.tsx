@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useSession, signOut } from "next-auth/react";
+import { SignOutButton, useUser } from "@clerk/nextjs";
 import {
   RiHome3Line,
   RiTaskLine,
@@ -71,10 +71,7 @@ export const NAV_ITEMS = [
 
 export function AppSidebar({ user, projects, requirementBuilderEnabled }: Props) {
   const pathname = usePathname();
-  const { data: session } = useSession();
-  const sessionUser = session?.user;
-  const displayName = sessionUser?.name ?? user.email.split("@")[0];
-  const avatarUrl = sessionUser?.image ?? undefined;
+  const { user: clerkUser } = useUser();
 
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -351,14 +348,16 @@ export function AppSidebar({ user, projects, requirementBuilderEnabled }: Props)
                   className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
                 >
                   <Avatar className="size-8 rounded-lg">
-                    <AvatarImage src={avatarUrl} alt={user.email} />
+                    <AvatarImage src={clerkUser?.imageUrl} alt={user.email} />
                     <AvatarFallback className="rounded-lg text-xs">
                       {user.email[0].toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex min-w-0 flex-col items-start text-left group-data-[collapsible=icon]:hidden">
                     <span className="truncate text-sm font-semibold leading-tight">
-                      {displayName}
+                      {clerkUser?.firstName
+                        ? `${clerkUser.firstName}${clerkUser.lastName ? ` ${clerkUser.lastName}` : ""}`
+                        : user.email.split("@")[0]}
                     </span>
                     <span className="truncate text-[11px] text-muted-foreground leading-tight">
                       {user.email}
@@ -375,14 +374,16 @@ export function AppSidebar({ user, projects, requirementBuilderEnabled }: Props)
                 <DropdownMenuLabel className="p-0 font-normal">
                   <div className="flex items-center gap-2 px-2 py-2">
                     <Avatar className="size-8 rounded-lg">
-                      <AvatarImage src={avatarUrl} alt={user.email} />
+                      <AvatarImage src={clerkUser?.imageUrl} alt={user.email} />
                       <AvatarFallback className="rounded-lg text-xs">
                         {user.email[0].toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex min-w-0 flex-col">
                       <span className="truncate text-sm font-semibold">
-                        {displayName}
+                        {clerkUser?.firstName
+                          ? `${clerkUser.firstName}${clerkUser.lastName ? ` ${clerkUser.lastName}` : ""}`
+                          : user.email.split("@")[0]}
                       </span>
                       <span className="truncate text-[11px] text-muted-foreground">
                         {user.email}
@@ -404,13 +405,12 @@ export function AppSidebar({ user, projects, requirementBuilderEnabled }: Props)
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={() => signOut({ callbackUrl: "/" })}
-                  className="cursor-pointer text-destructive focus:text-destructive"
-                >
-                  <RiLogoutBoxRLine className="size-4" />
-                  Sign Out
-                </DropdownMenuItem>
+                <SignOutButton redirectUrl="/">
+                  <DropdownMenuItem className="cursor-pointer text-destructive focus:text-destructive">
+                    <RiLogoutBoxRLine className="size-4" />
+                    Sign Out
+                  </DropdownMenuItem>
+                </SignOutButton>
               </DropdownMenuContent>
             </DropdownMenu>
           </SidebarMenuItem>
