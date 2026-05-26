@@ -35,7 +35,33 @@ export function JiraUserSyncTable({ users }: { users: JiraUser[] }) {
     });
   }
 
+  function handleSyncAll() {
+    const pending = users.filter((u) => {
+      const s = states[u.accountId]?.status ?? "idle";
+      return s === "idle" || s === "error";
+    });
+    for (const u of pending) {
+      handleSync(u.accountId);
+    }
+  }
+
+  const isSyncingAny = users.some((u) => states[u.accountId]?.status === "syncing");
+  const allDone = users.every((u) => states[u.accountId]?.status === "done");
+
   return (
+    <div className="space-y-2">
+      {!allDone && (
+        <div className="flex justify-end">
+          <button
+            onClick={handleSyncAll}
+            disabled={isSyncingAny}
+            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            <RiRefreshLine className={`size-3.5 ${isSyncingAny ? "animate-spin" : ""}`} />
+            {isSyncingAny ? "Syncing…" : "Sync All"}
+          </button>
+        </div>
+      )}
     <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
       <table className="w-full text-sm">
         <thead>
@@ -103,6 +129,7 @@ export function JiraUserSyncTable({ users }: { users: JiraUser[] }) {
           })}
         </tbody>
       </table>
+    </div>
     </div>
   );
 }
