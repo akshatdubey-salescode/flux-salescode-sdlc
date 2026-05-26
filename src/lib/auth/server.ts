@@ -16,18 +16,25 @@ export type AuthUser = {
 
 /**
  * Returns the current authenticated user with their DB role.
- * If the user is authenticated in Clerk but missing from our DB (e.g. webhook
- * delay on first login), auto-syncs them so the first request never fails.
- * Returns null if not authenticated or if their email domain is not allowed.
+ * The DB uses email as the primary key (`users.id` = email), so we resolve
+ * Clerk's userId → email → DB row. Auto-syncs the user on first login if the
+ * webhook hasn't fired yet. Returns null if not authenticated or if the email
+ * domain is not allowed.
  */
 export async function getCurrentUser(): Promise<AuthUser | null> {
   const { userId } = await auth();
   if (!userId) return null;
 
+  const clerkUser = await currentUser();
+  const email =
+    clerkUser?.emailAddresses?.[0]?.emailAddress?.toLowerCase() ?? null;
+
+  if (!email || !email.endsWith(ALLOWED_DOMAIN)) return null;
+
   const [user] = await db
     .select()
     .from(users)
-    .where(eq(users.id, userId))
+    .where(eq(users.id, email))
     .limit(1);
 
   if (user) {
@@ -35,15 +42,8 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   }
 
   // Not in DB yet — webhook may not have fired. Try to auto-sync.
-  const clerkUser = await currentUser();
-  const primaryEmail = clerkUser?.emailAddresses?.[0]?.emailAddress ?? null;
-
-  if (!primaryEmail || !primaryEmail.endsWith(ALLOWED_DOMAIN)) {
-    return null; // Domain not allowed — caller decides where to redirect
-  }
-
-  await syncClerkUser({ clerkId: userId, email: primaryEmail });
-  return { id: userId, email: primaryEmail, role: "USER" };
+  await syncClerkUser({ clerkId: userId, email });
+  return { id: email, email, role: "USER" };
 }
 
 /**
@@ -78,17 +78,18 @@ export async function requireRole(minRole: UserRole): Promise<AuthUser> {
 }
 
 /**
- * Syncs a Clerk user to our database.
- * Creates the user with default USER role if they don't exist.
- * Called from the Clerk webhook handler and as a first-login fallback.
+ * Syncs a Clerk user to our database. Email is the primary key
+ * (the Clerk user ID is no longer stored). Called from the Clerk webhook
+ * handler and as a first-login fallback.
  */
 export async function syncClerkUser(params: {
   clerkId: string;
   email: string;
 }): Promise<void> {
+  const email = params.email.toLowerCase();
   await db
     .insert(users)
-    .values({ id: params.clerkId, email: params.email, role: "USER" })
+    .values({ id: email, email, role: "USER" })
     .onConflictDoNothing();
 }
 
