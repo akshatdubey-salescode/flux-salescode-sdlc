@@ -10,7 +10,7 @@ import { detectViolations } from "@/lib/services/sla-detection";
 import { sendSLADigestEmail, type DigestRecipient } from "@/lib/services/sla-email";
 
 // ---------------------------------------------------------------------------
-// Auth — CRON_SECRET bearer token, no Clerk session required
+// Auth — CRON_SECRET bearer token, no user session required
 // ---------------------------------------------------------------------------
 
 function authorized(req: Request): boolean {

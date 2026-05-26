@@ -1,4 +1,7 @@
-import { SignOutButton } from "@clerk/nextjs";
+"use client";
+
+import { signOut } from "next-auth/react";
+import { Button } from "@/components/ui/button";
 
 export default function UnauthorizedPage() {
   return (
@@ -11,7 +14,12 @@ export default function UnauthorizedPage() {
           Flux is restricted to @salescode.ai accounts. Sign in with your
           company Google account.
         </p>
-        <SignOutButton redirectUrl="/sign-in" />
+        <Button
+          variant="outline"
+          onClick={() => signOut({ callbackUrl: "/sign-in" })}
+        >
+          Sign out
+        </Button>
       </div>
     </main>
   );

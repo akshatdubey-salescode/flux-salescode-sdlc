@@ -1,12 +1,12 @@
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
+import { authOptions } from "./nextauth-options";
+import { ALLOWED_EMAIL_DOMAIN } from "./constants";
 import { type UserRole, hasMinRole } from "./types";
-
-const ALLOWED_DOMAIN = "@salescode.ai";
 
 export type AuthUser = {
   id: string;
@@ -16,50 +16,43 @@ export type AuthUser = {
 
 /**
  * Returns the current authenticated user with their DB role.
- * If the user is authenticated in Clerk but missing from our DB (e.g. webhook
- * delay on first login), auto-syncs them so the first request never fails.
- * Returns null if not authenticated or if their email domain is not allowed.
+ * Returns null if not authenticated or if the email domain is not allowed.
  */
 export async function getCurrentUser(): Promise<AuthUser | null> {
-  const { userId } = await auth();
-  if (!userId) return null;
+  const session = await getServerSession(authOptions);
+  const email = session?.user?.email?.toLowerCase();
+  if (!email || !email.endsWith(ALLOWED_EMAIL_DOMAIN)) return null;
 
   const [user] = await db
     .select()
     .from(users)
-    .where(eq(users.id, userId))
+    .where(eq(users.id, email))
     .limit(1);
 
   if (user) {
     return { id: user.id, email: user.email, role: user.role as UserRole };
   }
 
-  // Not in DB yet — webhook may not have fired. Try to auto-sync.
-  const clerkUser = await currentUser();
-  const primaryEmail = clerkUser?.emailAddresses?.[0]?.emailAddress ?? null;
-
-  if (!primaryEmail || !primaryEmail.endsWith(ALLOWED_DOMAIN)) {
-    return null; // Domain not allowed — caller decides where to redirect
-  }
-
-  await syncClerkUser({ clerkId: userId, email: primaryEmail });
-  return { id: userId, email: primaryEmail, role: "USER" };
+  // Defensive fallback: the signIn callback should have inserted this row,
+  // but if it didn't (e.g. transient DB error), create it now.
+  await db
+    .insert(users)
+    .values({ id: email, email, role: "USER" })
+    .onConflictDoNothing();
+  return { id: email, email, role: "USER" };
 }
 
 /**
  * Requires the user to be authenticated and present in our DB.
- * - Not authenticated in Clerk → /sign-in
- * - Authenticated in Clerk but not in DB / wrong domain → /unauthorized
+ * - Not authenticated → /sign-in
+ * - Wrong domain → /unauthorized
  */
 export async function requireAuth(): Promise<AuthUser> {
   await connection();
-  const { userId } = await auth();
-
-  if (!userId) redirect("/sign-in");
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) redirect("/sign-in");
 
   const user = await getCurrentUser();
-
-  // userId exists (Clerk session valid) but user not in DB = wrong domain
   if (!user) redirect("/unauthorized");
 
   return user;
@@ -75,27 +68,4 @@ export async function requireRole(minRole: UserRole): Promise<AuthUser> {
     redirect("/home?error=forbidden");
   }
   return user;
-}
-
-/**
- * Syncs a Clerk user to our database.
- * Creates the user with default USER role if they don't exist.
- * Called from the Clerk webhook handler and as a first-login fallback.
- */
-export async function syncClerkUser(params: {
-  clerkId: string;
-  email: string;
-}): Promise<void> {
-  await db
-    .insert(users)
-    .values({ id: params.clerkId, email: params.email, role: "USER" })
-    .onConflictDoNothing();
-}
-
-/**
- * Returns the Clerk user's primary email address.
- */
-export async function getClerkUserEmail(): Promise<string | null> {
-  const clerkUser = await currentUser();
-  return clerkUser?.emailAddresses?.[0]?.emailAddress ?? null;
 }
