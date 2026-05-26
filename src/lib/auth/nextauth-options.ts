@@ -15,7 +15,8 @@ export const authOptions: NextAuthOptions = {
       authorization: {
         params: {
           access_type: "offline",
-          prompt: "consent",
+          prompt: "select_account consent",
+          hd: ALLOWED_EMAIL_DOMAIN.replace(/^@/, ""),
         },
       },
     }),
