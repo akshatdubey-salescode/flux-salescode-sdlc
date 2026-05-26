@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getToken } from "next-auth/jwt";
 
 const PUBLIC_PATHS: RegExp[] = [
   /^\/$/,
@@ -20,13 +19,21 @@ function matches(pathname: string, patterns: RegExp[]): boolean {
   return patterns.some((p) => p.test(pathname));
 }
 
+// Optimistic auth check: presence of NextAuth's session cookie. The real
+// session validation (signature + DB lookup) happens in (app)/layout.tsx
+// via requireAuth(). We don't decode the JWT here because the proxy runs
+// on Edge and any secret/runtime mismatch would silently fail the decode,
+// trapping signed-in users in a /sign-in redirect loop.
+function hasSessionCookie(request: NextRequest): boolean {
+  return (
+    request.cookies.has("__Secure-next-auth.session-token") ||
+    request.cookies.has("next-auth.session-token")
+  );
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const token = await getToken({
-    req: request,
-    secret: process.env.GLOBAL_AUTH_SECRET,
-  });
-  const isAuthed = !!token?.email;
+  const isAuthed = hasSessionCookie(request);
 
   if (isAuthed && matches(pathname, AUTH_PATHS)) {
     return NextResponse.redirect(new URL("/home", request.url));
