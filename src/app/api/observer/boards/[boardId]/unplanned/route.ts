@@ -5,6 +5,7 @@ import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
+import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
 
 type Params = { params: Promise<{ boardId: string }> };
 
@@ -37,26 +38,6 @@ export type UnplannedResponse = {
   byPerson: UnplannedPersonGroup[];
 };
 
-function extractStartDate(cf: Record<string, unknown>): string | null {
-  const val =
-    cf["customfield_10015"] ??
-    cf["customfield_10014"] ??
-    cf["startdate"] ??
-    cf["start_date"];
-  return typeof val === "string" && val ? val.slice(0, 10) : null;
-}
-
-function extractDueDate(cf: Record<string, unknown>): string | null {
-  // due_date is primary; fall back to end_date if absent
-  const val =
-    cf["duedate"] ??
-    cf["due_date"] ??
-    cf["customfield_10021"] ??
-    cf["end_date"] ??
-    cf["customfield_11449"];
-  return typeof val === "string" && val ? val.slice(0, 10) : null;
-}
-
 type IssueRow = {
   id: string;
   jira_key: string;
@@ -70,6 +51,8 @@ type IssueRow = {
   project_name: string;
   jira_base_url: string;
   jira_created_at: string | null;
+  end_date_field_ids: string[] | null;
+  start_date_field_ids: string[] | null;
 };
 
 export async function GET(req: Request, { params }: Params) {
@@ -133,6 +116,16 @@ async function fetchBoardUnplanned(boardId: string, start: string, end: string) 
   const emailsIn = sql.join(emails.map((e) => sql`${e}`), sql`, `);
 
   const issuesRes = await db.execute(sql`
+    WITH member_issue_emails AS (
+      SELECT ji.id, lower(ji.assignee_email) AS effective_email
+      FROM jira_issues ji
+      WHERE lower(ji.assignee_email) IN (${emailsIn})
+      UNION
+      SELECT ji.id, lower(ae) AS effective_email
+      FROM jira_issues ji
+      CROSS JOIN LATERAL unnest(ji.additional_assignee_emails) AS ae
+      WHERE lower(ae) IN (${emailsIn})
+    )
     SELECT
       ji.id,
       ji.jira_key,
@@ -141,26 +134,28 @@ async function fetchBoardUnplanned(boardId: string, start: string, end: string) 
       ji.status_category,
       ji.priority,
       ji.issue_type,
-      ji.assignee_email,
+      mie.effective_email AS assignee_email,
       ji.custom_fields,
       ji.jira_created_at,
       jp.name          AS project_name,
-      jp.jira_base_url AS jira_base_url
-    FROM jira_issues ji
+      jp.jira_base_url AS jira_base_url,
+      jp.end_date_field_ids,
+      jp.start_date_field_ids
+    FROM member_issue_emails mie
+    JOIN jira_issues ji ON ji.id = mie.id
     JOIN jira_projects jp ON jp.id = ji.project_id
-    WHERE lower(ji.assignee_email) IN (${emailsIn})
-      AND ji.jira_created_at IS NOT NULL
+    WHERE ji.jira_created_at IS NOT NULL
       AND ji.jira_created_at::date >= ${start}::date
       AND ji.jira_created_at::date <= ${end}::date
-    ORDER BY ji.assignee_email, ji.jira_created_at DESC NULLS LAST
+    ORDER BY mie.effective_email, ji.jira_created_at DESC NULLS LAST
   `);
 
   const byEmail = new Map<string, UnplannedIssueItem[]>();
 
   for (const raw of issuesRes.rows as IssueRow[]) {
     const cf = (raw.custom_fields as Record<string, unknown>) ?? {};
-    const startDate = extractStartDate(cf);
-    const dueDate = extractDueDate(cf);
+    const startDate = extractStartDate(cf, raw.start_date_field_ids);
+    const dueDate = extractDueDate(cf, raw.end_date_field_ids);
 
     if (startDate && dueDate) continue;
 

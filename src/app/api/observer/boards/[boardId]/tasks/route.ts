@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { eq, and, gte, lte, inArray } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
-import { observerBoards, observerBoardMembers, jiraIssues, jiraProjects } from "@/lib/db/schema";
+import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 
 type Params = { params: Promise<{ boardId: string }> };
@@ -46,42 +46,70 @@ async function fetchBoardTasks(boardId: string, from: string, to: string) {
   if (members.length === 0) return [];
 
   const memberEmails = members.map((m) => m.email);
+  const emailsIn = sql.join(memberEmails.map((e) => sql`${e}`), sql`, `);
 
-  const issueConditions = [inArray(jiraIssues.assigneeEmail, memberEmails)];
-
-  if (from) issueConditions.push(gte(jiraIssues.jiraUpdatedAt, new Date(from)));
-  if (to) {
+  const fromFilter = from ? sql`AND ji.jira_updated_at >= ${new Date(from).toISOString()}::timestamptz` : sql``;
+  const toFilter = (() => {
+    if (!to) return sql``;
     const toDate = new Date(to);
     toDate.setHours(23, 59, 59, 999);
-    issueConditions.push(lte(jiraIssues.jiraUpdatedAt, toDate));
-  }
+    return sql`AND ji.jira_updated_at <= ${toDate.toISOString()}::timestamptz`;
+  })();
 
-  const issues = await db
-    .select({
-      id: jiraIssues.id,
-      jiraKey: jiraIssues.jiraKey,
-      summary: jiraIssues.summary,
-      status: jiraIssues.status,
-      statusCategory: jiraIssues.statusCategory,
-      issueType: jiraIssues.issueType,
-      priority: jiraIssues.priority,
-      assigneeEmail: jiraIssues.assigneeEmail,
-      assigneeName: jiraIssues.assigneeName,
-      jiraUpdatedAt: jiraIssues.jiraUpdatedAt,
-      jiraCreatedAt: jiraIssues.jiraCreatedAt,
-      projectId: jiraIssues.projectId,
-      projectName: jiraProjects.name,
-      projectKey: jiraProjects.jiraProjectKey,
-    })
-    .from(jiraIssues)
-    .innerJoin(jiraProjects, eq(jiraProjects.id, jiraIssues.projectId))
-    .where(and(...issueConditions));
+  type IssueRow = {
+    id: string;
+    jira_key: string;
+    summary: string;
+    status: string;
+    status_category: string | null;
+    issue_type: string;
+    priority: string | null;
+    effective_email: string;
+    assignee_name: string | null;
+    jira_updated_at: string | null;
+    jira_created_at: string | null;
+    project_id: string;
+    project_name: string;
+    project_key: string;
+  };
+
+  const issuesRes = await db.execute(sql`
+    WITH member_issue_emails AS (
+      SELECT ji.id, ji.assignee_email AS effective_email
+      FROM jira_issues ji
+      WHERE ji.assignee_email IN (${emailsIn})
+      UNION
+      SELECT ji.id, ae AS effective_email
+      FROM jira_issues ji
+      CROSS JOIN LATERAL unnest(ji.additional_assignee_emails) AS ae
+      WHERE ae IN (${emailsIn})
+    )
+    SELECT
+      ji.id,
+      ji.jira_key,
+      ji.summary,
+      ji.status,
+      ji.status_category,
+      ji.issue_type,
+      ji.priority,
+      mie.effective_email,
+      ji.assignee_name,
+      ji.jira_updated_at,
+      ji.jira_created_at,
+      ji.project_id,
+      jp.name          AS project_name,
+      jp.jira_project_key AS project_key
+    FROM member_issue_emails mie
+    JOIN jira_issues ji ON ji.id = mie.id
+    JOIN jira_projects jp ON jp.id = ji.project_id
+    WHERE TRUE ${fromFilter} ${toFilter}
+  `);
 
   const grouped: Record<
     string,
     {
       member: (typeof members)[0];
-      issues: typeof issues;
+      issues: IssueRow[];
       statusCounts: Record<string, number>;
     }
   > = {};
@@ -90,11 +118,11 @@ async function fetchBoardTasks(boardId: string, from: string, to: string) {
     grouped[m.email] = { member: m, issues: [], statusCounts: {} };
   }
 
-  for (const issue of issues) {
-    const email = issue.assigneeEmail;
+  for (const issue of issuesRes.rows as IssueRow[]) {
+    const email = issue.effective_email;
     if (!email || !grouped[email]) continue;
     grouped[email].issues.push(issue);
-    const cat = issue.statusCategory ?? issue.status ?? "Unknown";
+    const cat = issue.status_category ?? issue.status ?? "Unknown";
     grouped[email].statusCounts[cat] = (grouped[email].statusCounts[cat] ?? 0) + 1;
   }
 

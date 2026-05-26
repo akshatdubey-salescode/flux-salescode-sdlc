@@ -66,6 +66,17 @@ export type JiraChangelogHistory = {
   }[];
 };
 
+export type JiraFieldDef = {
+  id: string;
+  name: string;
+  custom: boolean;
+  schema?: {
+    type?: string;
+    items?: string;
+    custom?: string;
+  };
+};
+
 type JiraSearchResult = {
   issues: JiraIssueRaw[];
   nextPageToken?: string; // present when more pages exist; absent on last page
@@ -164,21 +175,39 @@ export class JiraClient {
   }
 
   /**
+   * Returns all fields defined in this Jira instance.
+   * Used to auto-discover the multi-assignee custom field ID.
+   * Throws on non-2xx so callers can distinguish "no fields" from a transient
+   * API failure (don't poison the per-project discovery cache).
+   */
+  async fetchFields(): Promise<JiraFieldDef[]> {
+    const res = await this.get(`${this.baseUrl}/rest/api/3/field`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Jira fields fetch failed (${res.status}): ${body}`);
+    }
+    const data = await res.json();
+    return Array.isArray(data) ? (data as JiraFieldDef[]) : [];
+  }
+
+  /**
    * Paginated JQL search. Includes changelog so we get full status history.
    * expand=changelog adds a `changelog` block to each issue.
    */
   async fetchIssues(
     projectKey: string,
     nextPageToken?: string,
-    maxResults = 100
+    maxResults = 100,
+    extraFields: string[] = []
   ): Promise<JiraSearchResult> {
+    const fields = extraFields.length ? `${ISSUE_FIELDS},${extraFields.join(",")}` : ISSUE_FIELDS;
     const jql = encodeURIComponent(`project = "${projectKey}" ORDER BY created ASC`);
     // /rest/api/3/search/jql uses cursor-based pagination via nextPageToken.
     // startAt is ignored by this endpoint and total is never returned.
     let url =
       `${this.baseUrl}/rest/api/3/search/jql` +
       `?jql=${jql}` +
-      `&fields=${ISSUE_FIELDS}` +
+      `&fields=${fields}` +
       `&expand=changelog` +
       `&maxResults=${maxResults}`;
 
@@ -195,10 +224,11 @@ export class JiraClient {
   }
 
   /** Fetch a single issue by key, including comments. */
-  async fetchIssue(issueKey: string): Promise<JiraIssueRaw> {
+  async fetchIssue(issueKey: string, extraFields: string[] = []): Promise<JiraIssueRaw> {
+    const fields = extraFields.length ? `${ISSUE_FIELDS},${extraFields.join(",")}` : ISSUE_FIELDS;
     const url =
       `${this.baseUrl}/rest/api/3/issue/${encodeURIComponent(issueKey)}` +
-      `?fields=${ISSUE_FIELDS}&expand=changelog`;
+      `?fields=${fields}&expand=changelog`;
 
     const res = await this.get(url);
     if (!res.ok) {

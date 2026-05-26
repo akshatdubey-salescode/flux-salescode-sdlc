@@ -66,6 +66,13 @@ export const jiraProjects = pgTable("jira_projects", {
   headerImageUrl: text("header_image_url"),
   headerColor: text("header_color"),
   lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+  // Auto-discovered Jira custom field ID for multi-user assignee picker.
+  // null = not yet attempted, "" = attempted and not found, "customfield_XXXXX" = found.
+  multiAssigneeFieldId: text("multi_assignee_field_id"),
+  // Auto-discovered Jira custom field IDs for end date / start date.
+  // null = not yet attempted, [] = attempted and not found, [...] = found.
+  endDateFieldIds: text("end_date_field_ids").array(),
+  startDateFieldIds: text("start_date_field_ids").array(),
   createdBy: text("created_by")
     .notNull()
     .references(() => users.id),
@@ -135,6 +142,11 @@ export const jiraIssues = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::text[]`),
+    // Emails of additional assignees from the multi-user picker custom field.
+    additionalAssigneeEmails: text("additional_assignee_emails")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
     // Stores story points, sprint info, actual start/end, epic link, and any
     // other custom fields without requiring schema migrations.
     customFields: jsonb("custom_fields")
@@ -151,6 +163,7 @@ export const jiraIssues = pgTable(
     index("jira_issues_jira_key_idx").on(t.jiraKey),
     index("jira_issues_status_idx").on(t.status),
     index("jira_issues_assignee_email_idx").on(t.assigneeEmail),
+    index("jira_issues_additional_assignees_gin_idx").using("gin", t.additionalAssigneeEmails),
     index("jira_issues_project_updated_idx").on(
       t.projectId,
       t.jiraUpdatedAt

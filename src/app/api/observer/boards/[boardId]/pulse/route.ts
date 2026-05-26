@@ -62,9 +62,19 @@ async function fetchBoardPulse(boardId: string, referenceDate: string) {
   staleCutoff.setDate(staleCutoff.getDate() - board.stalenessThresholdDays);
 
   const activeIssuesRes = await db.execute(sql`
+    WITH member_issue_emails AS (
+      SELECT ji.id, ji.assignee_email AS effective_email
+      FROM jira_issues ji
+      WHERE ji.assignee_email IN (${emailsIn})
+      UNION
+      SELECT ji.id, ae AS effective_email
+      FROM jira_issues ji
+      CROSS JOIN LATERAL unnest(ji.additional_assignee_emails) AS ae
+      WHERE ae IN (${emailsIn})
+    )
     SELECT
       ji.id              AS jira_issue_id,
-      ji.assignee_email,
+      mie.effective_email AS assignee_email,
       ji.jira_key,
       ji.summary,
       ji.status,
@@ -72,29 +82,39 @@ async function fetchBoardPulse(boardId: string, referenceDate: string) {
       ji.priority,
       jp.name            AS project_name,
       jp.jira_base_url   AS jira_base_url
-    FROM jira_issues ji
+    FROM member_issue_emails mie
+    JOIN jira_issues ji ON ji.id = mie.id
     JOIN jira_projects jp ON jp.id = ji.project_id
     LEFT JOIN project_status_mappings psm
       ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
-    WHERE ji.assignee_email IN (${emailsIn})
-      AND (
-        psm.canonical_status = 'IN_PROGRESS'
-        OR (psm.canonical_status IS NULL AND ji.status_category ILIKE '%progress%')
-      )
-    ORDER BY ji.assignee_email, ji.updated_at DESC
+    WHERE (
+      psm.canonical_status = 'IN_PROGRESS'
+      OR (psm.canonical_status IS NULL AND ji.status_category ILIKE '%progress%')
+    )
+    ORDER BY mie.effective_email, ji.jira_updated_at DESC
   `);
 
   const stalledRes = await db.execute(sql`
+    WITH member_issue_emails AS (
+      SELECT ji.id, ji.assignee_email AS effective_email
+      FROM jira_issues ji
+      WHERE ji.assignee_email IN (${emailsIn})
+      UNION
+      SELECT ji.id, ae AS effective_email
+      FROM jira_issues ji
+      CROSS JOIN LATERAL unnest(ji.additional_assignee_emails) AS ae
+      WHERE ae IN (${emailsIn})
+    )
     SELECT
-      ji.assignee_email,
+      mie.effective_email AS assignee_email,
       COUNT(*)::int AS stalled_count
-    FROM jira_issues ji
+    FROM member_issue_emails mie
+    JOIN jira_issues ji ON ji.id = mie.id
     JOIN project_status_mappings psm
       ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
-    WHERE ji.assignee_email IN (${emailsIn})
-      AND psm.canonical_status = 'IN_PROGRESS'
-      AND ji.updated_at < ${staleCutoff.toISOString()}
-    GROUP BY ji.assignee_email
+    WHERE psm.canonical_status = 'IN_PROGRESS'
+      AND ji.jira_updated_at < ${staleCutoff.toISOString()}
+    GROUP BY mie.effective_email
   `);
 
   type ActiveIssueRow = {

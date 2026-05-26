@@ -33,7 +33,7 @@ async function fetchMyTasksAnalytics(userId: string, userEmail: string) {
       JOIN project_status_mappings psm
         ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
       WHERE psm.canonical_status NOT IN ('DONE', 'CANCELLED')
-        AND ji.assignee_email = ${userEmail}
+        AND (ji.assignee_email = ${userEmail} OR ${userEmail} = ANY(ji.additional_assignee_emails))
     `),
 
     db.execute(sql`
@@ -44,7 +44,7 @@ async function fetchMyTasksAnalytics(userId: string, userEmail: string) {
         ON psm.project_id = ji.project_id AND psm.raw_status = jsh.to_status
       WHERE psm.canonical_status = 'DONE'
         AND jsh.changed_at >= NOW() - INTERVAL '7 days'
-        AND ji.assignee_email = ${userEmail}
+        AND (ji.assignee_email = ${userEmail} OR ${userEmail} = ANY(ji.additional_assignee_emails))
     `),
 
     db.execute(sql`
@@ -56,21 +56,22 @@ async function fetchMyTasksAnalytics(userId: string, userEmail: string) {
       WHERE psm.canonical_status = 'DONE'
         AND jsh.changed_at >= NOW() - INTERVAL '14 days'
         AND jsh.changed_at < NOW() - INTERVAL '7 days'
-        AND ji.assignee_email = ${userEmail}
+        AND (ji.assignee_email = ${userEmail} OR ${userEmail} = ANY(ji.additional_assignee_emails))
     `),
 
     db.execute(sql`
       SELECT COUNT(*)::int AS count
       FROM sla_violations sv
       JOIN jira_issues ji ON ji.id = sv.issue_id
-      WHERE sv.resolved_at IS NULL AND ji.assignee_email = ${userEmail}
+      WHERE sv.resolved_at IS NULL
+        AND (ji.assignee_email = ${userEmail} OR ${userEmail} = ANY(ji.additional_assignee_emails))
     `),
 
     db.execute(sql`
       WITH issue_cycle_times AS (
         SELECT
-          ji.assignee_email,
           ji.id AS issue_id,
+          (ji.assignee_email = ${userEmail} OR ${userEmail} = ANY(ji.additional_assignee_emails)) AS is_mine,
           SUM(jsh.duration_seconds) AS total_active_seconds
         FROM jira_status_history jsh
         JOIN jira_issues ji ON ji.id = jsh.issue_id
@@ -79,11 +80,11 @@ async function fetchMyTasksAnalytics(userId: string, userEmail: string) {
           AND psm.raw_status = jsh.to_status
         WHERE psm.canonical_status IN ('IN_PROGRESS', 'IN_REVIEW', 'IN_QA')
           AND jsh.duration_seconds IS NOT NULL
-        GROUP BY ji.assignee_email, ji.id
+        GROUP BY ji.id, (ji.assignee_email = ${userEmail} OR ${userEmail} = ANY(ji.additional_assignee_emails))
       ),
       cohorts AS (
         SELECT
-          CASE WHEN assignee_email = ${userEmail} THEN 'Me' ELSE 'Org Average' END AS cohort,
+          CASE WHEN is_mine THEN 'Me' ELSE 'Org Average' END AS cohort,
           total_active_seconds
         FROM issue_cycle_times
       )
@@ -109,7 +110,7 @@ async function fetchMyTasksAnalytics(userId: string, userEmail: string) {
         AND psm.raw_status = ji.status
       WHERE psm.canonical_status NOT IN ('DONE', 'CANCELLED', 'BACKLOG')
         AND ji.jira_updated_at < NOW() - INTERVAL '3 days'
-        AND ji.assignee_email = ${userEmail}
+        AND (ji.assignee_email = ${userEmail} OR ${userEmail} = ANY(ji.additional_assignee_emails))
       ORDER BY days_stale DESC
       LIMIT 10
     `),

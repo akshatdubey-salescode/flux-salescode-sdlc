@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { jiraProjects, jiraSyncJobs } from "@/lib/db/schema";
 import { JiraClient } from "./client";
 import { decrypt } from "@/lib/crypto";
-import { upsertIssue } from "./sync";
+import { upsertIssue, resolveProjectFieldConfig } from "./sync";
 
 // ---------------------------------------------------------------------------
 // Semaphore configuration
@@ -96,6 +96,11 @@ export async function runSyncJob(jobId: string): Promise<void> {
     apiToken: decrypt(project.jiraApiToken),
   });
 
+  const { multiAssigneeFieldId, extraFields } = await resolveProjectFieldConfig(
+    client,
+    project
+  );
+
   let synced = 0;
   let errors = 0;
   const errorMessages: string[] = [];
@@ -107,12 +112,13 @@ export async function runSyncJob(jobId: string): Promise<void> {
       const result = await client.fetchIssues(
         project.jiraProjectKey,
         nextPageToken,
-        maxResults
+        maxResults,
+        extraFields
       );
 
       for (const issue of result.issues) {
         try {
-          await upsertIssue(job.projectId, issue);
+          await upsertIssue(job.projectId, issue, multiAssigneeFieldId || undefined);
           synced++;
         } catch (err) {
           errors++;

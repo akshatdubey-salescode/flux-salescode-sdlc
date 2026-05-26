@@ -99,7 +99,12 @@ async function fetchMyTasks(targetEmail: string, filters: MyTaskFilters) {
   } = filters;
 
   const offset = (page - 1) * pageSize;
-  const conditions = [eq(jiraIssues.assigneeEmail, targetEmail)];
+  const conditions = [
+    or(
+      eq(jiraIssues.assigneeEmail, targetEmail),
+      sql`${targetEmail} = ANY(${jiraIssues.additionalAssigneeEmails})`
+    )!,
+  ];
 
   if (q) {
     const searchCondition = or(
