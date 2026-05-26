@@ -1,40 +1,47 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { getToken } from "next-auth/jwt";
 
-const isPublicRoute = createRouteMatcher([
-  "/",
-  "/sign-in(.*)",
-  "/sign-up(.*)",
-  "/unauthorized",
-  "/privacy",
-  "/terms",
-  "/api/atlassian/callback",
-  "/api/webhooks(.*)",
-  "/api/cron(.*)",
-]);
+const PUBLIC_PATHS: RegExp[] = [
+  /^\/$/,
+  /^\/sign-in(\/.*)?$/,
+  /^\/unauthorized$/,
+  /^\/privacy$/,
+  /^\/terms$/,
+  /^\/api\/auth(\/.*)?$/,
+  /^\/api\/atlassian\/callback$/,
+  /^\/api\/webhooks(\/.*)?$/,
+  /^\/api\/cron(\/.*)?$/,
+];
 
-const isAuthRoute = createRouteMatcher(["/sign-in(.*)", "/sign-up(.*)"]);
+const AUTH_PATHS: RegExp[] = [/^\/sign-in(\/.*)?$/];
 
-export const proxy = clerkMiddleware(async (auth, request: NextRequest) => {
-  const { userId } = await auth();
+function matches(pathname: string, patterns: RegExp[]): boolean {
+  return patterns.some((p) => p.test(pathname));
+}
 
-  // Authenticated users visiting auth pages → send to /home
-  if (userId && isAuthRoute(request)) {
+export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  const token = await getToken({
+    req: request,
+    secret: process.env.GLOBAL_AUTH_SECRET,
+  });
+  const isAuthed = !!token?.email;
+
+  if (isAuthed && matches(pathname, AUTH_PATHS)) {
     return NextResponse.redirect(new URL("/home", request.url));
   }
 
-  if (isPublicRoute(request)) return NextResponse.next();
+  if (matches(pathname, PUBLIC_PATHS)) return NextResponse.next();
 
-  // Unauthenticated users visiting protected routes → send to /sign-in
-  if (!userId) {
+  if (!isAuthed) {
     const signInUrl = new URL("/sign-in", request.url);
-    signInUrl.searchParams.set("redirect_url", request.nextUrl.pathname);
+    signInUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(signInUrl);
   }
 
   return NextResponse.next();
-});
+}
 
 export const config = {
   matcher: [

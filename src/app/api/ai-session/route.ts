@@ -1,5 +1,6 @@
+import { getServerSession } from "next-auth";
 import { requireAuth } from "@/lib/auth/server";
-import { currentUser } from "@clerk/nextjs/server";
+import { authOptions } from "@/lib/auth/nextauth-options";
 
 export async function POST(request: Request) {
   const user = await requireAuth();
@@ -26,11 +27,8 @@ export async function POST(request: Request) {
   }
 
   // ── Step 1: provision a runtime API key from charjan ──────────────────────
-  const clerkUser = await currentUser();
-  const name =
-    clerkUser?.firstName
-      ? `${clerkUser.firstName}${clerkUser.lastName ? ` ${clerkUser.lastName}` : ""}`
-      : user.email.split("@")[0];
+  const session = await getServerSession(authOptions);
+  const name = session?.user?.name?.trim() || user.email.split("@")[0];
 
   console.log("[ai-session] provisioning key for", user.email);
   const provisionRes = await fetch(`${apiUrl}/api/v1/auth/provision`, {

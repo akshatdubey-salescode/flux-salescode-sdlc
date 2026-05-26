@@ -1,6 +1,7 @@
 "use server";
 
-import { currentUser } from "@clerk/nextjs/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth/nextauth-options";
 import { requireAuth } from "@/lib/auth/server";
 import { db } from "@/lib/db";
 import { featureRequests } from "@/lib/db/schema";
@@ -29,11 +30,8 @@ export async function submitFeatureRequest(
     return { error: "Invalid priority value." };
   }
 
-  const clerkUser = await currentUser();
-  const submittedByName =
-    clerkUser?.fullName ||
-    [clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(" ") ||
-    null;
+  const session = await getServerSession(authOptions);
+  const submittedByName = session?.user?.name?.trim() || null;
 
   await db.insert(featureRequests).values({
     title,

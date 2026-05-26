@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { auth } from "@clerk/nextjs/server";
+import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
+import { authOptions } from "@/lib/auth/nextauth-options";
 
 export default async function LandingPage() {
-  const { userId } = await auth();
-  if (userId) redirect("/home");
+  const session = await getServerSession(authOptions);
+  if (session?.user?.email) redirect("/home");
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center bg-background px-4">
