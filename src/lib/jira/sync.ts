@@ -36,40 +36,26 @@ type DiscoveredFields = {
 
 async function discoverProjectFields(
   client: JiraClient,
-  projectId: string,
-  current: {
-    multiAssigneeFieldId: string | null;
-    endDateFieldIds: string[] | null;
-    startDateFieldIds: string[] | null;
-  }
+  projectId: string
 ): Promise<DiscoveredFields> {
   const fields = await client.fetchFields();
 
-  let multiAssigneeFieldId = current.multiAssigneeFieldId;
-  if (multiAssigneeFieldId === null) {
-    const match = fields.find(
-      (f) =>
-        f.custom &&
-        f.id !== "assignee" &&
-        f.schema?.custom === MULTI_USER_PICKER_TYPE
-    );
-    multiAssigneeFieldId = match?.id ?? "";
-  }
+  const multiAssigneeMatch = fields.find(
+    (f) =>
+      f.custom &&
+      f.id !== "assignee" &&
+      f.schema?.custom === MULTI_USER_PICKER_TYPE
+  );
+  const multiAssigneeFieldId = multiAssigneeMatch?.id ?? "";
 
   // Exact-name match avoids picking up "Weekend Date" / "Intended End Date" etc.
-  let endDateFieldIds = current.endDateFieldIds;
-  if (endDateFieldIds === null) {
-    endDateFieldIds = fields
-      .filter((f) => f.custom && /^end\s*date$/i.test(f.name.trim()))
-      .map((f) => f.id);
-  }
+  const endDateFieldIds = fields
+    .filter((f) => f.custom && /^end\s*date$/i.test(f.name.trim()))
+    .map((f) => f.id);
 
-  let startDateFieldIds = current.startDateFieldIds;
-  if (startDateFieldIds === null) {
-    startDateFieldIds = fields
-      .filter((f) => f.custom && /^start\s*date$/i.test(f.name.trim()))
-      .map((f) => f.id);
-  }
+  const startDateFieldIds = fields
+    .filter((f) => f.custom && /^start\s*date$/i.test(f.name.trim()))
+    .map((f) => f.id);
 
   await db
     .update(jiraProjects)
@@ -80,9 +66,9 @@ async function discoverProjectFields(
 }
 
 /**
- * Ensures the project's custom field IDs are discovered, returning the lists
- * ready to be passed to `fetchIssues` / `upsertIssue`. Discovery runs only
- * when any of the three columns is null; cached values are reused otherwise.
+ * Re-discovers the project's custom field IDs on every sync so renamed,
+ * added, or removed Jira fields propagate. On transient API failure we fall
+ * back to whatever was cached on the project row (avoids breaking the sync).
  */
 export async function resolveProjectFieldConfig(
   client: JiraClient,
@@ -93,26 +79,18 @@ export async function resolveProjectFieldConfig(
     startDateFieldIds: string[] | null;
   }
 ): Promise<{ multiAssigneeFieldId: string; extraFields: string[] }> {
-  let { multiAssigneeFieldId, endDateFieldIds, startDateFieldIds } = project;
-  if (
-    multiAssigneeFieldId === null ||
-    endDateFieldIds === null ||
-    startDateFieldIds === null
-  ) {
-    try {
-      const discovered = await discoverProjectFields(client, project.id, {
-        multiAssigneeFieldId,
-        endDateFieldIds,
-        startDateFieldIds,
-      });
-      multiAssigneeFieldId = discovered.multiAssigneeFieldId;
-      endDateFieldIds = discovered.endDateFieldIds;
-      startDateFieldIds = discovered.startDateFieldIds;
-    } catch (err) {
-      // Don't poison the cache on transient API failures; leave nulls so the
-      // next sync re-attempts discovery. Sync continues without the extras.
-      console.warn(`[sync] field discovery failed for project ${project.id}:`, err);
-    }
+  let multiAssigneeFieldId: string | null = project.multiAssigneeFieldId;
+  let endDateFieldIds: string[] | null = project.endDateFieldIds;
+  let startDateFieldIds: string[] | null = project.startDateFieldIds;
+
+  try {
+    const discovered = await discoverProjectFields(client, project.id);
+    multiAssigneeFieldId = discovered.multiAssigneeFieldId;
+    endDateFieldIds = discovered.endDateFieldIds;
+    startDateFieldIds = discovered.startDateFieldIds;
+  } catch (err) {
+    // Transient API failure — keep the previously-cached values for this sync.
+    console.warn(`[sync] field discovery failed for project ${project.id}:`, err);
   }
 
   const extraFields: string[] = [];
