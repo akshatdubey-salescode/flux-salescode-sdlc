@@ -87,7 +87,7 @@ export async function GET(
 async function fetchProjectIssues(projectId: string, filters: ProjectIssueFilters) {
   "use cache";
   cacheLife("minutes");
-  cacheTag("jira-issues", `project:${projectId}`);
+  cacheTag(`project:${projectId}`);
 
   const {
     q, statusList, priorityList, assigneeList, reporterList,

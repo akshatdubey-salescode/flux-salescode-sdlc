@@ -23,7 +23,7 @@ export async function GET(
 async function fetchProjectAnalytics(projectId: string) {
   "use cache";
   cacheLife("minutes");
-  cacheTag("jira-issues", "projects", `project:${projectId}`);
+  cacheTag("projects", `project:${projectId}`);
 
   const projectRes = await db
     .select({ jiraBaseUrl: jiraProjects.jiraBaseUrl })

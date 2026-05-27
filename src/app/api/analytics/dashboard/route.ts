@@ -31,6 +31,9 @@ export async function GET(request: Request) {
 async function fetchDashboardData(fromIso: string, toIso: string) {
   "use cache";
   cacheLife("minutes");
+  // "jira-issues" is an org-wide aggregate tag (dashboard, developers list,
+  // issues list). Webhooks do NOT fire it — these views refresh on their TTL.
+  // Per-entity views use project:/board:/my-tasks:/developer:/issue: instead.
   cacheTag("jira-issues", "dashboard");
 
   const fromDate = new Date(fromIso);

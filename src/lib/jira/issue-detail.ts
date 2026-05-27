@@ -31,7 +31,7 @@ export type IssueTimelineComment = {
 export async function getIssueDetail(issueKey: string) {
   "use cache";
   cacheLife("minutes");
-  cacheTag("jira-issues", `issue:${issueKey}`);
+  cacheTag(`issue:${issueKey}`);
 
   const [issue] = await db
     .select()
