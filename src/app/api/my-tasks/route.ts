@@ -28,6 +28,7 @@ type MyTaskFilters = {
   dateFrom: string;
   dateTo: string;
   showCompleted: boolean;
+  includeReported: boolean;
   sortBy: string;
   sortDir: string;
   pageSize: number;
@@ -73,6 +74,7 @@ export async function GET(req: NextRequest) {
     dateFrom: searchParams.get("dateFrom") ?? "",
     dateTo: searchParams.get("dateTo") ?? "",
     showCompleted: searchParams.get("showCompleted") === "true",
+    includeReported: searchParams.get("includeReported") === "true",
     sortBy: searchParams.get("sortBy") ?? "created",
     sortDir: searchParams.get("sortDir") === "asc" ? "asc" : "desc",
     pageSize: Math.min(200, Math.max(1, parseInt(searchParams.get("pageSize") ?? "50", 10))),
@@ -96,16 +98,21 @@ async function fetchMyTasks(
   const {
     q, projectList, statusList, priorityList, reporterList,
     issueTypeList, labelsList, dateFrom, dateTo,
-    showCompleted, sortBy, sortDir, pageSize, page,
+    showCompleted, includeReported, sortBy, sortDir, pageSize, page,
   } = filters;
 
   const offset = (page - 1) * pageSize;
-  const conditions = [
-    or(
-      eq(jiraIssues.assigneeEmail, targetEmail),
-      sql`${targetEmail} = ANY(${jiraIssues.additionalAssigneeEmails})`
-    )!,
-  ];
+  const assigneeCondition = includeReported
+    ? or(
+        eq(jiraIssues.assigneeEmail, targetEmail),
+        sql`${targetEmail} = ANY(${jiraIssues.additionalAssigneeEmails})`,
+        eq(jiraIssues.reporterEmail, targetEmail)
+      )!
+    : or(
+        eq(jiraIssues.assigneeEmail, targetEmail),
+        sql`${targetEmail} = ANY(${jiraIssues.additionalAssigneeEmails})`
+      )!;
+  const conditions = [assigneeCondition];
 
   if (q) {
     const searchCondition = or(

@@ -15,6 +15,7 @@ import {
 } from "@/lib/date-utils";
 
 const SHOW_COMPLETED_KEY = "myTasks.showCompleted";
+const INCLUDE_REPORTED_KEY = "myTasks.includeReported";
 
 function readShowCompletedPref(): boolean {
   try {
@@ -32,12 +33,32 @@ function saveShowCompletedPref(value: boolean) {
   }
 }
 
+function readIncludeReportedPref(): boolean {
+  try {
+    return localStorage.getItem(INCLUDE_REPORTED_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function saveIncludeReportedPref(value: boolean) {
+  try {
+    localStorage.setItem(INCLUDE_REPORTED_KEY, value ? "true" : "false");
+  } catch {
+    // ignore
+  }
+}
+
 function readFilters(
   searchParams: ReturnType<typeof useSearchParams>
 ): MyTasksFilterState {
   const urlShowCompleted = searchParams.get("showCompleted");
   const showCompleted =
     urlShowCompleted !== null ? urlShowCompleted === "true" : readShowCompletedPref();
+
+  const urlIncludeReported = searchParams.get("includeReported");
+  const includeReported =
+    urlIncludeReported !== null ? urlIncludeReported === "true" : readIncludeReportedPref();
 
   const qstartParam = searchParams.get("qstart");
   const qendParam = searchParams.get("qend");
@@ -68,6 +89,7 @@ function readFilters(
     qstart,
     qend,
     showCompleted,
+    includeReported,
     sortBy: searchParams.get("sortBy") ?? "created",
     sortDir: searchParams.get("sortDir") === "asc" ? "asc" : "desc",
     view: "list", // Only list view for My Tasks for now
@@ -111,6 +133,7 @@ export function MyTasksView({
     qstart: filters.qstart,
     qend: filters.qend,
     showCompleted: filters.showCompleted,
+    includeReported: filters.includeReported,
     sortBy: filters.sortBy,
     sortDir: filters.sortDir,
     page: filters.page,
@@ -127,6 +150,9 @@ export function MyTasksView({
     }
     if ("showCompleted" in updates) {
       saveShowCompletedPref(updates.showCompleted === "true");
+    }
+    if ("includeReported" in updates) {
+      saveIncludeReportedPref(updates.includeReported === "true");
     }
     router.replace(`?${params.toString()}`, { scroll: false });
   }
@@ -171,6 +197,7 @@ export function MyTasksView({
     if (effectiveDateFrom) params.set("dateFrom", effectiveDateFrom);
     if (effectiveDateTo) params.set("dateTo", effectiveDateTo);
     if (parsed.showCompleted) params.set("showCompleted", "true");
+    if (parsed.includeReported) params.set("includeReported", "true");
     params.set("sortBy", parsed.sortBy);
     params.set("sortDir", parsed.sortDir);
     params.set("pageSize", "50");

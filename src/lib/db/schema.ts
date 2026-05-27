@@ -184,6 +184,7 @@ export const jiraIssues = pgTable(
     index("jira_issues_jira_key_idx").on(t.jiraKey),
     index("jira_issues_status_idx").on(t.status),
     index("jira_issues_assignee_email_idx").on(t.assigneeEmail),
+    index("jira_issues_reporter_email_idx").on(t.reporterEmail),
     index("jira_issues_additional_assignees_gin_idx").using("gin", t.additionalAssigneeEmails),
     index("jira_issues_project_updated_idx").on(
       t.projectId,

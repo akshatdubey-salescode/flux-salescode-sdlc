@@ -176,6 +176,13 @@
       "when": 1779788780314,
       "tag": "0024_jira_status_rollup",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1779840000000,
+      "tag": "0026_reporter_email_idx",
+      "breakpoints": true
     }
   ]
 }

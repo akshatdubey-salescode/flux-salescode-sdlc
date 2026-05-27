@@ -52,6 +52,7 @@ export function MyTasksFilterBar({ filters, fields, onUpdate, total }: Props) {
     filters.labels.length > 0,
     !!(filters.qstart || filters.dateFrom),
     !!(filters.qend || filters.dateTo),
+    filters.includeReported,
   ].filter(Boolean).length;
 
   function handleSearch(value: string) {
@@ -548,6 +549,22 @@ function MoreFiltersSheet({
                   }
                 />
               </div>
+            </div>
+          </FilterSection>
+
+          {/* Include reported */}
+          <FilterSection label="Scope">
+            <div className="flex items-center gap-2.5">
+              <Checkbox
+                id="include-reported"
+                checked={filters.includeReported}
+                onCheckedChange={(checked) =>
+                  onUpdate({ includeReported: checked ? "true" : null, page: "1" })
+                }
+              />
+              <Label htmlFor="include-reported" className="cursor-pointer text-xs font-normal text-zinc-700 dark:text-zinc-300">
+                Include issues I reported
+              </Label>
             </div>
           </FilterSection>
 

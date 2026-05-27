@@ -12,6 +12,7 @@ export type MyTasksFilterState = FilterState & {
   projects: string[];
   qstart: string;
   qend: string;
+  includeReported: boolean;
 };
 
 export * from "../project-tracking/helpers";
