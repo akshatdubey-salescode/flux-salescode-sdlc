@@ -140,7 +140,7 @@ async function fetchBoardTimeline(
 ) {
   "use cache";
   cacheLife("minutes");
-  cacheTag("jira-issues", `board:${boardId}`);
+  cacheTag(`board:${boardId}`);
 
   const [board] = await db
     .select()

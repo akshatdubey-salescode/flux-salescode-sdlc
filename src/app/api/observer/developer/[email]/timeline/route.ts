@@ -104,7 +104,7 @@ async function fetchDeveloperTimeline(
 ) {
   "use cache";
   cacheLife("minutes");
-  cacheTag("jira-issues", `developer:${email}`);
+  cacheTag(`developer:${email}`);
 
   const issuesRes = await db.execute(sql`
     SELECT

@@ -80,7 +80,7 @@ export async function GET(req: Request, { params }: Params) {
 async function fetchBoardUnplanned(boardId: string, start: string, end: string) {
   "use cache";
   cacheLife("minutes");
-  cacheTag("jira-issues", `board:${boardId}`);
+  cacheTag(`board:${boardId}`);
 
   const [board] = await db
     .select()

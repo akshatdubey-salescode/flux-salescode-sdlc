@@ -36,7 +36,7 @@ export async function GET(request: Request, { params }: Params) {
 async function fetchBoardTasks(boardId: string, from: string, to: string) {
   "use cache";
   cacheLife("minutes");
-  cacheTag("jira-issues", `board:${boardId}`);
+  cacheTag(`board:${boardId}`);
 
   const members = await db
     .select()

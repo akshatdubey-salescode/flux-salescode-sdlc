@@ -54,6 +54,7 @@ export async function POST(request: Request, { params }: Params) {
       .where(eq(observerBoards.id, boardId));
 
     revalidateTag(`board:${boardId}`, "max");
+    revalidateTag("boards", "max");
     return NextResponse.json(member, { status: 201 });
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

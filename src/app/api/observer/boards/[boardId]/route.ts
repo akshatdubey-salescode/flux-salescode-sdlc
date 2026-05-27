@@ -68,6 +68,7 @@ export async function PATCH(request: Request, { params }: Params) {
       .returning();
 
     revalidateTag(`board:${boardId}`, "max");
+    revalidateTag("boards", "max");
     return NextResponse.json(updated);
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -91,6 +92,7 @@ export async function DELETE(_req: Request, { params }: Params) {
     await db.delete(observerBoards).where(eq(observerBoards.id, boardId));
 
     revalidateTag(`board:${boardId}`, "max");
+    revalidateTag("boards", "max");
     return NextResponse.json({ success: true });
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

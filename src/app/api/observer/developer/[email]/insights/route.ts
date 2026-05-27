@@ -22,7 +22,7 @@ export async function GET(_req: Request, { params }: Params) {
 async function fetchDeveloperInsights(email: string) {
   "use cache";
   cacheLife("minutes");
-  cacheTag("jira-issues", `developer:${email}`);
+  cacheTag(`developer:${email}`);
 
   const [
     completedThisWeekRes,

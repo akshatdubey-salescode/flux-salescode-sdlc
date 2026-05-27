@@ -20,7 +20,7 @@ export async function GET() {
 async function fetchObserverBoards() {
   "use cache";
   cacheLife("minutes");
-  cacheTag("jira-issues");
+  cacheTag("boards");
 
   const boards = await db
     .select({
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
       })
       .returning();
 
-    revalidateTag("jira-issues", "max");
+    revalidateTag("boards", "max");
     return NextResponse.json(board, { status: 201 });
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
