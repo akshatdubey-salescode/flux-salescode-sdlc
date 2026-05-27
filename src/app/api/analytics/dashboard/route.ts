@@ -3,17 +3,22 @@ import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
 import { cacheLife, cacheTag } from "next/cache";
 import { requireAuth } from "@/lib/auth/server";
-import { subDays } from "date-fns";
+import { subDays, startOfMinute } from "date-fns";
 
 export async function GET(request: Request) {
   try {
     await requireAuth();
 
     const { searchParams } = new URL(request.url);
-    const toDate = searchParams.get("to") ? new Date(searchParams.get("to")!) : new Date();
-    const fromDate = searchParams.get("from")
+    const rawTo = searchParams.get("to") ? new Date(searchParams.get("to")!) : new Date();
+    const rawFrom = searchParams.get("from")
       ? new Date(searchParams.get("from")!)
-      : subDays(toDate, 30);
+      : subDays(rawTo, 30);
+
+    // Bucket to the minute so the cache key is stable within a cacheLife("minutes")
+    // window — otherwise millisecond-precision timestamps make every request a cache miss.
+    const toDate = startOfMinute(rawTo);
+    const fromDate = startOfMinute(rawFrom);
 
     const data = await fetchDashboardData(fromDate.toISOString(), toDate.toISOString());
     return NextResponse.json(data);
