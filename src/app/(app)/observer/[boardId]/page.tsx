@@ -53,7 +53,11 @@ export default async function BoardDetailPage({ params }: Props) {
       </header>
 
       <main className="flex-1 p-6">
-        <BoardDetailClient board={board} initialMembers={members} isOwner={board.createdBy === user.id} />
+        <BoardDetailClient
+          board={board}
+          initialMembers={members}
+          isOwner={board.createdBy === user.id || board.managerEmail?.toLowerCase() === user.email.toLowerCase()}
+        />
       </main>
     </div>
   );

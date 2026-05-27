@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   RiAddLine,
   RiUserLine,
@@ -150,7 +151,7 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
       });
       if (!res.ok) {
         const err = await res.json();
-        alert(err.error ?? "Failed to add member");
+        toast.error(err.error ?? "Failed to add member");
         return;
       }
       const member = await res.json();
@@ -210,6 +211,7 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
 
         {members.length === 0 ? (
           <EmptyMembersState
+            isOwner={isOwner}
             onAdd={() => {
               setSettingsOpen(true);
               loadKnownDevs("");
@@ -480,7 +482,7 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
   );
 }
 
-function EmptyMembersState({ onAdd }: { onAdd: () => void }) {
+function EmptyMembersState({ isOwner, onAdd }: { isOwner: boolean; onAdd: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card px-8 py-16 text-center">
       <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 mb-4">
@@ -490,12 +492,16 @@ function EmptyMembersState({ onAdd }: { onAdd: () => void }) {
         No members yet
       </h3>
       <p className="text-sm text-muted-foreground max-w-xs mb-5">
-        Add team members to start tracking their Jira workload and timeline.
+        {isOwner
+          ? "Add team members to start tracking their Jira workload and timeline."
+          : "The board owner hasn't added any members yet."}
       </p>
-      <Button size="sm" onClick={onAdd} className="gap-1.5">
-        <RiAddLine size={14} />
-        Add First Member
-      </Button>
+      {isOwner && (
+        <Button size="sm" onClick={onAdd} className="gap-1.5">
+          <RiAddLine size={14} />
+          Add First Member
+        </Button>
+      )}
     </div>
   );
 }

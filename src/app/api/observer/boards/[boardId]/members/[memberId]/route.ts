@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or } from "drizzle-orm";
 import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
@@ -15,10 +15,21 @@ export async function DELETE(_req: Request, { params }: Params) {
     const [board] = await db
       .select({ id: observerBoards.id })
       .from(observerBoards)
-      .where(and(eq(observerBoards.id, boardId), eq(observerBoards.createdBy, user.id)));
+      .where(
+        and(
+          eq(observerBoards.id, boardId),
+          or(
+            eq(observerBoards.createdBy, user.id),
+            eq(observerBoards.managerEmail, user.email)
+          )
+        )
+      );
 
     if (!board) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "You don't have permission to manage members on this board." },
+        { status: 403 }
+      );
     }
 
     await db
