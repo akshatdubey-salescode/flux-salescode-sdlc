@@ -15,6 +15,7 @@ import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import { jiraIssues, jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
+import { stampCache, withCacheMetrics, type Stamped } from "@/lib/cache/metrics";
 
 type MyTaskFilters = {
   q: string;
@@ -78,10 +79,16 @@ export async function GET(req: NextRequest) {
     page: Math.max(1, parseInt(searchParams.get("page") ?? "1", 10)),
   };
 
-  return Response.json(await fetchMyTasks(targetEmail, filters));
+  const { data, headers } = await withCacheMetrics("my-tasks", () =>
+    fetchMyTasks(targetEmail, filters)
+  );
+  return Response.json(data, { headers });
 }
 
-async function fetchMyTasks(targetEmail: string, filters: MyTaskFilters) {
+async function fetchMyTasks(
+  targetEmail: string,
+  filters: MyTaskFilters
+): Promise<Stamped<unknown>> {
   "use cache";
   cacheLife("minutes");
   cacheTag(`my-tasks:${targetEmail}`);
@@ -167,11 +174,11 @@ async function fetchMyTasks(targetEmail: string, filters: MyTaskFilters) {
 
   const total = countResult[0]?.count ?? 0;
 
-  return {
+  return stampCache({
     issues,
     total,
     page,
     pageSize,
     totalPages: Math.ceil(total / pageSize),
-  };
+  });
 }

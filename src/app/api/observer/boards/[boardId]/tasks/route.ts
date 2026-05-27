@@ -4,6 +4,7 @@ import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
+import { stampCache, withCacheMetrics } from "@/lib/cache/metrics";
 
 type Params = { params: Promise<{ boardId: string }> };
 
@@ -25,8 +26,10 @@ export async function GET(request: Request, { params }: Params) {
     const from = searchParams.get("from") ?? "";
     const to = searchParams.get("to") ?? "";
 
-    const data = await fetchBoardTasks(boardId, from, to);
-    return NextResponse.json(data);
+    const { data, headers } = await withCacheMetrics("team-pulse", () =>
+      fetchBoardTasks(boardId, from, to)
+    );
+    return NextResponse.json(data, { headers });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -43,7 +46,7 @@ async function fetchBoardTasks(boardId: string, from: string, to: string) {
     .from(observerBoardMembers)
     .where(eq(observerBoardMembers.boardId, boardId));
 
-  if (members.length === 0) return [];
+  if (members.length === 0) return stampCache([]);
 
   const memberEmails = members.map((m) => m.email);
   const emailsIn = sql.join(memberEmails.map((e) => sql`${e}`), sql`, `);
@@ -126,5 +129,5 @@ async function fetchBoardTasks(boardId: string, from: string, to: string) {
     grouped[email].statusCounts[cat] = (grouped[email].statusCounts[cat] ?? 0) + 1;
   }
 
-  return Object.values(grouped);
+  return stampCache(Object.values(grouped));
 }

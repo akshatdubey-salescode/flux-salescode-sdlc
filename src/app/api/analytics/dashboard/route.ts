@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
 import { cacheLife, cacheTag } from "next/cache";
 import { requireAuth } from "@/lib/auth/server";
+import { stampCache, withCacheMetrics } from "@/lib/cache/metrics";
 import { subDays, startOfMinute } from "date-fns";
 
 export async function GET(request: Request) {
@@ -20,8 +21,10 @@ export async function GET(request: Request) {
     const toDate = startOfMinute(rawTo);
     const fromDate = startOfMinute(rawFrom);
 
-    const data = await fetchDashboardData(fromDate.toISOString(), toDate.toISOString());
-    return NextResponse.json(data);
+    const { data, headers } = await withCacheMetrics("dashboard", () =>
+      fetchDashboardData(fromDate.toISOString(), toDate.toISOString())
+    );
+    return NextResponse.json(data, { headers });
   } catch (error) {
     console.error("Dashboard analytics error:", error);
     return new NextResponse("Internal Server Error", { status: 500 });
@@ -336,7 +339,7 @@ async function fetchDashboardData(fromIso: string, toIso: string) {
     compDelta = Math.round(((completedThisWeek - completedLastWeek) / completedLastWeek) * 100);
   }
 
-  return {
+  return stampCache({
     orgHealth: {
       activeIssues,
       completedThisWeek,
@@ -354,5 +357,5 @@ async function fetchDashboardData(fromIso: string, toIso: string) {
     devWorkload: devWorkloadRes.rows,
     devVelocity: devVelocityRes.rows,
     issueTypeMix: issueTypeMixRes.rows,
-  };
+  });
 }
