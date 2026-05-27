@@ -16,6 +16,7 @@ import {
   FRESHDESK_CUSTOM_FIELD,
 } from "@/lib/freshdesk/sync";
 import type { JiraIssueRaw, JiraCommentRaw } from "@/lib/jira/client";
+import { revalidateIssueChange } from "@/lib/cache/jira-invalidation";
 
 // Jira webhook payload types
 type JiraWebhookEvent = {
@@ -72,17 +73,41 @@ export async function POST(
   }
 
   const { webhookEvent, issue, changelog } = payload;
+  const issueKey = issue?.key;
+
+  // Accumulate every assignee email touched by this change so we can refresh
+  // exactly their caches. We snapshot before mutating (to catch the previous
+  // owner on a reassignment or delete) and again after (for the new owner).
+  const affectedEmails: string[] = [];
+  async function collectAssigneeEmails(jiraId: string) {
+    const [row] = await db
+      .select({
+        assigneeEmail: jiraIssues.assigneeEmail,
+        additionalAssigneeEmails: jiraIssues.additionalAssigneeEmails,
+      })
+      .from(jiraIssues)
+      .where(and(eq(jiraIssues.projectId, projectId), eq(jiraIssues.jiraId, jiraId)))
+      .limit(1);
+    if (!row) return;
+    if (row.assigneeEmail) affectedEmails.push(row.assigneeEmail);
+    if (row.additionalAssigneeEmails) affectedEmails.push(...row.additionalAssigneeEmails);
+  }
 
   try {
     switch (webhookEvent) {
       case "jira:issue_created": {
-        if (issue) await upsertIssue(projectId, issue, project.multiAssigneeFieldId ?? undefined);
+        if (issue) {
+          await upsertIssue(projectId, issue, project.multiAssigneeFieldId ?? undefined);
+          await collectAssigneeEmails(issue.id);
+        }
         break;
       }
 
       case "jira:issue_updated": {
         if (issue) {
+          await collectAssigneeEmails(issue.id);
           await upsertIssue(projectId, issue, project.multiAssigneeFieldId ?? undefined);
+          await collectAssigneeEmails(issue.id);
 
           const [existingIssue] = await db
             .select({
@@ -139,7 +164,10 @@ export async function POST(
       }
 
       case "jira:issue_deleted": {
-        if (issue) await deleteIssue(projectId, issue.id);
+        if (issue) {
+          await collectAssigneeEmails(issue.id);
+          await deleteIssue(projectId, issue.id);
+        }
         break;
       }
 
@@ -160,8 +188,19 @@ export async function POST(
     return new Response("Internal error", { status: 500 });
   }
 
-  revalidateTag("jira-issues", "max");
-  revalidateTag(`project:${projectId}`, "max");
+  // Comment events only affect the issue detail view; everything else can
+  // change assignment, status, or project rollups, so refresh the issue's
+  // assignees, project, and boards. Org-wide aggregates (dashboard, developer
+  // list, issues list) refresh on their own cacheLife("minutes") TTL.
+  if (
+    webhookEvent === "comment_created" ||
+    webhookEvent === "comment_updated" ||
+    webhookEvent === "comment_deleted"
+  ) {
+    if (issueKey) revalidateTag(`issue:${issueKey}`, "max");
+  } else {
+    await revalidateIssueChange({ projectId, emails: affectedEmails, issueKey });
+  }
 
   return new Response("OK", { status: 200 });
 }

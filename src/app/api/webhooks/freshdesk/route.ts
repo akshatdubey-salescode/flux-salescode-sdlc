@@ -134,6 +134,8 @@ export async function POST(req: Request) {
   }
 
   console.log("[freshdesk-webhook] upserted ticket %d (project %s)", ticketId, project.id);
-  revalidateTag("jira-issues", "max");
+  // A Freshdesk ticket change only touches freshdesk_tickets (never jira_issues),
+  // so scope invalidation to the project rather than every issue cache org-wide.
+  revalidateTag(`project:${project.id}`, "max");
   return NextResponse.json({ ok: true });
 }
