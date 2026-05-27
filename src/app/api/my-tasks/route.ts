@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
 async function fetchMyTasks(targetEmail: string, filters: MyTaskFilters) {
   "use cache";
   cacheLife("minutes");
-  cacheTag("jira-issues", `my-tasks:${targetEmail}`);
+  cacheTag(`my-tasks:${targetEmail}`);
 
   const {
     q, projectList, statusList, priorityList, reporterList,

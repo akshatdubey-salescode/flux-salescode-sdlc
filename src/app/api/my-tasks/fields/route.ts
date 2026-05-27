@@ -1,4 +1,5 @@
 import { and, eq, isNotNull, inArray, or, sql } from "drizzle-orm";
+import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import { jiraIssues, jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
@@ -9,6 +10,14 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const forEmail = searchParams.get("forEmail")?.trim();
   const targetEmail = forEmail || user.email;
+
+  return Response.json(await fetchMyTasksFields(targetEmail));
+}
+
+async function fetchMyTasksFields(targetEmail: string) {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag(`my-tasks:${targetEmail}`);
 
   const isAssignee = or(
     eq(jiraIssues.assigneeEmail, targetEmail),
@@ -69,7 +78,7 @@ export async function GET(req: Request) {
     .map((r) => r.value!)
     .sort((a, b) => (priorityOrder[a] ?? 99) - (priorityOrder[b] ?? 99));
 
-  return Response.json({
+  return {
     statuses: statuses.sort((a, b) => a.status.localeCompare(b.status)),
     priorities: sortedPriorities,
     issueTypes: issueTypes.map((r) => r.value).sort(),
@@ -79,5 +88,5 @@ export async function GET(req: Request) {
       .sort((a, b) => a.name.localeCompare(b.name)),
     labels,
     projects: projectRows.sort((a, b) => a.name.localeCompare(b.name)),
-  });
+  };
 }

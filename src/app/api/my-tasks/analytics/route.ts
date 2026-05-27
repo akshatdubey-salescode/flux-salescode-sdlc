@@ -7,17 +7,17 @@ import { requireAuth } from "@/lib/auth/server";
 export async function GET() {
   try {
     const user = await requireAuth();
-    return NextResponse.json(await fetchMyTasksAnalytics(user.id, user.email));
+    return NextResponse.json(await fetchMyTasksAnalytics(user.email));
   } catch (error) {
     console.error("User analytics error:", error);
     return new NextResponse("Internal Server Error", { status: 500 });
   }
 }
 
-async function fetchMyTasksAnalytics(userId: string, userEmail: string) {
+async function fetchMyTasksAnalytics(userEmail: string) {
   "use cache";
   cacheLife("minutes");
-  cacheTag("jira-issues", `my-tasks:${userId}`);
+  cacheTag(`my-tasks:${userEmail}`);
 
   const [
     activeIssuesRes,
