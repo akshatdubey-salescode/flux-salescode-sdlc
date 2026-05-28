@@ -418,36 +418,52 @@ function GanttGrid({
                             />
                           );
                         }
-                        const amMins = bucket.events
-                          .filter((e) => new Date(e.startsAt).getHours() < 12)
-                          .reduce((s, e) => s + e.durationMinutes, 0);
-                        const pmMins = bucket.minutes - amMins;
-                        const tooltip = bucket.events
-                          .map((e) => {
-                            const t = new Date(e.startsAt).toLocaleTimeString(
-                              undefined,
-                              { hour: "numeric", minute: "2-digit" }
-                            );
-                            return `${t} · ${e.summary ?? "(private)"} (${e.durationMinutes}m)`;
-                          })
-                          .join("\n");
+                        const amEvents = bucket.events.filter(
+                          (e) => new Date(e.startsAt).getHours() < 12
+                        );
+                        const pmEvents = bucket.events.filter(
+                          (e) => new Date(e.startsAt).getHours() >= 12
+                        );
+                        const amMins = amEvents.reduce(
+                          (s, e) => s + e.durationMinutes,
+                          0
+                        );
+                        const pmMins = pmEvents.reduce(
+                          (s, e) => s + e.durationMinutes,
+                          0
+                        );
+                        const titleFor = (events: typeof bucket.events) =>
+                          events
+                            .map((e) => {
+                              const t = new Date(e.startsAt).toLocaleTimeString(
+                                undefined,
+                                { hour: "numeric", minute: "2-digit" }
+                              );
+                              return `${t} — ${e.summary ?? "(private)"} (${e.durationMinutes}m)`;
+                            })
+                            .join("\n");
                         return (
                           <div
                             key={day}
                             className="flex border-r border-zinc-100 dark:border-zinc-800/40"
                             style={{ width: SLOT_W * 2 }}
-                            title={`${formatMinutes(bucket.minutes)} in meetings\n${tooltip}`}
                           >
                             <div className="flex-1 p-0.5">
                               {amMins > 0 && (
-                                <div className="h-full rounded-sm bg-violet-500 dark:bg-violet-600 text-white text-[9px] font-semibold flex items-center justify-center cursor-help leading-none px-1">
+                                <div
+                                  title={titleFor(amEvents)}
+                                  className="h-full rounded-sm bg-violet-500 dark:bg-violet-600 text-white text-[9px] font-semibold flex items-center justify-center leading-none px-1"
+                                >
                                   {formatMinutes(amMins)}
                                 </div>
                               )}
                             </div>
                             <div className="flex-1 p-0.5">
                               {pmMins > 0 && (
-                                <div className="h-full rounded-sm bg-violet-500 dark:bg-violet-600 text-white text-[9px] font-semibold flex items-center justify-center cursor-help leading-none px-1">
+                                <div
+                                  title={titleFor(pmEvents)}
+                                  className="h-full rounded-sm bg-violet-500 dark:bg-violet-600 text-white text-[9px] font-semibold flex items-center justify-center leading-none px-1"
+                                >
                                   {formatMinutes(pmMins)}
                                 </div>
                               )}
