@@ -5,6 +5,7 @@ import {
   RiRefreshLine,
   RiInboxLine,
   RiExternalLinkLine,
+  RiCalendarLine,
 } from "@remixicon/react";
 import type {
   TimelineResponse,
@@ -109,11 +110,15 @@ type BarDatum = {
   endSlot: number;
 };
 
-type TooltipInfo = {
-  issue: TimelineIssue;
-  x: number;
-  y: number;
-};
+type TooltipInfo =
+  | { kind: "issue"; issue: TimelineIssue; x: number; y: number }
+  | {
+      kind: "meeting";
+      events: MeetingEvent[];
+      totalMinutes: number;
+      x: number;
+      y: number;
+    };
 
 // Height of the meeting row beneath each member's issue bars. Only rendered
 // when the member has at least one meeting in the visible range; otherwise
@@ -174,8 +179,8 @@ function GanttGrid({
 
   return (
     <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden">
-      {/* Fixed tooltip */}
-      {tooltip && (
+      {/* Fixed tooltip — issue */}
+      {tooltip?.kind === "issue" && (
         <div
           className="fixed z-50 pointer-events-none bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-3 w-72 text-xs"
           style={{
@@ -210,6 +215,53 @@ function GanttGrid({
           <p className="text-zinc-500 dark:text-zinc-400 mt-1.5 font-medium">
             {fmtDate(tooltip.issue.startDate)} → {fmtDate(tooltip.issue.dueDate)}
           </p>
+        </div>
+      )}
+
+      {/* Fixed tooltip — meeting(s) */}
+      {tooltip?.kind === "meeting" && (
+        <div
+          className="fixed z-50 pointer-events-none bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-3 w-80 text-xs"
+          style={{
+            left: Math.min(tooltip.x + 14, (typeof window !== "undefined" ? window.innerWidth : 1200) - 336),
+            top: tooltip.y - 10,
+          }}
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 dark:bg-violet-900/40 px-2 py-0.5 text-[10px] font-bold text-violet-700 dark:text-violet-300">
+              <RiCalendarLine size={10} />
+              Meetings
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              {formatMinutes(tooltip.totalMinutes)} ·{" "}
+              {tooltip.events.length}{" "}
+              {tooltip.events.length === 1 ? "meeting" : "meetings"}
+            </span>
+          </div>
+          <ul className="space-y-2">
+            {tooltip.events.map((ev) => {
+              const start = new Date(ev.startsAt);
+              const end = new Date(ev.endsAt);
+              const time = `${start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} – ${end.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+              const isPrivate =
+                ev.visibility === "private" ||
+                ev.visibility === "confidential";
+              const summary =
+                ev.summary ?? (isPrivate ? "(private)" : "(no title)");
+              return (
+                <li key={ev.id}>
+                  <p className="font-semibold text-zinc-900 dark:text-zinc-50 leading-snug">
+                    {summary}
+                  </p>
+                  <p className="text-muted-foreground mt-0.5">
+                    {time} · {formatMinutes(ev.durationMinutes)}
+                    {ev.attendeeEmails.length > 0 &&
+                      ` · ${ev.attendeeEmails.length} attendee${ev.attendeeEmails.length === 1 ? "" : "s"}`}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
 
@@ -373,7 +425,7 @@ function GanttGrid({
                           className={`absolute flex items-center px-2 rounded cursor-pointer transition-opacity select-none ${BAR_CLASSES[bar.issue.label]}`}
                           style={{ left, width, top, height }}
                           onMouseEnter={(e) =>
-                            setTooltip({ issue: bar.issue, x: e.clientX, y: e.clientY })
+                            setTooltip({ kind: "issue", issue: bar.issue, x: e.clientX, y: e.clientY })
                           }
                           onMouseMove={(e) =>
                             setTooltip((t) =>
@@ -432,16 +484,6 @@ function GanttGrid({
                           (s, e) => s + e.durationMinutes,
                           0
                         );
-                        const titleFor = (events: typeof bucket.events) =>
-                          events
-                            .map((e) => {
-                              const t = new Date(e.startsAt).toLocaleTimeString(
-                                undefined,
-                                { hour: "numeric", minute: "2-digit" }
-                              );
-                              return `${t} — ${e.summary ?? "(private)"} (${e.durationMinutes}m)`;
-                            })
-                            .join("\n");
                         return (
                           <div
                             key={day}
@@ -451,8 +493,22 @@ function GanttGrid({
                             <div className="flex-1 p-0.5">
                               {amMins > 0 && (
                                 <div
-                                  title={titleFor(amEvents)}
-                                  className="h-full rounded-sm bg-violet-500 dark:bg-violet-600 text-white text-[9px] font-semibold flex items-center justify-center leading-none px-1"
+                                  className="h-full rounded-sm bg-violet-500 hover:bg-violet-600 dark:bg-violet-600 dark:hover:bg-violet-500 text-white text-[9px] font-semibold flex items-center justify-center leading-none px-1 cursor-pointer transition-colors"
+                                  onMouseEnter={(e) =>
+                                    setTooltip({
+                                      kind: "meeting",
+                                      events: amEvents,
+                                      totalMinutes: amMins,
+                                      x: e.clientX,
+                                      y: e.clientY,
+                                    })
+                                  }
+                                  onMouseMove={(e) =>
+                                    setTooltip((t) =>
+                                      t ? { ...t, x: e.clientX, y: e.clientY } : null
+                                    )
+                                  }
+                                  onMouseLeave={() => setTooltip(null)}
                                 >
                                   {formatMinutes(amMins)}
                                 </div>
@@ -461,8 +517,22 @@ function GanttGrid({
                             <div className="flex-1 p-0.5">
                               {pmMins > 0 && (
                                 <div
-                                  title={titleFor(pmEvents)}
-                                  className="h-full rounded-sm bg-violet-500 dark:bg-violet-600 text-white text-[9px] font-semibold flex items-center justify-center leading-none px-1"
+                                  className="h-full rounded-sm bg-violet-500 hover:bg-violet-600 dark:bg-violet-600 dark:hover:bg-violet-500 text-white text-[9px] font-semibold flex items-center justify-center leading-none px-1 cursor-pointer transition-colors"
+                                  onMouseEnter={(e) =>
+                                    setTooltip({
+                                      kind: "meeting",
+                                      events: pmEvents,
+                                      totalMinutes: pmMins,
+                                      x: e.clientX,
+                                      y: e.clientY,
+                                    })
+                                  }
+                                  onMouseMove={(e) =>
+                                    setTooltip((t) =>
+                                      t ? { ...t, x: e.clientX, y: e.clientY } : null
+                                    )
+                                  }
+                                  onMouseLeave={() => setTooltip(null)}
                                 >
                                   {formatMinutes(pmMins)}
                                 </div>
