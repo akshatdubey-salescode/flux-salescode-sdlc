@@ -97,34 +97,28 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
   }
 
   async function loadKnownDevs(query: string) {
-    if (knownDevs.length === 0) {
-      const res = await fetch("/api/observer/developers");
-      if (res.ok) {
-        const data = await res.json();
-        setKnownDevs(data);
-        filterDevs(data, query);
-      }
-    } else {
-      filterDevs(knownDevs, query);
+    const res = await fetch(
+      `/api/observer/developers?q=${encodeURIComponent(query)}&limit=20`
+    );
+    if (res.ok) {
+      const data = await res.json();
+      setKnownDevs(data);
+      filterDevs(data, query);
     }
   }
 
   function filterDevs(devs: KnownDev[], query: string) {
-    const q = query.toLowerCase();
     const existing = new Set(members.map((m) => m.email));
-    setFilteredDevs(
-      devs.filter(
-        (d) =>
-          !existing.has(d.email) &&
-          (d.name.toLowerCase().includes(q) || d.email.toLowerCase().includes(q))
-      )
-    );
+    setFilteredDevs(devs.filter((d) => !existing.has(d.email)));
   }
 
   function handleSearchChange(q: string) {
     setSearchName(q);
-    filterDevs(knownDevs.length > 0 ? knownDevs : [], q);
-    if (knownDevs.length === 0) loadKnownDevs(q);
+    if (q.trim()) {
+      loadKnownDevs(q.trim());
+    } else {
+      setFilteredDevs([]);
+    }
   }
 
   function selectDev(dev: KnownDev) {

@@ -12,7 +12,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "sync:all": "tsx --env-file=.env.local scripts/force-sync-all-projects.ts"
+    "sync:all": "tsx --env-file=.env.local scripts/force-sync-all-projects.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.0.12",
