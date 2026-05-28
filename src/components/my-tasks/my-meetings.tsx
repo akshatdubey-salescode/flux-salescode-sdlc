@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   RiCalendarLine,
   RiExternalLinkLine,
@@ -43,14 +44,31 @@ function formatDuration(minutes: number): string {
 }
 
 export function MyMeetings() {
-  const [start, setStart] = useState<string>(todayStr());
-  const [end, setEnd] = useState<string>(todayStr());
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // URL-backed state: mstart / mend (distinct from qstart/qend used by the
+  // tasks-list quarter filter so the two date ranges don't collide on shared
+  // URLs).
+  const start = searchParams.get("mstart") || todayStr();
+  const end = searchParams.get("mend") || start;
+
+  const updateRange = useCallback(
+    (nextStart: string, nextEnd: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("mstart", nextStart);
+      params.set("mend", nextEnd);
+      router.replace(`?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams]
+  );
+
   const [data, setData] = useState<MyMeetingsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  // Bumped to force a re-fetch from the Refresh button without changing
-  // the date inputs (setStart((s)=>s) would be a no-op).
+  // Bumped to force a re-fetch from the Refresh button without changing the
+  // date inputs (a no-op URL update wouldn't re-trigger the effect).
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -98,8 +116,7 @@ export function MyMeetings() {
 
   function applyPreset(preset: Preset) {
     const { start: s, end: e } = presetRange(preset);
-    setStart(s);
-    setEnd(e);
+    updateRange(s, e);
   }
 
   const activePreset: Preset | null = (() => {
@@ -117,8 +134,10 @@ export function MyMeetings() {
         new Date(start + "T12:00:00").getTime()) /
         86400000 +
       1;
-    setStart(offsetDate(start, direction * days));
-    setEnd(offsetDate(end, direction * days));
+    updateRange(
+      offsetDate(start, direction * days),
+      offsetDate(end, direction * days)
+    );
   }
 
   const events = data?.events ?? [];
@@ -166,8 +185,10 @@ export function MyMeetings() {
               }}
               onSelect={(range) => {
                 if (range?.from) {
-                  setStart(localDateStr(range.from));
-                  setEnd(localDateStr(range.to ?? range.from));
+                  updateRange(
+                    localDateStr(range.from),
+                    localDateStr(range.to ?? range.from)
+                  );
                   if (range.to) setPickerOpen(false);
                 }
               }}
