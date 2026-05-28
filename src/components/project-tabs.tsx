@@ -62,6 +62,10 @@ export function ProjectTabs({ projectId, jiraProjectKey, isAdmin, isSuperuser }:
 
   function startPolling(jobId: string) {
     if (pollRef.current) clearInterval(pollRef.current);
+    // 5s is the sweet spot between perceived responsiveness and burning
+    // function invocations: a Jira sync usually completes in 30s-5min, so a
+    // 5s poll still surfaces completion within one user-noticeable beat
+    // while cutting invocations to ~2.5x less than the previous 2s cadence.
     pollRef.current = setInterval(async () => {
       const res = await fetch(`/api/sync-jobs/${jobId}`);
       if (!res.ok) return;
@@ -72,7 +76,7 @@ export function ProjectTabs({ projectId, jiraProjectKey, isAdmin, isSuperuser }:
         pollRef.current = null;
         router.refresh();
       }
-    }, 2000);
+    }, 5000);
   }
 
   function handleTabChange(value: string) {
