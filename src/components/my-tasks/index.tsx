@@ -6,6 +6,7 @@ import { ListView } from "../project-tracking/list-view";
 import { MyTasksFilterBar } from "./filter-bar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UserInsightsDashboard } from "./user-insights-dashboard";
+import { MyMeetings } from "./my-meetings";
 import { usePinnedTasks } from "./use-pinned-tasks";
 import type { MyTasksFields, MyTasksFilterState, TrackingIssue } from "./helpers";
 import {
@@ -109,7 +110,9 @@ export function MyTasksView({
   const router = useRouter();
   const searchParams = useSearchParams();
   const filters = readFilters(searchParams);
-  const activeTab = searchParams.get("tab") === "insights" ? "insights" : "list";
+  const tabParam = searchParams.get("tab");
+  const activeTab =
+    tabParam === "insights" || tabParam === "meetings" ? tabParam : "list";
 
   const { pinnedKeys, togglePin } = usePinnedTasks();
   const isObserving = !!targetEmail;
@@ -234,6 +237,7 @@ export function MyTasksView({
           <TabsList>
             <TabsTrigger value="list">Tasks List</TabsTrigger>
             <TabsTrigger value="insights">My Insights</TabsTrigger>
+            <TabsTrigger value="meetings">My Meetings</TabsTrigger>
           </TabsList>
         </div>
       )}
@@ -270,6 +274,12 @@ export function MyTasksView({
       {!isObserving && (
         <TabsContent value="insights" className="outline-none">
           <UserInsightsDashboard />
+        </TabsContent>
+      )}
+
+      {!isObserving && (
+        <TabsContent value="meetings" className="outline-none">
+          <MyMeetings />
         </TabsContent>
       )}
     </Tabs>

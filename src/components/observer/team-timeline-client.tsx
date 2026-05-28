@@ -34,6 +34,7 @@ import type {
   IssueLabel,
 } from "@/app/api/observer/boards/[boardId]/timeline/route";
 import type { UnplannedResponse, UnplannedPersonGroup, UnplannedIssueItem } from "@/app/api/observer/boards/[boardId]/unplanned/route";
+import type { MeetingEvent, MeetingsResponse } from "@/app/api/observer/boards/[boardId]/meetings/route";
 import { statusCategoryStyles, priorityStyles, issueTypeStyles } from "@/components/project-tracking/helpers";
 import { TeamGanttClient } from "@/components/observer/team-gantt-client";
 import {
@@ -63,6 +64,13 @@ function useDebounce(value: string, delay: number): string {
 
 function todayStr() {
   return localDateStr(new Date());
+}
+
+function formatMeetingDuration(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return mins === 0 ? `${hours}h` : `${hours}h ${mins}m`;
 }
 
 function offsetDate(dateStr: string, days: number): string {
@@ -629,11 +637,13 @@ function TimelineTableRow({ issue }: { issue: TimelineIssue }) {
 
 function MemberTimelineCard({
   member,
+  meetings,
   onSwitchToUnplanned,
   quarterStart,
   quarterEnd,
 }: {
   member: TimelineMember;
+  meetings?: { totalMinutes: number; eventCount: number; events: MeetingEvent[] };
   onSwitchToUnplanned?: (name: string) => void;
   quarterStart: string;
   quarterEnd: string;
@@ -681,6 +691,15 @@ function MemberTimelineCard({
             )}
             {member.unplannedCount > 0 && (
               <span className="text-orange-500 dark:text-orange-400">{member.unplannedCount} unplanned</span>
+            )}
+            {meetings && meetings.eventCount > 0 && (
+              <span
+                title={`${meetings.eventCount} meeting${meetings.eventCount === 1 ? "" : "s"} in this range`}
+                className="inline-flex items-center gap-1 rounded-full bg-violet-100 dark:bg-violet-900/30 px-1.5 py-0.5 text-violet-700 dark:text-violet-400"
+              >
+                <RiCalendarLine size={10} />
+                {formatMeetingDuration(meetings.totalMinutes)}
+              </span>
             )}
           </div>
           <Link
@@ -768,7 +787,122 @@ function MemberTimelineCard({
           </div>
         )
       )}
+
+      {!collapsed && meetings && meetings.events.length > 0 && (
+        <MeetingsSection
+          events={meetings.events}
+          totalMinutes={meetings.totalMinutes}
+        />
+      )}
     </div>
+  );
+}
+
+function MeetingsSection({
+  events,
+  totalMinutes,
+}: {
+  events: MeetingEvent[];
+  totalMinutes: number;
+}) {
+  return (
+    <div className="border-t-2 border-violet-200/60 dark:border-violet-900/40">
+      <div className="flex items-center justify-between gap-3 px-4 py-2 bg-violet-50/40 dark:bg-violet-950/10 border-b border-violet-100 dark:border-violet-900/30">
+        <div className="flex items-center gap-2">
+          <RiCalendarLine size={12} className="text-violet-600 dark:text-violet-400" />
+          <span className="text-[11px] font-bold uppercase tracking-wide text-violet-700 dark:text-violet-400">
+            Meetings
+          </span>
+          <span className="text-[11px] text-muted-foreground">
+            {events.length} {events.length === 1 ? "meeting" : "meetings"} ·
+            {" "}
+            {formatMeetingDuration(totalMinutes)} total
+          </span>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-border bg-muted/30">
+              <th className="w-6 pl-4 pr-2 py-2.5" />
+              <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-36">When</th>
+              <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">Title</th>
+              <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-48">Organizer</th>
+              <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-28">Attendees</th>
+              <th className="px-3 py-2.5 text-right font-medium text-muted-foreground w-24">Duration</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {events.map((ev) => (
+              <MeetingTableRow key={ev.id} event={ev} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function MeetingTableRow({ event }: { event: MeetingEvent }) {
+  const start = new Date(event.startsAt);
+  const end = new Date(event.endsAt);
+  const dateLabel = start.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const timeLabel = `${start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} – ${end.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+  const isPrivate = event.visibility === "private" || event.visibility === "confidential";
+  const summary = event.summary ?? (isPrivate ? "(private)" : "(no title)");
+  const attendeeCount = event.attendeeEmails.length;
+  const attendeeTitle = event.attendeeEmails.join(", ");
+
+  return (
+    <tr className="bg-violet-50/20 dark:bg-violet-950/[0.04] hover:bg-violet-50/40 dark:hover:bg-violet-950/10 transition-colors">
+      <td className="pl-4 pr-2 py-2">
+        <span
+          className="flex size-5 items-center justify-center rounded bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300"
+          title="Meeting"
+        >
+          <RiCalendarLine size={11} />
+        </span>
+      </td>
+      <td className="px-3 py-2">
+        <div className="flex flex-col">
+          <span className="font-medium text-foreground">{dateLabel}</span>
+          <span className="text-[10px] text-muted-foreground">{timeLabel}</span>
+        </div>
+      </td>
+      <td className="px-3 py-2 max-w-0">
+        {event.htmlLink ? (
+          <a
+            href={event.htmlLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-foreground hover:text-foreground/80 inline-flex items-center gap-1 max-w-full"
+            title={summary}
+          >
+            <span className="truncate">{summary}</span>
+            <RiExternalLinkLine size={10} className="opacity-60 shrink-0" />
+          </a>
+        ) : (
+          <span className="block truncate font-medium text-foreground" title={summary}>
+            {summary}
+          </span>
+        )}
+      </td>
+      <td className="px-3 py-2 max-w-0">
+        <span className="block truncate text-muted-foreground" title={event.organizerEmail ?? ""}>
+          {event.organizerEmail ?? "—"}
+        </span>
+      </td>
+      <td className="px-3 py-2" title={attendeeTitle}>
+        <span className="inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
+          {attendeeCount > 0 ? `${attendeeCount}` : "Solo"}
+        </span>
+      </td>
+      <td className="px-3 py-2 text-right">
+        <span className="font-medium text-violet-700 dark:text-violet-400 whitespace-nowrap">
+          {formatMeetingDuration(event.durationMinutes)}
+        </span>
+      </td>
+    </tr>
   );
 }
 
@@ -1436,6 +1570,13 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Map of memberEmail → { totalMinutes, eventCount, events } for the active
+  // date range. Pulled from /api/observer/boards/:id/meetings; powers both the
+  // header chip and the inline meeting rows in each member's table.
+  const [meetingsByEmail, setMeetingsByEmail] = useState<
+    Record<string, { totalMinutes: number; eventCount: number; events: MeetingEvent[] }>
+  >({});
+
   const rawTab = searchParams.get("tab") ?? "timeline";
   const activeTab: TabValue = VALID_TABS.includes(rawTab as TabValue) ? (rawTab as TabValue) : "timeline";
 
@@ -1504,6 +1645,28 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
   useEffect(() => {
     load(filter, ustart, uend);
   }, [filter, ustart, uend, load]);
+
+  useEffect(() => {
+    const start = filter.mode === "single" ? filter.date : filter.start;
+    const end = filter.mode === "single" ? filter.date : filter.end;
+    let cancelled = false;
+    fetch(`/api/observer/boards/${boardId}/meetings?start=${start}&end=${end}`)
+      .then((r) => (r.ok ? (r.json() as Promise<MeetingsResponse>) : null))
+      .then((body) => {
+        if (cancelled || !body?.byMember) return;
+        const map: Record<string, { totalMinutes: number; eventCount: number; events: MeetingEvent[] }> = {};
+        for (const m of body.byMember) {
+          map[m.email.toLowerCase()] = {
+            totalMinutes: m.totalMinutes,
+            eventCount: m.eventCount,
+            events: m.events,
+          };
+        }
+        setMeetingsByEmail(map);
+      })
+      .catch(() => { /* meetings are non-critical; silently skip */ });
+    return () => { cancelled = true; };
+  }, [boardId, filter]);
 
   // Gantt dates derived from the top-level filter (single date → 7-day window)
   const ganttStart = filter.mode === "single" ? filter.date : filter.start;
@@ -1614,6 +1777,7 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
                           <MemberTimelineCard
                             key={member.memberId}
                             member={member}
+                            meetings={meetingsByEmail[member.email.toLowerCase()]}
                             onSwitchToUnplanned={(name) => updateParams({ tab: "unplanned", uq: name })}
                             quarterStart={ustart}
                             quarterEnd={uend}

@@ -1,5 +1,6 @@
 import { requireAuth } from "@/lib/auth/server";
 import { AtlassianIntegrationCard } from "./atlassian-integration-card";
+import { GoogleCalendarCard } from "./google-calendar-card";
 
 export default async function SettingsPage() {
   await requireAuth();
@@ -18,6 +19,7 @@ export default async function SettingsPage() {
           Integrations
         </h2>
         <AtlassianIntegrationCard />
+        <GoogleCalendarCard />
       </section>
     </div>
   );

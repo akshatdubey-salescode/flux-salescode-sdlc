@@ -11,6 +11,10 @@ import type {
   TimelineIssue,
   IssueLabel,
 } from "@/app/api/observer/boards/[boardId]/timeline/route";
+import type {
+  MeetingsResponse,
+  MeetingEvent,
+} from "@/app/api/observer/boards/[boardId]/meetings/route";
 
 // ---------------------------------------------------------------------------
 // Date helpers — all timezone-safe (local time, T12:00:00)
@@ -77,6 +81,13 @@ const BAR_CLASSES: Record<IssueLabel, string> = {
 };
 
 
+function formatMinutes(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
 function issueTypeSummary(bars: BarDatum[]): string {
   if (bars.length === 0) return "No issues";
   const counts: Record<string, number> = {};
@@ -104,12 +115,22 @@ type TooltipInfo = {
   y: number;
 };
 
+// Height of the meeting density strip beneath each member row. Strips are
+// only rendered when the member has at least one meeting in range; otherwise
+// the row height is unchanged.
+const MEETING_STRIP_H = 14;
+// 6 hours of meetings = full saturation on the strip. Caps the visual at a
+// reasonable "this person is in meetings all day" threshold.
+const MEETING_FULL_MINUTES = 360;
+
 function GanttGrid({
   data,
+  meetingsByEmail,
   rangeStart,
   rangeEnd,
 }: {
   data: TimelineResponse;
+  meetingsByEmail: Record<string, MeetingEvent[]>;
   rangeStart: string;
   rangeEnd: string;
 }) {
@@ -128,7 +149,7 @@ function GanttGrid({
     todayX = (dayIdx * 2 + 1) * SLOT_W;
   }
 
-  // Build bar data per member
+  // Build bar data per member + bucket meetings per day for the density strip.
   const rowData = data.members.map((member) => {
     const bars: BarDatum[] = member.issues.map((issue) => {
       const clampedStart = issue.startDate < rangeStart ? rangeStart : issue.startDate;
@@ -137,7 +158,19 @@ function GanttGrid({
       const endSlot = Math.min(totalSlots - 1, daysBetween(rangeStart, clampedEnd) * 2 + 1);
       return { issue, startSlot, endSlot };
     });
-    return { member, bars };
+
+    const memberMeetings =
+      meetingsByEmail[member.email.toLowerCase()] ?? [];
+    const dayBuckets: Record<string, { minutes: number; events: MeetingEvent[] }> = {};
+    for (const ev of memberMeetings) {
+      const dateKey = new Date(ev.startsAt).toLocaleDateString("en-CA"); // YYYY-MM-DD local
+      if (dateKey < rangeStart || dateKey > rangeEnd) continue;
+      const bucket = dayBuckets[dateKey] ?? { minutes: 0, events: [] };
+      bucket.minutes += ev.durationMinutes;
+      bucket.events.push(ev);
+      dayBuckets[dateKey] = bucket;
+    }
+    return { member, bars, dayBuckets };
   });
 
   const headerH = HDR1_H + HDR2_H;
@@ -195,11 +228,15 @@ function GanttGrid({
             style={{ height: headerH }}
           />
           {/* One cell per member */}
-          {rowData.map(({ member, bars }) => (
+          {rowData.map(({ member, bars, dayBuckets }) => {
+            const hasMeetings = Object.keys(dayBuckets).length > 0;
+            const memberRowH =
+              Math.max(1, bars.length) * ROW_H + (hasMeetings ? MEETING_STRIP_H : 0);
+            return (
             <div
               key={member.memberId}
               className="flex items-center gap-2.5 px-3 border-b border-zinc-100 dark:border-zinc-800/50"
-              style={{ height: Math.max(1, bars.length) * ROW_H }}
+              style={{ height: memberRowH }}
             >
               <div className="size-7 shrink-0 rounded-full bg-gradient-to-br from-zinc-100 to-zinc-50 dark:from-zinc-800 dark:to-zinc-900 border border-zinc-200 dark:border-zinc-700 flex items-center justify-center text-[10px] font-bold text-zinc-500">
                 {initials(member.name)}
@@ -213,7 +250,8 @@ function GanttGrid({
                 </p>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Scrollable grid */}
@@ -262,9 +300,11 @@ function GanttGrid({
             </div>
 
             {/* Member rows */}
-            {rowData.map(({ member, bars }) => {
+            {rowData.map(({ member, bars, dayBuckets }) => {
               const numRows = Math.max(1, bars.length);
-              const rowH = numRows * ROW_H;
+              const issuesAreaH = numRows * ROW_H;
+              const hasMeetings = Object.keys(dayBuckets).length > 0;
+              const rowH = issuesAreaH + (hasMeetings ? MEETING_STRIP_H : 0);
 
               return (
                 <div
@@ -359,6 +399,47 @@ function GanttGrid({
                       );
                     })
                   )}
+
+                  {/* Meeting density strip — one cell per day, opacity scaled
+                      by total meeting minutes that day. Hover for details. */}
+                  {hasMeetings && (
+                    <div
+                      className="absolute left-0 right-0 flex"
+                      style={{ top: issuesAreaH, height: MEETING_STRIP_H }}
+                    >
+                      {days.map((day, di) => {
+                        const bucket = dayBuckets[day];
+                        const minutes = bucket?.minutes ?? 0;
+                        const opacity = Math.min(1, minutes / MEETING_FULL_MINUTES);
+                        const titles = bucket
+                          ? bucket.events
+                              .map((e) => {
+                                const t = new Date(e.startsAt).toLocaleTimeString(
+                                  undefined,
+                                  { hour: "numeric", minute: "2-digit" }
+                                );
+                                return `${t} · ${e.summary ?? "(private)"} (${e.durationMinutes}m)`;
+                              })
+                              .join("\n")
+                          : "";
+                        return (
+                          <div
+                            key={day}
+                            className="border-r border-zinc-100 dark:border-zinc-800/40"
+                            style={{ width: SLOT_W * 2 }}
+                          >
+                            {minutes > 0 && (
+                              <div
+                                title={`${formatMinutes(minutes)} in meetings\n${titles}`}
+                                className="h-full mx-0.5 my-0.5 rounded-sm bg-violet-500 dark:bg-violet-400 cursor-help"
+                                style={{ opacity: 0.25 + 0.75 * opacity }}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -376,6 +457,9 @@ type Props = { boardId: string; start: string; end: string };
 
 export function TeamGanttClient({ boardId, start, end }: Props) {
   const [data, setData] = useState<TimelineResponse | null>(null);
+  const [meetingsByEmail, setMeetingsByEmail] = useState<
+    Record<string, MeetingEvent[]>
+  >({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -384,14 +468,24 @@ export function TeamGanttClient({ boardId, start, end }: Props) {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(
-          `/api/observer/boards/${boardId}/timeline?start=${s}&end=${e}`
-        );
-        if (res.ok) {
-          setData(await res.json());
+        const [timelineRes, meetingsRes] = await Promise.all([
+          fetch(`/api/observer/boards/${boardId}/timeline?start=${s}&end=${e}`),
+          fetch(`/api/observer/boards/${boardId}/meetings?start=${s}&end=${e}`),
+        ]);
+        if (timelineRes.ok) {
+          setData(await timelineRes.json());
         } else {
-          const body = await res.json().catch(() => ({}));
-          setError(body.error ?? `Error ${res.status}`);
+          const body = await timelineRes.json().catch(() => ({}));
+          setError(body.error ?? `Error ${timelineRes.status}`);
+        }
+        // Meetings are non-critical; render Gantt even if this fails.
+        if (meetingsRes.ok) {
+          const body: MeetingsResponse = await meetingsRes.json();
+          const map: Record<string, MeetingEvent[]> = {};
+          for (const m of body.byMember) {
+            map[m.email.toLowerCase()] = m.events;
+          }
+          setMeetingsByEmail(map);
         }
       } catch {
         setError("Failed to load data.");
@@ -436,6 +530,7 @@ export function TeamGanttClient({ boardId, start, end }: Props) {
                 ["bg-amber-400", "At Risk"],
                 ["bg-red-500", "Overdue"],
                 ["bg-emerald-500 dark:bg-emerald-600", "Done"],
+                ["bg-violet-500 dark:bg-violet-400", "Meetings"],
               ] as [string, string][]
             ).map(([bg, label]) => (
               <span key={label} className="flex items-center gap-1">
@@ -480,7 +575,12 @@ export function TeamGanttClient({ boardId, start, end }: Props) {
       )}
 
       {data && data.members.length > 0 && (
-        <GanttGrid data={data} rangeStart={start} rangeEnd={end} />
+        <GanttGrid
+          data={data}
+          meetingsByEmail={meetingsByEmail}
+          rangeStart={start}
+          rangeEnd={end}
+        />
       )}
     </div>
   );
