@@ -7,7 +7,7 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
-import { RiFlag2Line, RiRefreshLine, RiLightbulbLine } from "@remixicon/react";
+import { RiFlag2Line, RiRefreshLine, RiLightbulbLine, RiDeleteBin2Line, RiCalendarLine } from "@remixicon/react";
 
 const TOOLS = [
   {
@@ -27,6 +27,19 @@ const TOOLS = [
     icon: RiLightbulbLine,
     title: "Feature Requests",
     description: "View all feature requests submitted by users across the platform.",
+  },
+  {
+    href: "/superuser/calendar-sync",
+    icon: RiCalendarLine,
+    title: "Calendar Sync",
+    description: "Manually trigger the Google Calendar sync that normally runs on a cron schedule.",
+  },
+  {
+    href: "/superuser/delete-project",
+    icon: RiDeleteBin2Line,
+    title: "Delete Project",
+    description: "Permanently remove a project and all associated data — issues, SLAs, sync history, and more.",
+    danger: true,
   },
 ];
 
@@ -56,17 +69,33 @@ export default async function SuperuserPage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {TOOLS.map(({ href, icon: Icon, title, description }) => (
+            {TOOLS.map(({ href, icon: Icon, title, description, danger }) => (
               <Link
                 key={href}
                 href={href}
-                className="group flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-5 shadow-sm transition-all hover:border-zinc-300 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700"
+                className={`group flex flex-col gap-3 rounded-xl border bg-white p-5 shadow-sm transition-all dark:bg-zinc-900 ${
+                  danger
+                    ? "border-red-200 hover:border-red-300 hover:shadow-md dark:border-red-900/50 dark:hover:border-red-800/60"
+                    : "border-zinc-200 hover:border-zinc-300 hover:shadow-md dark:border-zinc-800 dark:hover:border-zinc-700"
+                }`}
               >
                 <div className="flex items-center gap-3">
-                  <div className="flex size-9 items-center justify-center rounded-lg bg-zinc-100 text-zinc-600 group-hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:group-hover:bg-zinc-700 transition-colors">
+                  <div
+                    className={`flex size-9 items-center justify-center rounded-lg transition-colors ${
+                      danger
+                        ? "bg-red-50 text-red-600 group-hover:bg-red-100 dark:bg-red-950/30 dark:text-red-400 dark:group-hover:bg-red-950/50"
+                        : "bg-zinc-100 text-zinc-600 group-hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:group-hover:bg-zinc-700"
+                    }`}
+                  >
                     <Icon className="size-4" />
                   </div>
-                  <span className="font-semibold text-sm text-zinc-900 dark:text-zinc-100">
+                  <span
+                    className={`font-semibold text-sm ${
+                      danger
+                        ? "text-red-700 dark:text-red-400"
+                        : "text-zinc-900 dark:text-zinc-100"
+                    }`}
+                  >
                     {title}
                   </span>
                 </div>
