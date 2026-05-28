@@ -1650,7 +1650,10 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
     const start = filter.mode === "single" ? filter.date : filter.start;
     const end = filter.mode === "single" ? filter.date : filter.end;
     let cancelled = false;
-    fetch(`/api/observer/boards/${boardId}/meetings?start=${start}&end=${end}`)
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    fetch(
+      `/api/observer/boards/${boardId}/meetings?start=${start}&end=${end}&tz=${encodeURIComponent(tz)}`
+    )
       .then((r) => (r.ok ? (r.json() as Promise<MeetingsResponse>) : null))
       .then((body) => {
         if (cancelled || !body?.byMember) return;

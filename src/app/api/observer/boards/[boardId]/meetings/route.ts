@@ -8,7 +8,8 @@ import {
   calendarEvents,
 } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
-import { userMeetingsTag } from "@/lib/google/calendar-sync";
+import { userMeetingsTag } from "@/lib/google/cache-tags";
+import { zonedDayStartToUtc } from "@/lib/google/time";
 
 type Params = { params: Promise<{ boardId: string }> };
 
@@ -47,8 +48,9 @@ export async function GET(req: Request, { params }: Params) {
     const todayIso = new Date().toISOString().slice(0, 10);
     const filterStart = url.searchParams.get("start") ?? todayIso;
     const filterEnd = url.searchParams.get("end") ?? filterStart;
+    const tz = url.searchParams.get("tz") ?? null;
 
-    const data = await fetchMeetings(boardId, filterStart, filterEnd);
+    const data = await fetchMeetings(boardId, filterStart, filterEnd, tz);
     if (data === null) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
@@ -62,7 +64,8 @@ export async function GET(req: Request, { params }: Params) {
 async function fetchMeetings(
   boardId: string,
   filterStart: string,
-  filterEnd: string
+  filterEnd: string,
+  tz: string | null
 ): Promise<MeetingsResponse | null> {
   "use cache";
   cacheLife("minutes");
@@ -90,11 +93,15 @@ async function fetchMeetings(
     return { filterStart, filterEnd, byMember: [] };
   }
 
-  // Inclusive day range: [filterStart 00:00 UTC, filterEnd+1 00:00 UTC)
-  // Using UTC here matches how we store starts_at/ends_at (timestamptz).
-  const rangeStart = new Date(`${filterStart}T00:00:00Z`);
-  const rangeEndExclusive = new Date(`${filterEnd}T00:00:00Z`);
-  rangeEndExclusive.setUTCDate(rangeEndExclusive.getUTCDate() + 1);
+  // Half-open day range in the viewer's wall clock when tz is supplied.
+  // Without tz, collapses to UTC midnight (old behavior).
+  const rangeStart = zonedDayStartToUtc(filterStart, tz);
+  const dayAfter = new Date(`${filterEnd}T00:00:00Z`);
+  dayAfter.setUTCDate(dayAfter.getUTCDate() + 1);
+  const rangeEndExclusive = zonedDayStartToUtc(
+    dayAfter.toISOString().slice(0, 10),
+    tz
+  );
 
   const emails = members.map((m) => m.email.toLowerCase());
   // calendar_events.user_id is the user's email (users.id is email).

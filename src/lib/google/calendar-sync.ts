@@ -3,16 +3,6 @@ import { db } from "@/lib/db";
 import { calendarEvents, userIntegrations } from "@/lib/db/schema";
 import { getValidAccessToken } from "@/lib/google/oauth";
 
-/**
- * Cache tag for any data derived from a user's calendar events.
- * Used by /api/observer/boards/[boardId]/meetings (which also tags board:*)
- * and /api/my-tasks/meetings. Invalidated whenever this user's calendar
- * is re-synced or their integration is connected/disconnected.
- */
-export function userMeetingsTag(userId: string): string {
-  return `meetings:user:${userId.toLowerCase()}`;
-}
-
 const CALENDAR_LIST_URL =
   "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 

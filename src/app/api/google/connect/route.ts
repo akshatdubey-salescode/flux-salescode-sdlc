@@ -4,7 +4,7 @@ import { requireAuth } from "@/lib/auth/server";
 import { buildAuthUrl } from "@/lib/google/oauth";
 
 export async function GET(request: NextRequest) {
-  await requireAuth();
+  const user = await requireAuth();
 
   const { searchParams } = request.nextUrl;
   const redirectBack = searchParams.get("redirectBack") ?? "/settings";
@@ -14,6 +14,16 @@ export async function GET(request: NextRequest) {
 
   const response = NextResponse.redirect(authUrl);
   response.cookies.set("google_oauth_state", state, {
+    httpOnly: true,
+    maxAge: 300,
+    path: "/",
+    sameSite: "lax",
+  });
+  // Bind the in-flight OAuth flow to the user who started it. The callback
+  // verifies this against requireAuth() to prevent a victim who is logged
+  // in from completing an attacker's consent flow and silently linking the
+  // attacker's Google account to the victim's app account.
+  response.cookies.set("google_oauth_user", user.id, {
     httpOnly: true,
     maxAge: 300,
     path: "/",

@@ -4,7 +4,8 @@ import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import { calendarEvents } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
-import { userMeetingsTag } from "@/lib/google/calendar-sync";
+import { userMeetingsTag } from "@/lib/google/cache-tags";
+import { zonedDayStartToUtc } from "@/lib/google/time";
 import type { MeetingEvent } from "@/app/api/observer/boards/[boardId]/meetings/route";
 
 export type MyMeetingsResponse = {
@@ -22,7 +23,8 @@ export async function GET(req: Request) {
     const filterStart = url.searchParams.get("start") ?? todayIso;
     const filterEnd = url.searchParams.get("end") ?? filterStart;
 
-    const data = await fetchMyMeetings(user.id, filterStart, filterEnd);
+    const tz = url.searchParams.get("tz") ?? null;
+    const data = await fetchMyMeetings(user.id, filterStart, filterEnd, tz);
     return NextResponse.json(data);
   } catch (err) {
     console.error("[my-tasks/meetings] error:", err);
@@ -33,16 +35,22 @@ export async function GET(req: Request) {
 async function fetchMyMeetings(
   userId: string,
   filterStart: string,
-  filterEnd: string
+  filterEnd: string,
+  tz: string | null
 ): Promise<MyMeetingsResponse> {
   "use cache";
   cacheLife("minutes");
   cacheTag(userMeetingsTag(userId));
 
-  // [filterStart 00:00 UTC, filterEnd+1 00:00 UTC) — inclusive day range.
-  const rangeStart = new Date(`${filterStart}T00:00:00Z`);
-  const rangeEndExclusive = new Date(`${filterEnd}T00:00:00Z`);
-  rangeEndExclusive.setUTCDate(rangeEndExclusive.getUTCDate() + 1);
+  // Half-open day range in the caller's wall clock. With tz the bounds line
+  // up with local midnight; without, this collapses to the old UTC behavior.
+  const rangeStart = zonedDayStartToUtc(filterStart, tz);
+  const dayAfter = new Date(`${filterEnd}T00:00:00Z`);
+  dayAfter.setUTCDate(dayAfter.getUTCDate() + 1);
+  const rangeEndExclusive = zonedDayStartToUtc(
+    dayAfter.toISOString().slice(0, 10),
+    tz
+  );
 
   const rows = await db
     .select()

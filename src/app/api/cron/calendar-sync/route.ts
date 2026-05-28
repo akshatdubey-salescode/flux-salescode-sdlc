@@ -2,11 +2,8 @@ import { eq } from "drizzle-orm";
 import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
 import { userIntegrations } from "@/lib/db/schema";
-import {
-  syncUserCalendar,
-  userMeetingsTag,
-  type SyncOutcome,
-} from "@/lib/google/calendar-sync";
+import { syncUserCalendar, type SyncOutcome } from "@/lib/google/calendar-sync";
+import { userMeetingsTag } from "@/lib/google/cache-tags";
 
 // Run all users in chunks instead of sequentially or all-at-once.
 // 20 keeps us well under any Google per-minute project quota and bounds
@@ -41,16 +38,27 @@ export async function POST(req: Request) {
 
   for (let i = 0; i < connected.length; i += BATCH_SIZE) {
     const batch = connected.slice(i, i + BATCH_SIZE);
-    const results = await Promise.all(
+    // allSettled — a single user's decrypt failure or refresh exception must
+    // not abort the rest of the batch. syncUserCalendar normally returns a
+    // SyncOutcome, but anything thrown by getValidAccessToken (e.g. decrypt
+    // mismatch on a legacy/rotated key) escapes its try/catch.
+    const settled = await Promise.allSettled(
       batch.map((row) => syncUserCalendar(row.userId))
     );
-    for (const r of results) {
-      tally(r, stats);
-      // Only invalidate when the user's data actually changed; skipped /
-      // error outcomes leave the cache valid so a transient Google blip
-      // doesn't force a stampede of refetches.
-      if (r.status === "ok" && (r.eventsUpserted > 0 || r.deletions > 0)) {
-        revalidateTag(userMeetingsTag(r.userId), "max");
+    for (let j = 0; j < settled.length; j++) {
+      const s = settled[j];
+      if (s.status === "fulfilled") {
+        const r = s.value;
+        tally(r, stats);
+        // Only invalidate when the user's data actually changed; skipped /
+        // error outcomes leave the cache valid so a transient Google blip
+        // doesn't force a stampede of refetches.
+        if (r.status === "ok" && (r.eventsUpserted > 0 || r.deletions > 0)) {
+          revalidateTag(userMeetingsTag(r.userId), "max");
+        }
+      } else {
+        const msg = s.reason instanceof Error ? s.reason.message : String(s.reason);
+        stats.errors.push({ userId: batch[j].userId, error: msg });
       }
     }
   }

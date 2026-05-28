@@ -1,7 +1,9 @@
 import { and, eq } from "drizzle-orm";
+import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
-import { userIntegrations } from "@/lib/db/schema";
+import { userIntegrations, calendarEvents } from "@/lib/db/schema";
 import { encrypt, decrypt } from "@/lib/crypto";
+import { userMeetingsTag } from "@/lib/google/cache-tags";
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -191,15 +193,31 @@ export async function saveIntegration(params: {
     });
 }
 
+/**
+ * Remove a user's Google integration and ALL data derived from it.
+ *
+ * Transactional so a connection drop between the two deletes cannot leave
+ * a half-disconnected state where the integration row is gone but cached
+ * events linger (or vice versa, where events are gone but the next cron
+ * tick re-pulls them via the still-present refresh token).
+ *
+ * Always pair with revalidateTag(userMeetingsTag(userId)) at the caller so
+ * cached meeting responses don't outlive the data.
+ */
 export async function deleteIntegration(userId: string): Promise<void> {
-  await db
-    .delete(userIntegrations)
-    .where(
-      and(
-        eq(userIntegrations.userId, userId),
-        eq(userIntegrations.provider, "google")
-      )
-    );
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(calendarEvents)
+      .where(eq(calendarEvents.userId, userId));
+    await tx
+      .delete(userIntegrations)
+      .where(
+        and(
+          eq(userIntegrations.userId, userId),
+          eq(userIntegrations.provider, "google")
+        )
+      );
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -254,6 +272,9 @@ export async function getValidAccessToken(userId: string): Promise<string | null
     if (err instanceof GoogleRefreshRevoked) {
       console.warn(`[google-oauth] Refresh revoked for ${userId}; clearing integration`);
       await deleteIntegration(userId);
+      // Bust cached meeting responses so observer boards and /my-tasks stop
+      // showing this user's now-orphaned events.
+      revalidateTag(userMeetingsTag(userId), "max");
       return null;
     }
     console.error("[google-oauth] Token refresh failed:", err);

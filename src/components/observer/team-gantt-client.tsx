@@ -468,9 +468,12 @@ export function TeamGanttClient({ boardId, start, end }: Props) {
       setLoading(true);
       setError(null);
       try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const [timelineRes, meetingsRes] = await Promise.all([
           fetch(`/api/observer/boards/${boardId}/timeline?start=${s}&end=${e}`),
-          fetch(`/api/observer/boards/${boardId}/meetings?start=${s}&end=${e}`),
+          fetch(
+            `/api/observer/boards/${boardId}/meetings?start=${s}&end=${e}&tz=${encodeURIComponent(tz)}`
+          ),
         ]);
         if (timelineRes.ok) {
           setData(await timelineRes.json());

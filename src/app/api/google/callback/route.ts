@@ -6,7 +6,7 @@ import {
   getGoogleIdentity,
   saveIntegration,
 } from "@/lib/google/oauth";
-import { userMeetingsTag } from "@/lib/google/calendar-sync";
+import { userMeetingsTag } from "@/lib/google/cache-tags";
 
 export async function GET(request: NextRequest) {
   const user = await requireAuth();
@@ -35,6 +35,18 @@ export async function GET(request: NextRequest) {
   const storedState = request.cookies.get("google_oauth_state")?.value;
   if (!storedState || storedState !== state) {
     return NextResponse.json({ error: "Invalid OAuth state" }, { status: 400 });
+  }
+
+  // Refuse the callback if the authenticated user differs from the one who
+  // started the flow. Without this check, a victim who is logged in and
+  // visits the callback URL after an attacker has primed cookies would
+  // silently link the attacker's Google identity to the victim's account.
+  const storedUserId = request.cookies.get("google_oauth_user")?.value;
+  if (!storedUserId || storedUserId !== user.id) {
+    return NextResponse.json(
+      { error: "OAuth session does not match the authenticated user" },
+      { status: 400 }
+    );
   }
 
   let tokens: Awaited<ReturnType<typeof exchangeCode>>;
@@ -78,5 +90,6 @@ export async function GET(request: NextRequest) {
 
 function clearCookies(response: NextResponse) {
   response.cookies.delete("google_oauth_state");
+  response.cookies.delete("google_oauth_user");
   response.cookies.delete("google_redirect_back");
 }

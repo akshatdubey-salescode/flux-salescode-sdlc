@@ -49,12 +49,17 @@ export function MyMeetings() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Bumped to force a re-fetch from the Refresh button without changing
+  // the date inputs (setStart((s)=>s) would be a no-op).
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetch(`/api/my-tasks/meetings?start=${start}&end=${end}`)
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const params = new URLSearchParams({ start, end, tz });
+    fetch(`/api/my-tasks/meetings?${params.toString()}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
       .then((body: MyMeetingsResponse) => {
         if (!cancelled) setData(body);
@@ -70,7 +75,7 @@ export function MyMeetings() {
     return () => {
       cancelled = true;
     };
-  }, [start, end]);
+  }, [start, end, refreshKey]);
 
   type Preset = "today" | "yesterday" | "thisWeek" | "last7" | "last30";
 
@@ -219,10 +224,7 @@ export function MyMeetings() {
             </span>
           )}
           <button
-            onClick={() => {
-              // re-trigger the effect via state churn
-              setStart((s) => s);
-            }}
+            onClick={() => setRefreshKey((k) => k + 1)}
             disabled={loading}
             className="flex items-center gap-1.5 hover:text-foreground transition-colors"
           >
