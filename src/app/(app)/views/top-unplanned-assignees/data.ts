@@ -23,12 +23,17 @@ type TeamRow = { email: string; id: string; name: string };
 
 export async function fetchTopUnplannedAssignees(
   start: string,
-  end: string
+  end: string,
+  includeCompleted: boolean = false
 ): Promise<TopUnplannedRow[]> {
   "use cache";
   cacheLife("minutes");
   cacheTag("jira-issues");
   cacheTag("boards");
+
+  const excludeDoneCondition = includeCompleted
+    ? sql`TRUE`
+    : sql`(psm.canonical_status IS NULL OR psm.canonical_status != 'DONE')`;
 
   const ranked = await db.execute(sql`
     WITH all_assignments AS (
@@ -41,9 +46,12 @@ export async function fetchTopUnplannedAssignees(
         jp.start_date_field_ids
       FROM jira_issues ji
       JOIN jira_projects jp ON jp.id = ji.project_id
+      LEFT JOIN project_status_mappings psm
+        ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
       WHERE ji.assignee_email IS NOT NULL AND trim(ji.assignee_email) != ''
         AND ji.jira_created_at::date >= ${start}::date
         AND ji.jira_created_at::date <= ${end}::date
+        AND ${excludeDoneCondition}
       UNION ALL
       SELECT
         ji.id,
@@ -53,11 +61,14 @@ export async function fetchTopUnplannedAssignees(
         jp.end_date_field_ids,
         jp.start_date_field_ids
       FROM jira_issues ji
-      JOIN jira_projects jp ON jp.id = ji.project_id,
+      JOIN jira_projects jp ON jp.id = ji.project_id
+      LEFT JOIN project_status_mappings psm
+        ON psm.project_id = ji.project_id AND psm.raw_status = ji.status,
       LATERAL unnest(ji.additional_assignee_emails) AS ae
       WHERE ae IS NOT NULL AND trim(ae) != ''
         AND ji.jira_created_at::date >= ${start}::date
         AND ji.jira_created_at::date <= ${end}::date
+        AND ${excludeDoneCondition}
     ),
     classified AS (
       SELECT

@@ -19,7 +19,11 @@ import {
 import { fetchTopUnplannedAssignees } from "./data";
 import { FilterBar } from "./filter-bar";
 
-type SearchParams = Promise<{ start?: string; end?: string }>;
+type SearchParams = Promise<{
+  start?: string;
+  end?: string;
+  includeCompleted?: string;
+}>;
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -46,9 +50,10 @@ export default async function TopUnplannedAssigneesPage({
 
   const sp = await searchParams;
   const { start, end } = parseRange(sp);
+  const includeCompleted = sp.includeCompleted === "1";
   const quarters = getRelevantQuarters();
 
-  const rows = await fetchTopUnplannedAssignees(start, end);
+  const rows = await fetchTopUnplannedAssignees(start, end, includeCompleted);
 
   return (
     <div className="flex flex-col min-h-svh bg-zinc-50 dark:bg-zinc-950">
@@ -81,7 +86,12 @@ export default async function TopUnplannedAssigneesPage({
             </p>
           </div>
 
-          <FilterBar quarters={quarters} start={start} end={end} />
+          <FilterBar
+            quarters={quarters}
+            start={start}
+            end={end}
+            includeCompleted={includeCompleted}
+          />
 
           <div className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
             <table className="w-full text-sm">

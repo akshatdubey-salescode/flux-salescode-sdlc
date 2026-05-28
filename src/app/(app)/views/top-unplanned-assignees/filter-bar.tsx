@@ -28,9 +28,10 @@ type Props = {
   quarters: QuarterChip[];
   start: string;
   end: string;
+  includeCompleted: boolean;
 };
 
-export function FilterBar({ quarters, start, end }: Props) {
+export function FilterBar({ quarters, start, end, includeCompleted }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
@@ -47,11 +48,15 @@ export function FilterBar({ quarters, start, end }: Props) {
   const activeChip = quarters.find((q) => q.start === start && q.end === end);
   const isCustom = !activeChip;
 
-  function navigate(nextStart: string, nextEnd: string) {
+  function navigate(
+    nextStart: string,
+    nextEnd: string,
+    nextIncludeCompleted: boolean = includeCompleted
+  ) {
+    const params = new URLSearchParams({ start: nextStart, end: nextEnd });
+    if (nextIncludeCompleted) params.set("includeCompleted", "1");
     startTransition(() => {
-      router.replace(`${pathname}?start=${nextStart}&end=${nextEnd}`, {
-        scroll: false,
-      });
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     });
   }
 
@@ -63,6 +68,10 @@ export function FilterBar({ quarters, start, end }: Props) {
     if (!calRange?.from || !calRange?.to) return;
     setCalOpen(false);
     navigate(format(calRange.from, "yyyy-MM-dd"), format(calRange.to, "yyyy-MM-dd"));
+  }
+
+  function toggleIncludeCompleted() {
+    navigate(start, end, !includeCompleted);
   }
 
   return (
@@ -157,6 +166,32 @@ export function FilterBar({ quarters, start, end }: Props) {
           </PopoverContent>
         </Popover>
       </div>
+
+      <button
+        onClick={toggleIncludeCompleted}
+        disabled={isPending}
+        className={cn(
+          "h-7 px-2.5 rounded-md border text-xs font-medium transition-colors flex items-center gap-2 disabled:opacity-50",
+          includeCompleted
+            ? "bg-primary text-primary-foreground border-primary"
+            : "border-input bg-background text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground"
+        )}
+      >
+        <span
+          className={cn(
+            "inline-flex h-3.5 w-6 items-center rounded-full transition-colors",
+            includeCompleted ? "bg-primary-foreground/30" : "bg-muted-foreground/30"
+          )}
+        >
+          <span
+            className={cn(
+              "h-3 w-3 rounded-full bg-background shadow transition-transform",
+              includeCompleted ? "translate-x-2.5" : "translate-x-0.5"
+            )}
+          />
+        </span>
+        Include Completed
+      </button>
     </div>
   );
 }
