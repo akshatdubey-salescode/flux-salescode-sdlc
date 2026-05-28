@@ -3,6 +3,16 @@ import { db } from "@/lib/db";
 import { calendarEvents, userIntegrations } from "@/lib/db/schema";
 import { getValidAccessToken } from "@/lib/google/oauth";
 
+/**
+ * Cache tag for any data derived from a user's calendar events.
+ * Used by /api/observer/boards/[boardId]/meetings (which also tags board:*)
+ * and /api/my-tasks/meetings. Invalidated whenever this user's calendar
+ * is re-synced or their integration is connected/disconnected.
+ */
+export function userMeetingsTag(userId: string): string {
+  return `meetings:user:${userId.toLowerCase()}`;
+}
+
 const CALENDAR_LIST_URL =
   "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 
@@ -159,11 +169,12 @@ async function fetchAndApply(
     if (syncToken) {
       url.searchParams.set("syncToken", syncToken);
     } else {
+      // Google quirk: nextSyncToken is omitted when orderBy is set, so the
+      // initial pull has to be unordered. We sort locally after upserting.
       const timeMin = new Date(
         Date.now() - INITIAL_WINDOW_DAYS * 86_400_000
       ).toISOString();
       url.searchParams.set("timeMin", timeMin);
-      url.searchParams.set("orderBy", "startTime");
     }
     if (pageToken) url.searchParams.set("pageToken", pageToken);
 

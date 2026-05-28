@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { and, eq, gte, lt, inArray } from "drizzle-orm";
+import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import {
   observerBoards,
@@ -7,6 +8,7 @@ import {
   calendarEvents,
 } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
+import { userMeetingsTag } from "@/lib/google/calendar-sync";
 
 type Params = { params: Promise<{ boardId: string }> };
 
@@ -62,6 +64,13 @@ async function fetchMeetings(
   filterStart: string,
   filterEnd: string
 ): Promise<MeetingsResponse | null> {
+  "use cache";
+  cacheLife("minutes");
+  // Bust on board membership change (existing tag) OR on any one member's
+  // calendar sync (their per-user tag). Listing all member tags lets us
+  // invalidate precisely without touching unrelated boards.
+  cacheTag(`board:${boardId}`);
+
   const [board] = await db
     .select({ id: observerBoards.id })
     .from(observerBoards)
@@ -72,6 +81,10 @@ async function fetchMeetings(
     .select()
     .from(observerBoardMembers)
     .where(eq(observerBoardMembers.boardId, boardId));
+
+  for (const m of members) {
+    cacheTag(userMeetingsTag(m.email));
+  }
 
   if (members.length === 0) {
     return { filterStart, filterEnd, byMember: [] };

@@ -1,7 +1,12 @@
 import { eq } from "drizzle-orm";
+import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
 import { userIntegrations } from "@/lib/db/schema";
-import { syncUserCalendar, type SyncOutcome } from "@/lib/google/calendar-sync";
+import {
+  syncUserCalendar,
+  userMeetingsTag,
+  type SyncOutcome,
+} from "@/lib/google/calendar-sync";
 
 // Run all users in chunks instead of sequentially or all-at-once.
 // 20 keeps us well under any Google per-minute project quota and bounds
@@ -39,7 +44,15 @@ export async function POST(req: Request) {
     const results = await Promise.all(
       batch.map((row) => syncUserCalendar(row.userId))
     );
-    for (const r of results) tally(r, stats);
+    for (const r of results) {
+      tally(r, stats);
+      // Only invalidate when the user's data actually changed; skipped /
+      // error outcomes leave the cache valid so a transient Google blip
+      // doesn't force a stampede of refetches.
+      if (r.status === "ok" && (r.eventsUpserted > 0 || r.deletions > 0)) {
+        revalidateTag(userMeetingsTag(r.userId), "max");
+      }
+    }
   }
 
   return Response.json(stats);

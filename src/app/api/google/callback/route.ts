@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { requireAuth } from "@/lib/auth/server";
 import {
   exchangeCode,
   getGoogleIdentity,
   saveIntegration,
 } from "@/lib/google/oauth";
+import { userMeetingsTag } from "@/lib/google/calendar-sync";
 
 export async function GET(request: NextRequest) {
   const user = await requireAuth();
@@ -61,6 +63,11 @@ export async function GET(request: NextRequest) {
     expiresIn: tokens.expires_in,
     googleEmail: identity.email,
   });
+
+  // Reconnecting clears the syncToken (see saveIntegration), so cached
+  // "no events" responses for this user are now stale even before the
+  // first cron tick.
+  revalidateTag(userMeetingsTag(user.id), "max");
 
   const successUrl = new URL(redirectBack, request.nextUrl.origin);
   successUrl.searchParams.set("connected", "google");

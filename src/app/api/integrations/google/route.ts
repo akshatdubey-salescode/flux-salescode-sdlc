@@ -1,8 +1,10 @@
 import { and, eq } from "drizzle-orm";
+import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
-import { userIntegrations } from "@/lib/db/schema";
+import { userIntegrations, calendarEvents } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { deleteIntegration } from "@/lib/google/oauth";
+import { userMeetingsTag } from "@/lib/google/calendar-sync";
 
 export async function GET() {
   const user = await requireAuth();
@@ -36,6 +38,11 @@ export async function GET() {
 
 export async function DELETE() {
   const user = await requireAuth();
+  // Remove stored events too — leaving them as ghosts behind a disconnected
+  // integration violates the user's "stop tracking my calendar" intent and
+  // would still surface on observer boards.
+  await db.delete(calendarEvents).where(eq(calendarEvents.userId, user.id));
   await deleteIntegration(user.id);
+  revalidateTag(userMeetingsTag(user.id), "max");
   return Response.json({ success: true });
 }
