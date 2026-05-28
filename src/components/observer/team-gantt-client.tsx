@@ -115,13 +115,10 @@ type TooltipInfo = {
   y: number;
 };
 
-// Height of the meeting density strip beneath each member row. Strips are
-// only rendered when the member has at least one meeting in range; otherwise
-// the row height is unchanged.
-const MEETING_STRIP_H = 14;
-// 6 hours of meetings = full saturation on the strip. Caps the visual at a
-// reasonable "this person is in meetings all day" threshold.
-const MEETING_FULL_MINUTES = 360;
+// Height of the meeting row beneath each member's issue bars. Only rendered
+// when the member has at least one meeting in the visible range; otherwise
+// the row height is unchanged. Tall enough to fit a "1h 30m" label legibly.
+const MEETING_STRIP_H = 22;
 
 function GanttGrid({
   data,
@@ -400,41 +397,61 @@ function GanttGrid({
                     })
                   )}
 
-                  {/* Meeting density strip — one cell per day, opacity scaled
-                      by total meeting minutes that day. Hover for details. */}
+                  {/* Meeting row — per day, split into AM and PM half-slots
+                      matching the column header above. Each occupied half
+                      renders a violet pill with the total minutes in that
+                      half; empty halves stay blank so the row reads at a
+                      glance ("busy mornings", "back-to-back Thu PM", etc.). */}
                   {hasMeetings && (
                     <div
-                      className="absolute left-0 right-0 flex"
+                      className="absolute left-0 right-0 flex bg-violet-50/30 dark:bg-violet-950/10 border-t border-violet-100 dark:border-violet-900/30"
                       style={{ top: issuesAreaH, height: MEETING_STRIP_H }}
                     >
-                      {days.map((day, di) => {
+                      {days.map((day) => {
                         const bucket = dayBuckets[day];
-                        const minutes = bucket?.minutes ?? 0;
-                        const opacity = Math.min(1, minutes / MEETING_FULL_MINUTES);
-                        const titles = bucket
-                          ? bucket.events
-                              .map((e) => {
-                                const t = new Date(e.startsAt).toLocaleTimeString(
-                                  undefined,
-                                  { hour: "numeric", minute: "2-digit" }
-                                );
-                                return `${t} · ${e.summary ?? "(private)"} (${e.durationMinutes}m)`;
-                              })
-                              .join("\n")
-                          : "";
+                        if (!bucket) {
+                          return (
+                            <div
+                              key={day}
+                              className="border-r border-zinc-100 dark:border-zinc-800/40"
+                              style={{ width: SLOT_W * 2 }}
+                            />
+                          );
+                        }
+                        const amMins = bucket.events
+                          .filter((e) => new Date(e.startsAt).getHours() < 12)
+                          .reduce((s, e) => s + e.durationMinutes, 0);
+                        const pmMins = bucket.minutes - amMins;
+                        const tooltip = bucket.events
+                          .map((e) => {
+                            const t = new Date(e.startsAt).toLocaleTimeString(
+                              undefined,
+                              { hour: "numeric", minute: "2-digit" }
+                            );
+                            return `${t} · ${e.summary ?? "(private)"} (${e.durationMinutes}m)`;
+                          })
+                          .join("\n");
                         return (
                           <div
                             key={day}
-                            className="border-r border-zinc-100 dark:border-zinc-800/40"
+                            className="flex border-r border-zinc-100 dark:border-zinc-800/40"
                             style={{ width: SLOT_W * 2 }}
+                            title={`${formatMinutes(bucket.minutes)} in meetings\n${tooltip}`}
                           >
-                            {minutes > 0 && (
-                              <div
-                                title={`${formatMinutes(minutes)} in meetings\n${titles}`}
-                                className="h-full mx-0.5 my-0.5 rounded-sm bg-violet-500 dark:bg-violet-400 cursor-help"
-                                style={{ opacity: 0.25 + 0.75 * opacity }}
-                              />
-                            )}
+                            <div className="flex-1 p-0.5">
+                              {amMins > 0 && (
+                                <div className="h-full rounded-sm bg-violet-500 dark:bg-violet-600 text-white text-[9px] font-semibold flex items-center justify-center cursor-help leading-none px-1">
+                                  {formatMinutes(amMins)}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex-1 p-0.5">
+                              {pmMins > 0 && (
+                                <div className="h-full rounded-sm bg-violet-500 dark:bg-violet-600 text-white text-[9px] font-semibold flex items-center justify-center cursor-help leading-none px-1">
+                                  {formatMinutes(pmMins)}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         );
                       })}
