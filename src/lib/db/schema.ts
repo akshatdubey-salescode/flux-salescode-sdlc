@@ -400,6 +400,13 @@ export const userIntegrations = pgTable(
     // Atlassian cloud instance ID — needed to build the correct API URL:
     // https://api.atlassian.com/ex/jira/{cloudId}/rest/api/3/...
     atlassianCloudId: text("atlassian_cloud_id"),
+    // Google identity (for provider='google')
+    googleEmail: text("google_email"),
+    // Google Calendar incremental sync token. NULL = next sync is a full
+    // window pull; set to nextSyncToken after a successful sync. Reset to
+    // NULL on 410 GONE to trigger a fresh full sync.
+    googleSyncToken: text("google_sync_token"),
+    googleLastSyncedAt: timestamp("google_last_synced_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -410,6 +417,51 @@ export const userIntegrations = pgTable(
   (t) => [
     uniqueIndex("user_integrations_user_provider_idx").on(t.userId, t.provider),
     index("user_integrations_user_idx").on(t.userId),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Calendar Events — synced mirror of Google Calendar events, per attendee user.
+// One row per (user, event-instance). Recurring events are expanded
+// (singleEvents=true at fetch time) so each occurrence is its own row.
+// ---------------------------------------------------------------------------
+
+export const calendarEvents = pgTable(
+  "calendar_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // Google's per-calendar event id (stable per occurrence with singleEvents=true)
+    googleEventId: text("google_event_id").notNull(),
+    // Stable across calendars for the same meeting — lets us dedupe later
+    // ("how many distinct meetings did the team have?") without changing schema.
+    iCalUid: text("ical_uid"),
+    summary: text("summary"),
+    // Google event visibility: "default" | "public" | "private" | "confidential".
+    // Treat private/confidential as busy-only (don't show summary to managers).
+    visibility: text("visibility"),
+    status: text("status"), // confirmed | tentative | cancelled
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    isAllDay: boolean("is_all_day").notNull().default(false),
+    organizerEmail: text("organizer_email"),
+    // Attendee emails (lowercased). Lets the UI render "meeting with A, B, C"
+    // and lets future dedup find overlapping meeting rows.
+    attendeeEmails: text("attendee_emails")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    htmlLink: text("html_link"),
+    syncedAt: timestamp("synced_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("calendar_events_user_event_idx").on(t.userId, t.googleEventId),
+    index("calendar_events_user_starts_idx").on(t.userId, t.startsAt),
+    index("calendar_events_ical_uid_idx").on(t.iCalUid),
   ]
 );
 
@@ -638,4 +690,6 @@ export type NewFeatureRequest = typeof featureRequests.$inferInsert;
 export type FreshdeskTicket = typeof freshdeskTickets.$inferSelect;
 export type NewFreshdeskTicket = typeof freshdeskTickets.$inferInsert;
 export type FeatureFlag = typeof featureFlags.$inferSelect;
+export type CalendarEvent = typeof calendarEvents.$inferSelect;
+export type NewCalendarEvent = typeof calendarEvents.$inferInsert;
 

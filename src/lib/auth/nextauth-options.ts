@@ -1,10 +1,15 @@
 import type { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import { eq } from "drizzle-orm";
+import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { ALLOWED_EMAIL_DOMAIN } from "./constants";
 import type { UserRole } from "./types";
+import { saveIntegration } from "@/lib/google/oauth";
+import { userMeetingsTag } from "@/lib/google/cache-tags";
+
+const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
 
 export const authOptions: NextAuthOptions = {
   secret: process.env.GLOBAL_AUTH_SECRET,
@@ -15,8 +20,17 @@ export const authOptions: NextAuthOptions = {
       authorization: {
         params: {
           access_type: "offline",
+          // "consent" forces Google to show the scope screen so we get a
+          // refresh token even when the user has previously authorized the
+          // app. Without this, additive scopes can silently skip consent and
+          // Google withholds the refresh token, breaking calendar sync.
           prompt: "select_account consent",
           hd: ALLOWED_EMAIL_DOMAIN.replace(/^@/, ""),
+          // Request calendar.readonly alongside the identity scopes so users
+          // are asked to grant calendar access as part of sign-in instead of
+          // a separate Settings flow. Declining calendar still lets sign-in
+          // succeed — they can connect later via /settings.
+          scope: `openid email profile ${CALENDAR_SCOPE}`,
         },
       },
     }),
@@ -40,6 +54,39 @@ export const authOptions: NextAuthOptions = {
       } catch (err) {
         // Non-fatal: getCurrentUser will retry on the first protected request
         console.error("[auth] signIn DB insert failed:", err);
+      }
+
+      // Capture calendar tokens when the user grants calendar.readonly during
+      // sign-in. account.scope is space-separated and reflects what the user
+      // actually granted (they may untick calendar on the consent screen). If
+      // they declined or Google withheld the refresh token, we silently skip —
+      // /settings still has the explicit Connect button as a fallback.
+      const grantedScopes = (account.scope ?? "").split(" ");
+      const hasCalendar = grantedScopes.includes(CALENDAR_SCOPE);
+      const refreshToken = account.refresh_token;
+      const accessToken = account.access_token;
+      if (hasCalendar && refreshToken && accessToken) {
+        try {
+          const expiresAt = account.expires_at;
+          const expiresIn = expiresAt
+            ? Math.max(60, expiresAt - Math.floor(Date.now() / 1000))
+            : 3600;
+          await saveIntegration({
+            userId: email,
+            accessToken,
+            refreshToken,
+            expiresIn,
+            googleEmail: email,
+          });
+          // Bust cached "(not connected)" meeting responses so observer boards
+          // and /my-tasks pick up the new integration on the next request,
+          // even before the first cron tick runs.
+          revalidateTag(userMeetingsTag(email), "max");
+        } catch (err) {
+          // Don't block sign-in if calendar persistence fails — user can
+          // still use the app and reconnect via /settings.
+          console.error("[auth] calendar token persistence failed:", err);
+        }
       }
 
       return true;

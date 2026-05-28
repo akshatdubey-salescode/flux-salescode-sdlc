@@ -1,0 +1,27 @@
+-- ---------------------------------------------------------------------------
+-- NO-OP MIGRATION (intentionally empty).
+--
+-- Originally this file was a 36-statement DROP INDEX / CREATE INDEX rebuild
+-- emitted by `drizzle-kit generate` after we re-introspected the schema. The
+-- diff was a snapshot-format normalization, NOT a real schema change — every
+-- recreated index had a byte-identical definition to the one already in the
+-- DB.
+--
+-- Running those DDL statements is safe but EXPENSIVE on prod: the rebuilds
+-- run inside drizzle's implicit migration transaction, which means every
+-- index (including the GIN index on jira_issues.additional_assignee_emails)
+-- holds an ACCESS EXCLUSIVE lock for the full duration. On a hot table the
+-- result is a multi-minute write-path stall — a near-outage for what is
+-- otherwise a no-op.
+--
+-- The snapshot at drizzle/meta/0028_snapshot.json is the canonical record of
+-- the post-normalization shape and is what `drizzle-kit generate` diffs
+-- against going forward. Future schema changes will produce real migrations
+-- on top of it.
+--
+-- If a future deploy genuinely needs to rebuild these indexes (e.g. after a
+-- pg_dump/restore on a different major version), do it with CREATE INDEX
+-- CONCURRENTLY in separate non-transactional migrations — not here.
+-- ---------------------------------------------------------------------------
+
+SELECT 1;

@@ -5,12 +5,17 @@ import {
   RiRefreshLine,
   RiInboxLine,
   RiExternalLinkLine,
+  RiCalendarLine,
 } from "@remixicon/react";
 import type {
   TimelineResponse,
   TimelineIssue,
   IssueLabel,
 } from "@/app/api/observer/boards/[boardId]/timeline/route";
+import type {
+  MeetingsResponse,
+  MeetingEvent,
+} from "@/app/api/observer/boards/[boardId]/meetings/route";
 
 // ---------------------------------------------------------------------------
 // Date helpers — all timezone-safe (local time, T12:00:00)
@@ -77,6 +82,13 @@ const BAR_CLASSES: Record<IssueLabel, string> = {
 };
 
 
+function formatMinutes(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
 function issueTypeSummary(bars: BarDatum[]): string {
   if (bars.length === 0) return "No issues";
   const counts: Record<string, number> = {};
@@ -98,18 +110,29 @@ type BarDatum = {
   endSlot: number;
 };
 
-type TooltipInfo = {
-  issue: TimelineIssue;
-  x: number;
-  y: number;
-};
+type TooltipInfo =
+  | { kind: "issue"; issue: TimelineIssue; x: number; y: number }
+  | {
+      kind: "meeting";
+      events: MeetingEvent[];
+      totalMinutes: number;
+      x: number;
+      y: number;
+    };
+
+// Height of the meeting row beneath each member's issue bars. Only rendered
+// when the member has at least one meeting in the visible range; otherwise
+// the row height is unchanged. Tall enough to fit a "1h 30m" label legibly.
+const MEETING_STRIP_H = 22;
 
 function GanttGrid({
   data,
+  meetingsByEmail,
   rangeStart,
   rangeEnd,
 }: {
   data: TimelineResponse;
+  meetingsByEmail: Record<string, MeetingEvent[]>;
   rangeStart: string;
   rangeEnd: string;
 }) {
@@ -128,7 +151,7 @@ function GanttGrid({
     todayX = (dayIdx * 2 + 1) * SLOT_W;
   }
 
-  // Build bar data per member
+  // Build bar data per member + bucket meetings per day for the density strip.
   const rowData = data.members.map((member) => {
     const bars: BarDatum[] = member.issues.map((issue) => {
       const clampedStart = issue.startDate < rangeStart ? rangeStart : issue.startDate;
@@ -137,15 +160,27 @@ function GanttGrid({
       const endSlot = Math.min(totalSlots - 1, daysBetween(rangeStart, clampedEnd) * 2 + 1);
       return { issue, startSlot, endSlot };
     });
-    return { member, bars };
+
+    const memberMeetings =
+      meetingsByEmail[member.email.toLowerCase()] ?? [];
+    const dayBuckets: Record<string, { minutes: number; events: MeetingEvent[] }> = {};
+    for (const ev of memberMeetings) {
+      const dateKey = new Date(ev.startsAt).toLocaleDateString("en-CA"); // YYYY-MM-DD local
+      if (dateKey < rangeStart || dateKey > rangeEnd) continue;
+      const bucket = dayBuckets[dateKey] ?? { minutes: 0, events: [] };
+      bucket.minutes += ev.durationMinutes;
+      bucket.events.push(ev);
+      dayBuckets[dateKey] = bucket;
+    }
+    return { member, bars, dayBuckets };
   });
 
   const headerH = HDR1_H + HDR2_H;
 
   return (
     <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden">
-      {/* Fixed tooltip */}
-      {tooltip && (
+      {/* Fixed tooltip — issue */}
+      {tooltip?.kind === "issue" && (
         <div
           className="fixed z-50 pointer-events-none bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-3 w-72 text-xs"
           style={{
@@ -183,6 +218,53 @@ function GanttGrid({
         </div>
       )}
 
+      {/* Fixed tooltip — meeting(s) */}
+      {tooltip?.kind === "meeting" && (
+        <div
+          className="fixed z-50 pointer-events-none bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-3 w-80 text-xs"
+          style={{
+            left: Math.min(tooltip.x + 14, (typeof window !== "undefined" ? window.innerWidth : 1200) - 336),
+            top: tooltip.y - 10,
+          }}
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 dark:bg-violet-900/40 px-2 py-0.5 text-[10px] font-bold text-violet-700 dark:text-violet-300">
+              <RiCalendarLine size={10} />
+              Meetings
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              {formatMinutes(tooltip.totalMinutes)} ·{" "}
+              {tooltip.events.length}{" "}
+              {tooltip.events.length === 1 ? "meeting" : "meetings"}
+            </span>
+          </div>
+          <ul className="space-y-2">
+            {tooltip.events.map((ev) => {
+              const start = new Date(ev.startsAt);
+              const end = new Date(ev.endsAt);
+              const time = `${start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} – ${end.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+              const isPrivate =
+                ev.visibility === "private" ||
+                ev.visibility === "confidential";
+              const summary =
+                ev.summary ?? (isPrivate ? "(private)" : "(no title)");
+              return (
+                <li key={ev.id}>
+                  <p className="font-semibold text-zinc-900 dark:text-zinc-50 leading-snug">
+                    {summary}
+                  </p>
+                  <p className="text-muted-foreground mt-0.5">
+                    {time} · {formatMinutes(ev.durationMinutes)}
+                    {ev.attendeeEmails.length > 0 &&
+                      ` · ${ev.attendeeEmails.length} attendee${ev.attendeeEmails.length === 1 ? "" : "s"}`}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
       <div className="flex bg-white dark:bg-zinc-900/50">
         {/* Sticky member column */}
         <div
@@ -195,11 +277,15 @@ function GanttGrid({
             style={{ height: headerH }}
           />
           {/* One cell per member */}
-          {rowData.map(({ member, bars }) => (
+          {rowData.map(({ member, bars, dayBuckets }) => {
+            const hasMeetings = Object.keys(dayBuckets).length > 0;
+            const memberRowH =
+              Math.max(1, bars.length) * ROW_H + (hasMeetings ? MEETING_STRIP_H : 0);
+            return (
             <div
               key={member.memberId}
               className="flex items-center gap-2.5 px-3 border-b border-zinc-100 dark:border-zinc-800/50"
-              style={{ height: Math.max(1, bars.length) * ROW_H }}
+              style={{ height: memberRowH }}
             >
               <div className="size-7 shrink-0 rounded-full bg-gradient-to-br from-zinc-100 to-zinc-50 dark:from-zinc-800 dark:to-zinc-900 border border-zinc-200 dark:border-zinc-700 flex items-center justify-center text-[10px] font-bold text-zinc-500">
                 {initials(member.name)}
@@ -213,7 +299,8 @@ function GanttGrid({
                 </p>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Scrollable grid */}
@@ -262,9 +349,11 @@ function GanttGrid({
             </div>
 
             {/* Member rows */}
-            {rowData.map(({ member, bars }) => {
+            {rowData.map(({ member, bars, dayBuckets }) => {
               const numRows = Math.max(1, bars.length);
-              const rowH = numRows * ROW_H;
+              const issuesAreaH = numRows * ROW_H;
+              const hasMeetings = Object.keys(dayBuckets).length > 0;
+              const rowH = issuesAreaH + (hasMeetings ? MEETING_STRIP_H : 0);
 
               return (
                 <div
@@ -336,7 +425,7 @@ function GanttGrid({
                           className={`absolute flex items-center px-2 rounded cursor-pointer transition-opacity select-none ${BAR_CLASSES[bar.issue.label]}`}
                           style={{ left, width, top, height }}
                           onMouseEnter={(e) =>
-                            setTooltip({ issue: bar.issue, x: e.clientX, y: e.clientY })
+                            setTooltip({ kind: "issue", issue: bar.issue, x: e.clientX, y: e.clientY })
                           }
                           onMouseMove={(e) =>
                             setTooltip((t) =>
@@ -359,6 +448,101 @@ function GanttGrid({
                       );
                     })
                   )}
+
+                  {/* Meeting row — per day, split into AM and PM half-slots
+                      matching the column header above. Each occupied half
+                      renders a violet pill with the total minutes in that
+                      half; empty halves stay blank so the row reads at a
+                      glance ("busy mornings", "back-to-back Thu PM", etc.). */}
+                  {hasMeetings && (
+                    <div
+                      className="absolute left-0 right-0 flex bg-violet-50/30 dark:bg-violet-950/10 border-t border-violet-100 dark:border-violet-900/30"
+                      style={{ top: issuesAreaH, height: MEETING_STRIP_H }}
+                    >
+                      {days.map((day) => {
+                        const bucket = dayBuckets[day];
+                        if (!bucket) {
+                          return (
+                            <div
+                              key={day}
+                              className="border-r border-zinc-100 dark:border-zinc-800/40"
+                              style={{ width: SLOT_W * 2 }}
+                            />
+                          );
+                        }
+                        const amEvents = bucket.events.filter(
+                          (e) => new Date(e.startsAt).getHours() < 12
+                        );
+                        const pmEvents = bucket.events.filter(
+                          (e) => new Date(e.startsAt).getHours() >= 12
+                        );
+                        const amMins = amEvents.reduce(
+                          (s, e) => s + e.durationMinutes,
+                          0
+                        );
+                        const pmMins = pmEvents.reduce(
+                          (s, e) => s + e.durationMinutes,
+                          0
+                        );
+                        return (
+                          <div
+                            key={day}
+                            className="flex border-r border-zinc-100 dark:border-zinc-800/40"
+                            style={{ width: SLOT_W * 2 }}
+                          >
+                            <div className="flex-1 p-0.5">
+                              {amMins > 0 && (
+                                <div
+                                  className="h-full rounded-sm bg-violet-500 hover:bg-violet-600 dark:bg-violet-600 dark:hover:bg-violet-500 text-white text-[9px] font-semibold flex items-center justify-center leading-none px-1 cursor-pointer transition-colors"
+                                  onMouseEnter={(e) =>
+                                    setTooltip({
+                                      kind: "meeting",
+                                      events: amEvents,
+                                      totalMinutes: amMins,
+                                      x: e.clientX,
+                                      y: e.clientY,
+                                    })
+                                  }
+                                  onMouseMove={(e) =>
+                                    setTooltip((t) =>
+                                      t ? { ...t, x: e.clientX, y: e.clientY } : null
+                                    )
+                                  }
+                                  onMouseLeave={() => setTooltip(null)}
+                                >
+                                  {formatMinutes(amMins)}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex-1 p-0.5">
+                              {pmMins > 0 && (
+                                <div
+                                  className="h-full rounded-sm bg-violet-500 hover:bg-violet-600 dark:bg-violet-600 dark:hover:bg-violet-500 text-white text-[9px] font-semibold flex items-center justify-center leading-none px-1 cursor-pointer transition-colors"
+                                  onMouseEnter={(e) =>
+                                    setTooltip({
+                                      kind: "meeting",
+                                      events: pmEvents,
+                                      totalMinutes: pmMins,
+                                      x: e.clientX,
+                                      y: e.clientY,
+                                    })
+                                  }
+                                  onMouseMove={(e) =>
+                                    setTooltip((t) =>
+                                      t ? { ...t, x: e.clientX, y: e.clientY } : null
+                                    )
+                                  }
+                                  onMouseLeave={() => setTooltip(null)}
+                                >
+                                  {formatMinutes(pmMins)}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -376,6 +560,9 @@ type Props = { boardId: string; start: string; end: string };
 
 export function TeamGanttClient({ boardId, start, end }: Props) {
   const [data, setData] = useState<TimelineResponse | null>(null);
+  const [meetingsByEmail, setMeetingsByEmail] = useState<
+    Record<string, MeetingEvent[]>
+  >({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -384,14 +571,27 @@ export function TeamGanttClient({ boardId, start, end }: Props) {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(
-          `/api/observer/boards/${boardId}/timeline?start=${s}&end=${e}`
-        );
-        if (res.ok) {
-          setData(await res.json());
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const [timelineRes, meetingsRes] = await Promise.all([
+          fetch(`/api/observer/boards/${boardId}/timeline?start=${s}&end=${e}`),
+          fetch(
+            `/api/observer/boards/${boardId}/meetings?start=${s}&end=${e}&tz=${encodeURIComponent(tz)}`
+          ),
+        ]);
+        if (timelineRes.ok) {
+          setData(await timelineRes.json());
         } else {
-          const body = await res.json().catch(() => ({}));
-          setError(body.error ?? `Error ${res.status}`);
+          const body = await timelineRes.json().catch(() => ({}));
+          setError(body.error ?? `Error ${timelineRes.status}`);
+        }
+        // Meetings are non-critical; render Gantt even if this fails.
+        if (meetingsRes.ok) {
+          const body: MeetingsResponse = await meetingsRes.json();
+          const map: Record<string, MeetingEvent[]> = {};
+          for (const m of body.byMember) {
+            map[m.email.toLowerCase()] = m.events;
+          }
+          setMeetingsByEmail(map);
         }
       } catch {
         setError("Failed to load data.");
@@ -436,6 +636,7 @@ export function TeamGanttClient({ boardId, start, end }: Props) {
                 ["bg-amber-400", "At Risk"],
                 ["bg-red-500", "Overdue"],
                 ["bg-emerald-500 dark:bg-emerald-600", "Done"],
+                ["bg-violet-500 dark:bg-violet-400", "Meetings"],
               ] as [string, string][]
             ).map(([bg, label]) => (
               <span key={label} className="flex items-center gap-1">
@@ -480,7 +681,12 @@ export function TeamGanttClient({ boardId, start, end }: Props) {
       )}
 
       {data && data.members.length > 0 && (
-        <GanttGrid data={data} rangeStart={start} rangeEnd={end} />
+        <GanttGrid
+          data={data}
+          meetingsByEmail={meetingsByEmail}
+          rangeStart={start}
+          rangeEnd={end}
+        />
       )}
     </div>
   );
