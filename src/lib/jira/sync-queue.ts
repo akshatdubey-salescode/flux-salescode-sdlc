@@ -3,7 +3,9 @@ import { db } from "@/lib/db";
 import { jiraProjects, jiraSyncJobs } from "@/lib/db/schema";
 import { JiraClient } from "./client";
 import { decrypt } from "@/lib/crypto";
-import { upsertIssue, resolveProjectFieldConfig } from "./sync";
+import { upsertIssue, resolveProjectFieldConfig, getDoneRawStatuses } from "./sync";
+
+const SYNC_CONCURRENCY = 5;
 
 // ---------------------------------------------------------------------------
 // Semaphore configuration
@@ -101,6 +103,8 @@ export async function runSyncJob(jobId: string): Promise<void> {
     project
   );
 
+  const doneRawStatuses = await getDoneRawStatuses(job.projectId);
+
   let synced = 0;
   let errors = 0;
   const errorMessages: string[] = [];
@@ -116,14 +120,22 @@ export async function runSyncJob(jobId: string): Promise<void> {
         extraFields
       );
 
-      for (const issue of result.issues) {
-        try {
-          await upsertIssue(job.projectId, issue, multiAssigneeFieldId || undefined);
-          synced++;
-        } catch (err) {
-          errors++;
-          const msg = err instanceof Error ? err.message : String(err);
-          errorMessages.push(`${issue.key}: ${msg}`);
+      for (let i = 0; i < result.issues.length; i += SYNC_CONCURRENCY) {
+        const chunk = result.issues.slice(i, i + SYNC_CONCURRENCY);
+        const results = await Promise.allSettled(
+          chunk.map((issue) =>
+            upsertIssue(job.projectId, issue, multiAssigneeFieldId || undefined, doneRawStatuses)
+          )
+        );
+        for (let j = 0; j < results.length; j++) {
+          const r = results[j];
+          if (r.status === "fulfilled") {
+            synced++;
+          } else {
+            errors++;
+            const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+            errorMessages.push(`${chunk[j].key}: ${msg}`);
+          }
         }
       }
 
@@ -153,6 +165,7 @@ export async function runSyncJob(jobId: string): Promise<void> {
         errorMessages,
       })
       .where(eq(jiraSyncJobs.id, jobId));
+
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await db
