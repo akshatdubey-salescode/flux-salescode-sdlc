@@ -332,6 +332,39 @@ export class JiraClient {
   }
 
   /**
+   * Look up a Jira user by email. Returns the first matching active
+   * accountId, or null when Jira returns no match. Works even when the
+   * user's email visibility is restricted on their profile — the caller
+   * already knows the email, so Atlassian's privacy gate doesn't apply.
+   * Endpoint: GET /rest/api/3/user/search?query={email}
+   */
+  async searchUserAccountIdByEmail(email: string): Promise<string | null> {
+    const res = await this.get(
+      `${this.baseUrl}/rest/api/3/user/search?query=${encodeURIComponent(email)}&maxResults=2`
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as Array<{
+      accountId: string;
+      emailAddress?: string;
+      active?: boolean;
+      accountType?: string;
+    }>;
+    if (!Array.isArray(data) || data.length === 0) return null;
+    // Prefer an exact email match when Jira exposes it; otherwise fall back
+    // to the first active atlassian-account result. Ignore app/customer
+    // accountTypes so we don't bind a human to a bot identity.
+    const lowered = email.toLowerCase();
+    const exact = data.find(
+      (u) => (u.emailAddress ?? "").toLowerCase() === lowered && u.active !== false
+    );
+    if (exact) return exact.accountId;
+    const human = data.find(
+      (u) => u.active !== false && (u.accountType ?? "atlassian") === "atlassian"
+    );
+    return human?.accountId ?? null;
+  }
+
+  /**
    * Returns deduplicated statuses across all issue types in a project.
    * Endpoint: GET /rest/api/3/project/{projectKey}/statuses
    */

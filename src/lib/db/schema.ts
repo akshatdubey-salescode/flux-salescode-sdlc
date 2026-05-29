@@ -42,6 +42,10 @@ export const users = pgTable("users", {
   id: text("id").primaryKey(), // user email (primary key)
   email: text("email").notNull().unique(),
   role: userRoleEnum("role").notNull().default("USER"),
+  // Resolved once via Jira /user/search?query={email}. Survives Atlassian
+  // privacy settings that hide emailAddress on issue payloads — we link by
+  // accountId instead. null = not yet attempted/resolved.
+  jiraAccountId: text("jira_account_id"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

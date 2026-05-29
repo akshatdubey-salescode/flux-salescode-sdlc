@@ -8,6 +8,7 @@ import { ALLOWED_EMAIL_DOMAIN } from "./constants";
 import type { UserRole } from "./types";
 import { saveIntegration } from "@/lib/google/oauth";
 import { userMeetingsTag } from "@/lib/google/cache-tags";
+import { ensureUserJiraAccountId } from "@/lib/jira/identity";
 
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
 
@@ -55,6 +56,13 @@ export const authOptions: NextAuthOptions = {
         // Non-fatal: getCurrentUser will retry on the first protected request
         console.error("[auth] signIn DB insert failed:", err);
       }
+
+      // Resolve this user's Jira accountId in the background so subsequent
+      // boards/timelines/unplanned views can match them even when Atlassian
+      // hides their email on issue payloads. Fire-and-forget: any failure is
+      // logged inside the helper and must not block sign-in. The next login
+      // is a no-op once the column is set.
+      void ensureUserJiraAccountId(email);
 
       // Capture calendar tokens when the user grants calendar.readonly during
       // sign-in. account.scope is space-separated and reflects what the user

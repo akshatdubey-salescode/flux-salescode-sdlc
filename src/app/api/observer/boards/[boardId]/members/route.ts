@@ -4,6 +4,7 @@ import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
+import { ensureMemberJiraAccountId } from "@/lib/jira/identity";
 
 type Params = { params: Promise<{ boardId: string }> };
 
@@ -56,6 +57,13 @@ export async function POST(request: Request, { params }: Params) {
 
     if (!member) {
       return NextResponse.json({ error: "Member already exists on this board" }, { status: 409 });
+    }
+
+    // Resolve Jira accountId in the background when the caller didn't
+    // supply one. This is what keeps unplanned/timeline views working for
+    // members whose Atlassian profile hides emailAddress on issue payloads.
+    if (!member.jiraAccountId) {
+      void ensureMemberJiraAccountId(member.id);
     }
 
     // Touch board updatedAt

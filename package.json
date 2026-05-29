@@ -13,6 +13,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "sync:all": "tsx --env-file=.env.local scripts/force-sync-all-projects.ts",
+    "backfill:jira-identities": "tsx --env-file=.env.local scripts/backfill-jira-identities.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

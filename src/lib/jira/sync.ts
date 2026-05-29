@@ -8,6 +8,7 @@ import {
 import { JiraClient, type JiraIssueRaw } from "./client";
 import { computeRollup, applyTransition } from "./changelog";
 import { decrypt } from "@/lib/crypto";
+import { loadAccountIdEmailMap } from "./identity";
 
 /**
  * Raw status names for a project that map to the DONE canonical status.
@@ -145,6 +146,7 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
   );
 
   const doneRawStatuses = await getDoneRawStatuses(projectId);
+  const accountIdEmailMap = await loadAccountIdEmailMap();
 
   let synced = 0;
   let errors = 0;
@@ -164,7 +166,13 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
       const chunk = result.issues.slice(i, i + SYNC_CONCURRENCY);
       const results = await Promise.allSettled(
         chunk.map((issue) =>
-          upsertIssue(projectId, issue, multiAssigneeFieldId ?? undefined, doneRawStatuses)
+          upsertIssue(
+            projectId,
+            issue,
+            multiAssigneeFieldId ?? undefined,
+            doneRawStatuses,
+            accountIdEmailMap
+          )
         )
       );
       for (let j = 0; j < results.length; j++) {
@@ -200,7 +208,8 @@ export async function upsertIssue(
   projectId: string,
   raw: JiraIssueRaw,
   multiAssigneeFieldId?: string,
-  doneRawStatuses?: Set<string>
+  doneRawStatuses?: Set<string>,
+  accountIdEmailMap?: Map<string, string>
 ): Promise<void> {
   const f = raw.fields;
 
@@ -227,18 +236,33 @@ export async function upsertIssue(
 
   // Extract additional assignee emails from the multi-user picker field.
   // The field returns an array of user objects: [{accountId, emailAddress, displayName}]
+  // When emailAddress is hidden by Atlassian privacy settings, fall back to
+  // the known accountId → email map built from our users/board_members tables.
   const additionalAssigneeEmails: string[] = [];
   if (multiAssigneeFieldId) {
     const raw_additional = (f as Record<string, unknown>)[multiAssigneeFieldId];
     if (Array.isArray(raw_additional)) {
       for (const u of raw_additional) {
-        const email = (u as { emailAddress?: string })?.emailAddress;
-        if (email && typeof email === "string") {
-          additionalAssigneeEmails.push(email);
-        }
+        const obj = u as { emailAddress?: string; accountId?: string };
+        const direct = typeof obj.emailAddress === "string" ? obj.emailAddress : null;
+        const mapped =
+          !direct && obj.accountId ? accountIdEmailMap?.get(obj.accountId) ?? null : null;
+        const email = direct ?? mapped;
+        if (email) additionalAssigneeEmails.push(email);
       }
     }
   }
+
+  // Same privacy fallback for the primary assignee: if Jira withheld the
+  // email, look it up by accountId. This is the single change that makes
+  // every downstream email-based filter (timeline, unplanned, pulse,
+  // my-tasks, …) keep working for users with restricted profiles.
+  const assigneeEmailResolved =
+    f.assignee?.emailAddress ??
+    (f.assignee?.accountId ? accountIdEmailMap?.get(f.assignee.accountId) ?? null : null);
+  const reporterEmailResolved =
+    f.reporter?.emailAddress ??
+    (f.reporter?.accountId ? accountIdEmailMap?.get(f.reporter.accountId) ?? null : null);
 
   // Derive the status rollup from the changelog. Bulk sync includes the full
   // changelog (expand=changelog); webhook payloads usually don't, in which case
@@ -262,10 +286,10 @@ export async function upsertIssue(
     issueType: f.issuetype.name,
     priority: f.priority?.name ?? null,
     assigneeAccountId: f.assignee?.accountId ?? null,
-    assigneeEmail: f.assignee?.emailAddress ?? null,
+    assigneeEmail: assigneeEmailResolved,
     assigneeName: f.assignee?.displayName ?? null,
     reporterAccountId: f.reporter?.accountId ?? null,
-    reporterEmail: f.reporter?.emailAddress ?? null,
+    reporterEmail: reporterEmailResolved,
     reporterName: f.reporter?.displayName ?? null,
     labels: f.labels ?? [],
     additionalAssigneeEmails,

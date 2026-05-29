@@ -4,6 +4,7 @@ import { jiraProjects, jiraSyncJobs } from "@/lib/db/schema";
 import { JiraClient } from "./client";
 import { decrypt } from "@/lib/crypto";
 import { upsertIssue, resolveProjectFieldConfig, getDoneRawStatuses } from "./sync";
+import { loadAccountIdEmailMap } from "./identity";
 
 const SYNC_CONCURRENCY = 5;
 
@@ -104,6 +105,7 @@ export async function runSyncJob(jobId: string): Promise<void> {
   );
 
   const doneRawStatuses = await getDoneRawStatuses(job.projectId);
+  const accountIdEmailMap = await loadAccountIdEmailMap();
 
   let synced = 0;
   let errors = 0;
@@ -124,7 +126,13 @@ export async function runSyncJob(jobId: string): Promise<void> {
         const chunk = result.issues.slice(i, i + SYNC_CONCURRENCY);
         const results = await Promise.allSettled(
           chunk.map((issue) =>
-            upsertIssue(job.projectId, issue, multiAssigneeFieldId || undefined, doneRawStatuses)
+            upsertIssue(
+              job.projectId,
+              issue,
+              multiAssigneeFieldId || undefined,
+              doneRawStatuses,
+              accountIdEmailMap
+            )
           )
         );
         for (let j = 0; j < results.length; j++) {

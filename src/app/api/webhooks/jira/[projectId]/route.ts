@@ -10,6 +10,7 @@ import {
   recordStatusTransition,
   getDoneRawStatuses,
 } from "@/lib/jira/sync";
+import { loadAccountIdEmailMap } from "@/lib/jira/identity";
 import {
   relinkFreshdeskTicket,
   updateLinkedJiraStatus,
@@ -93,11 +94,22 @@ export async function POST(
     if (row.additionalAssigneeEmails) affectedEmails.push(...row.additionalAssigneeEmails);
   }
 
+  // Loaded lazily per webhook invocation so emails stay populated even when
+  // Atlassian withholds emailAddress on the payload (see jira/identity.ts).
+  // The map is small and cheap to fetch.
+  const accountIdEmailMap = await loadAccountIdEmailMap();
+
   try {
     switch (webhookEvent) {
       case "jira:issue_created": {
         if (issue) {
-          await upsertIssue(projectId, issue, project.multiAssigneeFieldId ?? undefined);
+          await upsertIssue(
+            projectId,
+            issue,
+            project.multiAssigneeFieldId ?? undefined,
+            undefined,
+            accountIdEmailMap
+          );
           await collectAssigneeEmails(issue.id);
         }
         break;
@@ -106,7 +118,13 @@ export async function POST(
       case "jira:issue_updated": {
         if (issue) {
           await collectAssigneeEmails(issue.id);
-          await upsertIssue(projectId, issue, project.multiAssigneeFieldId ?? undefined);
+          await upsertIssue(
+            projectId,
+            issue,
+            project.multiAssigneeFieldId ?? undefined,
+            undefined,
+            accountIdEmailMap
+          );
           await collectAssigneeEmails(issue.id);
 
           const [existingIssue] = await db
