@@ -51,23 +51,11 @@ export async function fetchTopUnplannedAssignees(
       WHERE ji.assignee_email IS NOT NULL AND trim(ji.assignee_email) != ''
         AND ji.jira_created_at::date >= ${start}::date
         AND ji.jira_created_at::date <= ${end}::date
-        AND ${excludeDoneCondition}
-      UNION ALL
-      SELECT
-        ji.id,
-        lower(ae) AS email,
-        NULL AS name,
-        ji.custom_fields,
-        jp.end_date_field_ids,
-        jp.start_date_field_ids
-      FROM jira_issues ji
-      JOIN jira_projects jp ON jp.id = ji.project_id
-      LEFT JOIN project_status_mappings psm
-        ON psm.project_id = ji.project_id AND psm.raw_status = ji.status,
-      LATERAL unnest(ji.additional_assignee_emails) AS ae
-      WHERE ae IS NOT NULL AND trim(ae) != ''
-        AND ji.jira_created_at::date >= ${start}::date
-        AND ji.jira_created_at::date <= ${end}::date
+        -- Grace window: only count issues the person has owned for ≥24h, so
+        -- freshly-assigned work isn't flagged as "unplanned" before they've
+        -- had a chance to plan it. Falls back to creation time pre-backfill.
+        AND COALESCE(ji.assignee_since, ji.jira_created_at)
+            <= now() - interval '24 hours'
         AND ${excludeDoneCondition}
     ),
     classified AS (

@@ -82,7 +82,9 @@ export default async function TopUnplannedAssigneesPage({
             </h1>
             <p className="text-sm text-zinc-500 mt-1">
               An issue is unplanned when it is missing a start date or a
-              due/end date.
+              due/end date. Only issues assigned to the person for at least 24
+              hours are counted, so newly-assigned work isn&apos;t flagged
+              before they&apos;ve had a chance to plan it.
             </p>
           </div>
 

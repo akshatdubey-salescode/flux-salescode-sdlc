@@ -99,6 +99,112 @@ export type IssueRollup = {
   timeInStatus: Record<string, number>;
 };
 
+// ---------------------------------------------------------------------------
+// Assignee changes — parsed from the changelog to power self-deassignment
+// detection and the `assignee_since` rollup. Unlike status (which we roll up
+// into scalars), the per-event detail here IS the product: we must know who
+// changed the assignee, from whom, to whom, and when.
+// ---------------------------------------------------------------------------
+
+export type AssigneeToKind = "unassigned" | "reporter" | "other";
+
+export type AssigneeChange = {
+  // Jira changelog history id — stable, used for idempotent upserts.
+  changelogHistoryId: string;
+  changedAt: Date;
+  authorAccountId: string | null;
+  authorEmail: string | null;
+  authorName: string | null;
+  fromAccountId: string | null;
+  fromEmail: string | null;
+  fromName: string | null;
+  toAccountId: string | null;
+  toEmail: string | null;
+  toName: string | null;
+  // The author removed themselves as assignee (author === previous assignee,
+  // and the assignee actually changed). Automation/app authors are excluded.
+  isSelfRemoval: boolean;
+  toKind: AssigneeToKind;
+};
+
+/**
+ * Extracts every assignee transition from the changelog. Emails are resolved
+ * via the accountId→email map (Jira often withholds emailAddress on changelog
+ * authors and never includes it on item from/to), mirroring the privacy
+ * fallback used during issue upsert.
+ */
+export function extractAssigneeChanges(
+  raw: JiraIssueRaw,
+  accountIdEmailMap?: Map<string, string>
+): AssigneeChange[] {
+  const histories = raw.changelog?.histories ?? [];
+  const reporterAccountId = raw.fields.reporter?.accountId ?? null;
+  const resolveEmail = (accountId: string | null): string | null =>
+    accountId ? accountIdEmailMap?.get(accountId) ?? null : null;
+
+  const changes: AssigneeChange[] = [];
+  for (const history of histories) {
+    const isApp = history.author?.accountType === "app";
+    const authorAccountId = history.author?.accountId ?? null;
+    for (const item of history.items) {
+      if (item.field !== "assignee") continue;
+
+      const fromAccountId = item.from ?? null;
+      const toAccountId = item.to ?? null;
+      const isSelfRemoval =
+        !isApp &&
+        fromAccountId != null &&
+        authorAccountId != null &&
+        authorAccountId === fromAccountId &&
+        fromAccountId !== toAccountId;
+
+      const toKind: AssigneeToKind =
+        toAccountId == null
+          ? "unassigned"
+          : reporterAccountId != null && toAccountId === reporterAccountId
+            ? "reporter"
+            : "other";
+
+      changes.push({
+        changelogHistoryId: history.id,
+        changedAt: new Date(history.created),
+        authorAccountId,
+        authorEmail:
+          history.author?.emailAddress ?? resolveEmail(authorAccountId),
+        authorName: history.author?.displayName ?? null,
+        fromAccountId,
+        fromEmail: resolveEmail(fromAccountId),
+        fromName: item.fromString,
+        toAccountId,
+        toEmail: resolveEmail(toAccountId),
+        toName: item.toString,
+        isSelfRemoval,
+        toKind,
+      });
+    }
+  }
+
+  changes.sort((a, b) => a.changedAt.getTime() - b.changedAt.getTime());
+  return changes;
+}
+
+/**
+ * Derives when the issue's *current* assignee took ownership: the timestamp of
+ * the most recent assignee change landing on them, or the issue's creation time
+ * if it was assigned at creation and never reassigned. null when unassigned.
+ */
+export function deriveAssigneeSince(raw: JiraIssueRaw): Date | null {
+  const currentAssignee = raw.fields.assignee?.accountId ?? null;
+  if (!currentAssignee) return null;
+
+  const changes = extractAssigneeChanges(raw);
+  for (let i = changes.length - 1; i >= 0; i--) {
+    if (changes[i].toAccountId === currentAssignee) return changes[i].changedAt;
+  }
+  // Assigned at creation, never reassigned (no assignee changelog entries).
+  return raw.fields.created ? new Date(raw.fields.created) : null;
+}
+
 /**
  * Derives the persisted rollup from the changelog. `doneRawStatuses` is the set
  * of this project's raw status names that map to the DONE canonical status, used
