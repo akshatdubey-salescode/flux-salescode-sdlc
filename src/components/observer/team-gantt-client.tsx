@@ -265,10 +265,10 @@ function GanttGrid({
         </div>
       )}
 
-      <div className="flex bg-white dark:bg-zinc-900/50">
+      <div className="flex bg-white dark:bg-zinc-900">
         {/* Sticky member column */}
         <div
-          className="shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50"
+          className="shrink-0 border-r border-zinc-200 dark:border-zinc-800"
           style={{ width: MEMBER_COL_W }}
         >
           {/* Header spacer matching grid headers */}
@@ -277,14 +277,15 @@ function GanttGrid({
             style={{ height: headerH }}
           />
           {/* One cell per member */}
-          {rowData.map(({ member, bars, dayBuckets }) => {
+          {rowData.map(({ member, bars, dayBuckets }, rowIndex) => {
             const hasMeetings = Object.keys(dayBuckets).length > 0;
             const memberRowH =
               Math.max(1, bars.length) * ROW_H + (hasMeetings ? MEETING_STRIP_H : 0);
+            const isOdd = rowIndex % 2 === 1;
             return (
             <div
               key={member.memberId}
-              className="flex items-center gap-2.5 px-3 border-b border-zinc-100 dark:border-zinc-800/50"
+              className={`flex items-center gap-2.5 px-3 border-b border-zinc-300 dark:border-zinc-600/80 ${isOdd ? "bg-zinc-50 dark:bg-zinc-800/50" : "bg-white dark:bg-zinc-900"}`}
               style={{ height: memberRowH }}
             >
               <div className="size-7 shrink-0 rounded-full bg-gradient-to-br from-zinc-100 to-zinc-50 dark:from-zinc-800 dark:to-zinc-900 border border-zinc-200 dark:border-zinc-700 flex items-center justify-center text-[10px] font-bold text-zinc-500">
@@ -305,7 +306,7 @@ function GanttGrid({
 
         {/* Scrollable grid */}
         <div className="overflow-x-auto flex-1">
-          <div style={{ width: totalTrackW }}>
+          <div style={{ minWidth: totalTrackW }} className="w-full">
             {/* Day name header */}
             <div
               className="flex border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/80"
@@ -349,17 +350,18 @@ function GanttGrid({
             </div>
 
             {/* Member rows */}
-            {rowData.map(({ member, bars, dayBuckets }) => {
+            {rowData.map(({ member, bars, dayBuckets }, rowIndex) => {
               const numRows = Math.max(1, bars.length);
               const issuesAreaH = numRows * ROW_H;
               const hasMeetings = Object.keys(dayBuckets).length > 0;
               const rowH = issuesAreaH + (hasMeetings ? MEETING_STRIP_H : 0);
+              const isOdd = rowIndex % 2 === 1;
 
               return (
                 <div
                   key={member.memberId}
-                  className="relative border-b border-zinc-100 dark:border-zinc-800/50"
-                  style={{ height: rowH, width: totalTrackW }}
+                  className={`relative border-b border-zinc-300 dark:border-zinc-600/80 ${isOdd ? "bg-zinc-50 dark:bg-zinc-800/50" : "dark:bg-zinc-900"}`}
+                  style={{ height: rowH, minWidth: totalTrackW, width: "100%" }}
                 >
                   {/* Background column bands */}
                   {days.map((day, di) => (
