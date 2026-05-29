@@ -151,6 +151,21 @@ export async function POST(
               ? await getDoneRawStatuses(projectId)
               : new Set<string>();
             for (const item of changelog.items) {
+              // Assignee change → maintain the assignee_since rollup live so
+              // the "assigned ≥24h ago" unplanned filter stays accurate. The
+              // per-event log (jira_assignee_changes) is backfilled on the next
+              // full sync, which carries the changelog this payload lacks.
+              if (item.field === "assignee") {
+                await db
+                  .update(jiraIssues)
+                  .set({
+                    assigneeSince: item.toString
+                      ? new Date(payload.timestamp)
+                      : null,
+                  })
+                  .where(eq(jiraIssues.id, existingIssue.id));
+              }
+
               // Status transition → update rollup + linked FD ticket
               if (item.field === "status" && item.fromString && item.toString) {
                 await recordStatusTransition(

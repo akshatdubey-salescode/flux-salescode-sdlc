@@ -7,7 +7,7 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
-import { RiUserStarLine } from "@remixicon/react";
+import { RiUserStarLine, RiUserUnfollowLine } from "@remixicon/react";
 
 const VIEWS = [
   {
@@ -16,6 +16,13 @@ const VIEWS = [
     title: "Top Assignees with Unplanned Tasks",
     description:
       "Ranks people by the number of issues they own that are missing a start or due date, filterable by quarter or custom date range.",
+  },
+  {
+    href: "/views/self-deassigners",
+    icon: RiUserUnfollowLine,
+    title: "Top Self-Deassigners",
+    description:
+      "Ranks people by how often they removed themselves as assignee — to unassigned, the reporter, or someone else. A candidate list for investigating hidden work.",
   },
 ];
 

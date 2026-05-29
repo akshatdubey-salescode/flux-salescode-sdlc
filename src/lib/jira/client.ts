@@ -55,12 +55,20 @@ export type JiraProjectStatus = {
 export type JiraChangelogHistory = {
   id: string;
   author: {
+    accountId?: string;
     displayName: string;
     emailAddress?: string;
+    // "atlassian" | "app" | "customer" — "app" identifies automation/bots,
+    // which we exclude from self-deassignment detection.
+    accountType?: string;
   };
   created: string; // ISO timestamp
   items: {
     field: string;
+    // accountId of the old/new value for user fields (assignee, reporter).
+    // null when the field was cleared (e.g. unassigned) or has no account.
+    from: string | null;
+    to: string | null;
     fromString: string | null;
     toString: string | null;
   }[];
