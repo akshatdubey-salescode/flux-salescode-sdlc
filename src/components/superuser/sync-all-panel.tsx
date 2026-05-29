@@ -88,7 +88,7 @@ export function SyncAllPanel({ projects }: { projects: Project[] }) {
 
   async function pollUntilDone(projectId: string, jobId: string) {
     for (;;) {
-      await interruptibleSleep(2000);
+      await interruptibleSleep(5000);
       if (abortRef.current) return;
 
       const res = await fetch(`/api/sync-jobs/${jobId}`);
