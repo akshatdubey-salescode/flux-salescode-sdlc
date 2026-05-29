@@ -7,8 +7,7 @@ const CALENDAR_LIST_URL =
   "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 
 // How far back to look on the very first sync (or after a syncToken expiry).
-// 30 days is enough to fill the timeline without pulling years of history.
-const INITIAL_WINDOW_DAYS = 30;
+const INITIAL_WINDOW_DAYS = 7;
 
 // ---------------------------------------------------------------------------
 // Google event shape (only the fields we read).
@@ -161,10 +160,12 @@ async function fetchAndApply(
     } else {
       // Google quirk: nextSyncToken is omitted when orderBy is set, so the
       // initial pull has to be unordered. We sort locally after upserting.
-      const timeMin = new Date(
-        Date.now() - INITIAL_WINDOW_DAYS * 86_400_000
-      ).toISOString();
-      url.searchParams.set("timeMin", timeMin);
+      const now = Date.now();
+      url.searchParams.set(
+        "timeMin",
+        new Date(now - INITIAL_WINDOW_DAYS * 86_400_000).toISOString()
+      );
+      url.searchParams.set("timeMax", new Date(now).toISOString());
     }
     if (pageToken) url.searchParams.set("pageToken", pageToken);
 
