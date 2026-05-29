@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-// Paths excluded at the matcher level (api/auth, api/webhooks, api/cron,
-// api/atlassian/callback, _next/*, static assets) never invoke the proxy.
-// These regexes only handle paths the matcher *does* let through that
-// shouldn't be auth-gated.
+// The proxy only guards *page* navigations (auth redirect to /sign-in and
+// bounce authed users off /sign-in). The entire /api tree is excluded at the
+// matcher level: every API route independently validates the session via
+// requireAuth()/requireRole()/getCurrentUser() in its handler, so a proxy
+// cookie-presence check there is pure redundant (billed) overhead — it never
+// provided real protection (cookie present != valid session). Also excluded:
+// _next/* and static assets. These regexes only handle the page paths the
+// matcher *does* let through that shouldn't be auth-gated.
 const PUBLIC_PATHS: RegExp[] = [
   /^\/$/,
   /^\/sign-in(\/.*)?$/,
@@ -52,6 +56,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!api/auth|api/webhooks|api/cron|api/atlassian/callback|_next/static|_next/image|_next/data|favicon.ico|sitemap.xml|robots.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff|woff2|ttf|map)$).*)",
+    "/((?!api|_next/static|_next/image|_next/data|favicon.ico|sitemap.xml|robots.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff|woff2|ttf|map)$).*)",
   ],
 };
