@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+// Paths excluded at the matcher level (api/auth, api/webhooks, api/cron,
+// api/atlassian/callback, _next/*, static assets) never invoke the proxy.
+// These regexes only handle paths the matcher *does* let through that
+// shouldn't be auth-gated.
 const PUBLIC_PATHS: RegExp[] = [
   /^\/$/,
   /^\/sign-in(\/.*)?$/,
   /^\/unauthorized$/,
   /^\/privacy$/,
   /^\/terms$/,
-  /^\/api\/auth(\/.*)?$/,
-  /^\/api\/atlassian\/callback$/,
-  /^\/api\/webhooks(\/.*)?$/,
-  /^\/api\/cron(\/.*)?$/,
 ];
 
 const AUTH_PATHS: RegExp[] = [/^\/sign-in(\/.*)?$/];
@@ -52,6 +52,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!api/auth|api/webhooks|api/cron|api/atlassian/callback|_next/static|_next/image|_next/data|favicon.ico|sitemap.xml|robots.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff|woff2|ttf|map)$).*)",
   ],
 };
