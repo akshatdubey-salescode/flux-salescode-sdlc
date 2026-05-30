@@ -101,8 +101,9 @@ function jiraPriorityColor(priority: string | null) {
 
 function fmtDate(val: string | Date | null | undefined): string {
   if (!val) return "—";
-  return new Date(val as string).toLocaleDateString("en-IN", {
+  return new Date(val as string).toLocaleString("en-IN", {
     day: "numeric", month: "short", year: "numeric",
+    hour: "numeric", minute: "2-digit", hour12: true,
   });
 }
 
