@@ -164,15 +164,24 @@ export async function POST(
                 await updateLinkedJiraStatus(existingIssue.id, item.toString);
               }
 
-              // Freshdesk Ticket ID field updated → re-link immediately
-              if (item.field === FRESHDESK_CUSTOM_FIELD || item.field === "Freshdesk Ticket ID") {
+              // Freshdesk Ticket ID field updated → re-link immediately.
+              // Check both the display name ("Freshdesk Ticket ID") and the
+              // raw fieldId ("customfield_11699") because Jira Cloud webhook
+              // payloads include a fieldId property not captured in our type.
+              const fieldId = (item as Record<string, unknown>).fieldId as string | undefined;
+              const isFreshdeskField =
+                fieldId === FRESHDESK_CUSTOM_FIELD ||
+                item.field === FRESHDESK_CUSTOM_FIELD ||
+                item.field === "Freshdesk Ticket ID";
+              if (isFreshdeskField) {
                 const fdId = item.toString ? parseInt(item.toString, 10) : null;
                 await relinkFreshdeskTicket(
                   existingIssue.id,
                   existingIssue.jiraKey,
                   existingIssue.status,
                   existingIssue.assigneeName,
-                  isNaN(fdId ?? NaN) ? null : fdId
+                  isNaN(fdId ?? NaN) ? null : fdId,
+                  projectId
                 );
               }
             }
