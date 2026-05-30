@@ -8,6 +8,7 @@ import {
   RiArrowUpSLine,
   RiArrowDownSLine,
   RiInformationLine,
+  RiDownload2Line,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,12 +37,84 @@ type Props = {
   fields: MyTasksFields | null;
   onUpdate: (updates: Partial<Record<string, string | null>>) => void;
   total: number;
+  targetEmail?: string;
 };
 
-export function MyTasksFilterBar({ filters, fields, onUpdate, total }: Props) {
+export function MyTasksFilterBar({ filters, fields, onUpdate, total, targetEmail }: Props) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [localSearch, setLocalSearch] = useState(filters.q);
+  const [exporting, setExporting] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (filters.q) params.set("q", filters.q);
+      if (filters.projects.length) params.set("projects", filters.projects.join(","));
+      if (filters.status.length) params.set("status", filters.status.join(","));
+      if (filters.priority.length) params.set("priority", filters.priority.join(","));
+      if (filters.reporter.length) params.set("reporter", filters.reporter.join(","));
+      if (filters.issueType.length) params.set("issueType", filters.issueType.join(","));
+      if (filters.labels.length) params.set("labels", filters.labels.join(","));
+      const effectiveDateFrom = filters.qstart || filters.dateFrom;
+      const effectiveDateTo = filters.qend || filters.dateTo;
+      if (effectiveDateFrom) params.set("dateFrom", effectiveDateFrom);
+      if (effectiveDateTo) params.set("dateTo", effectiveDateTo);
+      if (filters.showCompleted) params.set("showCompleted", "true");
+      if (filters.includeReported) params.set("includeReported", "true");
+      params.set("sortBy", filters.sortBy);
+      params.set("sortDir", filters.sortDir);
+      if (targetEmail) params.set("forEmail", targetEmail);
+
+      const res = await fetch(`/api/my-tasks/export?${params.toString()}`);
+      const { issues } = await res.json();
+
+      const xlsx = await import("xlsx");
+      const rows = issues.map((i: {
+        jiraKey: string;
+        summary: string;
+        status: string;
+        issueType: string;
+        priority: string | null;
+        assigneeName: string | null;
+        assigneeEmail: string | null;
+        reporterName: string | null;
+        reporterEmail: string | null;
+        labels: string[];
+        jiraCreatedAt: string | null;
+        jiraUpdatedAt: string | null;
+        jiraBaseUrl: string | null;
+      }) => ({
+        "Jira Key": i.jiraKey,
+        "Summary": i.summary,
+        "Status": i.status,
+        "Issue Type": i.issueType,
+        "Priority": i.priority ?? "",
+        "Assignee": i.assigneeName ?? "",
+        "Assignee Email": i.assigneeEmail ?? "",
+        "Reporter": i.reporterName ?? "",
+        "Reporter Email": i.reporterEmail ?? "",
+        "Labels": (i.labels ?? []).join(", "),
+        "Created": i.jiraCreatedAt ? new Date(i.jiraCreatedAt).toLocaleDateString() : "",
+        "Updated": i.jiraUpdatedAt ? new Date(i.jiraUpdatedAt).toLocaleDateString() : "",
+        "Jira URL": i.jiraBaseUrl && i.jiraKey
+          ? `${i.jiraBaseUrl}/browse/${i.jiraKey}`
+          : "",
+      }));
+
+      const ws = xlsx.utils.json_to_sheet(rows);
+      const wb = xlsx.utils.book_new();
+      xlsx.utils.book_append_sheet(wb, ws, "Tasks");
+
+      const today = new Date().toISOString().split("T")[0];
+      xlsx.writeFile(wb, `tasks-${today}.xlsx`);
+    } catch {
+      // silently ignore — user can retry
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const activeFilterCount = [
     filters.projects.length > 0,
@@ -177,9 +250,20 @@ export function MyTasksFilterBar({ filters, fields, onUpdate, total }: Props) {
           </button>
         )}
 
-        <span className="ml-auto text-xs text-zinc-400">
-          {total} {total === 1 ? "task" : "tasks"}
-        </span>
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-xs text-zinc-400">
+            {total} {total === 1 ? "task" : "tasks"}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExport}
+            disabled={exporting || total === 0}
+          >
+            <RiDownload2Line className="size-3.5" />
+            {exporting ? "Exporting…" : "Export Excel"}
+          </Button>
+        </div>
       </div>
 
       {activeFilterCount > 0 && (

@@ -248,6 +248,7 @@ export function MyTasksView({
           fields={fields}
           onUpdate={updateParams}
           total={total}
+          targetEmail={targetEmail}
         />
 
         <ListView
