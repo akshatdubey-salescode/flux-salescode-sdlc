@@ -214,6 +214,7 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
         ) : (
           <TeamTimelineClient
             boardId={board.id}
+            name={board.name}
             onRemoveMember={isOwner
               ? (email) => setRemoveMember(members.find((m) => m.email === email) ?? null)
               : undefined

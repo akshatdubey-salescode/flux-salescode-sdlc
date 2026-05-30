@@ -20,6 +20,8 @@ import {
   RiArrowUpSLine,
   RiArrowDownSLine,
   RiInformationLine,
+  RiAlarmWarningLine,
+  RiCheckLine,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -123,6 +125,63 @@ function initials(name: string): string {
     .join("")
     .toUpperCase()
     .slice(0, 2);
+}
+
+function fmtShortDate(dateStr: string): string {
+  return new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function buildAlertMessage(
+  data: TimelineResponse,
+  name: string | undefined,
+  context: "board" | "project",
+): string {
+  const label = context === "board" ? "Board" : "Project";
+  const today = todayStr();
+  const dateLabel = new Date(today + "T12:00:00").toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  const jiraUrl = (issue: { jiraBaseUrl: string; jiraKey: string }) =>
+    `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`;
+
+  const overdueLines: string[] = [];
+  for (const m of data.members) {
+    for (const i of m.overdueIssues ?? []) {
+      const days = Math.abs(i.daysRemaining ?? 0);
+      overdueLines.push(
+        `• ${i.summary} — ${m.name} (${days} day${days !== 1 ? "s" : ""} overdue)\n  ${jiraUrl(i)}`,
+      );
+    }
+  }
+
+  const atRiskLines: string[] = [];
+  for (const m of data.members) {
+    for (const i of m.issues.filter((x) => x.label === "at_risk")) {
+      atRiskLines.push(
+        `• ${i.summary} — ${m.name} (due ${fmtShortDate(i.dueDate)})\n  ${jiraUrl(i)}`,
+      );
+    }
+  }
+
+  const sections: string[] = [`📊 Team Health Update — ${dateLabel}`];
+  if (name) sections.push(`${label}: ${name}`);
+  if (overdueLines.length) {
+    sections.push(
+      `\n🔴 Overdue — ${overdueLines.length} issue${overdueLines.length !== 1 ? "s" : ""}\n${overdueLines.join("\n")}`,
+    );
+  }
+  if (atRiskLines.length) {
+    sections.push(
+      `\n🟡 At Risk — ${atRiskLines.length} issue${atRiskLines.length !== 1 ? "s" : ""}\n${atRiskLines.join("\n")}`,
+    );
+  }
+  return sections.join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -2295,13 +2354,14 @@ function OverdueTab({
 
 type Props = {
   boardId: string;
+  name?: string;
   onRemoveMember?: (email: string) => void;
 };
 
 const VALID_TABS = ["timeline", "active", "at-risk", "overdue", "completed", "unplanned", "gantt"] as const;
 type TabValue = (typeof VALID_TABS)[number];
 
-export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
+export function TeamTimelineClient({ boardId, name, onRemoveMember }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -2332,6 +2392,7 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
   const [data, setData] = useState<TimelineResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [alertCopied, setAlertCopied] = useState(false);
 
   // Map of memberEmail → { totalMinutes, eventCount, events } for the active
   // date range. Pulled from /api/observer/boards/:id/meetings; powers both the
@@ -2342,6 +2403,13 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
 
   const rawTab = searchParams.get("tab") ?? "timeline";
   const activeTab: TabValue = VALID_TABS.includes(rawTab as TabValue) ? (rawTab as TabValue) : "timeline";
+
+  function handleCopyAlert() {
+    if (!data) return;
+    navigator.clipboard.writeText(buildAlertMessage(data, name, "board"));
+    setAlertCopied(true);
+    setTimeout(() => setAlertCopied(false), 2000);
+  }
 
   function updateParams(updates: Record<string, string | null>) {
     const params = new URLSearchParams(searchParams.toString());
@@ -2497,14 +2565,27 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
                 <TabsTrigger value="gantt">Gantt</TabsTrigger>
               </TabsList>
 
-              <button
-                onClick={() => load(filter, ustart, uend)}
-                disabled={loading}
-                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <RiRefreshLine size={12} className={loading ? "animate-spin" : ""} />
-                Refresh
-              </button>
+              <div className="flex items-center gap-3">
+                {(data.summary.overdue > 0 || data.summary.atRisk > 0) && (
+                  <button
+                    onClick={handleCopyAlert}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60 transition-colors border border-red-200 dark:border-red-800"
+                  >
+                    {alertCopied
+                      ? <><RiCheckLine size={12} /> Copied!</>
+                      : <><RiAlarmWarningLine size={12} /> Copy Alert</>
+                    }
+                  </button>
+                )}
+                <button
+                  onClick={() => load(filter, ustart, uend)}
+                  disabled={loading}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <RiRefreshLine size={12} className={loading ? "animate-spin" : ""} />
+                  Refresh
+                </button>
+              </div>
             </div>
 
             <TabsContent value="timeline">
@@ -2728,7 +2809,7 @@ function UnassignedTab({ projectId, quarterStart, quarterEnd }: { projectId: str
 const PROJECT_VALID_TABS = ["timeline", "active", "at-risk", "overdue", "completed", "unplanned", "unassigned"] as const;
 type ProjectTabValue = (typeof PROJECT_VALID_TABS)[number];
 
-export function ProjectTeamClient({ projectId }: { projectId: string }) {
+export function ProjectTeamClient({ projectId, name }: { projectId: string; name?: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const apiBase = `/api/projects/${projectId}/team`;
@@ -2754,9 +2835,17 @@ export function ProjectTeamClient({ projectId }: { projectId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [unassignedCount, setUnassignedCount] = useState<number | undefined>(undefined);
+  const [alertCopied, setAlertCopied] = useState(false);
 
   const rawTab = searchParams.get("pttab") ?? "timeline";
   const activeTab: ProjectTabValue = PROJECT_VALID_TABS.includes(rawTab as ProjectTabValue) ? (rawTab as ProjectTabValue) : "timeline";
+
+  function handleCopyAlert() {
+    if (!data) return;
+    navigator.clipboard.writeText(buildAlertMessage(data, name, "project"));
+    setAlertCopied(true);
+    setTimeout(() => setAlertCopied(false), 2000);
+  }
 
   function updateParams(updates: Record<string, string | null>) {
     const params = new URLSearchParams(searchParams.toString());
@@ -2847,10 +2936,23 @@ export function ProjectTeamClient({ projectId }: { projectId: string }) {
                 <TabsTrigger value="unplanned">Unplanned</TabsTrigger>
                 <TabsTrigger value="unassigned">Unassigned</TabsTrigger>
               </TabsList>
-              <button onClick={() => load(filter, ustart, uend)} disabled={loading} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
-                <RiRefreshLine size={12} className={loading ? "animate-spin" : ""} />
-                Refresh
-              </button>
+              <div className="flex items-center gap-3">
+                {(data.summary.overdue > 0 || data.summary.atRisk > 0) && (
+                  <button
+                    onClick={handleCopyAlert}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60 transition-colors border border-red-200 dark:border-red-800"
+                  >
+                    {alertCopied
+                      ? <><RiCheckLine size={12} /> Copied!</>
+                      : <><RiAlarmWarningLine size={12} /> Copy Alert</>
+                    }
+                  </button>
+                )}
+                <button onClick={() => load(filter, ustart, uend)} disabled={loading} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                  <RiRefreshLine size={12} className={loading ? "animate-spin" : ""} />
+                  Refresh
+                </button>
+              </div>
             </div>
 
             <TabsContent value="timeline">
