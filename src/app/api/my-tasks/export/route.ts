@@ -11,6 +11,7 @@ import {
   lte,
   sql,
 } from "drizzle-orm";
+import ExcelJS from "exceljs";
 import { db } from "@/lib/db";
 import { jiraIssues, jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
@@ -123,5 +124,227 @@ export async function GET(req: NextRequest) {
     .orderBy(orderExpr)
     .limit(5000);
 
-  return Response.json({ issues });
+  const buffer = await buildWorkbook(issues);
+
+  const today = new Date().toISOString().split("T")[0];
+  return new Response(buffer as ArrayBuffer, {
+    headers: {
+      "Content-Type":
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="tasks-${today}.xlsx"`,
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+// ---- Workbook styling -------------------------------------------------------
+
+interface IssueRow {
+  jiraKey: string;
+  summary: string;
+  status: string;
+  issueType: string;
+  priority: string | null;
+  assigneeName: string | null;
+  assigneeEmail: string | null;
+  reporterName: string | null;
+  reporterEmail: string | null;
+  labels: string[] | null;
+  jiraCreatedAt: Date | null;
+  jiraUpdatedAt: Date | null;
+  jiraBaseUrl: string | null;
+}
+
+// Brand palette (ARGB — 8-digit hex, alpha first).
+const TEAL = "FF0D9488";
+const TEAL_DARK = "FF0F766E";
+const ZEBRA = "FFF0FDFA";
+const BORDER = "FFE5E7EB";
+const TEXT = "FF111827";
+const MUTED = "FF6B7280";
+
+function priorityColor(priority: string | null): string | null {
+  const p = (priority ?? "").toLowerCase();
+  if (p === "p1" || p === "highest") return "FFB91C1C"; // red
+  if (p === "p2" || p === "high") return "FFC2410C"; // orange
+  if (p === "p3" || p === "medium") return "FFB45309"; // amber
+  if (p === "p4" || p === "low") return "FF047857"; // green
+  if (p === "p5" || p === "lowest") return "FF6B7280"; // gray
+  return null;
+}
+
+const COLUMNS: {
+  header: string;
+  key: keyof IssueRow | "createdAt" | "updatedAt";
+  width: number;
+  min: number;
+  max: number;
+}[] = [
+  { header: "Jira Key", key: "jiraKey", width: 12, min: 10, max: 16 },
+  { header: "Summary", key: "summary", width: 50, min: 30, max: 60 },
+  { header: "Status", key: "status", width: 14, min: 10, max: 22 },
+  { header: "Issue Type", key: "issueType", width: 12, min: 10, max: 16 },
+  { header: "Priority", key: "priority", width: 10, min: 8, max: 12 },
+  { header: "Assignee", key: "assigneeName", width: 20, min: 14, max: 28 },
+  { header: "Assignee Email", key: "assigneeEmail", width: 28, min: 18, max: 36 },
+  { header: "Reporter", key: "reporterName", width: 20, min: 14, max: 28 },
+  { header: "Reporter Email", key: "reporterEmail", width: 28, min: 18, max: 36 },
+  { header: "Labels", key: "labels", width: 24, min: 14, max: 40 },
+  { header: "Created", key: "createdAt", width: 13, min: 12, max: 14 },
+  { header: "Updated", key: "updatedAt", width: 13, min: 12, max: 14 },
+];
+
+async function buildWorkbook(issues: IssueRow[]): Promise<ArrayBuffer> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Flux";
+  wb.created = new Date();
+
+  const ws = wb.addWorksheet("Tasks", {
+    views: [{ state: "frozen", ySplit: 3 }],
+  });
+
+  const colCount = COLUMNS.length;
+
+  // --- Title banner (rows 1-2) ---
+  ws.mergeCells(1, 1, 1, colCount);
+  const titleCell = ws.getCell(1, 1);
+  titleCell.value = "My Tasks";
+  titleCell.font = { name: "Calibri", size: 16, bold: true, color: { argb: "FFFFFFFF" } };
+  titleCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+  titleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TEAL_DARK } };
+  ws.getRow(1).height = 28;
+
+  ws.mergeCells(2, 1, 2, colCount);
+  const subCell = ws.getCell(2, 1);
+  const generatedOn = new Date().toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  subCell.value = `${issues.length} task${issues.length === 1 ? "" : "s"} · Exported ${generatedOn}`;
+  subCell.font = { name: "Calibri", size: 10, color: { argb: "FFFFFFFF" }, italic: true };
+  subCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+  subCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TEAL } };
+  ws.getRow(2).height = 18;
+
+  // --- Header row (row 3) ---
+  const headerRow = ws.getRow(3);
+  COLUMNS.forEach((col, i) => {
+    const cell = headerRow.getCell(i + 1);
+    cell.value = col.header;
+    cell.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TEAL } };
+    cell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+    cell.border = {
+      top: { style: "thin", color: { argb: TEAL } },
+      bottom: { style: "thin", color: { argb: TEAL } },
+      left: { style: "thin", color: { argb: TEAL } },
+      right: { style: "thin", color: { argb: TEAL } },
+    };
+  });
+  headerRow.height = 22;
+
+  // Track max content length per column for auto-width.
+  const widths = COLUMNS.map((c) => c.header.length);
+
+  // --- Data rows ---
+  issues.forEach((issue, idx) => {
+    const rowIndex = idx + 4;
+    const row = ws.getRow(rowIndex);
+    const zebra = idx % 2 === 1;
+
+    COLUMNS.forEach((col, ci) => {
+      const cell = row.getCell(ci + 1);
+      let display = "";
+
+      switch (col.key) {
+        case "jiraKey": {
+          const url =
+            issue.jiraBaseUrl && issue.jiraKey
+              ? `${issue.jiraBaseUrl}/browse/${issue.jiraKey}`
+              : null;
+          display = issue.jiraKey ?? "";
+          if (url) {
+            cell.value = { text: display, hyperlink: url };
+            cell.font = { name: "Calibri", size: 11, color: { argb: TEAL_DARK }, underline: true, bold: true };
+          } else {
+            cell.value = display;
+            cell.font = { name: "Calibri", size: 11, bold: true, color: { argb: TEXT } };
+          }
+          break;
+        }
+        case "labels": {
+          display = (issue.labels ?? []).join(", ");
+          cell.value = display;
+          cell.font = { name: "Calibri", size: 10, color: { argb: MUTED } };
+          break;
+        }
+        case "priority": {
+          display = issue.priority ?? "";
+          cell.value = display;
+          const color = priorityColor(issue.priority);
+          cell.font = { name: "Calibri", size: 11, bold: !!color, color: { argb: color ?? TEXT } };
+          break;
+        }
+        case "createdAt":
+        case "updatedAt": {
+          const d = col.key === "createdAt" ? issue.jiraCreatedAt : issue.jiraUpdatedAt;
+          if (d) {
+            cell.value = new Date(d);
+            cell.numFmt = "dd MMM yyyy";
+            display = "dd MMM yyyy";
+          } else {
+            cell.value = "";
+          }
+          cell.font = { name: "Calibri", size: 10, color: { argb: MUTED } };
+          break;
+        }
+        case "assigneeEmail":
+        case "reporterEmail": {
+          display = (issue[col.key] as string | null) ?? "";
+          cell.value = display;
+          cell.font = { name: "Calibri", size: 10, color: { argb: MUTED } };
+          break;
+        }
+        default: {
+          display = ((issue[col.key as keyof IssueRow] as string | null) ?? "").toString();
+          cell.value = display;
+          cell.font = { name: "Calibri", size: 11, color: { argb: TEXT } };
+        }
+      }
+
+      cell.alignment = {
+        vertical: "top",
+        horizontal: "left",
+        indent: 1,
+        wrapText: col.key === "summary" || col.key === "labels",
+      };
+      cell.border = {
+        bottom: { style: "hair", color: { argb: BORDER } },
+        right: { style: "hair", color: { argb: BORDER } },
+      };
+      if (zebra) {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: ZEBRA } };
+      }
+
+      // Update measured width (skip the wrapped summary beyond its cap).
+      if (display && col.key !== "summary") {
+        widths[ci] = Math.max(widths[ci], display.length);
+      }
+    });
+  });
+
+  // --- Apply computed column widths (clamped) + filter ---
+  COLUMNS.forEach((col, i) => {
+    const measured = col.key === "summary" ? col.width : widths[i] + 3;
+    ws.getColumn(i + 1).width = Math.min(col.max, Math.max(col.min, measured));
+  });
+
+  ws.autoFilter = {
+    from: { row: 3, column: 1 },
+    to: { row: 3, column: colCount },
+  };
+
+  const buffer = await wb.xlsx.writeBuffer();
+  return buffer as ArrayBuffer;
 }

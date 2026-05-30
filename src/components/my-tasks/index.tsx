@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ListView } from "../project-tracking/list-view";
 import { MyTasksFilterBar } from "./filter-bar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { RiDownload2Line } from "@remixicon/react";
 import { UserInsightsDashboard } from "./user-insights-dashboard";
 import { MyMeetings } from "./my-meetings";
 import { usePinnedTasks } from "./use-pinned-tasks";
@@ -121,6 +123,48 @@ export function MyTasksView({
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [fields, setFields] = useState<MyTasksFields | null>(null);
+  const [exporting, setExporting] = useState(false);
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (filters.q) params.set("q", filters.q);
+      if (filters.projects.length) params.set("projects", filters.projects.join(","));
+      if (filters.status.length) params.set("status", filters.status.join(","));
+      if (filters.priority.length) params.set("priority", filters.priority.join(","));
+      if (filters.reporter.length) params.set("reporter", filters.reporter.join(","));
+      if (filters.issueType.length) params.set("issueType", filters.issueType.join(","));
+      if (filters.labels.length) params.set("labels", filters.labels.join(","));
+      const effectiveDateFrom = filters.qstart || filters.dateFrom;
+      const effectiveDateTo = filters.qend || filters.dateTo;
+      if (effectiveDateFrom) params.set("dateFrom", effectiveDateFrom);
+      if (effectiveDateTo) params.set("dateTo", effectiveDateTo);
+      if (filters.showCompleted) params.set("showCompleted", "true");
+      if (filters.includeReported) params.set("includeReported", "true");
+      params.set("sortBy", filters.sortBy);
+      params.set("sortDir", filters.sortDir);
+      if (targetEmail) params.set("forEmail", targetEmail);
+
+      const res = await fetch(`/api/my-tasks/export?${params.toString()}`);
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+
+      const today = new Date().toISOString().split("T")[0];
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `tasks-${today}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // silently ignore — user can retry
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const filterKey = JSON.stringify({
     targetEmail,
@@ -230,15 +274,33 @@ export function MyTasksView({
     ? 0
     : sortedIssues.filter((i) => pinnedKeys.has(i.jiraKey)).length;
 
+  const showTabs = !isObserving && !hideTabs;
+  const showExport = activeTab === "list";
+
   return (
     <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full space-y-4">
-      {!isObserving && !hideTabs && (
-        <div className="flex items-center justify-between">
-          <TabsList>
-            <TabsTrigger value="list">Tasks List</TabsTrigger>
-            <TabsTrigger value="insights">My Insights</TabsTrigger>
-            <TabsTrigger value="meetings">My Meetings</TabsTrigger>
-          </TabsList>
+      {(showTabs || showExport) && (
+        <div className="flex items-center justify-between gap-2">
+          {showTabs ? (
+            <TabsList>
+              <TabsTrigger value="list">Tasks List</TabsTrigger>
+              <TabsTrigger value="insights">My Insights</TabsTrigger>
+              <TabsTrigger value="meetings">My Meetings</TabsTrigger>
+            </TabsList>
+          ) : (
+            <div />
+          )}
+          {showExport && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExport}
+              disabled={exporting || total === 0}
+            >
+              <RiDownload2Line className="size-3.5" />
+              {exporting ? "Exporting…" : "Export Excel"}
+            </Button>
+          )}
         </div>
       )}
 
@@ -248,7 +310,6 @@ export function MyTasksView({
           fields={fields}
           onUpdate={updateParams}
           total={total}
-          targetEmail={targetEmail}
         />
 
         <ListView
