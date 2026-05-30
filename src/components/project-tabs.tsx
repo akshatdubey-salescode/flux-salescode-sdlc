@@ -11,6 +11,7 @@ import { ProjectTrackingTab } from "@/components/project-tracking";
 import { StatusMappingTabContent } from "@/components/status-mapping-editor";
 import { ProjectOverviewDashboard } from "@/components/project-overview/project-dashboard";
 import { ClientIssuesTab } from "@/components/client-issues";
+import { ProjectTeamClient } from "@/components/observer/team-timeline-client";
 
 type SyncJob = {
   id: string;
@@ -27,7 +28,7 @@ type Props = {
   isSuperuser: boolean;
 };
 
-const VALID_TABS = ["overview", "project-tracking", "sla-engine", "status-mapping", "client-issues"] as const;
+const VALID_TABS = ["overview", "project-tracking", "team", "sla-engine", "status-mapping", "client-issues"] as const;
 type Tab = (typeof VALID_TABS)[number];
 
 function isValidTab(value: string | null): value is Tab {
@@ -118,6 +119,7 @@ export function ProjectTabs({ projectId, jiraProjectKey, isAdmin, isSuperuser }:
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="project-tracking">Project Tracking</TabsTrigger>
+          <TabsTrigger value="team">Team Tracking</TabsTrigger>
           {isAdmin && (
             <TabsTrigger value="sla-engine">SLA Engine</TabsTrigger>
           )}
@@ -147,6 +149,10 @@ export function ProjectTabs({ projectId, jiraProjectKey, isAdmin, isSuperuser }:
 
             <TabsContent value="project-tracking">
               <ProjectTrackingTab projectId={projectId} />
+            </TabsContent>
+
+            <TabsContent value="team">
+              <ProjectTeamClient projectId={projectId} />
             </TabsContent>
 
             {isAdmin && (
