@@ -16,13 +16,17 @@ import {
   getRelevantQuarters,
   quarterBounds,
 } from "@/lib/date-utils";
-import { fetchTopUnplannedAssignees } from "./data";
+import {
+  fetchTopUnplannedAssignees,
+  fetchUnplannedIssuesForAssignee,
+} from "./data";
 import { FilterBar } from "./filter-bar";
 
 type SearchParams = Promise<{
   start?: string;
   end?: string;
   includeCompleted?: string;
+  assignee?: string;
 }>;
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -52,6 +56,130 @@ export default async function TopUnplannedAssigneesPage({
   const { start, end } = parseRange(sp);
   const includeCompleted = sp.includeCompleted === "1";
   const quarters = getRelevantQuarters();
+  const rangeQuery = `start=${start}&end=${end}${
+    includeCompleted ? "&includeCompleted=1" : ""
+  }`;
+
+  // Drill-down: the actual unplanned issues that make up one person's count.
+  if (sp.assignee) {
+    const detail = await fetchUnplannedIssuesForAssignee(
+      sp.assignee,
+      start,
+      end,
+      includeCompleted
+    );
+    return (
+      <div className="flex flex-col min-h-svh bg-zinc-50 dark:bg-zinc-950">
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
+          <SidebarTrigger />
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link href="/views">Views</Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link href={`/views/top-unplanned-assignees?${rangeQuery}`}>
+                    Top Unplanned Assignees
+                  </Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>{detail.name}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        </header>
+
+        <main className="flex-1 p-6">
+          <div className="max-w-4xl mx-auto space-y-6">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">
+                {detail.name}
+              </h1>
+              <p className="text-sm text-zinc-500 mt-1">
+                {detail.email} · {detail.issues.length} unplanned task
+                {detail.issues.length === 1 ? "" : "s"} in this period — each is
+                missing a start date, a due/end date, or both.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/80">
+                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">
+                      Issue
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">
+                      Status
+                    </th>
+                    <th className="px-4 py-2.5 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wide">
+                      Created
+                    </th>
+                    <th className="px-4 py-2.5 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wide">
+                      Assigned
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.issues.map((issue) => (
+                    <tr
+                      key={issue.jira_key}
+                      className="border-b border-zinc-100 dark:border-zinc-800/60 last:border-0"
+                    >
+                      <td className="px-4 py-3 align-top">
+                        <a
+                          href={issue.browse_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 font-mono text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+                        >
+                          {issue.jira_key}
+                          <RiArrowRightUpLine className="size-3 shrink-0 opacity-60" />
+                        </a>
+                        <span className="block text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 line-clamp-1 max-w-md">
+                          {issue.summary}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <span className="text-xs text-zinc-600 dark:text-zinc-400">
+                          {issue.status ?? "—"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right text-xs text-zinc-500 dark:text-zinc-400 tabular-nums align-top whitespace-nowrap">
+                        {new Date(issue.jira_created_at).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-right text-xs text-zinc-500 dark:text-zinc-400 tabular-nums align-top whitespace-nowrap">
+                        {issue.assigned_at
+                          ? new Date(issue.assigned_at).toLocaleString()
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+
+                  {detail.issues.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={4}
+                        className="px-4 py-8 text-center text-sm text-zinc-400"
+                      >
+                        No unplanned tasks in this period.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   const rows = await fetchTopUnplannedAssignees(start, end, includeCompleted);
 
@@ -125,8 +253,13 @@ export default async function TopUnplannedAssigneesPage({
                     <td className="px-4 py-3 text-xs text-zinc-400 tabular-nums align-top">
                       {row.rank}
                     </td>
-                    <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100 align-top">
-                      {row.name}
+                    <td className="px-4 py-3 font-medium align-top">
+                      <Link
+                        href={`/views/top-unplanned-assignees?${rangeQuery}&assignee=${encodeURIComponent(row.email)}`}
+                        className="text-zinc-900 hover:underline dark:text-zinc-100"
+                      >
+                        {row.name}
+                      </Link>
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400 align-top">
                       {row.email}
