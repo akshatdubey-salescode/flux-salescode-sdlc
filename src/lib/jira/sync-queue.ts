@@ -1,6 +1,7 @@
 import { eq, and, inArray, sql } from "drizzle-orm";
+import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
-import { jiraProjects, jiraSyncJobs } from "@/lib/db/schema";
+import { jiraProjects, jiraSyncJobs, jiraIssues, observerBoardMembers } from "@/lib/db/schema";
 import { JiraClient } from "./client";
 import { decrypt } from "@/lib/crypto";
 import { upsertIssue, resolveProjectFieldConfig, getDoneRawStatuses } from "./sync";
@@ -173,6 +174,32 @@ export async function runSyncJob(jobId: string): Promise<void> {
         errorMessages,
       })
       .where(eq(jiraSyncJobs.id, jobId));
+
+    // Invalidate Next.js data cache so overdue/unplanned/timeline views
+    // reflect freshly-synced data without waiting for cacheLife TTL expiry.
+    revalidateTag(`project:${job.projectId}`, "max");
+    revalidateTag("projects", "max");
+
+    // Also invalidate observer boards that include any assignee from this project.
+    const projectMembers = await db
+      .selectDistinct({ email: jiraIssues.assigneeEmail })
+      .from(jiraIssues)
+      .where(
+        and(
+          eq(jiraIssues.projectId, job.projectId),
+          sql`${jiraIssues.assigneeEmail} IS NOT NULL AND ${jiraIssues.assigneeEmail} != ''`
+        )
+      );
+    const emails = projectMembers.map((r) => r.email).filter(Boolean) as string[];
+    if (emails.length > 0) {
+      const boards = await db
+        .selectDistinct({ boardId: observerBoardMembers.boardId })
+        .from(observerBoardMembers)
+        .where(inArray(observerBoardMembers.email, emails));
+      for (const { boardId } of boards) {
+        revalidateTag(`board:${boardId}`, "max");
+      }
+    }
 
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
