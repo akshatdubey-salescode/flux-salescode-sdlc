@@ -1801,20 +1801,19 @@ function AtRiskTab({
     const needle = search.trim().toLowerCase();
     if (!needle) return data.byPerson;
     return data.byPerson
-      .map((p) => ({
-        ...p,
-        issues: p.issues.filter(
+      .map((p) => {
+        const matchesPerson =
+          p.name.toLowerCase().includes(needle) ||
+          p.email.toLowerCase().includes(needle);
+        const filteredIssues = p.issues.filter(
           (i) =>
             i.summary.toLowerCase().includes(needle) ||
             i.jiraKey.toLowerCase().includes(needle)
-        ),
-      }))
-      .filter(
-        (p) =>
-          p.name.toLowerCase().includes(needle) ||
-          p.email.toLowerCase().includes(needle) ||
-          p.issues.length > 0
-      );
+        );
+        // Person-name match → show all their issues; issue match → show only matching issues
+        return { ...p, issues: matchesPerson ? p.issues : filteredIssues };
+      })
+      .filter((p) => p.issues.length > 0);
   }, [data, search]);
 
   if (loading) return <div className="h-40 bg-muted rounded-xl animate-pulse" />;
@@ -2280,20 +2279,18 @@ function OverdueTab({
     const needle = search.trim().toLowerCase();
     if (!needle) return data.byPerson;
     return data.byPerson
-      .map((p) => ({
-        ...p,
-        issues: p.issues.filter(
+      .map((p) => {
+        const matchesPerson =
+          p.name.toLowerCase().includes(needle) ||
+          p.email.toLowerCase().includes(needle);
+        const filteredIssues = p.issues.filter(
           (i) =>
             i.summary.toLowerCase().includes(needle) ||
             i.jiraKey.toLowerCase().includes(needle)
-        ),
-      }))
-      .filter(
-        (p) =>
-          p.name.toLowerCase().includes(needle) ||
-          p.email.toLowerCase().includes(needle) ||
-          p.issues.length > 0
-      );
+        );
+        return { ...p, issues: matchesPerson ? p.issues : filteredIssues };
+      })
+      .filter((p) => p.issues.length > 0);
   }, [data, search]);
 
   if (loading) return <div className="h-40 bg-muted rounded-xl animate-pulse" />;
