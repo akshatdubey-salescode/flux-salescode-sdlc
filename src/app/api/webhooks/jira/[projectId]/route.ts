@@ -111,6 +111,27 @@ export async function POST(
             accountIdEmailMap
           );
           await collectAssigneeEmails(issue.id);
+
+          // If the Freshdesk Ticket ID was already filled in at creation time,
+          // link it now — the issue_updated path only fires on field *changes*,
+          // so a value present from the start would otherwise never be linked.
+          const fdFieldValue = (issue.fields as Record<string, unknown>)[FRESHDESK_CUSTOM_FIELD];
+          const fdId = fdFieldValue ? parseInt(String(fdFieldValue), 10) : null;
+          if (fdId && !isNaN(fdId)) {
+            const [created] = await db
+              .select({
+                id: jiraIssues.id,
+                jiraKey: jiraIssues.jiraKey,
+                status: jiraIssues.status,
+                assigneeName: jiraIssues.assigneeName,
+              })
+              .from(jiraIssues)
+              .where(and(eq(jiraIssues.projectId, projectId), eq(jiraIssues.jiraId, issue.id)))
+              .limit(1);
+            if (created) {
+              await relinkFreshdeskTicket(created.id, created.jiraKey, created.status, created.assigneeName, fdId, projectId);
+            }
+          }
         }
         break;
       }
