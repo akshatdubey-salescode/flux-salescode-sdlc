@@ -29,6 +29,23 @@ export async function getDoneRawStatuses(projectId: string): Promise<Set<string>
 
 const SYNC_CONCURRENCY = 5;
 
+// Issue fields we map onto dedicated columns; everything else is captured in
+// the customFields JSONB blob. Hoisted to module scope so the hot upsertIssue
+// path (webhook + every synced issue) doesn't rebuild the Set on each call.
+const KNOWN_ISSUE_FIELDS = new Set([
+  "summary",
+  "description",
+  "status",
+  "issuetype",
+  "priority",
+  "assignee",
+  "reporter",
+  "labels",
+  "created",
+  "updated",
+  "comment",
+]);
+
 // ---------------------------------------------------------------------------
 // Project sync — bulk fetch all issues and upsert into the database
 // ---------------------------------------------------------------------------
@@ -214,22 +231,9 @@ export async function upsertIssue(
   const f = raw.fields;
 
   // Extract custom fields (everything except the known mapped fields)
-  const knownFields = new Set([
-    "summary",
-    "description",
-    "status",
-    "issuetype",
-    "priority",
-    "assignee",
-    "reporter",
-    "labels",
-    "created",
-    "updated",
-    "comment",
-  ]);
   const customFields: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(f)) {
-    if (!knownFields.has(key) && value !== null && value !== undefined) {
+    if (!KNOWN_ISSUE_FIELDS.has(key) && value !== null && value !== undefined) {
       customFields[key] = value;
     }
   }

@@ -29,6 +29,14 @@ type ProjectCreds = {
 let cachedProjectCreds: { value: ProjectCreds[]; expiresAt: number } | null = null;
 const PROJECT_CACHE_TTL_MS = 60_000;
 
+// In-memory TTL cache for the accountId → email map. The Jira webhook calls
+// loadAccountIdEmailMap() on every issue event; without this each call ran two
+// table scans. Reused across invocations on a warm instance. Invalidated
+// immediately whenever a new identity is resolved (see ensure* below) so a
+// freshly linked account isn't masked for up to a full TTL.
+let cachedAccountIdEmailMap: { value: Map<string, string>; expiresAt: number } | null = null;
+const ACCOUNT_MAP_CACHE_TTL_MS = 60_000;
+
 async function getActiveProjectCreds(): Promise<ProjectCreds[]> {
   const now = Date.now();
   if (cachedProjectCreds && cachedProjectCreds.expiresAt > now) {
@@ -98,6 +106,10 @@ export async function ensureUserJiraAccountId(email: string): Promise<string | n
       .set({ jiraAccountId: accountId, updatedAt: new Date() })
       .where(eq(users.id, key));
 
+    // A new identity now exists — drop the cached map so the next webhook
+    // rebuilds it instead of serving a stale snapshot.
+    cachedAccountIdEmailMap = null;
+
     // Side-effect: any jira_issues that were assigned to this person but
     // arrived without an emailAddress are now linkable. Patch them so
     // existing queries (which still filter by email) work immediately.
@@ -131,6 +143,9 @@ export async function ensureMemberJiraAccountId(memberId: string): Promise<strin
       .update(observerBoardMembers)
       .set({ jiraAccountId: accountId })
       .where(eq(observerBoardMembers.id, memberId));
+
+    // A new identity now exists — drop the cached map (see above).
+    cachedAccountIdEmailMap = null;
 
     await backfillIssueEmailsForAccount(accountId, row.email.toLowerCase());
 
@@ -170,6 +185,10 @@ export async function backfillIssueEmailsForAccount(
  * incoming Jira payloads.
  */
 export async function loadAccountIdEmailMap(): Promise<Map<string, string>> {
+  const now = Date.now();
+  if (cachedAccountIdEmailMap && cachedAccountIdEmailMap.expiresAt > now) {
+    return cachedAccountIdEmailMap.value;
+  }
   const map = new Map<string, string>();
   const userRows = await db
     .select({ email: users.email, accountId: users.jiraAccountId })
@@ -187,5 +206,6 @@ export async function loadAccountIdEmailMap(): Promise<Map<string, string>> {
       map.set(r.accountId, r.email.toLowerCase());
     }
   }
+  cachedAccountIdEmailMap = { value: map, expiresAt: now + ACCOUNT_MAP_CACHE_TTL_MS };
   return map;
 }

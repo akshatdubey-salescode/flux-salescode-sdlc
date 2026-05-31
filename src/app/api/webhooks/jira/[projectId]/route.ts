@@ -94,10 +94,13 @@ export async function POST(
     if (row.additionalAssigneeEmails) affectedEmails.push(...row.additionalAssigneeEmails);
   }
 
-  // Loaded lazily per webhook invocation so emails stay populated even when
-  // Atlassian withholds emailAddress on the payload (see jira/identity.ts).
-  // The map is small and cheap to fetch.
-  const accountIdEmailMap = await loadAccountIdEmailMap();
+  // Resolved lazily and only for events that actually use it (issue
+  // created/updated). Comment and delete events skip the lookup entirely.
+  // identity.ts memoizes the result for ~60s across warm-instance invocations,
+  // so the per-webhook cost is amortized to near zero.
+  let accountIdEmailMapPromise: Promise<Map<string, string>> | null = null;
+  const getAccountIdEmailMap = () =>
+    (accountIdEmailMapPromise ??= loadAccountIdEmailMap());
 
   try {
     switch (webhookEvent) {
@@ -108,7 +111,7 @@ export async function POST(
             issue,
             project.multiAssigneeFieldId ?? undefined,
             undefined,
-            accountIdEmailMap
+            await getAccountIdEmailMap()
           );
           await collectAssigneeEmails(issue.id);
 
@@ -144,7 +147,7 @@ export async function POST(
             issue,
             project.multiAssigneeFieldId ?? undefined,
             undefined,
-            accountIdEmailMap
+            await getAccountIdEmailMap()
           );
           await collectAssigneeEmails(issue.id);
 
