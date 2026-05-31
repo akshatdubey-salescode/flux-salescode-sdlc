@@ -24,7 +24,7 @@ type TicketWithJiraDate = FreshdeskTicket & {
 // ─── column definitions ───────────────────────────────────────────────────────
 
 type ColumnId =
-  | "ticket" | "subject" | "fdStatus" | "priority"
+  | "ticket" | "subject" | "fdStatus" | "priority" | "type"
   | "jiraTicket" | "jiraStatus" | "jiraAssignee" | "jiraPriority"
   | "requester" | "fdCreated" | "jiraCreated" | "response" | "daysOpen" | "sla";
 
@@ -40,6 +40,7 @@ const COLUMNS: ColDef[] = [
   { id: "subject",     label: "Subject",      defaultVisible: true,  required: true },
   { id: "fdStatus",    label: "FD Status",    defaultVisible: true  },
   { id: "priority",    label: "Priority",     defaultVisible: true  },
+  { id: "type",        label: "Type",         defaultVisible: true  },
   { id: "jiraTicket",  label: "Jira Ticket",  defaultVisible: true  },
   { id: "jiraStatus",   label: "Jira Status",    defaultVisible: true  },
   { id: "jiraAssignee", label: "Jira Assignee", defaultVisible: true  },
@@ -101,8 +102,9 @@ function jiraPriorityColor(priority: string | null) {
 
 function fmtDate(val: string | Date | null | undefined): string {
   if (!val) return "—";
-  return new Date(val as string).toLocaleDateString("en-IN", {
+  return new Date(val as string).toLocaleString("en-IN", {
     day: "numeric", month: "short", year: "numeric",
+    hour: "numeric", minute: "2-digit", hour12: true,
   });
 }
 
@@ -156,6 +158,7 @@ const CSV_COLS: { id: ColumnId; header: string; get: (t: TicketWithJiraDate) => 
   { id: "subject",     header: "Subject",          get: (t) => t.subject },
   { id: "fdStatus",    header: "FD Status",        get: (t) => t.fdStatusLabel },
   { id: "priority",    header: "Priority",         get: (t) => t.fdPriorityLabel },
+  { id: "type",        header: "Type",             get: (t) => t.ticketType },
   { id: "jiraTicket",  header: "Jira Key",         get: (t) => t.linkedJiraKey },
   { id: "jiraStatus",   header: "Jira Status",    get: (t) => t.linkedJiraStatus },
   { id: "jiraAssignee", header: "Jira Assignee",  get: (t) => t.linkedJiraAssigneeName },
@@ -758,6 +761,7 @@ export function ClientIssuesTab({ projectId }: { projectId: string }) {
                     {col("subject")     && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500">Subject</th>}
                     {col("fdStatus")    && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">FD Status</th>}
                     {col("priority")    && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500">Priority</th>}
+                    {col("type")        && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500">Type</th>}
                     {col("jiraTicket")  && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Jira Ticket</th>}
                     {col("jiraStatus")   && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Jira Status</th>}
                     {col("jiraAssignee") && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Jira Assignee</th>}
@@ -796,6 +800,7 @@ export function ClientIssuesTab({ projectId }: { projectId: string }) {
                     {col("subject")     && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500">Subject</th>}
                     {col("fdStatus")    && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">FD Status</th>}
                     {col("priority")    && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500">Priority</th>}
+                    {col("type")        && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500">Type</th>}
                     {col("jiraTicket")  && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Jira Ticket</th>}
                     {col("jiraStatus")   && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Jira Status</th>}
                     {col("jiraAssignee") && <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 whitespace-nowrap">Jira Assignee</th>}
@@ -844,6 +849,11 @@ export function ClientIssuesTab({ projectId }: { projectId: string }) {
                             <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${priorityColor(ticket.fdPriority)}`}>
                               {ticket.fdPriorityLabel}
                             </span>
+                          </td>
+                        )}
+                        {col("type") && (
+                          <td className="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
+                            {ticket.ticketType ?? <span className="text-zinc-400">—</span>}
                           </td>
                         )}
                         {col("jiraTicket") && (

@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { freshdeskTickets, jiraIssues, jiraProjects } from "@/lib/db/schema";
 import {
   fetchCavinKareTickets,
+  fetchTicket,
   fdStatusLabel,
   fdPriorityLabel,
   type FdTicket,
@@ -141,7 +142,8 @@ export async function relinkFreshdeskTicket(
   jiraKey: string,
   jiraStatus: string,
   assigneeName: string | null,
-  fdTicketId: number | null
+  fdTicketId: number | null,
+  projectId: string
 ) {
   if (!fdTicketId) {
     // Field was cleared — unlink any ticket that was pointing to this issue
@@ -154,11 +156,16 @@ export async function relinkFreshdeskTicket(
         linkedJiraAssigneeName: null,
         syncedAt: new Date(),
       })
-      .where(eq(freshdeskTickets.linkedJiraIssueId, jiraIssueId));
+      .where(
+        and(
+          eq(freshdeskTickets.linkedJiraIssueId, jiraIssueId),
+          eq(freshdeskTickets.projectId, projectId)
+        )
+      );
     return;
   }
 
-  await db
+  const updated = await db
     .update(freshdeskTickets)
     .set({
       linkedJiraIssueId: jiraIssueId,
@@ -167,7 +174,61 @@ export async function relinkFreshdeskTicket(
       linkedJiraAssigneeName: assigneeName,
       syncedAt: new Date(),
     })
-    .where(eq(freshdeskTickets.fdTicketId, fdTicketId));
+    .where(
+      and(
+        eq(freshdeskTickets.fdTicketId, fdTicketId),
+        eq(freshdeskTickets.projectId, projectId)
+      )
+    )
+    .returning({ id: freshdeskTickets.id });
+
+  if (updated.length > 0) return;
+
+  // Ticket not yet in freshdeskTickets — fetch it from Freshdesk and insert so
+  // the link is not silently lost. This happens when a Jira issue is linked to
+  // an FD ticket that was created after the last Freshdesk sync.
+  try {
+    const ticket = await fetchTicket(fdTicketId);
+    await db
+      .insert(freshdeskTickets)
+      .values({
+        projectId,
+        fdTicketId: ticket.id,
+        subject: ticket.subject,
+        fdStatus: ticket.status,
+        fdStatusLabel: fdStatusLabel(ticket.status),
+        fdPriority: ticket.priority,
+        fdPriorityLabel: fdPriorityLabel(ticket.priority),
+        ticketType: ticket.type ?? null,
+        requesterName: ticket.requester?.name ?? null,
+        requesterEmail: ticket.requester?.email ?? null,
+        fdCompanyId: ticket.company_id ? String(ticket.company_id) : null,
+        fdCompanyName: ticket.company?.name ?? null,
+        dueBy: ticket.due_by ? new Date(ticket.due_by) : null,
+        frDueBy: ticket.fr_due_by ? new Date(ticket.fr_due_by) : null,
+        isEscalated: ticket.is_escalated,
+        frEscalated: ticket.fr_escalated,
+        linkedJiraIssueId: jiraIssueId,
+        linkedJiraKey: jiraKey,
+        linkedJiraStatus: jiraStatus,
+        linkedJiraAssigneeName: assigneeName,
+        fdCreatedAt: new Date(ticket.created_at),
+        fdUpdatedAt: new Date(ticket.updated_at),
+        syncedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [freshdeskTickets.projectId, freshdeskTickets.fdTicketId],
+        set: {
+          linkedJiraIssueId: jiraIssueId,
+          linkedJiraKey: jiraKey,
+          linkedJiraStatus: jiraStatus,
+          linkedJiraAssigneeName: assigneeName,
+          syncedAt: new Date(),
+        },
+      });
+  } catch (err) {
+    console.error(`[freshdesk-sync] failed to fetch ticket ${fdTicketId} for linking:`, err);
+  }
 }
 
 // Called from the Jira webhook when a linked issue's status changes
