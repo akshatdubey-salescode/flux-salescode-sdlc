@@ -129,7 +129,7 @@ export async function POST(
               .where(and(eq(jiraIssues.projectId, projectId), eq(jiraIssues.jiraId, issue.id)))
               .limit(1);
             if (created) {
-              await relinkFreshdeskTicket(created.id, created.jiraKey, created.status, created.assigneeName, fdId, projectId);
+              await relinkFreshdeskTicket(created.id, created.jiraKey, created.status, created.assigneeName, fdId);
             }
           }
         }
