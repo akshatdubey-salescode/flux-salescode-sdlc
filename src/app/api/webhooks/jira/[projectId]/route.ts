@@ -122,7 +122,7 @@ export async function POST(
           // so a value present from the start would otherwise never be linked.
           const fdFieldValue = (issue.fields as Record<string, unknown>)[FRESHDESK_CUSTOM_FIELD];
           const fdId = fdFieldValue ? parseInt(String(fdFieldValue), 10) : null;
-          if (fdId && !isNaN(fdId)) {
+          if (fdId !== null && fdId > 0) {
             await relinkFreshdeskTicket(created.id, created.jiraKey, created.status, created.assigneeName, fdId, projectId);
           }
         }
@@ -175,7 +175,6 @@ export async function POST(
               const fieldId = (item as Record<string, unknown>).fieldId as string | undefined;
               const isFreshdeskField =
                 fieldId === FRESHDESK_CUSTOM_FIELD ||
-                item.field === FRESHDESK_CUSTOM_FIELD ||
                 item.field === "Freshdesk Ticket ID";
               if (isFreshdeskField) {
                 const fdId = item.toString ? parseInt(item.toString, 10) : null;
@@ -184,7 +183,7 @@ export async function POST(
                   existingIssue.jiraKey,
                   existingIssue.status,
                   existingIssue.assigneeName,
-                  isNaN(fdId ?? NaN) ? null : fdId,
+                  fdId !== null && !isNaN(fdId) ? fdId : null,
                   projectId
                 );
               }

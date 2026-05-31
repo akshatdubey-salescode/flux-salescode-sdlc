@@ -145,7 +145,7 @@ export async function relinkFreshdeskTicket(
   fdTicketId: number | null,
   projectId: string
 ) {
-  if (!fdTicketId) {
+  if (fdTicketId === null) {
     // Field was cleared — unlink any ticket that was pointing to this issue
     await db
       .update(freshdeskTickets)
@@ -219,15 +219,36 @@ export async function relinkFreshdeskTicket(
       .onConflictDoUpdate({
         target: [freshdeskTickets.projectId, freshdeskTickets.fdTicketId],
         set: {
+          subject: ticket.subject,
+          fdStatus: ticket.status,
+          fdStatusLabel: fdStatusLabel(ticket.status),
+          fdPriority: ticket.priority,
+          fdPriorityLabel: fdPriorityLabel(ticket.priority),
+          ticketType: ticket.type ?? null,
+          requesterName: ticket.requester?.name ?? null,
+          requesterEmail: ticket.requester?.email ?? null,
+          fdCompanyId: ticket.company_id ? String(ticket.company_id) : null,
+          fdCompanyName: ticket.company?.name ?? null,
+          dueBy: ticket.due_by ? new Date(ticket.due_by) : null,
+          frDueBy: ticket.fr_due_by ? new Date(ticket.fr_due_by) : null,
+          isEscalated: ticket.is_escalated,
+          frEscalated: ticket.fr_escalated,
           linkedJiraIssueId: jiraIssueId,
           linkedJiraKey: jiraKey,
           linkedJiraStatus: jiraStatus,
           linkedJiraAssigneeName: assigneeName,
+          fdUpdatedAt: new Date(ticket.updated_at),
           syncedAt: new Date(),
         },
       });
   } catch (err) {
-    console.error(`[freshdesk-sync] failed to fetch ticket ${fdTicketId} for linking:`, err);
+    // 404 → ticket genuinely doesn't exist in Freshdesk; nothing to link, don't retry.
+    // Any other error is transient — re-throw so the webhook returns 500 and Jira retries.
+    if (err instanceof Error && err.message.includes(" 404 ")) {
+      console.error(`[freshdesk-sync] ticket ${fdTicketId} not found in Freshdesk, skipping link`);
+      return;
+    }
+    throw err;
   }
 }
 
