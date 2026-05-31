@@ -106,14 +106,16 @@ export async function POST(
     switch (webhookEvent) {
       case "jira:issue_created": {
         if (issue) {
-          await upsertIssue(
+          const created = await upsertIssue(
             projectId,
             issue,
             project.multiAssigneeFieldId ?? undefined,
             undefined,
             await getAccountIdEmailMap()
           );
-          await collectAssigneeEmails(issue.id);
+          // New assignees come from the upsert's RETURNING — no follow-up SELECT.
+          if (created.assigneeEmail) affectedEmails.push(created.assigneeEmail);
+          affectedEmails.push(...created.additionalAssigneeEmails);
 
           // If the Freshdesk Ticket ID was already filled in at creation time,
           // link it now — the issue_updated path only fires on field *changes*,
@@ -121,19 +123,7 @@ export async function POST(
           const fdFieldValue = (issue.fields as Record<string, unknown>)[FRESHDESK_CUSTOM_FIELD];
           const fdId = fdFieldValue ? parseInt(String(fdFieldValue), 10) : null;
           if (fdId && !isNaN(fdId)) {
-            const [created] = await db
-              .select({
-                id: jiraIssues.id,
-                jiraKey: jiraIssues.jiraKey,
-                status: jiraIssues.status,
-                assigneeName: jiraIssues.assigneeName,
-              })
-              .from(jiraIssues)
-              .where(and(eq(jiraIssues.projectId, projectId), eq(jiraIssues.jiraId, issue.id)))
-              .limit(1);
-            if (created) {
-              await relinkFreshdeskTicket(created.id, created.jiraKey, created.status, created.assigneeName, fdId, projectId);
-            }
+            await relinkFreshdeskTicket(created.id, created.jiraKey, created.status, created.assigneeName, fdId, projectId);
           }
         }
         break;
@@ -141,33 +131,23 @@ export async function POST(
 
       case "jira:issue_updated": {
         if (issue) {
+          // Capture the previous owners before the upsert (catches the prior
+          // assignee on a reassignment).
           await collectAssigneeEmails(issue.id);
-          await upsertIssue(
+          // The upsert's RETURNING gives us both the new owners and the row
+          // (id/key/status/assignee) the rest of this branch needs — replacing
+          // a second collectAssigneeEmails SELECT and a separate row SELECT.
+          const existingIssue = await upsertIssue(
             projectId,
             issue,
             project.multiAssigneeFieldId ?? undefined,
             undefined,
             await getAccountIdEmailMap()
           );
-          await collectAssigneeEmails(issue.id);
+          if (existingIssue.assigneeEmail) affectedEmails.push(existingIssue.assigneeEmail);
+          affectedEmails.push(...existingIssue.additionalAssigneeEmails);
 
-          const [existingIssue] = await db
-            .select({
-              id: jiraIssues.id,
-              jiraKey: jiraIssues.jiraKey,
-              status: jiraIssues.status,
-              assigneeName: jiraIssues.assigneeName,
-            })
-            .from(jiraIssues)
-            .where(
-              and(
-                eq(jiraIssues.projectId, projectId),
-                eq(jiraIssues.jiraId, issue.id)
-              )
-            )
-            .limit(1);
-
-          if (existingIssue && changelog?.items) {
+          if (changelog?.items) {
             const hasStatusChange = changelog.items.some(
               (item) => item.field === "status" && item.fromString && item.toString
             );

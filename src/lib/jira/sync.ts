@@ -221,13 +221,22 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
 // Issue upsert — insert or update a single issue and its related data
 // ---------------------------------------------------------------------------
 
+export type UpsertedIssue = {
+  id: string;
+  jiraKey: string;
+  status: string;
+  assigneeName: string | null;
+  assigneeEmail: string | null;
+  additionalAssigneeEmails: string[];
+};
+
 export async function upsertIssue(
   projectId: string,
   raw: JiraIssueRaw,
   multiAssigneeFieldId?: string,
   doneRawStatuses?: Set<string>,
   accountIdEmailMap?: Map<string, string>
-): Promise<void> {
+): Promise<UpsertedIssue> {
   const f = raw.fields;
 
   // Extract custom fields (everything except the known mapped fields)
@@ -333,13 +342,24 @@ export async function upsertIssue(
     updateSet.timeInStatus = issueValues.timeInStatus;
   }
 
-  await db
+  // RETURNING lets the webhook caller reuse the persisted row (id, key, status,
+  // assignees) instead of issuing follow-up SELECTs against the same row.
+  const [row] = await db
     .insert(jiraIssues)
     .values(issueValues)
     .onConflictDoUpdate({
       target: [jiraIssues.projectId, jiraIssues.jiraId],
       set: updateSet,
+    })
+    .returning({
+      id: jiraIssues.id,
+      jiraKey: jiraIssues.jiraKey,
+      status: jiraIssues.status,
+      assigneeName: jiraIssues.assigneeName,
+      assigneeEmail: jiraIssues.assigneeEmail,
+      additionalAssigneeEmails: jiraIssues.additionalAssigneeEmails,
     });
+  return row;
 }
 
 // ---------------------------------------------------------------------------
