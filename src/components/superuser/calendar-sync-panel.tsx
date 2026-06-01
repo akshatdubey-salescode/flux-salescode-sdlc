@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { RiCalendarLine, RiCheckLine, RiErrorWarningLine, RiLoader4Line } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,40 +17,64 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import type { CalendarSyncChunk } from "@/app/api/superuser/calendar-sync/route";
 
-type SyncStats = {
-  totalUsers: number;
-  ok: number;
-  skipped: number;
-  errors: { userId: string; error: string }[];
-  eventsUpserted: number;
-  deletions: number;
-};
+type SyncProgress = Omit<CalendarSyncChunk, "type">;
 
 export function CalendarSyncPanel({ connectedUsers }: { connectedUsers: number }) {
-  const [isPending, startTransition] = useTransition();
-  const [result, setResult] = useState<SyncStats | null>(null);
+  const [isRunning, setIsRunning] = useState(false);
+  const [progress, setProgress] = useState<SyncProgress | null>(null);
+  const [isDone, setIsDone] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [syncConfirmText, setSyncConfirmText] = useState("");
 
-  function handleSync() {
-    setResult(null);
+  async function handleSync() {
     setFetchError(null);
-    startTransition(async () => {
-      try {
-        const res = await fetch("/api/superuser/calendar-sync", { method: "POST" });
-        const data = await res.json();
-        if (!res.ok) {
-          setFetchError(data.error ?? "Sync failed.");
-          return;
-        }
-        setResult(data as SyncStats);
-      } catch {
-        setFetchError("An unexpected error occurred.");
+    setProgress(null);
+    setIsDone(false);
+    setIsRunning(true);
+
+    try {
+      const res = await fetch("/api/superuser/calendar-sync", { method: "POST" });
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}));
+        setFetchError((data as { error?: string }).error ?? "Sync failed.");
+        setIsRunning(false);
+        return;
       }
-    });
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop()!;
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const chunk = JSON.parse(line) as CalendarSyncChunk;
+            setProgress({ ...chunk });
+            if (chunk.type === "done") setIsDone(true);
+          } catch {
+            // ignore malformed lines
+          }
+        }
+      }
+    } catch {
+      setFetchError("An unexpected error occurred.");
+    }
+
+    setIsRunning(false);
   }
+
+  const pct = progress && progress.totalUsers > 0
+    ? Math.round((progress.processed / progress.totalUsers) * 100)
+    : 0;
 
   return (
     <div className="space-y-4">
@@ -66,7 +91,7 @@ export function CalendarSyncPanel({ connectedUsers }: { connectedUsers: number }
             </p>
           </div>
 
-          {isPending ? (
+          {isRunning ? (
             <Button disabled className="gap-2 shrink-0">
               <RiLoader4Line className="size-4 animate-spin" />
               Syncing…
@@ -79,7 +104,7 @@ export function CalendarSyncPanel({ connectedUsers }: { connectedUsers: number }
               <AlertDialogTrigger asChild>
                 <Button disabled={connectedUsers === 0} className="gap-2 shrink-0">
                   <RiCalendarLine className="size-4" />
-                  {result ? "Sync Again" : "Run Sync"}
+                  {isDone ? "Sync Again" : "Run Sync"}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
@@ -121,10 +146,26 @@ export function CalendarSyncPanel({ connectedUsers }: { connectedUsers: number }
           )}
         </div>
 
-        {isPending && (
-          <div className="flex items-center gap-2 text-xs text-zinc-500 pt-1 border-t border-zinc-100 dark:border-zinc-800">
+        {/* Live progress while running */}
+        {isRunning && progress && (
+          <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800 space-y-3">
+            <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
+              <span className="flex items-center gap-1.5">
+                <RiLoader4Line className="size-3.5 animate-spin shrink-0" />
+                Processing user {progress.processed} of {progress.totalUsers}…
+              </span>
+              <span className="tabular-nums">{pct}%</span>
+            </div>
+            <Progress value={pct} className="h-1.5" />
+            <LiveStats progress={progress} />
+          </div>
+        )}
+
+        {/* Spinner before first chunk arrives */}
+        {isRunning && !progress && (
+          <div className="flex items-center gap-2 text-xs text-zinc-500 pt-3 border-t border-zinc-100 dark:border-zinc-800">
             <RiLoader4Line className="size-3.5 animate-spin shrink-0" />
-            Syncing calendars for {connectedUsers} user{connectedUsers !== 1 ? "s" : ""}…
+            Starting sync…
           </div>
         )}
 
@@ -135,13 +176,33 @@ export function CalendarSyncPanel({ connectedUsers }: { connectedUsers: number }
           </div>
         )}
 
-        {result && !isPending && <SyncResultSummary result={result} />}
+        {isDone && progress && !isRunning && <SyncResultSummary result={progress} />}
       </div>
     </div>
   );
 }
 
-function SyncResultSummary({ result }: { result: SyncStats }) {
+function LiveStats({ progress }: { progress: SyncProgress }) {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      {[
+        { label: "Synced", value: progress.ok, color: "text-green-600 dark:text-green-400" },
+        { label: "Skipped", value: progress.skipped, color: "" },
+        { label: "Events", value: progress.eventsUpserted, color: "text-blue-600 dark:text-blue-400" },
+        { label: "Errors", value: progress.errors.length, color: progress.errors.length > 0 ? "text-red-600 dark:text-red-400" : "" },
+      ].map(({ label, value, color }) => (
+        <div key={label} className="rounded-md bg-zinc-50 dark:bg-zinc-800/50 px-3 py-2">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">{label}</p>
+          <p className={cn("text-base font-semibold tabular-nums leading-tight mt-0.5", color || "text-zinc-800 dark:text-zinc-200")}>
+            {value.toLocaleString()}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SyncResultSummary({ result }: { result: SyncProgress }) {
   const hasErrors = result.errors.length > 0;
 
   return (
@@ -178,7 +239,7 @@ function SyncResultSummary({ result }: { result: SyncStats }) {
           <ul className="space-y-1">
             {result.errors.map(({ userId, error }) => (
               <li key={userId} className="text-[11px] text-red-600 dark:text-red-400">
-                <span className={cn("font-mono")}>{userId}</span>
+                <span className="font-mono">{userId}</span>
                 {" — "}
                 {error}
               </li>
