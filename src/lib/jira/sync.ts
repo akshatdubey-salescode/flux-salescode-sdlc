@@ -3,10 +3,16 @@ import { db } from "@/lib/db";
 import {
   jiraProjects,
   jiraIssues,
+  jiraAssigneeChanges,
   projectStatusMappings,
 } from "@/lib/db/schema";
 import { JiraClient, type JiraIssueRaw } from "./client";
-import { computeRollup, applyTransition } from "./changelog";
+import {
+  computeRollup,
+  applyTransition,
+  extractAssigneeChanges,
+  deriveAssigneeSince,
+} from "./changelog";
 import { decrypt } from "@/lib/crypto";
 import { loadAccountIdEmailMap } from "./identity";
 
@@ -288,6 +294,20 @@ export async function upsertIssue(
   const rollup = doneSet ? computeRollup(raw, doneSet) : null;
   const createdAt = f.created ? new Date(f.created) : new Date();
 
+  // Assignee history is only derivable from the full changelog (bulk sync).
+  // Webhook upserts carry no changelog, so we leave the assignee_since rollup
+  // and the assignee-change log untouched here — the webhook maintains them
+  // incrementally. For a first-time insert without a changelog, fall back to
+  // creation time when the issue is currently assigned.
+  const assigneeChanges = hasChangelog
+    ? extractAssigneeChanges(raw, accountIdEmailMap)
+    : null;
+  const assigneeSince = hasChangelog
+    ? deriveAssigneeSince(raw)
+    : f.assignee
+      ? createdAt
+      : null;
+
   const issueValues = {
     projectId,
     jiraId: raw.id,
@@ -311,6 +331,7 @@ export async function upsertIssue(
     jiraUpdatedAt: f.updated ? new Date(f.updated) : null,
     completedAt: rollup?.completedAt ?? null,
     currentStatusSince: rollup?.currentStatusSince ?? createdAt,
+    assigneeSince,
     timeInStatus: rollup?.timeInStatus ?? {},
     syncedAt: new Date(),
   };
@@ -335,10 +356,12 @@ export async function upsertIssue(
     jiraUpdatedAt: issueValues.jiraUpdatedAt,
     syncedAt: issueValues.syncedAt,
   };
-  // Only refresh the rollup when we computed it from a full changelog.
+  // Only refresh the rollup (and assignee_since, also changelog-derived) when
+  // we computed it from a full changelog.
   if (rollup) {
     updateSet.completedAt = issueValues.completedAt;
     updateSet.currentStatusSince = issueValues.currentStatusSince;
+    updateSet.assigneeSince = issueValues.assigneeSince;
     updateSet.timeInStatus = issueValues.timeInStatus;
   }
 
@@ -368,6 +391,49 @@ export async function upsertIssue(
       assigneeEmail: jiraIssues.assigneeEmail,
       additionalAssigneeEmails: jiraIssues.additionalAssigneeEmails,
     });
+
+  // Persist the assignee-change event log, idempotent on changelog history id.
+  // The accountIds and derived flags are immutable, but the resolved emails/
+  // names can improve as the accountId→email map fills in, so we refresh those
+  // on conflict (self-healing) rather than skipping.
+  if (row && assigneeChanges && assigneeChanges.length > 0) {
+    await db
+      .insert(jiraAssigneeChanges)
+      .values(
+        assigneeChanges.map((c) => ({
+          issueId: row.id,
+          projectId,
+          changelogHistoryId: c.changelogHistoryId,
+          changedAt: c.changedAt,
+          authorAccountId: c.authorAccountId,
+          authorEmail: c.authorEmail,
+          authorName: c.authorName,
+          fromAccountId: c.fromAccountId,
+          fromEmail: c.fromEmail,
+          fromName: c.fromName,
+          toAccountId: c.toAccountId,
+          toEmail: c.toEmail,
+          toName: c.toName,
+          isSelfRemoval: c.isSelfRemoval,
+          toKind: c.toKind,
+        }))
+      )
+      .onConflictDoUpdate({
+        target: [
+          jiraAssigneeChanges.issueId,
+          jiraAssigneeChanges.changelogHistoryId,
+        ],
+        set: {
+          authorEmail: sql`excluded.author_email`,
+          authorName: sql`excluded.author_name`,
+          fromEmail: sql`excluded.from_email`,
+          fromName: sql`excluded.from_name`,
+          toEmail: sql`excluded.to_email`,
+          toName: sql`excluded.to_name`,
+        },
+      });
+  }
+
   if (row) return row;
 
   // The ordering guard skipped a stale event, so DO UPDATE matched no row and

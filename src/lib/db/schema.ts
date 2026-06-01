@@ -173,6 +173,11 @@ export const jiraIssues = pgTable(
     completedAt: timestamp("completed_at", { withTimezone: true }),
     // When the issue entered its current status. Drives SLA time-in-condition.
     currentStatusSince: timestamp("current_status_since", { withTimezone: true }),
+    // When the current assignee took ownership — most recent assignee change
+    // landing on them, or issue creation if assigned at creation and never
+    // reassigned. NULL when unassigned. Powers the "assigned ≥24h ago" filter
+    // on the unplanned-assignees view so freshly-assigned work isn't penalized.
+    assigneeSince: timestamp("assignee_since", { withTimezone: true }),
     // Finalized seconds spent per raw status (open current segment excluded).
     timeInStatus: jsonb("time_in_status")
       .$type<Record<string, number>>()
@@ -194,6 +199,67 @@ export const jiraIssues = pgTable(
       t.projectId,
       t.jiraUpdatedAt
     ),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Jira Assignee Changes — per-event log of assignee transitions, parsed from
+// the changelog at sync time. Unlike the status rollup, this detail can't be
+// rolled up: detecting "who removed themselves" requires the individual events.
+// Powers the self-deassigners view (Top developers reassigning work off
+// themselves).
+// ---------------------------------------------------------------------------
+
+export const jiraAssigneeToKindEnum = pgEnum("jira_assignee_to_kind", [
+  "unassigned",
+  "reporter",
+  "other",
+]);
+
+export const jiraAssigneeChanges = pgTable(
+  "jira_assignee_changes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    issueId: uuid("issue_id")
+      .notNull()
+      .references(() => jiraIssues.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => jiraProjects.id, { onDelete: "cascade" }),
+    // Jira changelog history id — stable per transition, used for idempotent
+    // re-sync (the full changelog is re-parsed on every sync).
+    changelogHistoryId: text("changelog_history_id").notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull(),
+    // Who made the change.
+    authorAccountId: text("author_account_id"),
+    authorEmail: text("author_email"),
+    authorName: text("author_name"),
+    // Previous assignee (the person work moved off of).
+    fromAccountId: text("from_account_id"),
+    fromEmail: text("from_email"),
+    fromName: text("from_name"),
+    // New assignee (null when unassigned).
+    toAccountId: text("to_account_id"),
+    toEmail: text("to_email"),
+    toName: text("to_name"),
+    // Author removed themselves as assignee (author === previous assignee).
+    isSelfRemoval: boolean("is_self_removal").notNull().default(false),
+    toKind: jiraAssigneeToKindEnum("to_kind").notNull().default("other"),
+  },
+  (t) => [
+    uniqueIndex("jira_assignee_changes_issue_history_idx").on(
+      t.issueId,
+      t.changelogHistoryId
+    ),
+    index("jira_assignee_changes_self_removal_idx").on(
+      t.isSelfRemoval,
+      t.changedAt
+    ),
+    index("jira_assignee_changes_author_idx").on(
+      t.authorAccountId,
+      t.changedAt
+    ),
+    index("jira_assignee_changes_project_idx").on(t.projectId),
   ]
 );
 

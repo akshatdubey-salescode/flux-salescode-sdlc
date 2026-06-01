@@ -20,6 +20,8 @@ import {
   RiArrowUpSLine,
   RiArrowDownSLine,
   RiInformationLine,
+  RiAlarmWarningLine,
+  RiCheckLine,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -34,6 +36,8 @@ import type {
   IssueLabel,
 } from "@/app/api/observer/boards/[boardId]/timeline/route";
 import type { UnplannedResponse, UnplannedPersonGroup, UnplannedIssueItem } from "@/app/api/observer/boards/[boardId]/unplanned/route";
+import type { OverdueResponse, OverduePersonGroup, OverdueIssueItem } from "@/app/api/observer/boards/[boardId]/overdue/route";
+import type { AtRiskResponse, AtRiskPersonGroup, AtRiskIssueItem } from "@/app/api/observer/boards/[boardId]/at-risk/route";
 import type { MeetingEvent, MeetingsResponse } from "@/app/api/observer/boards/[boardId]/meetings/route";
 import { statusCategoryStyles, priorityStyles, issueTypeStyles } from "@/components/project-tracking/helpers";
 import { TeamGanttClient } from "@/components/observer/team-gantt-client";
@@ -64,6 +68,12 @@ function useDebounce(value: string, delay: number): string {
 
 function todayStr() {
   return localDateStr(new Date());
+}
+
+function localNowStr() {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 function formatMeetingDuration(minutes: number): string {
@@ -115,6 +125,63 @@ function initials(name: string): string {
     .join("")
     .toUpperCase()
     .slice(0, 2);
+}
+
+function fmtShortDate(dateStr: string): string {
+  return new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function buildAlertMessage(
+  data: TimelineResponse,
+  name: string | undefined,
+  context: "board" | "project",
+): string {
+  const label = context === "board" ? "Board" : "Project";
+  const today = todayStr();
+  const dateLabel = new Date(today + "T12:00:00").toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  const jiraUrl = (issue: { jiraBaseUrl: string; jiraKey: string }) =>
+    `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`;
+
+  const overdueLines: string[] = [];
+  for (const m of data.members) {
+    for (const i of m.overdueIssues ?? []) {
+      const days = Math.abs(i.daysRemaining ?? 0);
+      overdueLines.push(
+        `• ${i.summary} — ${m.name} (${days} day${days !== 1 ? "s" : ""} overdue)\n  ${jiraUrl(i)}`,
+      );
+    }
+  }
+
+  const atRiskLines: string[] = [];
+  for (const m of data.members) {
+    for (const i of m.issues.filter((x) => x.label === "at_risk")) {
+      atRiskLines.push(
+        `• ${i.summary} — ${m.name} (due ${fmtShortDate(i.dueDate)})\n  ${jiraUrl(i)}`,
+      );
+    }
+  }
+
+  const sections: string[] = [`📊 Team Health Update — ${dateLabel}`];
+  if (name) sections.push(`${label}: ${name}`);
+  if (overdueLines.length) {
+    sections.push(
+      `\n🔴 Overdue — ${overdueLines.length} issue${overdueLines.length !== 1 ? "s" : ""}\n${overdueLines.join("\n")}`,
+    );
+  }
+  if (atRiskLines.length) {
+    sections.push(
+      `\n🟡 At Risk — ${atRiskLines.length} issue${atRiskLines.length !== 1 ? "s" : ""}\n${atRiskLines.join("\n")}`,
+    );
+  }
+  return sections.join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -495,44 +562,86 @@ function DateFilterBar({
 
 function SummaryCards({
   summary,
-  onUnplannedClick,
+  onTabClick,
   quarterLabel,
+  unassignedCount,
 }: {
   summary: TimelineResponse["summary"];
-  onUnplannedClick: () => void;
+  onTabClick: (tab: string) => void;
   quarterLabel?: string;
+  unassignedCount?: number;
 }) {
-  const stats: { label: string; value: number; dot: string | null }[] = [
-    { label: "Active", value: summary.active, dot: null },
-    { label: "At Risk", value: summary.atRisk, dot: summary.atRisk > 0 ? "bg-amber-400" : null },
-    { label: "Overdue", value: summary.overdue, dot: summary.overdue > 0 ? "bg-red-500" : null },
-    { label: "Completed", value: summary.completed, dot: null },
+  const workload = summary.onTrack + summary.atRisk;
+  const stats: { label: string; value: number; dot: string | null; tab: string; tip: string }[] = [
+    { label: "Workload",  value: workload,          dot: null,                                             tab: "timeline",  tip: "Tasks your team is actively working on today — running on the selected date."         },
+    { label: "Active",    value: summary.active,    dot: null,                                             tab: "active",    tip: "All open tasks — On Track + At Risk + Overdue combined."                             },
+    { label: "On Track",  value: summary.onTrack,   dot: summary.onTrack > 0 ? "bg-blue-500" : null,      tab: "timeline",  tip: "Scheduled tasks running today with enough time left. No action needed."              },
+    { label: "At Risk",   value: summary.atRisk,    dot: summary.atRisk > 0 ? "bg-amber-400" : null,      tab: "at-risk",   tip: "Tasks running out of time — less than 20% of their scheduled hours remain. Check in." },
+    { label: "Overdue",   value: summary.overdue,   dot: summary.overdue > 0 ? "bg-red-500" : null,       tab: "overdue",   tip: "Tasks that missed their due date and are still open. Needs follow-up."               },
+    { label: "Completed", value: summary.completed, dot: summary.completed > 0 ? "bg-emerald-500" : null, tab: "completed", tip: "Tasks finished within the selected date range."                                       },
   ];
 
   return (
-    <div className="flex items-stretch mb-6 rounded-lg border border-border bg-card divide-x divide-border overflow-hidden">
-      {stats.map((stat) => (
-        <div key={stat.label} className="flex items-center gap-2.5 px-5 py-3 flex-1">
-          {stat.dot && <span className={`size-1.5 rounded-full shrink-0 ${stat.dot}`} />}
-          <span className="text-sm font-semibold tabular-nums text-foreground">
-            {stat.value}
-          </span>
-          <span className="text-xs text-muted-foreground">{stat.label}</span>
-        </div>
-      ))}
+    <TooltipProvider>
+      <div className="flex items-stretch mb-6 rounded-lg border border-border bg-card divide-x divide-border overflow-hidden">
+        {stats.map((stat) => (
+          <Tooltip key={stat.label}>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => onTabClick(stat.tab)}
+                className="flex items-center gap-2.5 px-5 py-3 flex-1 text-left hover:bg-muted/50 transition-colors group"
+              >
+                {stat.dot && <span className={`size-1.5 rounded-full shrink-0 ${stat.dot}`} />}
+                <span className="text-sm font-semibold tabular-nums text-foreground">{stat.value}</span>
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+                  {stat.label}
+                  <RiInformationLine size={11} className="opacity-30 group-hover:opacity-70 transition-opacity shrink-0" />
+                </span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-56 text-center">{stat.tip}</TooltipContent>
+          </Tooltip>
+        ))}
 
-      <button
-        onClick={onUnplannedClick}
-        className="flex items-center gap-2.5 px-5 py-3 flex-1 text-left hover:bg-muted/50 transition-colors group"
-      >
-        <span className="text-sm font-semibold tabular-nums text-foreground">
-          {summary.unplanned}
-        </span>
-        <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
-          Unplanned{quarterLabel ? ` in ${quarterLabel}` : ""} →
-        </span>
-      </button>
-    </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => onTabClick("unplanned")}
+              className="flex items-center gap-2.5 px-5 py-3 flex-1 text-left hover:bg-muted/50 transition-colors group"
+            >
+              <span className="text-sm font-semibold tabular-nums text-foreground">{summary.unplanned}</span>
+              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+                Unplanned
+                <RiInformationLine size={11} className="opacity-30 group-hover:opacity-70 transition-opacity shrink-0" />
+              </span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-56 text-center">
+            Tasks with no start or due date — they exist but haven&apos;t been scheduled yet.
+          </TooltipContent>
+        </Tooltip>
+
+        {unassignedCount !== undefined && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => onTabClick("unassigned")}
+                className="flex items-center gap-2.5 px-5 py-3 flex-1 text-left hover:bg-muted/50 transition-colors group"
+              >
+                <span className="text-sm font-semibold tabular-nums text-foreground">{unassignedCount}</span>
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+                  Unassigned
+                  <RiInformationLine size={11} className="opacity-30 group-hover:opacity-70 transition-opacity shrink-0" />
+                </span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-56 text-center">
+              Tasks no one owns yet. Assign them to keep work moving.
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+    </TooltipProvider>
   );
 }
 
@@ -1350,7 +1459,7 @@ function UnplannedPersonTable({
   );
 }
 
-function UnplannedWithDateFilter({ boardId, start, end }: { boardId: string; start: string; end: string }) {
+function UnplannedWithDateFilter({ apiBase, start, end }: { apiBase: string; start: string; end: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -1380,7 +1489,7 @@ function UnplannedWithDateFilter({ boardId, start, end }: { boardId: string; sta
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/observer/boards/${boardId}/unplanned?start=${s}&end=${e}`
+        `${apiBase}/unplanned?start=${s}&end=${e}`
       );
       if (res.ok) setData(await res.json());
     } catch {
@@ -1388,7 +1497,7 @@ function UnplannedWithDateFilter({ boardId, start, end }: { boardId: string; sta
     } finally {
       setLoading(false);
     }
-  }, [boardId]);
+  }, [apiBase]);
 
   useEffect(() => { load(start, end); }, [start, end, load]);
 
@@ -1527,18 +1636,729 @@ function UnplannedWithDateFilter({ boardId, start, end }: { boardId: string; sta
 }
 
 // ---------------------------------------------------------------------------
+// At Risk tab
+// ---------------------------------------------------------------------------
+
+function formatHoursRemaining(hours: number): string {
+  if (hours <= 0) return "0h left";
+  if (hours < 1) return `${Math.round(hours * 60)}m left`;
+  const h = Math.floor(hours);
+  const m = Math.round((hours - h) * 60);
+  return m > 0 ? `${h}h ${m}m left` : `${h}h left`;
+}
+
+function AtRiskIssueRow({ issue }: { issue: AtRiskIssueItem }) {
+  const jiraUrl = `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`;
+  const tStyles = issueTypeStyles(issue.issueType);
+  const sStyles = statusCategoryStyles(issue.statusCategory);
+  const pStyles = priorityStyles(issue.priority);
+
+  const urgencyColor =
+    issue.percentRemaining <= 5
+      ? "text-red-600 dark:text-red-400 font-bold"
+      : issue.percentRemaining <= 10
+      ? "text-orange-600 dark:text-orange-400 font-semibold"
+      : "text-amber-600 dark:text-amber-400 font-semibold";
+
+  return (
+    <tr className="bg-card hover:bg-muted/40 transition-colors">
+      <td className="px-3 py-2.5">
+        <span
+          className={`flex size-5 items-center justify-center rounded text-[10px] font-bold ${tStyles.bg} ${tStyles.text}`}
+          title={issue.issueType}
+        >
+          {tStyles.abbr}
+        </span>
+      </td>
+      <td className="px-3 py-2.5">
+        <a
+          href={jiraUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-mono font-semibold text-muted-foreground hover:text-foreground inline-flex items-center gap-0.5"
+        >
+          {issue.jiraKey}
+          <RiExternalLinkLine size={10} className="opacity-60" />
+        </a>
+      </td>
+      <td className="px-3 py-2.5 max-w-0">
+        <a
+          href={jiraUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block truncate font-medium text-foreground hover:underline"
+          title={issue.summary}
+        >
+          {issue.summary}
+        </a>
+      </td>
+      <td className="px-3 py-2.5">
+        <span className={`inline-block rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${sStyles.badge}`}>
+          {issue.status}
+        </span>
+      </td>
+      <td className="px-3 py-2.5">
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`size-1.5 rounded-full ${pStyles.dot}`} />
+          <span className={`font-medium ${pStyles.text}`}>{issue.priority ?? "—"}</span>
+        </span>
+      </td>
+      <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">
+        {formatDateRange(issue.startDate, issue.dueDate)}
+      </td>
+      <td className="px-3 py-2.5 text-right whitespace-nowrap text-xs">
+        <span className={urgencyColor}>{formatHoursRemaining(issue.remainingWorkingHours)}</span>
+        <span className="ml-1 text-muted-foreground">({Math.round(issue.percentRemaining)}%)</span>
+      </td>
+    </tr>
+  );
+}
+
+function AtRiskPersonCard({ person }: { person: AtRiskPersonGroup }) {
+  const [open, setOpen] = useState(true);
+
+  return (
+    <div className="rounded-xl border border-amber-200 dark:border-amber-800/50 bg-card overflow-hidden shadow-sm">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-4 px-4 py-3 border-b border-amber-100 dark:border-amber-900/40 bg-amber-50/40 dark:bg-amber-950/10 hover:bg-amber-50/70 dark:hover:bg-amber-950/20 text-left transition-colors cursor-pointer select-none"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <RiTimeLine size={14} className="text-amber-500 shrink-0" />
+          <span className="font-semibold text-sm text-foreground truncate">{person.name}</span>
+          <span className="text-xs text-muted-foreground truncate">{person.email}</span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 text-xs font-semibold px-2 py-0.5">
+            {person.issues.length} at risk
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500 text-white text-xs font-bold px-2 py-0.5">
+            {formatHoursRemaining(person.issues[0].remainingWorkingHours)}
+          </span>
+          {open ? <RiArrowUpSLine size={16} className="text-muted-foreground" /> : <RiArrowDownSLine size={16} className="text-muted-foreground" />}
+        </div>
+      </button>
+
+      {open && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Type</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Key</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Summary</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Priority</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date Range</th>
+                <th className="px-3 py-2 text-right font-medium text-muted-foreground">Time Left</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {person.issues.map((issue) => (
+                <AtRiskIssueRow key={issue.id} issue={issue} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AtRiskTab({
+  apiBase,
+  quarterStart,
+  quarterEnd,
+}: {
+  apiBase: string;
+  quarterStart: string;
+  quarterEnd: string;
+}) {
+  const [data, setData] = useState<AtRiskResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const [search, setSearch] = useState("");
+
+  const load = useCallback(async (qs: string, qe: string) => {
+    setLoading(true);
+    try {
+      const now = encodeURIComponent(localNowStr());
+      const res = await fetch(
+        `${apiBase}/at-risk?now=${now}&qstart=${qs}&qend=${qe}`
+      );
+      if (res.ok) setData(await res.json());
+    } catch {
+      // network failure
+    } finally {
+      setLoading(false);
+    }
+  }, [apiBase]);
+
+  useEffect(() => { load(quarterStart, quarterEnd); }, [quarterStart, quarterEnd, load]);
+
+  const filteredPersons = useMemo(() => {
+    if (!data) return [];
+    const needle = search.trim().toLowerCase();
+    if (!needle) return data.byPerson;
+    return data.byPerson
+      .map((p) => {
+        const matchesPerson =
+          p.name.toLowerCase().includes(needle) ||
+          p.email.toLowerCase().includes(needle);
+        const filteredIssues = p.issues.filter(
+          (i) =>
+            i.summary.toLowerCase().includes(needle) ||
+            i.jiraKey.toLowerCase().includes(needle)
+        );
+        // Person-name match → show all their issues; issue match → show only matching issues
+        return { ...p, issues: matchesPerson ? p.issues : filteredIssues };
+      })
+      .filter((p) => p.issues.length > 0);
+  }, [data, search]);
+
+  if (loading) return <div className="h-40 bg-muted rounded-xl animate-pulse" />;
+
+  if (!data || data.totalCount === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <RiCheckboxCircleLine size={28} className="text-green-500 mb-3" />
+        <p className="text-sm font-medium text-foreground">No at-risk tasks</p>
+        <p className="text-xs text-muted-foreground mt-1">All planned work has more than 20% of its working time remaining.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <RiTimeLine size={14} className="text-amber-500" />
+          <span className="text-sm font-semibold text-amber-600 dark:text-amber-400">
+            {data.totalCount} at-risk {data.totalCount === 1 ? "task" : "tasks"}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            — tasks in their last 20% of working time
+          </span>
+        </div>
+      </div>
+
+      <div className="relative mb-5">
+        <RiSearchLine size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by name, email or Jira title…"
+          className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30"
+        />
+      </div>
+
+      {filteredPersons.length === 0 ? (
+        <div className="py-10 text-center">
+          <p className="text-sm text-muted-foreground">No results for &ldquo;{search}&rdquo;.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filteredPersons.map((person) => (
+            <AtRiskPersonCard key={person.email} person={person} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Active tab — per-person view of all tasks (overdue + on-track + at-risk + done)
+// ---------------------------------------------------------------------------
+
+function ActivePersonCard({ member }: { member: TimelineMember }) {
+  const [open, setOpen] = useState(true);
+  const allIssues = [...(member.overdueIssues ?? []), ...member.issues];
+  if (allIssues.length === 0) return null;
+
+  const overdueCount = (member.overdueIssues ?? []).length;
+  const atRiskCount = member.issues.filter((i) => i.label === "at_risk").length;
+  const doneCount = member.issues.filter((i) => i.label === "done").length;
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-4 px-4 py-3 border-b border-border bg-muted/20 hover:bg-muted/40 text-left transition-colors cursor-pointer select-none"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-semibold text-sm text-foreground truncate">{member.name}</span>
+          <span className="text-xs text-muted-foreground truncate">{member.email}</span>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {overdueCount > 0 && (
+            <span className="rounded-full bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 text-[10px] font-semibold px-2 py-0.5">
+              {overdueCount} overdue
+            </span>
+          )}
+          {atRiskCount > 0 && (
+            <span className="rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 text-[10px] font-semibold px-2 py-0.5">
+              {atRiskCount} at risk
+            </span>
+          )}
+          {doneCount > 0 && (
+            <span className="rounded-full bg-muted text-muted-foreground text-[10px] font-semibold px-2 py-0.5">
+              {doneCount} done
+            </span>
+          )}
+          {open ? <RiArrowUpSLine size={16} className="text-muted-foreground ml-1" /> : <RiArrowDownSLine size={16} className="text-muted-foreground ml-1" />}
+        </div>
+      </button>
+
+      {open && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className="pl-4 pr-2 py-2 w-2" />
+                <th className="px-2 py-2 text-left font-medium text-muted-foreground">Type</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Key</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Summary</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Priority</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date Range</th>
+                <th className="px-3 py-2 text-right font-medium text-muted-foreground">Time</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {allIssues.map((issue) => (
+                <TimelineTableRow key={issue.id} issue={issue} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActiveTab({
+  members,
+}: {
+  members: TimelineMember[];
+  filterStart: string;
+  filterEnd: string;
+}) {
+  const [search, setSearch] = useState("");
+
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return members.filter((m) => m.issues.length + (m.overdueIssues ?? []).length > 0);
+    return members
+      .map((m) => {
+        const matchesMember = m.name.toLowerCase().includes(needle) || m.email.toLowerCase().includes(needle);
+        const filterIssues = (issues: TimelineIssue[]) =>
+          matchesMember ? issues : issues.filter(
+            (i) => i.summary.toLowerCase().includes(needle) || i.jiraKey.toLowerCase().includes(needle)
+          );
+        return { ...m, issues: filterIssues(m.issues), overdueIssues: filterIssues(m.overdueIssues ?? []) };
+      })
+      .filter((m) => m.issues.length + (m.overdueIssues ?? []).length > 0);
+  }, [members, search]);
+
+  if (members.every((m) => m.issues.length + (m.overdueIssues ?? []).length === 0)) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <RiInboxLine size={28} className="text-muted-foreground mb-3" />
+        <p className="text-sm text-muted-foreground">No active tasks.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="relative mb-5">
+        <RiSearchLine size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by name, email or Jira title…"
+          className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30"
+        />
+      </div>
+      {filtered.length === 0 ? (
+        <div className="py-10 text-center">
+          <p className="text-sm text-muted-foreground">No results for &ldquo;{search}&rdquo;.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filtered.map((member) => (
+            <ActivePersonCard key={member.memberId} member={member} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Completed tab
+// ---------------------------------------------------------------------------
+
+function CompletedTab({
+  members,
+  filterStart,
+  filterEnd,
+}: {
+  members: TimelineMember[];
+  filterStart: string;
+  filterEnd: string;
+}) {
+  const [search, setSearch] = useState("");
+
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return members
+      .map((m) => ({
+        ...m,
+        issues: m.issues.filter(
+          (i) =>
+            i.label === "done" &&
+            (!needle ||
+              i.summary.toLowerCase().includes(needle) ||
+              i.jiraKey.toLowerCase().includes(needle))
+        ),
+      }))
+      .filter(
+        (m) =>
+          m.issues.length > 0 &&
+          (!needle || m.name.toLowerCase().includes(needle) || m.email.toLowerCase().includes(needle) || m.issues.length > 0)
+      );
+  }, [members, search]);
+
+  const total = filtered.reduce((s, m) => s + m.issues.length, 0);
+
+  if (members.every((m) => m.issues.filter((i) => i.label === "done").length === 0)) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <RiInboxLine size={28} className="text-muted-foreground mb-3" />
+        <p className="text-sm font-medium text-foreground">No completed tasks</p>
+        <p className="text-xs text-muted-foreground mt-1">
+          No tasks were completed during {formatDisplayDate(filterStart)}{filterStart !== filterEnd ? ` → ${formatDisplayDate(filterEnd)}` : ""}.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <RiCheckboxCircleLine size={14} className="text-green-500" />
+        <span className="text-sm font-semibold text-foreground">{total} completed {total === 1 ? "task" : "tasks"}</span>
+        <span className="text-xs text-muted-foreground">
+          — {formatDisplayDate(filterStart)}{filterStart !== filterEnd ? ` → ${formatDisplayDate(filterEnd)}` : ""}
+        </span>
+      </div>
+
+      <div className="relative mb-5">
+        <RiSearchLine size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by name, email or Jira title…"
+          className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30"
+        />
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="py-10 text-center">
+          <p className="text-sm text-muted-foreground">No results for &ldquo;{search}&rdquo;.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filtered.map((member) => (
+            <CompletedPersonCard key={member.memberId} member={member} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CompletedPersonCard({ member }: { member: TimelineMember }) {
+  const [open, setOpen] = useState(true);
+  const done = member.issues.filter((i) => i.label === "done");
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-4 px-4 py-3 border-b border-border bg-muted/20 hover:bg-muted/40 text-left transition-colors cursor-pointer select-none"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <RiCheckboxCircleLine size={14} className="text-green-500 shrink-0" />
+          <span className="font-semibold text-sm text-foreground truncate">{member.name}</span>
+          <span className="text-xs text-muted-foreground truncate">{member.email}</span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="inline-flex items-center rounded-full bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 text-xs font-semibold px-2 py-0.5">
+            {done.length} done
+          </span>
+          {open ? <RiArrowUpSLine size={16} className="text-muted-foreground" /> : <RiArrowDownSLine size={16} className="text-muted-foreground" />}
+        </div>
+      </button>
+
+      {open && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Type</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Key</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Summary</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Priority</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date Range</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {done.map((issue) => (
+                <TimelineTableRow key={issue.id} issue={issue} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Overdue tab
+// ---------------------------------------------------------------------------
+
+function OverdueIssueRow({ issue }: { issue: OverdueIssueItem }) {
+  const jiraUrl = `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`;
+  const tStyles = issueTypeStyles(issue.issueType);
+  const sStyles = statusCategoryStyles(issue.statusCategory);
+  const pStyles = priorityStyles(issue.priority);
+
+  return (
+    <tr className="bg-card hover:bg-muted/40 transition-colors">
+      <td className="px-3 py-2.5">
+        <span
+          className={`flex size-5 items-center justify-center rounded text-[10px] font-bold ${tStyles.bg} ${tStyles.text}`}
+          title={issue.issueType}
+        >
+          {tStyles.abbr}
+        </span>
+      </td>
+      <td className="px-3 py-2.5">
+        <a
+          href={jiraUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-mono font-semibold text-muted-foreground hover:text-foreground inline-flex items-center gap-0.5"
+        >
+          {issue.jiraKey}
+          <RiExternalLinkLine size={10} className="opacity-60" />
+        </a>
+      </td>
+      <td className="px-3 py-2.5 max-w-0">
+        <a
+          href={jiraUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block truncate font-medium text-foreground hover:underline"
+          title={issue.summary}
+        >
+          {issue.summary}
+        </a>
+      </td>
+      <td className="px-3 py-2.5">
+        <span className={`inline-block rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${sStyles.badge}`}>
+          {issue.status}
+        </span>
+      </td>
+      <td className="px-3 py-2.5">
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`size-1.5 rounded-full ${pStyles.dot}`} />
+          <span className={`font-medium ${pStyles.text}`}>{issue.priority ?? "—"}</span>
+        </span>
+      </td>
+      <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">
+        {issue.dueDate}
+      </td>
+      <td className="px-3 py-2.5 text-right whitespace-nowrap text-xs font-semibold text-red-600 dark:text-red-400">
+        {issue.daysOverdue}d overdue
+      </td>
+    </tr>
+  );
+}
+
+function OverduePersonCard({ person }: { person: OverduePersonGroup }) {
+  const [open, setOpen] = useState(true);
+
+  return (
+    <div className="rounded-xl border border-red-200 dark:border-red-800/50 bg-card overflow-hidden shadow-sm">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-4 px-4 py-3 border-b border-red-100 dark:border-red-900/40 bg-red-50/40 dark:bg-red-950/10 hover:bg-red-50/70 dark:hover:bg-red-950/20 text-left transition-colors cursor-pointer select-none"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <RiAlertLine size={14} className="text-red-500 shrink-0" />
+          <span className="font-semibold text-sm text-foreground truncate">{person.name}</span>
+          <span className="text-xs text-muted-foreground truncate">{person.email}</span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="inline-flex items-center gap-1 rounded-full bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 text-xs font-semibold px-2 py-0.5">
+            {person.issues.length} overdue
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-red-600 text-white text-xs font-bold px-2 py-0.5">
+            up to {person.maxDaysOverdue}d late
+          </span>
+          {open ? <RiArrowUpSLine size={16} className="text-muted-foreground" /> : <RiArrowDownSLine size={16} className="text-muted-foreground" />}
+        </div>
+      </button>
+
+      {open && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Type</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Key</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Summary</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Priority</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Due Date</th>
+                <th className="px-3 py-2 text-right font-medium text-muted-foreground">Overdue By</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {person.issues.map((issue) => (
+                <OverdueIssueRow key={issue.id} issue={issue} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OverdueTab({
+  apiBase,
+  quarterStart,
+  quarterEnd,
+}: {
+  apiBase: string;
+  quarterStart: string;
+  quarterEnd: string;
+}) {
+  const [data, setData] = useState<OverdueResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+
+  const load = useCallback(async (qs: string, qe: string) => {
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `${apiBase}/overdue?qstart=${qs}&qend=${qe}&today=${todayStr()}`
+      );
+      if (res.ok) setData(await res.json());
+    } catch {
+      // network failure
+    } finally {
+      setLoading(false);
+    }
+  }, [apiBase]);
+
+  useEffect(() => { load(quarterStart, quarterEnd); }, [quarterStart, quarterEnd, load]);
+
+  const filteredPersons = useMemo(() => {
+    if (!data) return [];
+    const needle = search.trim().toLowerCase();
+    if (!needle) return data.byPerson;
+    return data.byPerson
+      .map((p) => {
+        const matchesPerson =
+          p.name.toLowerCase().includes(needle) ||
+          p.email.toLowerCase().includes(needle);
+        const filteredIssues = p.issues.filter(
+          (i) =>
+            i.summary.toLowerCase().includes(needle) ||
+            i.jiraKey.toLowerCase().includes(needle)
+        );
+        return { ...p, issues: matchesPerson ? p.issues : filteredIssues };
+      })
+      .filter((p) => p.issues.length > 0);
+  }, [data, search]);
+
+  if (loading) return <div className="h-40 bg-muted rounded-xl animate-pulse" />;
+
+  if (!data || data.totalCount === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <RiCheckboxCircleLine size={28} className="text-green-500 mb-3" />
+        <p className="text-sm font-medium text-foreground">No overdue tasks</p>
+        <p className="text-xs text-muted-foreground mt-1">All planned work for this quarter is on track.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <RiAlertLine size={14} className="text-red-500" />
+          <span className="text-sm font-semibold text-red-600 dark:text-red-400">
+            {data.totalCount} overdue {data.totalCount === 1 ? "task" : "tasks"}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            — scoped to {formatDisplayDate(data.quarterStart)} → {formatDisplayDate(data.quarterEnd)}
+          </span>
+        </div>
+      </div>
+
+      <div className="relative mb-5">
+        <RiSearchLine size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by name, email or Jira title…"
+          className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30"
+        />
+      </div>
+
+      {filteredPersons.length === 0 ? (
+        <div className="py-10 text-center">
+          <p className="text-sm text-muted-foreground">No results for &ldquo;{search}&rdquo;.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filteredPersons.map((person) => (
+            <OverduePersonCard key={person.email} person={person} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
 
 type Props = {
   boardId: string;
+  name?: string;
   onRemoveMember?: (email: string) => void;
 };
 
-const VALID_TABS = ["timeline", "gantt", "unplanned"] as const;
+const VALID_TABS = ["timeline", "active", "at-risk", "overdue", "completed", "unplanned", "gantt"] as const;
 type TabValue = (typeof VALID_TABS)[number];
 
-export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
+export function TeamTimelineClient({ boardId, name, onRemoveMember }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -1569,6 +2389,7 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
   const [data, setData] = useState<TimelineResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [alertCopied, setAlertCopied] = useState(false);
 
   // Map of memberEmail → { totalMinutes, eventCount, events } for the active
   // date range. Pulled from /api/observer/boards/:id/meetings; powers both the
@@ -1579,6 +2400,13 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
 
   const rawTab = searchParams.get("tab") ?? "timeline";
   const activeTab: TabValue = VALID_TABS.includes(rawTab as TabValue) ? (rawTab as TabValue) : "timeline";
+
+  function handleCopyAlert() {
+    if (!data) return;
+    navigator.clipboard.writeText(buildAlertMessage(data, name, "board"));
+    setAlertCopied(true);
+    setTimeout(() => setAlertCopied(false), 2000);
+  }
 
   function updateParams(updates: Record<string, string | null>) {
     const params = new URLSearchParams(searchParams.toString());
@@ -1616,7 +2444,7 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
 
   function buildUrl(f: DateFilter, qs: string, qe: string): string {
     const base = `/api/observer/boards/${boardId}/timeline`;
-    const qPart = `ustart=${qs}&uend=${qe}&today=${todayStr()}`;
+    const qPart = `ustart=${qs}&uend=${qe}&now=${encodeURIComponent(localNowStr())}`;
     if (f.mode === "single") return `${base}?date=${f.date}&${qPart}`;
     return `${base}?start=${f.start}&end=${f.end}&${qPart}`;
   }
@@ -1714,7 +2542,7 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
         <>
           <SummaryCards
             summary={data.summary}
-            onUnplannedClick={() => setActiveTab("unplanned")}
+            onTabClick={setActiveTab}
             quarterLabel={(() => {
               const chips = getRelevantQuarters();
               const match = chips.find(c => c.start === ustart && c.end === uend);
@@ -1725,19 +2553,36 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <div className="flex items-center justify-between mb-4">
               <TabsList>
-                <TabsTrigger value="timeline">Timeline View</TabsTrigger>
-                <TabsTrigger value="gantt">Gantt View</TabsTrigger>
+                <TabsTrigger value="timeline">Workload</TabsTrigger>
+                <TabsTrigger value="active">Active</TabsTrigger>
+                <TabsTrigger value="at-risk">At Risk</TabsTrigger>
+                <TabsTrigger value="overdue">Overdue</TabsTrigger>
+                <TabsTrigger value="completed">Completed</TabsTrigger>
                 <TabsTrigger value="unplanned">Unplanned</TabsTrigger>
+                <TabsTrigger value="gantt">Gantt</TabsTrigger>
               </TabsList>
 
-              <button
-                onClick={() => load(filter, ustart, uend)}
-                disabled={loading}
-                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <RiRefreshLine size={12} className={loading ? "animate-spin" : ""} />
-                Refresh
-              </button>
+              <div className="flex items-center gap-3">
+                {(data.summary.overdue > 0 || data.summary.atRisk > 0) && (
+                  <button
+                    onClick={handleCopyAlert}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60 transition-colors border border-red-200 dark:border-red-800"
+                  >
+                    {alertCopied
+                      ? <><RiCheckLine size={12} /> Copied!</>
+                      : <><RiAlarmWarningLine size={12} /> Copy Alert</>
+                    }
+                  </button>
+                )}
+                <button
+                  onClick={() => load(filter, ustart, uend)}
+                  disabled={loading}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <RiRefreshLine size={12} className={loading ? "animate-spin" : ""} />
+                  Refresh
+                </button>
+              </div>
             </div>
 
             <TabsContent value="timeline">
@@ -1793,12 +2638,373 @@ export function TeamTimelineClient({ boardId, onRemoveMember }: Props) {
               })()}
             </TabsContent>
 
-            <TabsContent value="gantt">
-              <TeamGanttClient boardId={boardId} start={ganttStart} end={ganttEnd} />
+            <TabsContent value="active">
+              <ActiveTab members={data.members} filterStart={data.filterStart} filterEnd={data.filterEnd} />
+            </TabsContent>
+
+            <TabsContent value="at-risk">
+              <AtRiskTab apiBase={`/api/observer/boards/${boardId}`} quarterStart={ustart} quarterEnd={uend} />
+            </TabsContent>
+
+            <TabsContent value="overdue">
+              <OverdueTab apiBase={`/api/observer/boards/${boardId}`} quarterStart={ustart} quarterEnd={uend} />
+            </TabsContent>
+
+            <TabsContent value="completed">
+              <CompletedTab members={data.members} filterStart={data.filterStart} filterEnd={data.filterEnd} />
             </TabsContent>
 
             <TabsContent value="unplanned">
-              <UnplannedWithDateFilter boardId={boardId} start={ustart} end={uend} />
+              <UnplannedWithDateFilter apiBase={`/api/observer/boards/${boardId}`} start={ustart} end={uend} />
+            </TabsContent>
+
+            <TabsContent value="gantt">
+              <TeamGanttClient boardId={boardId} start={ganttStart} end={ganttEnd} />
+            </TabsContent>
+          </Tabs>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Unassigned tab (project-only)
+// ---------------------------------------------------------------------------
+
+import type { UnassignedResponse, UnassignedIssueItem } from "@/app/api/projects/[id]/team/unassigned/route";
+
+function UnassignedTab({ projectId, quarterStart, quarterEnd }: { projectId: string; quarterStart: string; quarterEnd: string }) {
+  const [data, setData] = useState<UnassignedResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+
+  const load = useCallback(async (qs: string, qe: string) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/team/unassigned?qstart=${qs}&qend=${qe}`);
+      if (res.ok) setData(await res.json());
+    } catch { /* network failure */ }
+    finally { setLoading(false); }
+  }, [projectId]);
+
+  useEffect(() => { load(quarterStart, quarterEnd); }, [quarterStart, quarterEnd, load]);
+
+  const rows = useMemo(() => {
+    if (!data) return [];
+    const needle = search.trim().toLowerCase();
+    if (!needle) return data.issues;
+    return data.issues.filter(
+      (i) => i.summary.toLowerCase().includes(needle) || i.jiraKey.toLowerCase().includes(needle)
+    );
+  }, [data, search]);
+
+  if (loading) return <div className="h-40 bg-muted rounded-xl animate-pulse" />;
+
+  if (!data || data.totalCount === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <RiCheckboxCircleLine size={28} className="text-green-500 mb-3" />
+        <p className="text-sm font-medium text-foreground">No unassigned tasks</p>
+        <p className="text-xs text-muted-foreground mt-1">All open tasks in this project have an assignee.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-sm font-semibold text-foreground">{data.totalCount} unassigned {data.totalCount === 1 ? "task" : "tasks"}</span>
+        <span className="text-xs text-muted-foreground">
+          — scoped to {formatDisplayDate(quarterStart)} → {formatDisplayDate(quarterEnd)}
+        </span>
+      </div>
+
+      <div className="relative mb-5">
+        <RiSearchLine size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by key or title…"
+          className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30"
+        />
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="py-10 text-center">
+          <p className="text-sm text-muted-foreground">No results for &ldquo;{search}&rdquo;.</p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border bg-muted/40">
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">Type</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">Key</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">Summary</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">Status</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">Priority</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">Created</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {rows.map((issue) => {
+                  const jiraUrl = `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`;
+                  const tStyles = issueTypeStyles(issue.issueType);
+                  const sStyles = statusCategoryStyles(issue.statusCategory);
+                  const pStyles = priorityStyles(issue.priority);
+                  return (
+                    <tr key={issue.id} className="bg-card hover:bg-muted/40 transition-colors">
+                      <td className="px-3 py-2.5">
+                        <span className={`flex size-5 items-center justify-center rounded text-[10px] font-bold ${tStyles.bg} ${tStyles.text}`} title={issue.issueType}>
+                          {tStyles.abbr}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <a href={jiraUrl} target="_blank" rel="noopener noreferrer" className="font-mono font-semibold text-muted-foreground hover:text-foreground inline-flex items-center gap-0.5">
+                          {issue.jiraKey}
+                          <RiExternalLinkLine size={10} className="opacity-60" />
+                        </a>
+                      </td>
+                      <td className="px-3 py-2.5 max-w-0">
+                        <a href={jiraUrl} target="_blank" rel="noopener noreferrer" className="block truncate font-medium text-foreground hover:underline" title={issue.summary}>
+                          {issue.summary}
+                        </a>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className={`inline-block rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${sStyles.badge}`}>{issue.status}</span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className={`size-1.5 rounded-full ${pStyles.dot}`} />
+                          <span className={`font-medium ${pStyles.text}`}>{issue.priority ?? "—"}</span>
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">
+                        {issue.createdAt ? formatDisplayDate(issue.createdAt.slice(0, 10)) : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Project Team Client — same view as TeamTimelineClient but scoped to a
+// single project, with members derived from ticket assignees.
+// No Gantt, no member management UI.
+// ---------------------------------------------------------------------------
+
+const PROJECT_VALID_TABS = ["timeline", "active", "at-risk", "overdue", "completed", "unplanned", "unassigned"] as const;
+type ProjectTabValue = (typeof PROJECT_VALID_TABS)[number];
+
+export function ProjectTeamClient({ projectId, name }: { projectId: string; name?: string }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const apiBase = `/api/projects/${projectId}/team`;
+
+  const mode = (searchParams.get("ptmode") ?? "single") as FilterMode;
+  const spDate = searchParams.get("ptdate") ?? todayStr();
+  const spTstart = searchParams.get("pttstart") ?? todayStr();
+  const spTend = searchParams.get("pttend") ?? offsetDate(todayStr(), 6);
+  const defaultQBounds = quarterBounds(currentFyStartYear(), currentQuarterNum());
+  const ustart = searchParams.get("ptustart") ?? defaultQBounds.start;
+  const uend = searchParams.get("ptuend") ?? defaultQBounds.end;
+
+  const [qInput, setQInput] = useState(() => searchParams.get("ptq") ?? "");
+  const debouncedQ = useDebounce(qInput, 350);
+  const isMounted = useRef(false);
+
+  const filter: DateFilter = useMemo(
+    () => mode === "range" ? { mode: "range", start: spTstart, end: spTend } : { mode: "single", date: spDate },
+    [mode, spDate, spTstart, spTend]
+  );
+
+  const [data, setData] = useState<TimelineResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [unassignedCount, setUnassignedCount] = useState<number | undefined>(undefined);
+  const [alertCopied, setAlertCopied] = useState(false);
+
+  const rawTab = searchParams.get("pttab") ?? "timeline";
+  const activeTab: ProjectTabValue = PROJECT_VALID_TABS.includes(rawTab as ProjectTabValue) ? (rawTab as ProjectTabValue) : "timeline";
+
+  function handleCopyAlert() {
+    if (!data) return;
+    navigator.clipboard.writeText(buildAlertMessage(data, name, "project"));
+    setAlertCopied(true);
+    setTimeout(() => setAlertCopied(false), 2000);
+  }
+
+  function updateParams(updates: Record<string, string | null>) {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [k, v] of Object.entries(updates)) {
+      if (v === null) params.delete(k); else params.set(k, v);
+    }
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }
+
+  function setActiveTab(tab: string) { updateParams({ pttab: tab }); }
+
+  function setFilter(f: DateFilter) {
+    if (f.mode === "single") updateParams({ ptmode: "single", ptdate: f.date, pttstart: null, pttend: null });
+    else updateParams({ ptmode: "range", pttstart: f.start, pttend: f.end, ptdate: null });
+  }
+
+  function setQuarter(start: string, end: string) { updateParams({ ptustart: start, ptuend: end }); }
+
+  useEffect(() => {
+    if (!isMounted.current) { isMounted.current = true; return; }
+    const params = new URLSearchParams(searchParams.toString());
+    if (debouncedQ) params.set("ptq", debouncedQ); else params.delete("ptq");
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }, [debouncedQ]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function buildUrl(f: DateFilter, qs: string, qe: string): string {
+    const qPart = `ustart=${qs}&uend=${qe}&now=${encodeURIComponent(localNowStr())}`;
+    if (f.mode === "single") return `${apiBase}/timeline?date=${f.date}&${qPart}`;
+    return `${apiBase}/timeline?start=${f.start}&end=${f.end}&${qPart}`;
+  }
+
+  const load = useCallback(async (f: DateFilter, qs: string, qe: string) => {
+    setLoading(true); setError(null);
+    try {
+      const res = await fetch(buildUrl(f, qs, qe));
+      if (res.ok) setData(await res.json());
+      else { const body = await res.json().catch(() => ({})); setError(body.error ?? `Server error (${res.status})`); }
+    } catch { setError("Failed to load team data."); }
+    finally { setLoading(false); }
+  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { load(filter, ustart, uend); }, [filter, ustart, uend, load]);
+
+  useEffect(() => {
+    fetch(`/api/projects/${projectId}/team/unassigned?qstart=${ustart}&qend=${uend}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d) setUnassignedCount(d.totalCount); })
+      .catch(() => {});
+  }, [projectId, ustart, uend]);
+
+  if (error) return (
+    <div className="py-12 text-center">
+      <p className="text-sm text-destructive mb-2">{error}</p>
+      <button onClick={() => load(filter, ustart, uend)} className="text-xs text-muted-foreground hover:text-foreground underline">Try again</button>
+    </div>
+  );
+
+  return (
+    <div>
+      <DateFilterBar filter={filter} onChange={setFilter} quarterStart={ustart} quarterEnd={uend} onQuarterChange={setQuarter} />
+
+      {loading ? (
+        <div className="space-y-3 animate-pulse">
+          <div className="h-11 bg-muted rounded-lg mb-6" />
+          {[...Array(3)].map((_, i) => <div key={i} className="h-40 bg-muted rounded-xl" />)}
+        </div>
+      ) : data ? (
+        <>
+          <SummaryCards
+            summary={data.summary}
+            onTabClick={setActiveTab}
+            unassignedCount={unassignedCount}
+            quarterLabel={(() => {
+              const chips = getRelevantQuarters();
+              const match = chips.find(c => c.start === ustart && c.end === uend);
+              return match ? `${match.label} ${match.year}` : undefined;
+            })()}
+          />
+
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <div className="flex items-center justify-between mb-4">
+              <TabsList>
+                <TabsTrigger value="timeline">Workload</TabsTrigger>
+                <TabsTrigger value="active">Active</TabsTrigger>
+                <TabsTrigger value="at-risk">At Risk</TabsTrigger>
+                <TabsTrigger value="overdue">Overdue</TabsTrigger>
+                <TabsTrigger value="completed">Completed</TabsTrigger>
+                <TabsTrigger value="unplanned">Unplanned</TabsTrigger>
+                <TabsTrigger value="unassigned">Unassigned</TabsTrigger>
+              </TabsList>
+              <div className="flex items-center gap-3">
+                {(data.summary.overdue > 0 || data.summary.atRisk > 0) && (
+                  <button
+                    onClick={handleCopyAlert}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60 transition-colors border border-red-200 dark:border-red-800"
+                  >
+                    {alertCopied
+                      ? <><RiCheckLine size={12} /> Copied!</>
+                      : <><RiAlarmWarningLine size={12} /> Copy Alert</>
+                    }
+                  </button>
+                )}
+                <button onClick={() => load(filter, ustart, uend)} disabled={loading} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                  <RiRefreshLine size={12} className={loading ? "animate-spin" : ""} />
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            <TabsContent value="timeline">
+              {data.members.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <RiInboxLine size={28} className="text-muted-foreground mb-3" />
+                  <p className="text-sm text-muted-foreground">No assignees found in this project.</p>
+                </div>
+              ) : (() => {
+                const needle = qInput.trim().toLowerCase();
+                const filteredMembers = needle
+                  ? data.members.filter(m => m.name.toLowerCase().includes(needle) || m.email.toLowerCase().includes(needle) || m.issues.some(i => i.summary.toLowerCase().includes(needle)))
+                  : data.members;
+                return (
+                  <>
+                    <div className="relative mb-4">
+                      <RiSearchLine size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                      <input type="text" value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder="Search by name, email or Jira title…" className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30" />
+                    </div>
+                    {filteredMembers.length === 0 ? (
+                      <div className="py-10 text-center"><p className="text-sm text-muted-foreground">No members match &ldquo;{qInput}&rdquo;.</p></div>
+                    ) : (
+                      <div className="space-y-4">
+                        {filteredMembers.map((member) => (
+                          <MemberTimelineCard key={member.memberId} member={member} quarterStart={ustart} quarterEnd={uend} onSwitchToUnplanned={(name) => updateParams({ pttab: "unplanned", ptuq: name })} />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </TabsContent>
+
+            <TabsContent value="active">
+              <ActiveTab members={data.members} filterStart={data.filterStart} filterEnd={data.filterEnd} />
+            </TabsContent>
+
+            <TabsContent value="at-risk">
+              <AtRiskTab apiBase={apiBase} quarterStart={ustart} quarterEnd={uend} />
+            </TabsContent>
+
+            <TabsContent value="overdue">
+              <OverdueTab apiBase={apiBase} quarterStart={ustart} quarterEnd={uend} />
+            </TabsContent>
+
+            <TabsContent value="completed">
+              <CompletedTab members={data.members} filterStart={data.filterStart} filterEnd={data.filterEnd} />
+            </TabsContent>
+
+            <TabsContent value="unplanned">
+              <UnplannedWithDateFilter apiBase={apiBase} start={ustart} end={uend} />
+            </TabsContent>
+
+            <TabsContent value="unassigned">
+              <UnassignedTab projectId={projectId} quarterStart={ustart} quarterEnd={uend} />
             </TabsContent>
           </Tabs>
         </>

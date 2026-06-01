@@ -47,6 +47,7 @@ export type TimelineMember = {
   name: string;
   email: string;
   issues: TimelineIssue[];
+  overdueIssues: TimelineIssue[];
   counts: { active: number; atRisk: number; overdue: number; done: number };
   unplannedCount: number;
   unplannedPreview: UnplannedIssue[];
@@ -64,6 +65,7 @@ export type TimelineResponse = {
   filterEnd: string;
   summary: {
     active: number;
+    onTrack: number;
     atRisk: number;
     overdue: number;
     completed: number;
@@ -76,19 +78,53 @@ export type TimelineResponse = {
   };
 };
 
+function totalWorkingHours(startDate: string, dueDate: string): number {
+  const startMs = new Date(startDate + "T00:00:00").getTime();
+  const dueMs = new Date(dueDate + "T00:00:00").getTime();
+  const days = Math.max(0, Math.round((dueMs - startMs) / 86_400_000) + 1);
+  return days * 9;
+}
+
+function workingHoursRemaining(nowStr: string, dueDate: string): number {
+  const dueEndStr = dueDate + "T19:00:00";
+  if (nowStr >= dueEndStr) return 0;
+
+  let hours = 0;
+  const todayDate = nowStr.slice(0, 10);
+  const todayStartStr = todayDate + "T10:00:00";
+  const todayEndStr = todayDate + "T19:00:00";
+
+  if (nowStr < todayStartStr) {
+    hours += 9;
+  } else if (nowStr < todayEndStr) {
+    hours += (new Date(todayEndStr).getTime() - new Date(nowStr).getTime()) / 3_600_000;
+  }
+
+  // Full working days from tomorrow through dueDate — O(1)
+  const tomorrowMs = new Date(todayDate + "T00:00:00").getTime() + 86_400_000;
+  const dueMs = new Date(dueDate + "T00:00:00").getTime();
+  const fullDays = Math.max(0, Math.round((dueMs - tomorrowMs) / 86_400_000) + 1);
+  hours += fullDays * 9;
+
+  return hours;
+}
+
 function classifyIssue(
   statusCategory: string | null,
+  startDate: string,
   dueDate: string,
-  referenceDate: string
+  nowStr: string,
 ): IssueLabel {
   const cat = (statusCategory ?? "").toLowerCase();
   if (cat === "done" || cat.includes("complete")) return "done";
 
-  const daysRemaining = Math.ceil(
-    (new Date(dueDate).getTime() - new Date(referenceDate).getTime()) / 86400000
-  );
-  if (daysRemaining < 0) return "overdue";
-  if (daysRemaining <= 3) return "at_risk";
+  const today = nowStr.slice(0, 10);
+  if (dueDate < today) return "overdue";
+
+  const total = totalWorkingHours(startDate, dueDate);
+  const remaining = workingHoursRemaining(nowStr, dueDate);
+  if (total > 0 && remaining / total <= 0.2) return "at_risk";
+
   return "on_track";
 }
 
@@ -114,14 +150,17 @@ export async function GET(req: Request, { params }: Params) {
     await requireAuth();
     const { boardId } = await params;
     const url = new URL(req.url);
-    const today = url.searchParams.get("today") ?? new Date().toISOString().split("T")[0];
+    // `now` is the client's local datetime string "YYYY-MM-DDTHH:MM:SS" (no timezone).
+    // Falls back to server UTC if not provided.
+    const nowStr = url.searchParams.get("now") ?? new Date().toISOString().slice(0, 19);
+    const today = nowStr.slice(0, 10);
     const singleDate = url.searchParams.get("date");
     const filterStart = url.searchParams.get("start") ?? singleDate ?? today;
     const filterEnd = url.searchParams.get("end") ?? singleDate ?? today;
 
     const uFilterStart = url.searchParams.get("ustart") ?? null;
     const uFilterEnd = url.searchParams.get("uend") ?? null;
-    const data = await fetchBoardTimeline(boardId, filterStart, filterEnd, today, uFilterStart, uFilterEnd);
+    const data = await fetchBoardTimeline(boardId, filterStart, filterEnd, nowStr, uFilterStart, uFilterEnd);
     if (data === null) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json(data);
   } catch (err) {
@@ -134,7 +173,7 @@ async function fetchBoardTimeline(
   boardId: string,
   filterStart: string,
   filterEnd: string,
-  referenceDate: string,
+  nowStr: string,
   uFilterStart: string | null = null,
   uFilterEnd: string | null = null,
 ) {
@@ -158,25 +197,27 @@ async function fetchBoardTimeline(
     return {
       filterStart,
       filterEnd,
-      summary: { active: 0, atRisk: 0, overdue: 0, completed: 0, unplanned: 0 },
+      summary: { active: 0, onTrack: 0, atRisk: 0, overdue: 0, completed: 0, unplanned: 0 },
       members: [],
       unplanned: { totalCount: 0, byMember: [] },
     } satisfies TimelineResponse;
   }
 
-  const emails = members.map((m) => m.email);
+  const emailSet = new Set(members.map((m) => m.email.toLowerCase()));
+  if (board.managerEmail) emailSet.add(board.managerEmail.toLowerCase());
+  const emails = [...emailSet];
   const emailsIn = sql.join(emails.map((e) => sql`${e}`), sql`, `);
 
   const issuesRes = await db.execute(sql`
     WITH member_issue_emails AS (
-      SELECT ji.id, ji.assignee_email AS effective_email
+      SELECT ji.id, lower(ji.assignee_email) AS effective_email
       FROM jira_issues ji
-      WHERE ji.assignee_email IN (${emailsIn})
+      WHERE lower(ji.assignee_email) IN (${emailsIn})
       UNION
-      SELECT ji.id, ae AS effective_email
+      SELECT ji.id, lower(ae) AS effective_email
       FROM jira_issues ji
       CROSS JOIN LATERAL unnest(ji.additional_assignee_emails) AS ae
-      WHERE ae IN (${emailsIn})
+      WHERE lower(ae) IN (${emailsIn})
     )
     SELECT
       ji.id,
@@ -200,6 +241,7 @@ async function fetchBoardTimeline(
   `);
 
   const timelineByEmail = new Map<string, TimelineIssue[]>();
+  const overdueByEmail = new Map<string, TimelineIssue[]>();
   const unplannedByEmail = new Map<string, UnplannedIssue[]>();
 
   for (const raw of issuesRes.rows as IssueRow[]) {
@@ -235,20 +277,50 @@ async function fetchBoardTimeline(
       continue;
     }
 
-    if (startDate > filterEnd || dueDate < filterStart) continue;
-
     const cat = (raw.status_category ?? "").toLowerCase();
     const isDoneStatus =
       cat === "done" || cat.includes("complete") || cat.includes("closed");
+    const today = nowStr.slice(0, 10);
 
+    // Overdue tasks: collect per-member for Active tab, exclude from Workload display
+    if (!isDoneStatus && dueDate < today) {
+      if (!(uFilterStart && dueDate < uFilterStart)) {
+        const daysRemaining = Math.ceil(
+          (new Date(dueDate).getTime() - new Date(today).getTime()) / 86400000
+        );
+        const list = overdueByEmail.get(email) ?? [];
+        list.push({
+          id: raw.id,
+          jiraKey: raw.jira_key,
+          summary: raw.summary,
+          status: raw.status,
+          statusCategory: raw.status_category,
+          priority: raw.priority,
+          issueType: raw.issue_type,
+          startDate: startDate ?? "",
+          dueDate,
+          daysRemaining,
+          label: "overdue",
+          projectName: raw.project_name,
+          jiraBaseUrl: raw.jira_base_url,
+        });
+        overdueByEmail.set(email, list);
+      }
+      continue; // overdue tasks belong in the Overdue/Active tab, not Workload
+    }
+
+    // Skip tasks outside the date overlap window
+    if (startDate > filterEnd || dueDate < filterStart) continue;
+
+    // Skip done tasks that predate the filter window
     if (isDoneStatus && dueDate < filterStart) continue;
 
-    const label = classifyIssue(raw.status_category, dueDate, referenceDate);
+    const label = classifyIssue(raw.status_category, startDate, dueDate, nowStr);
     const isDone = label === "done";
     const daysRemaining = isDone
       ? null
       : Math.ceil(
-          (new Date(dueDate).getTime() - new Date(referenceDate).getTime()) / 86400000
+          (new Date(dueDate).getTime() - new Date(today).getTime()) / 86400000
         );
 
     const list = timelineByEmail.get(email) ?? [];
@@ -278,10 +350,14 @@ async function fetchBoardTimeline(
   };
 
   const memberResults: TimelineMember[] = members.map((member) => {
-    const issues = timelineByEmail.get(member.email) ?? [];
+    const emailKey = member.email.toLowerCase();
+    const issues = timelineByEmail.get(emailKey) ?? [];
     issues.sort((a, b) => labelOrder[a.label] - labelOrder[b.label]);
 
-    const unplanned = unplannedByEmail.get(member.email) ?? [];
+    const overdueIssues = (overdueByEmail.get(emailKey) ?? [])
+      .sort((a, b) => (a.daysRemaining ?? 0) - (b.daysRemaining ?? 0));
+
+    const unplanned = unplannedByEmail.get(emailKey) ?? [];
     const unplannedPreview = [...unplanned]
       .sort((a, b) => {
         if (!a.createdAt && !b.createdAt) return 0;
@@ -296,10 +372,11 @@ async function fetchBoardTimeline(
       name: member.name,
       email: member.email,
       issues,
+      overdueIssues,
       counts: {
         active: issues.filter((i) => i.label !== "done").length,
         atRisk: issues.filter((i) => i.label === "at_risk").length,
-        overdue: issues.filter((i) => i.label === "overdue").length,
+        overdue: overdueIssues.length,
         done: issues.filter((i) => i.label === "done").length,
       },
       unplannedCount: unplanned.length,
@@ -308,18 +385,28 @@ async function fetchBoardTimeline(
   });
 
   memberResults.sort((a, b) => {
-    const scoreA = a.counts.overdue * 10 + a.counts.atRisk;
-    const scoreB = b.counts.overdue * 10 + b.counts.atRisk;
-    return scoreB - scoreA;
+    // Group 0: has current tasks running in the date window
+    // Group 1: has unplanned tasks but no current tasks
+    // Group 2: nothing current (overdue-only or empty)
+    const group = (m: TimelineMember) =>
+      m.issues.length > 0 ? 0 : m.unplannedCount > 0 ? 1 : 2;
+    const gDiff = group(a) - group(b);
+    if (gDiff !== 0) return gDiff;
+    return (b.counts.overdue * 10 + b.counts.atRisk) - (a.counts.overdue * 10 + a.counts.atRisk);
   });
 
-  const allIssues = memberResults.flatMap((m) => m.issues);
+  // Use all fetched issues (including manager if not in members) so summary counts match the dedicated tabs.
+  const allIssues = [...timelineByEmail.values()].flat();
   const allUnplanned = [...unplannedByEmail.values()].flat();
 
+  const overdueCount = [...overdueByEmail.values()].reduce((s, a) => s + a.length, 0);
+  const onTrack = allIssues.filter((i) => i.label === "on_track").length;
+  const atRisk = allIssues.filter((i) => i.label === "at_risk").length;
   const summary = {
-    active: allIssues.filter((i) => i.label !== "done").length,
-    atRisk: allIssues.filter((i) => i.label === "at_risk").length,
-    overdue: allIssues.filter((i) => i.label === "overdue").length,
+    active: onTrack + atRisk + overdueCount,
+    onTrack,
+    atRisk,
+    overdue: overdueCount,
     completed: allIssues.filter((i) => i.label === "done").length,
     unplanned: allUnplanned.length,
   };
@@ -329,7 +416,7 @@ async function fetchBoardTimeline(
       memberId: m.id,
       name: m.name,
       email: m.email,
-      issues: unplannedByEmail.get(m.email) ?? [],
+      issues: unplannedByEmail.get(m.email.toLowerCase()) ?? [],
     }))
     .filter((m) => m.issues.length > 0);
 

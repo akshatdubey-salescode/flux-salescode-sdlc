@@ -153,7 +153,10 @@ function GanttGrid({
 
   // Build bar data per member + bucket meetings per day for the density strip.
   const rowData = data.members.map((member) => {
-    const bars: BarDatum[] = member.issues.map((issue) => {
+    const overdueInRange = (member.overdueIssues ?? []).filter(
+      (i) => i.startDate <= rangeEnd && i.dueDate >= rangeStart
+    );
+    const bars: BarDatum[] = [...member.issues, ...overdueInRange].map((issue) => {
       const clampedStart = issue.startDate < rangeStart ? rangeStart : issue.startDate;
       const clampedEnd = issue.dueDate > rangeEnd ? rangeEnd : issue.dueDate;
       const startSlot = Math.max(0, daysBetween(rangeStart, clampedStart) * 2);

@@ -1,5 +1,10 @@
 import Link from "next/link";
-import { RiArrowRightUpLine } from "@remixicon/react";
+import {
+  RiArrowRightUpLine,
+  RiArrowDownLine,
+  RiArrowUpLine,
+} from "@remixicon/react";
+import { cn } from "@/lib/utils";
 import { requireAuth } from "@/lib/auth/server";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
@@ -17,17 +22,43 @@ import {
   quarterBounds,
 } from "@/lib/date-utils";
 import {
-  fetchTopUnplannedAssignees,
-  fetchUnplannedIssuesForAssignee,
+  fetchTopSelfDeassigners,
+  fetchSelfRemovalEvents,
+  type SelfDeassignerSort,
+  type SortDir,
 } from "./data";
 import { FilterBar } from "./filter-bar";
 
 type SearchParams = Promise<{
   start?: string;
   end?: string;
-  includeCompleted?: string;
-  assignee?: string;
+  author?: string;
+  sort?: string;
+  dir?: string;
 }>;
+
+const SORT_KEYS: SelfDeassignerSort[] = [
+  "total",
+  "unassigned",
+  "reporter",
+  "other",
+];
+
+function parseSort(value: string | undefined): SelfDeassignerSort {
+  return SORT_KEYS.includes(value as SelfDeassignerSort)
+    ? (value as SelfDeassignerSort)
+    : "total";
+}
+
+function parseDir(value: string | undefined): SortDir {
+  return value === "asc" ? "asc" : "desc";
+}
+
+const TO_KIND_LABEL: Record<string, string> = {
+  unassigned: "→ Unassigned",
+  reporter: "→ Reporter",
+  other: "→ Someone else",
+};
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -45,7 +76,7 @@ function parseRange(params: { start?: string; end?: string }): {
   return { start, end };
 }
 
-export default async function TopUnplannedAssigneesPage({
+export default async function SelfDeassignersPage({
   searchParams,
 }: {
   searchParams: SearchParams;
@@ -54,20 +85,12 @@ export default async function TopUnplannedAssigneesPage({
 
   const sp = await searchParams;
   const { start, end } = parseRange(sp);
-  const includeCompleted = sp.includeCompleted === "1";
   const quarters = getRelevantQuarters();
-  const rangeQuery = `start=${start}&end=${end}${
-    includeCompleted ? "&includeCompleted=1" : ""
-  }`;
+  const rangeQuery = `start=${start}&end=${end}`;
 
-  // Drill-down: the actual unplanned issues that make up one person's count.
-  if (sp.assignee) {
-    const detail = await fetchUnplannedIssuesForAssignee(
-      sp.assignee,
-      start,
-      end,
-      includeCompleted
-    );
+  // Drill-down: a single person's self-removal events.
+  if (sp.author) {
+    const detail = await fetchSelfRemovalEvents(sp.author, start, end);
     return (
       <div className="flex flex-col min-h-svh bg-zinc-50 dark:bg-zinc-950">
         <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
@@ -82,8 +105,8 @@ export default async function TopUnplannedAssigneesPage({
               <BreadcrumbSeparator />
               <BreadcrumbItem>
                 <BreadcrumbLink asChild>
-                  <Link href={`/views/top-unplanned-assignees?${rangeQuery}`}>
-                    Top Unplanned Assignees
+                  <Link href={`/views/self-deassigners?${rangeQuery}`}>
+                    Self-Deassigners
                   </Link>
                 </BreadcrumbLink>
               </BreadcrumbItem>
@@ -102,9 +125,8 @@ export default async function TopUnplannedAssigneesPage({
                 {detail.name}
               </h1>
               <p className="text-sm text-zinc-500 mt-1">
-                {detail.email} · {detail.issues.length} unplanned task
-                {detail.issues.length === 1 ? "" : "s"} in this period — each is
-                missing a start date, a due/end date, or both.
+                {detail.email ?? "—"} · {detail.events.length} self-reassignment
+                {detail.events.length === 1 ? "" : "s"} in this period.
               </p>
             </div>
 
@@ -116,59 +138,56 @@ export default async function TopUnplannedAssigneesPage({
                       Issue
                     </th>
                     <th className="px-4 py-2.5 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-                      Status
+                      Moved to
                     </th>
                     <th className="px-4 py-2.5 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-                      Created
-                    </th>
-                    <th className="px-4 py-2.5 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-                      Assigned
+                      When
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {detail.issues.map((issue) => (
+                  {detail.events.map((ev, i) => (
                     <tr
-                      key={issue.jira_key}
+                      key={`${ev.jira_key}-${i}`}
                       className="border-b border-zinc-100 dark:border-zinc-800/60 last:border-0"
                     >
                       <td className="px-4 py-3 align-top">
                         <a
-                          href={issue.browse_url}
+                          href={ev.browse_url}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 font-mono text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
                         >
-                          {issue.jira_key}
+                          {ev.jira_key}
                           <RiArrowRightUpLine className="size-3 shrink-0 opacity-60" />
                         </a>
                         <span className="block text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 line-clamp-1 max-w-md">
-                          {issue.summary}
+                          {ev.summary}
                         </span>
                       </td>
                       <td className="px-4 py-3 align-top">
-                        <span className="text-xs text-zinc-600 dark:text-zinc-400">
-                          {issue.status ?? "—"}
+                        <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                          {TO_KIND_LABEL[ev.to_kind] ?? ev.to_kind}
                         </span>
+                        {ev.to_name && (
+                          <span className="block text-xs text-zinc-400 mt-0.5">
+                            {ev.to_name}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right text-xs text-zinc-500 dark:text-zinc-400 tabular-nums align-top whitespace-nowrap">
-                        {new Date(issue.jira_created_at).toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 text-right text-xs text-zinc-500 dark:text-zinc-400 tabular-nums align-top whitespace-nowrap">
-                        {issue.assigned_at
-                          ? new Date(issue.assigned_at).toLocaleString()
-                          : "—"}
+                        {new Date(ev.changed_at).toLocaleString()}
                       </td>
                     </tr>
                   ))}
 
-                  {detail.issues.length === 0 && (
+                  {detail.events.length === 0 && (
                     <tr>
                       <td
-                        colSpan={4}
+                        colSpan={3}
                         className="px-4 py-8 text-center text-sm text-zinc-400"
                       >
-                        No unplanned tasks in this period.
+                        No self-reassignments in this period.
                       </td>
                     </tr>
                   )}
@@ -181,7 +200,15 @@ export default async function TopUnplannedAssigneesPage({
     );
   }
 
-  const rows = await fetchTopUnplannedAssignees(start, end, includeCompleted);
+  const sort = parseSort(sp.sort);
+  const dir = parseDir(sp.dir);
+  const rows = await fetchTopSelfDeassigners(start, end, sort, dir);
+
+  // Clicking the active column flips direction; a new column starts descending.
+  const sortHref = (key: SelfDeassignerSort) => {
+    const nextDir = key === sort && dir === "desc" ? "asc" : "desc";
+    return `/views/self-deassigners?${rangeQuery}&sort=${key}&dir=${nextDir}`;
+  };
 
   return (
     <div className="flex flex-col min-h-svh bg-zinc-50 dark:bg-zinc-950">
@@ -196,7 +223,7 @@ export default async function TopUnplannedAssigneesPage({
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
-              <BreadcrumbPage>Top Unplanned Assignees</BreadcrumbPage>
+              <BreadcrumbPage>Self-Deassigners</BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
@@ -206,22 +233,18 @@ export default async function TopUnplannedAssigneesPage({
         <div className="max-w-4xl mx-auto space-y-6">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">
-              Top Assignees with Unplanned Tasks
+              Top Self-Deassigners
             </h1>
             <p className="text-sm text-zinc-500 mt-1">
-              An issue is unplanned when it is missing a start date or a
-              due/end date. Only issues assigned to the person for at least 24
-              hours are counted, so newly-assigned work isn&apos;t flagged
-              before they&apos;ve had a chance to plan it.
+              Ranks people by how often they removed <em>themselves</em> as the
+              assignee of an issue — moving the work to unassigned, back to the
+              reporter, or to someone else. This is a candidate list to
+              investigate, not proof of intent: legitimate handoffs appear here
+              too.
             </p>
           </div>
 
-          <FilterBar
-            quarters={quarters}
-            start={start}
-            end={end}
-            includeCompleted={includeCompleted}
-          />
+          <FilterBar quarters={quarters} start={start} end={end} />
 
           <div className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
             <table className="w-full text-sm">
@@ -234,20 +257,57 @@ export default async function TopUnplannedAssigneesPage({
                     Name
                   </th>
                   <th className="px-4 py-2.5 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-                    Email
-                  </th>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">
                     Team
                   </th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-                    Unplanned Tasks
-                  </th>
+                  {(
+                    [
+                      { key: "unassigned" as const, label: "To Unassigned" },
+                      { key: "reporter" as const, label: "To Reporter" },
+                      { key: "other" as const, label: "To Someone Else" },
+                      { key: "total" as const, label: "Total" },
+                    ]
+                  ).map(({ key, label }) => {
+                    const active = sort === key;
+                    const ArrowIcon =
+                      active && dir === "asc" ? RiArrowUpLine : RiArrowDownLine;
+                    return (
+                      <th
+                        key={key}
+                        aria-sort={
+                          active
+                            ? dir === "asc"
+                              ? "ascending"
+                              : "descending"
+                            : "none"
+                        }
+                        className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide whitespace-nowrap"
+                      >
+                        <Link
+                          href={sortHref(key)}
+                          className={cn(
+                            "inline-flex items-center gap-1 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors",
+                            active
+                              ? "text-zinc-900 dark:text-zinc-100"
+                              : "text-zinc-500"
+                          )}
+                        >
+                          {label}
+                          <ArrowIcon
+                            className={cn(
+                              "size-3 shrink-0 transition-opacity",
+                              active ? "opacity-100" : "opacity-0"
+                            )}
+                          />
+                        </Link>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
                   <tr
-                    key={row.email}
+                    key={row.account_id}
                     className="border-b border-zinc-100 dark:border-zinc-800/60 last:border-0"
                   >
                     <td className="px-4 py-3 text-xs text-zinc-400 tabular-nums align-top">
@@ -255,14 +315,11 @@ export default async function TopUnplannedAssigneesPage({
                     </td>
                     <td className="px-4 py-3 font-medium align-top">
                       <Link
-                        href={`/views/top-unplanned-assignees?${rangeQuery}&assignee=${encodeURIComponent(row.email)}`}
+                        href={`/views/self-deassigners?${rangeQuery}&author=${encodeURIComponent(row.account_id)}`}
                         className="text-zinc-900 hover:underline dark:text-zinc-100"
                       >
                         {row.name}
                       </Link>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400 align-top">
-                      {row.email}
                     </td>
                     <td className="px-4 py-3 align-top">
                       {row.teams.length === 0 ? (
@@ -284,8 +341,17 @@ export default async function TopUnplannedAssigneesPage({
                         </div>
                       )}
                     </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-zinc-500 dark:text-zinc-400 align-top">
+                      {row.to_unassigned.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-zinc-500 dark:text-zinc-400 align-top">
+                      {row.to_reporter.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-zinc-500 dark:text-zinc-400 align-top">
+                      {row.to_other.toLocaleString()}
+                    </td>
                     <td className="px-4 py-3 text-right font-semibold tabular-nums text-zinc-900 dark:text-zinc-100 align-top">
-                      {row.unplanned_count.toLocaleString()}
+                      {row.total.toLocaleString()}
                     </td>
                   </tr>
                 ))}
@@ -293,10 +359,10 @@ export default async function TopUnplannedAssigneesPage({
                 {rows.length === 0 && (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={7}
                       className="px-4 py-8 text-center text-sm text-zinc-400"
                     >
-                      No unplanned tasks in this period.
+                      No self-reassignments in this period.
                     </td>
                   </tr>
                 )}
