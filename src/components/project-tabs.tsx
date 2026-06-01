@@ -6,6 +6,18 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { RiRefreshLine } from "@remixicon/react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { SlaEngineTab } from "@/components/sla-engine";
 import { ProjectTrackingTab } from "@/components/project-tracking";
 import { StatusMappingTabContent } from "@/components/status-mapping-editor";
@@ -22,6 +34,7 @@ type SyncJob = {
 
 type Props = {
   projectId: string;
+  projectName: string;
   jiraProjectKey: string;
   isAdmin: boolean;
   isSuperuser: boolean;
@@ -37,7 +50,7 @@ function isValidTab(value: string | null): value is Tab {
 // Projects that have Freshdesk integration enabled
 const FRESHDESK_ENABLED_KEYS = ["CAV"];
 
-export function ProjectTabs({ projectId, jiraProjectKey, isAdmin, isSuperuser }: Props) {
+export function ProjectTabs({ projectId, projectName, jiraProjectKey, isAdmin, isSuperuser }: Props) {
   const hasFreshdesk = FRESHDESK_ENABLED_KEYS.includes(jiraProjectKey);
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -52,6 +65,8 @@ export function ProjectTabs({ projectId, jiraProjectKey, isAdmin, isSuperuser }:
   const [syncJob, setSyncJob] = useState<SyncJob | null>(null);
   const [isPending, startTransition] = useTransition();
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
+  const [syncConfirmText, setSyncConfirmText] = useState("");
 
   // Clean up interval on unmount
   useEffect(() => {
@@ -129,10 +144,58 @@ export function ProjectTabs({ projectId, jiraProjectKey, isAdmin, isSuperuser }:
           )}
         </TabsList>
         {isSuperuser && (
-          <Button variant="outline" size="sm" onClick={handleForceSync} disabled={isSyncing}>
-            <RiRefreshLine className={isSyncing ? "animate-spin" : ""} />
-            {syncLabel()}
-          </Button>
+          isSyncing ? (
+            <Button variant="outline" size="sm" disabled>
+              <RiRefreshLine className="animate-spin" />
+              {syncLabel()}
+            </Button>
+          ) : (
+            <AlertDialog
+              open={syncDialogOpen}
+              onOpenChange={(o) => { setSyncDialogOpen(o); if (!o) setSyncConfirmText(""); }}
+            >
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <RiRefreshLine />
+                  Force sync
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Sync {projectName}?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Syncing is an expensive operation — it re-fetches all issues from Jira and
+                    may take several minutes. Use carefully, or perform this operation in the
+                    local development environment.
+                    <br /><br />
+                    Type <span className="font-mono font-medium text-foreground">sync {projectName}</span> to confirm.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <Input
+                  placeholder={`sync ${projectName}`}
+                  value={syncConfirmText}
+                  onChange={(e) => setSyncConfirmText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && syncConfirmText === `sync ${projectName}`) {
+                      setSyncDialogOpen(false);
+                      setSyncConfirmText("");
+                      handleForceSync();
+                    }
+                  }}
+                  autoFocus
+                />
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    disabled={syncConfirmText !== `sync ${projectName}`}
+                    onClick={() => { setSyncDialogOpen(false); setSyncConfirmText(""); handleForceSync(); }}
+                  >
+                    Sync
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )
         )}
       </div>
 
@@ -161,7 +224,7 @@ export function ProjectTabs({ projectId, jiraProjectKey, isAdmin, isSuperuser }:
             )}
             {hasFreshdesk && (
               <TabsContent value="client-issues">
-                <ClientIssuesTab projectId={projectId} />
+                <ClientIssuesTab projectId={projectId} projectName={projectName} />
               </TabsContent>
             )}
           </>

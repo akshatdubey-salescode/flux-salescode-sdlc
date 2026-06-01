@@ -14,6 +14,18 @@ import {
   RiArrowRightSLine,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import type { FreshdeskTicket } from "@/lib/db/schema";
 
 type TicketWithJiraDate = FreshdeskTicket & {
@@ -595,7 +607,7 @@ function buildParams(filters: Filters, page: number, pageSize: number): string {
   return sp.toString();
 }
 
-export function ClientIssuesTab({ projectId }: { projectId: string }) {
+export function ClientIssuesTab({ projectId, projectName }: { projectId: string; projectName: string }) {
   const [meta, setMeta] = useState<Meta | null>(null);
   const [metaLoading, setMetaLoading] = useState(true);
   const [tickets, setTickets] = useState<TicketWithJiraDate[]>([]);
@@ -605,6 +617,8 @@ export function ClientIssuesTab({ projectId }: { projectId: string }) {
   const [exporting, setExporting] = useState(false);
   const [syncing, startSync] = useTransition();
   const [syncResult, setSyncResult] = useState<{ synced: number; linked: number } | null>(null);
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
+  const [syncConfirmText, setSyncConfirmText] = useState("");
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [visibleCols, setVisibleCols] = useState<Set<ColumnId>>(new Set(DEFAULT_VISIBLE));
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -714,10 +728,58 @@ export function ClientIssuesTab({ projectId }: { projectId: string }) {
           {syncResult && (
             <span className="text-xs text-zinc-500">{syncResult.synced} synced · {syncResult.linked} linked</span>
           )}
-          <Button variant="outline" size="sm" onClick={handleSync} disabled={syncing}>
-            <RiRefreshLine className={syncing ? "animate-spin" : ""} />
-            {syncing ? "Syncing…" : "Sync now"}
-          </Button>
+          {syncing ? (
+            <Button variant="outline" size="sm" disabled>
+              <RiRefreshLine className="animate-spin" />
+              Syncing…
+            </Button>
+          ) : (
+            <AlertDialog
+              open={syncDialogOpen}
+              onOpenChange={(o) => { setSyncDialogOpen(o); if (!o) setSyncConfirmText(""); }}
+            >
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <RiRefreshLine />
+                  Sync now
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Sync {projectName}?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Syncing is an expensive operation — it re-fetches all Freshdesk tickets and
+                    may take several minutes. Use carefully, or perform this operation in the
+                    local development environment.
+                    <br /><br />
+                    Type <span className="font-mono font-medium text-foreground">sync {projectName}</span> to confirm.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <Input
+                  placeholder={`sync ${projectName}`}
+                  value={syncConfirmText}
+                  onChange={(e) => setSyncConfirmText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && syncConfirmText === `sync ${projectName}`) {
+                      setSyncDialogOpen(false);
+                      setSyncConfirmText("");
+                      handleSync();
+                    }
+                  }}
+                  autoFocus
+                />
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    disabled={syncConfirmText !== `sync ${projectName}`}
+                    onClick={() => { setSyncDialogOpen(false); setSyncConfirmText(""); handleSync(); }}
+                  >
+                    Sync
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
       </div>
 

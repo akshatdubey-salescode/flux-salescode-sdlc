@@ -23,6 +23,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 
@@ -57,6 +58,8 @@ export function SyncAllPanel({ projects }: { projects: Project[] }) {
   const [isRunning, setIsRunning] = useState(false);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const abortRef = useRef(false);
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
+  const [syncConfirmText, setSyncConfirmText] = useState("");
 
   function patch(id: string, update: Partial<ProjectState>) {
     setStates((prev) => ({ ...prev, [id]: { ...prev[id], ...update } }));
@@ -217,7 +220,10 @@ export function SyncAllPanel({ projects }: { projects: Project[] }) {
               Syncing…
             </Button>
           ) : (
-            <AlertDialog>
+            <AlertDialog
+              open={syncDialogOpen}
+              onOpenChange={(o) => { setSyncDialogOpen(o); if (!o) setSyncConfirmText(""); }}
+            >
               <AlertDialogTrigger asChild>
                 <Button disabled={selected.size === 0} className="gap-2 shrink-0">
                   <RiRefreshLine className="size-4" />
@@ -228,15 +234,35 @@ export function SyncAllPanel({ projects }: { projects: Project[] }) {
                 <AlertDialogHeader>
                   <AlertDialogTitle>Sync {selected.size} project{selected.size !== 1 ? "s" : ""}?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Resyncing is an expensive and time-consuming operation. It will re-fetch all
+                    Syncing is an expensive and time-consuming operation — it re-fetches all
                     issues from Jira for the selected projects sequentially. This may take several
-                    minutes to complete and cannot be undone mid-sync without leaving data in a
-                    partial state.
+                    minutes to complete. Use carefully, or perform this operation in the local
+                    development environment.
+                    <br /><br />
+                    Type <span className="font-mono font-medium text-foreground">sync all</span> to confirm.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
+                <Input
+                  placeholder="sync all"
+                  value={syncConfirmText}
+                  onChange={(e) => setSyncConfirmText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && syncConfirmText === "sync all") {
+                      setSyncDialogOpen(false);
+                      setSyncConfirmText("");
+                      handleSyncAll();
+                    }
+                  }}
+                  autoFocus
+                />
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleSyncAll}>Proceed</AlertDialogAction>
+                  <AlertDialogAction
+                    disabled={syncConfirmText !== "sync all"}
+                    onClick={() => { setSyncDialogOpen(false); setSyncConfirmText(""); handleSyncAll(); }}
+                  >
+                    Proceed
+                  </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>

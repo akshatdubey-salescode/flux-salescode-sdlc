@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { RiCalendarLine, RiCheckLine, RiErrorWarningLine, RiLoader4Line } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +30,8 @@ export function CalendarSyncPanel({ connectedUsers }: { connectedUsers: number }
   const [isPending, startTransition] = useTransition();
   const [result, setResult] = useState<SyncStats | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
+  const [syncConfirmText, setSyncConfirmText] = useState("");
 
   function handleSync() {
     setResult(null);
@@ -69,7 +72,10 @@ export function CalendarSyncPanel({ connectedUsers }: { connectedUsers: number }
               Syncing…
             </Button>
           ) : (
-            <AlertDialog>
+            <AlertDialog
+              open={syncDialogOpen}
+              onOpenChange={(o) => { setSyncDialogOpen(o); if (!o) setSyncConfirmText(""); }}
+            >
               <AlertDialogTrigger asChild>
                 <Button disabled={connectedUsers === 0} className="gap-2 shrink-0">
                   <RiCalendarLine className="size-4" />
@@ -80,15 +86,35 @@ export function CalendarSyncPanel({ connectedUsers }: { connectedUsers: number }
                 <AlertDialogHeader>
                   <AlertDialogTitle>Run calendar sync?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This will fetch the latest Google Calendar events for all{" "}
-                    {connectedUsers} connected user{connectedUsers !== 1 ? "s" : ""} and
-                    update the event cache. The request runs synchronously and may take
-                    up to a minute depending on the number of users.
+                    Syncing is an expensive operation — it fetches the latest Google Calendar
+                    events for all {connectedUsers} connected user{connectedUsers !== 1 ? "s" : ""}{" "}
+                    and may take up to a minute. Use carefully, or perform this operation in the
+                    local development environment.
+                    <br /><br />
+                    Type <span className="font-mono font-medium text-foreground">sync calendar</span> to confirm.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
+                <Input
+                  placeholder="sync calendar"
+                  value={syncConfirmText}
+                  onChange={(e) => setSyncConfirmText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && syncConfirmText === "sync calendar") {
+                      setSyncDialogOpen(false);
+                      setSyncConfirmText("");
+                      handleSync();
+                    }
+                  }}
+                  autoFocus
+                />
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleSync}>Run Sync</AlertDialogAction>
+                  <AlertDialogAction
+                    disabled={syncConfirmText !== "sync calendar"}
+                    onClick={() => { setSyncDialogOpen(false); setSyncConfirmText(""); handleSync(); }}
+                  >
+                    Run Sync
+                  </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
