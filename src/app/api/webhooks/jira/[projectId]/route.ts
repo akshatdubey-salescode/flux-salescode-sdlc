@@ -41,10 +41,25 @@ export async function POST(
 ) {
   const { projectId } = await ctx.params;
 
+  // Instrumentation (console-only, no added cost). Every non-200 path below
+  // logs through `fail` so dropped deliveries stop being invisible — the
+  // previous handler only logged on the 500 path, which is why genuine drops
+  // (401/404/400) left no trace. The Jira-assigned delivery id is stable across
+  // retries, so it ties a logged failure to its later retry in Jira's logs.
+  const startedAt = performance.now();
+  const webhookId = req.headers.get("x-atlassian-webhook-identifier") ?? "unknown";
+  const elapsed = () => Math.round(performance.now() - startedAt);
+  const fail = (status: number, reason: string) => {
+    console.warn(
+      `[jira-webhook] ${status} ${reason} project=${projectId} id=${webhookId} ms=${elapsed()}`
+    );
+    return new Response(reason, { status });
+  };
+
   // Validate webhook secret from query param
   const secret = req.nextUrl.searchParams.get("secret");
   if (!secret) {
-    return new Response("Missing secret", { status: 401 });
+    return fail(401, "Missing secret");
   }
 
   const [project] = await db
@@ -59,18 +74,18 @@ export async function POST(
     .limit(1);
 
   if (!project) {
-    return new Response("Project not found", { status: 404 });
+    return fail(404, "Project not found");
   }
 
   if (secret !== decrypt(project.webhookSecret)) {
-    return new Response("Invalid secret", { status: 401 });
+    return fail(401, "Invalid secret");
   }
 
   let payload: JiraWebhookEvent;
   try {
     payload = (await req.json()) as JiraWebhookEvent;
   } catch {
-    return new Response("Invalid JSON", { status: 400 });
+    return fail(400, "Invalid JSON");
   }
 
   const { webhookEvent, issue, changelog } = payload;
@@ -239,7 +254,10 @@ export async function POST(
         break;
     }
   } catch (err) {
-    console.error(`[jira-webhook] error processing ${webhookEvent}:`, err);
+    console.error(
+      `[jira-webhook] 500 error processing ${webhookEvent} project=${projectId} id=${webhookId} key=${issueKey ?? "?"} ms=${elapsed()}:`,
+      err
+    );
     return new Response("Internal error", { status: 500 });
   }
 
@@ -255,6 +273,16 @@ export async function POST(
     if (issueKey) revalidateTag(`issue:${issueKey}`, "max");
   } else {
     await revalidateIssueChange({ projectId, emails: affectedEmails, issueKey });
+  }
+
+  // Jira marks a delivery failed at a 20s response timeout (and may retry it
+  // out of order). Warn when we get close so the timeout theory is observable
+  // without paying for per-request success logging.
+  const ms = elapsed();
+  if (ms > 10_000) {
+    console.warn(
+      `[jira-webhook] slow ${ms}ms ${webhookEvent} project=${projectId} id=${webhookId} key=${issueKey ?? "?"}`
+    );
   }
 
   return new Response("OK", { status: 200 });

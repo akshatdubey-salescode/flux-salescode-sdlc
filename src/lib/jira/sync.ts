@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   jiraProjects,
@@ -350,6 +350,15 @@ export async function upsertIssue(
     .onConflictDoUpdate({
       target: [jiraIssues.projectId, jiraIssues.jiraId],
       set: updateSet,
+      // Ordering guard. Jira delivers webhooks concurrently (Vercel runs each
+      // POST as a separate parallel invocation) and retries failed ones out of
+      // order 5–15 min later. Without this, an older payload landing after a
+      // newer one silently clobbers the row — the field-stale bug. Only apply
+      // the update when the incoming snapshot is at least as new as what we've
+      // stored, so the row converges to the newest payload regardless of which
+      // invocation writes last. NULLs (legacy rows or a payload missing
+      // `updated`) are allowed through so we never get permanently stuck.
+      setWhere: sql`${jiraIssues.jiraUpdatedAt} is null or excluded.jira_updated_at is null or excluded.jira_updated_at >= ${jiraIssues.jiraUpdatedAt}`,
     })
     .returning({
       id: jiraIssues.id,
@@ -359,7 +368,25 @@ export async function upsertIssue(
       assigneeEmail: jiraIssues.assigneeEmail,
       additionalAssigneeEmails: jiraIssues.additionalAssigneeEmails,
     });
-  return row;
+  if (row) return row;
+
+  // The ordering guard skipped a stale event, so DO UPDATE matched no row and
+  // RETURNING came back empty. Return the current persisted row so callers
+  // (cache invalidation, Freshdesk relink) still operate on valid, current
+  // data instead of crashing on an undefined row.
+  const [current] = await db
+    .select({
+      id: jiraIssues.id,
+      jiraKey: jiraIssues.jiraKey,
+      status: jiraIssues.status,
+      assigneeName: jiraIssues.assigneeName,
+      assigneeEmail: jiraIssues.assigneeEmail,
+      additionalAssigneeEmails: jiraIssues.additionalAssigneeEmails,
+    })
+    .from(jiraIssues)
+    .where(and(eq(jiraIssues.projectId, projectId), eq(jiraIssues.jiraId, raw.id)))
+    .limit(1);
+  return current;
 }
 
 // ---------------------------------------------------------------------------
@@ -389,6 +416,13 @@ export async function recordStatusTransition(
     .limit(1);
 
   if (!issue) return;
+
+  // Ignore stale / out-of-order transitions. If this change predates when the
+  // issue entered its current status, a newer transition has already been
+  // applied (Jira can deliver status-change webhooks out of order or retry
+  // them late). Replaying an older one here would corrupt the rollup with
+  // negative durations and a wrong current segment.
+  if (issue.currentStatusSince && changedAt < issue.currentStatusSince) return;
 
   const rollup = applyTransition({
     fromStatus,
