@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { eq, and } from "drizzle-orm";
+import { eq, and, ne } from "drizzle-orm";
 import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
 import { jiraProjects, jiraIssues } from "@/lib/db/schema";
@@ -124,6 +124,31 @@ export async function POST(
           const fdId = fdFieldValue ? parseInt(String(fdFieldValue), 10) : null;
           if (fdId !== null && fdId > 0) {
             await relinkFreshdeskTicket(created.id, created.jiraKey, created.status, created.assigneeName, fdId, projectId);
+          }
+
+          // When an issue moves between Jira projects, Jira fires issue_created
+          // on the destination webhook but does NOT fire issue_deleted on the
+          // source webhook (the JQL filter evaluates post-move, so the source
+          // no longer matches). Delete any stale rows with the same jira_id in
+          // other projects to avoid zombie entries.
+          const zombies = await db
+            .delete(jiraIssues)
+            .where(and(eq(jiraIssues.jiraId, issue.id), ne(jiraIssues.projectId, projectId)))
+            .returning({
+              projectId: jiraIssues.projectId,
+              jiraKey: jiraIssues.jiraKey,
+              assigneeEmail: jiraIssues.assigneeEmail,
+              additionalAssigneeEmails: jiraIssues.additionalAssigneeEmails,
+            });
+          for (const zombie of zombies) {
+            const zombieEmails: string[] = [];
+            if (zombie.assigneeEmail) zombieEmails.push(zombie.assigneeEmail);
+            zombieEmails.push(...(zombie.additionalAssigneeEmails ?? []));
+            await revalidateIssueChange({
+              projectId: zombie.projectId,
+              emails: zombieEmails,
+              issueKey: zombie.jiraKey,
+            });
           }
         }
         break;
