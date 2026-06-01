@@ -20,8 +20,8 @@ export type CacheStatus = "HIT" | "MISS";
 /**
  * Wrap the call to a cached fetcher. Returns the unwrapped data plus the
  * detected cache status and response headers (X-Cache + Server-Timing) to
- * attach to the route response. Emits a structured `[cache]` log line so hit
- * rates can be charted from Vercel/log search.
+ * attach to the route response. Hit/miss is surfaced via those headers only —
+ * intentionally not logged, to avoid a billed Observability Event per request.
  */
 export async function withCacheMetrics<T>(
   useCase: string,
@@ -32,8 +32,9 @@ export async function withCacheMetrics<T>(
   const durationMs = Date.now() - t0;
   const status: CacheStatus = computedAtMs >= t0 ? "MISS" : "HIT";
 
-  console.log(`[cache] ${useCase} ${status} ${durationMs}ms`);
-
+  // Hit/miss + timing is exposed per-request via the X-Cache and Server-Timing
+  // headers below — we deliberately do NOT console.log it, since one line per
+  // request is a billed Observability Event for no extra signal.
   return {
     data,
     status,

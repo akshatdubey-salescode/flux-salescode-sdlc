@@ -161,6 +161,7 @@ function MemberRow({ member, onRemove }: { member: PulseMember; onRemove?: () =>
         <div className="flex items-center gap-4 shrink-0">
           <Link
             href={`/observer/developer/${encodeURIComponent(member.email)}`}
+            prefetch={false}
             className="text-[11px] font-medium text-primary hover:text-primary/80 transition-colors"
           >
             Full profile →

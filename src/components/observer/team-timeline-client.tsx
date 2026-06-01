@@ -813,6 +813,7 @@ function MemberTimelineCard({
           </div>
           <Link
             href={`/observer/developer/${encodeURIComponent(member.email)}`}
+            prefetch={false}
             onClick={(e) => e.stopPropagation()}
             className="text-[11px] font-medium text-primary hover:text-primary/80 transition-colors whitespace-nowrap"
           >
