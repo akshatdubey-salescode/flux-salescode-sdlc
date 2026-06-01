@@ -365,6 +365,22 @@ export class JiraClient {
   }
 
   /**
+   * Reverse of searchUserAccountIdByEmail — looks up a user's email given
+   * their accountId. With Basic Auth (service account) credentials Atlassian
+   * returns emailAddress even when the user has hidden it on their profile.
+   * Returns null when the account is not found or the email is still hidden.
+   * Endpoint: GET /rest/api/3/user?accountId={accountId}
+   */
+  async getEmailByAccountId(accountId: string): Promise<string | null> {
+    const res = await this.get(
+      `${this.baseUrl}/rest/api/3/user?accountId=${encodeURIComponent(accountId)}`
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as { emailAddress?: string; active?: boolean };
+    return data.emailAddress?.toLowerCase() ?? null;
+  }
+
+  /**
    * Returns deduplicated statuses across all issue types in a project.
    * Endpoint: GET /rest/api/3/project/{projectKey}/statuses
    */

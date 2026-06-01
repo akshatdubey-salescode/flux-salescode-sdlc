@@ -180,6 +180,78 @@ export async function backfillIssueEmailsForAccount(
 }
 
 /**
+ * Reverse lookup: given an Atlassian accountId, return the user's email by
+ * calling GET /rest/api/3/user?accountId={id} with our service-account
+ * credentials. Works for users who have hidden their email on their profile
+ * because Basic Auth bypasses Atlassian's user-to-user privacy gate.
+ *
+ * On success, persists the mapping to observer_board_members (so it survives
+ * across warm-instance cache expiry) and backfills any jira_issues rows that
+ * were left without an email for this account.
+ */
+export async function resolveEmailForAccountId(accountId: string): Promise<string | null> {
+  const projects = await getActiveProjectCreds();
+  for (const p of projects) {
+    try {
+      const client = new JiraClient(p);
+      const email = await client.getEmailByAccountId(accountId);
+      if (!email) continue;
+
+      // Persist via the users table (no FK constraint) so future
+      // loadAccountIdEmailMap calls include this mapping without needing a
+      // valid board row. The user row is created with role USER — harmless
+      // since they can't log in without Google OAuth matching this email.
+      await db
+        .insert(users)
+        .values({ id: email, email, role: "USER", jiraAccountId: accountId })
+        .onConflictDoUpdate({
+          target: users.id,
+          set: { jiraAccountId: accountId },
+        });
+
+      cachedAccountIdEmailMap = null;
+      await backfillIssueEmailsForAccount(accountId, email);
+      return email;
+    } catch (err) {
+      console.warn(`[jira-identity] getEmailByAccountId failed on ${p.baseUrl}:`, err);
+    }
+  }
+  return null;
+}
+
+/**
+ * Scans jira_issues for the given project where assignee_account_id is set
+ * but assignee_email is empty, then resolves each unique accountId via the
+ * Jira API. Run at the end of every full sync so privacy-restricted users
+ * don't permanently appear as unassigned.
+ */
+export async function reconcileHiddenAssigneeEmails(projectId: string): Promise<void> {
+  const map = await loadAccountIdEmailMap();
+
+  // Collect unique accountIds that still have no email in the DB.
+  const rows = await db
+    .selectDistinct({ accountId: jiraIssues.assigneeAccountId })
+    .from(jiraIssues)
+    .where(
+      and(
+        eq(jiraIssues.projectId, projectId),
+        sql`${jiraIssues.assigneeAccountId} IS NOT NULL`,
+        sql`(${jiraIssues.assigneeEmail} IS NULL OR ${jiraIssues.assigneeEmail} = '')`
+      )
+    );
+
+  for (const { accountId } of rows) {
+    if (!accountId) continue;
+    // Skip if already known in the in-memory map (avoids redundant API calls).
+    if (map.has(accountId)) {
+      await backfillIssueEmailsForAccount(accountId, map.get(accountId)!);
+      continue;
+    }
+    await resolveEmailForAccountId(accountId);
+  }
+}
+
+/**
  * Build a fresh accountId → email map from every known identity (users +
  * board members). Used by sync.ts to fill in missing assignee emails on
  * incoming Jira payloads.

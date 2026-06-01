@@ -4,7 +4,7 @@ import { jiraProjects, jiraSyncJobs } from "@/lib/db/schema";
 import { JiraClient } from "./client";
 import { decrypt } from "@/lib/crypto";
 import { upsertIssue, resolveProjectFieldConfig, getDoneRawStatuses } from "./sync";
-import { loadAccountIdEmailMap } from "./identity";
+import { loadAccountIdEmailMap, reconcileHiddenAssigneeEmails } from "./identity";
 
 const SYNC_CONCURRENCY = 5;
 
@@ -162,6 +162,12 @@ export async function runSyncJob(jobId: string): Promise<void> {
       .update(jiraProjects)
       .set({ lastSyncedAt: new Date() })
       .where(eq(jiraProjects.id, job.projectId));
+
+    // Resolve privacy-restricted assignees — users whose Jira email is hidden
+    // arrive with a null assignee_email and appear as "unassigned". Fetch
+    // their email via service-account credentials which bypass Atlassian's
+    // user-to-user privacy gate.
+    await reconcileHiddenAssigneeEmails(job.projectId);
 
     await db
       .update(jiraSyncJobs)
