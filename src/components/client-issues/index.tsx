@@ -16,6 +16,7 @@ import {
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -835,10 +836,40 @@ export function ClientIssuesTab({ projectId, projectName }: { projectId: string;
                 </AlertDialogHeader>
 
                 <div className="space-y-3">
-                  <div>
-                    <p className="mb-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                      Date range <span className="font-normal">(optional — leave blank to sync all tickets)</span>
-                    </p>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Date range</span>
+                      <span className="text-xs text-zinc-400">(optional)</span>
+                      <div className="ml-auto flex items-center gap-1.5">
+                        {([["7d", 7], ["30d", 30], ["90d", 90]] as const).map(([label, days]) => {
+                          const end = new Date();
+                          const start = new Date();
+                          start.setDate(start.getDate() - days);
+                          const s = localDateStr(start);
+                          const e = localDateStr(end);
+                          const active = syncStartDate === s && syncEndDate === e;
+                          return (
+                            <Badge
+                              key={days}
+                              variant={active ? "default" : "outline"}
+                              onClick={() => { setSyncStartDate(s); setSyncEndDate(e); }}
+                              className="cursor-pointer"
+                            >
+                              {label}
+                            </Badge>
+                          );
+                        })}
+                        {(syncStartDate || syncEndDate) && (
+                          <button
+                            type="button"
+                            onClick={() => { setSyncStartDate(""); setSyncEndDate(""); }}
+                            className="text-xs text-zinc-400 underline-offset-2 hover:text-zinc-600 hover:underline dark:hover:text-zinc-200"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                    </div>
                     <div className="flex items-center gap-2">
                       <div className="flex-1">
                         <DatePicker
