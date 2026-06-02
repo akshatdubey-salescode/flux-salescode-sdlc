@@ -67,13 +67,16 @@ async function get<T>(path: string): Promise<T> {
 }
 
 // Fetch all open+pending tickets for CavinKare, paginated
-export async function fetchCavinKareTickets(): Promise<FdTicket[]> {
+export async function fetchCavinKareTickets(options?: { updatedSince?: Date }): Promise<FdTicket[]> {
   const all: FdTicket[] = [];
   let page = 1;
+  const updatedSince = options?.updatedSince
+    ? `&updated_since=${options.updatedSince.toISOString()}`
+    : "";
 
   while (true) {
     const tickets = await get<FdTicket[]>(
-      `/api/v2/tickets?company_id=${CAVINCARE_COMPANY_ID}&per_page=100&page=${page}&include=requester,company`
+      `/api/v2/tickets?company_id=${CAVINCARE_COMPANY_ID}&per_page=100&page=${page}&include=requester,company${updatedSince}`
     );
     if (!tickets.length) break;
     all.push(...tickets);

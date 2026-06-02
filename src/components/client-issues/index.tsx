@@ -12,9 +12,12 @@ import {
   RiLayoutColumnLine,
   RiArrowLeftSLine,
   RiArrowRightSLine,
+  RiCalendarLine,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -507,6 +510,71 @@ function LabeledSelect({ label, children }: { label: string; children: React.Rea
   );
 }
 
+// ─── date picker ─────────────────────────────────────────────────────────────
+
+function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function DatePicker({
+  value,
+  onChange,
+  placeholder,
+  minDate,
+  maxDate,
+}: {
+  value: string;
+  onChange: (d: string) => void;
+  placeholder?: string;
+  minDate?: string;
+  maxDate?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [month, setMonth] = useState<Date>(
+    () => new Date((value || localDateStr(new Date())) + "T12:00:00")
+  );
+
+  useEffect(() => {
+    if (value) setMonth(new Date(value + "T12:00:00"));
+  }, [value]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9 w-full justify-start gap-2 font-normal"
+        >
+          <RiCalendarLine size={14} className="text-muted-foreground shrink-0" />
+          <span className={value ? "text-zinc-700 dark:text-zinc-300" : "text-zinc-400"}>
+            {value
+              ? new Date(value + "T12:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+              : (placeholder ?? "Pick date")}
+          </span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="single"
+          month={month}
+          onMonthChange={setMonth}
+          selected={value ? new Date(value + "T12:00:00") : undefined}
+          disabled={(d) => {
+            if (minDate && d < new Date(minDate + "T00:00:00")) return true;
+            if (maxDate && d > new Date(maxDate + "T23:59:59")) return true;
+            return false;
+          }}
+          onSelect={(date) => {
+            if (date) { onChange(localDateStr(date)); setOpen(false); }
+          }}
+          className="[--cell-size:--spacing(8)]"
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // ─── pagination ───────────────────────────────────────────────────────────────
 
 function Pagination({
@@ -619,6 +687,8 @@ export function ClientIssuesTab({ projectId, projectName }: { projectId: string;
   const [syncResult, setSyncResult] = useState<{ synced: number; linked: number } | null>(null);
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [syncConfirmText, setSyncConfirmText] = useState("");
+  const [syncStartDate, setSyncStartDate] = useState("");
+  const [syncEndDate, setSyncEndDate] = useState("");
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [visibleCols, setVisibleCols] = useState<Set<ColumnId>>(new Set(DEFAULT_VISIBLE));
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -680,7 +750,14 @@ export function ClientIssuesTab({ projectId, projectName }: { projectId: string;
   function handleSync() {
     startSync(async () => {
       setSyncResult(null);
-      const res = await fetch(`/api/freshdesk/sync/${projectId}`, { method: "POST" });
+      const body: Record<string, string> = {};
+      if (syncStartDate) body.startDate = syncStartDate;
+      if (syncEndDate) body.endDate = syncEndDate;
+      const res = await fetch(`/api/freshdesk/sync/${projectId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
       if (res.ok) {
         const data = await res.json();
         setSyncResult(data);
@@ -736,7 +813,10 @@ export function ClientIssuesTab({ projectId, projectName }: { projectId: string;
           ) : (
             <AlertDialog
               open={syncDialogOpen}
-              onOpenChange={(o) => { setSyncDialogOpen(o); if (!o) setSyncConfirmText(""); }}
+              onOpenChange={(o) => {
+                setSyncDialogOpen(o);
+                if (!o) { setSyncConfirmText(""); setSyncStartDate(""); setSyncEndDate(""); }
+              }}
             >
               <AlertDialogTrigger asChild>
                 <Button variant="outline" size="sm">
@@ -748,26 +828,58 @@ export function ClientIssuesTab({ projectId, projectName }: { projectId: string;
                 <AlertDialogHeader>
                   <AlertDialogTitle>Sync {projectName}?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Syncing is an expensive operation — it re-fetches all Freshdesk tickets and
+                    Syncing is an expensive operation — it re-fetches Freshdesk tickets and
                     may take several minutes. Use carefully, or perform this operation in the
                     local development environment.
-                    <br /><br />
-                    Type <span className="font-mono font-medium text-foreground">sync {projectName}</span> to confirm.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
-                <Input
-                  placeholder={`sync ${projectName}`}
-                  value={syncConfirmText}
-                  onChange={(e) => setSyncConfirmText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && syncConfirmText === `sync ${projectName}`) {
-                      setSyncDialogOpen(false);
-                      setSyncConfirmText("");
-                      handleSync();
-                    }
-                  }}
-                  autoFocus
-                />
+
+                <div className="space-y-3">
+                  <div>
+                    <p className="mb-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                      Date range <span className="font-normal">(optional — leave blank to sync all tickets)</span>
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1">
+                        <DatePicker
+                          value={syncStartDate}
+                          onChange={setSyncStartDate}
+                          placeholder="From"
+                          maxDate={syncEndDate || undefined}
+                        />
+                      </div>
+                      <span className="text-xs text-zinc-400">to</span>
+                      <div className="flex-1">
+                        <DatePicker
+                          value={syncEndDate}
+                          onChange={setSyncEndDate}
+                          placeholder="To"
+                          minDate={syncStartDate || undefined}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="mb-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                      Type <span className="font-mono font-medium text-zinc-700 dark:text-zinc-200">sync {projectName}</span> to confirm
+                    </p>
+                    <Input
+                      placeholder={`sync ${projectName}`}
+                      value={syncConfirmText}
+                      onChange={(e) => setSyncConfirmText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && syncConfirmText === `sync ${projectName}`) {
+                          setSyncDialogOpen(false);
+                          setSyncConfirmText("");
+                          handleSync();
+                        }
+                      }}
+                      autoFocus
+                    />
+                  </div>
+                </div>
+
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                   <AlertDialogAction

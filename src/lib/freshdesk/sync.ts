@@ -11,7 +11,10 @@ import {
 
 export const FRESHDESK_CUSTOM_FIELD = "customfield_11699";
 
-export async function syncFreshdeskTickets(projectId: string): Promise<{
+export async function syncFreshdeskTickets(
+  projectId: string,
+  options?: { startDate?: Date; endDate?: Date }
+): Promise<{
   synced: number;
   linked: number;
   errors: number;
@@ -63,8 +66,20 @@ export async function syncFreshdeskTickets(projectId: string): Promise<{
     }
   }
 
-  // Fetch all CavinKare tickets from Freshdesk
-  const fdTickets = await fetchCavinKareTickets();
+  // Fetch CavinKare tickets from Freshdesk; use startDate as updated_since to reduce pages
+  const allFdTickets = await fetchCavinKareTickets({ updatedSince: options?.startDate });
+
+  // Filter by created_at range if specified (updated_since only narrows by updated_at,
+  // so we must enforce the exact created_at window client-side)
+  const fdTickets =
+    options?.startDate || options?.endDate
+      ? allFdTickets.filter((t) => {
+          const created = new Date(t.created_at);
+          if (options.startDate && created < options.startDate) return false;
+          if (options.endDate && created > options.endDate) return false;
+          return true;
+        })
+      : allFdTickets;
 
   let synced = 0;
   let linked = 0;

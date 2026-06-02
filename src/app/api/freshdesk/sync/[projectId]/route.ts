@@ -4,7 +4,7 @@ import { hasMinRole } from "@/lib/auth/types";
 import { syncFreshdeskTickets } from "@/lib/freshdesk/sync";
 
 export async function POST(
-  _req: Request,
+  req: Request,
   props: { params: Promise<{ projectId: string }> }
 ) {
   const user = await requireAuth();
@@ -14,8 +14,21 @@ export async function POST(
 
   const { projectId } = await props.params;
 
+  let startDate: Date | undefined;
+  let endDate: Date | undefined;
   try {
-    const result = await syncFreshdeskTickets(projectId);
+    const body = await req.json();
+    if (body.startDate) startDate = new Date(body.startDate);
+    if (body.endDate) {
+      endDate = new Date(body.endDate);
+      endDate.setUTCHours(23, 59, 59, 999);
+    }
+  } catch {
+    // no body or invalid JSON — sync all
+  }
+
+  try {
+    const result = await syncFreshdeskTickets(projectId, { startDate, endDate });
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Sync failed";
