@@ -1,0 +1,1 @@
+ALTER TABLE "jira_projects" ADD COLUMN "freshdesk_company_id" text;

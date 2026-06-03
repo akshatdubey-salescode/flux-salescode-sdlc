@@ -36,7 +36,7 @@ type SyncJob = {
 type Props = {
   projectId: string;
   projectName: string;
-  jiraProjectKey: string;
+  hasFreshdesk: boolean;
   isAdmin: boolean;
   isSuperuser: boolean;
 };
@@ -48,11 +48,7 @@ function isValidTab(value: string | null): value is Tab {
   return VALID_TABS.includes(value as Tab);
 }
 
-// Projects that have Freshdesk integration enabled
-const FRESHDESK_ENABLED_KEYS = ["CAV"];
-
-export function ProjectTabs({ projectId, projectName, jiraProjectKey, isAdmin, isSuperuser }: Props) {
-  const hasFreshdesk = FRESHDESK_ENABLED_KEYS.includes(jiraProjectKey);
+export function ProjectTabs({ projectId, projectName, hasFreshdesk, isAdmin, isSuperuser }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawTab = searchParams.get("tab");

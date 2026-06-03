@@ -7,7 +7,7 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
-import { RiFlag2Line, RiRefreshLine, RiLightbulbLine, RiDeleteBin2Line, RiCalendarLine } from "@remixicon/react";
+import { RiFlag2Line, RiRefreshLine, RiLightbulbLine, RiDeleteBin2Line, RiCalendarLine, RiCustomerService2Line } from "@remixicon/react";
 
 const TOOLS = [
   {
@@ -33,6 +33,12 @@ const TOOLS = [
     icon: RiCalendarLine,
     title: "Calendar Sync",
     description: "Manually trigger the Google Calendar sync that normally runs on a cron schedule.",
+  },
+  {
+    href: "/superuser/freshdesk",
+    icon: RiCustomerService2Line,
+    title: "Freshdesk Integration",
+    description: "Enable Client Issue Tracking for any project by mapping it to a Freshdesk company.",
   },
   {
     href: "/superuser/delete-project",

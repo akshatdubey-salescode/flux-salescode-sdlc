@@ -2,7 +2,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { freshdeskTickets, jiraIssues, jiraProjects } from "@/lib/db/schema";
 import {
-  fetchCavinKareTickets,
+  fetchCompanyTickets,
   fetchTicket,
   fdStatusLabel,
   fdPriorityLabel,
@@ -19,14 +19,18 @@ export async function syncFreshdeskTickets(
   linked: number;
   errors: number;
 }> {
-  // Verify project exists
+  // Verify project exists and has a Freshdesk company configured
   const [project] = await db
-    .select({ id: jiraProjects.id })
+    .select({ id: jiraProjects.id, freshdeskCompanyId: jiraProjects.freshdeskCompanyId })
     .from(jiraProjects)
     .where(eq(jiraProjects.id, projectId))
     .limit(1);
 
   if (!project) throw new Error(`Project ${projectId} not found`);
+  const companyId = project.freshdeskCompanyId;
+  if (!companyId) {
+    throw new Error("Freshdesk is not configured for this project");
+  }
 
   // Fetch all Jira issues for this project that have a Freshdesk ticket ID set
   const jiraIssuesWithFdId = await db
@@ -66,8 +70,10 @@ export async function syncFreshdeskTickets(
     }
   }
 
-  // Fetch CavinKare tickets from Freshdesk; use startDate as updated_since to reduce pages
-  const allFdTickets = await fetchCavinKareTickets({ updatedSince: options?.startDate });
+  // Fetch this project's company tickets from Freshdesk; use startDate as updated_since to reduce pages
+  const allFdTickets = await fetchCompanyTickets(companyId, {
+    updatedSince: options?.startDate,
+  });
 
   // Filter by created_at range if specified (updated_since only narrows by updated_at,
   // so we must enforce the exact created_at window client-side)
@@ -150,7 +156,7 @@ export async function syncFreshdeskTickets(
   return { synced, linked, errors };
 }
 
-// Called from the Jira webhook handler when a CAV issue's customfield_11699
+// Called from the Jira webhook handler when an issue's customfield_11699
 // changes — re-links the corresponding Freshdesk ticket immediately.
 export async function relinkFreshdeskTicket(
   jiraIssueId: string,

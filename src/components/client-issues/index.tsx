@@ -195,7 +195,7 @@ function downloadCsv(tickets: TicketWithJiraDate[], visibleCols: Set<ColumnId>) 
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `cavinKare-tickets-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `freshdesk-tickets-${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -800,7 +800,7 @@ export function ClientIssuesTab({ projectId, projectName }: { projectId: string;
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Client Issue Tracker</h2>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">Freshdesk tickets from CavinKare linked to Jira</p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">Freshdesk tickets linked to Jira</p>
         </div>
         <div className="flex items-center gap-2">
           {syncResult && (
@@ -930,7 +930,7 @@ export function ClientIssuesTab({ projectId, projectName }: { projectId: string;
 
       {total === 0 && !pageLoading && tickets.length === 0 && Object.values(filters).every((v) => v === DEFAULT_FILTERS[Object.keys(DEFAULT_FILTERS).find((k) => DEFAULT_FILTERS[k as keyof Filters] === v) as keyof Filters]) ? (
         <div className="rounded-lg border border-dashed border-zinc-200 p-12 text-center dark:border-zinc-800">
-          <p className="text-sm text-zinc-400">No tickets synced yet. Click "Sync now" to pull CavinKare tickets from Freshdesk.</p>
+          <p className="text-sm text-zinc-400">No tickets synced yet. Click "Sync now" to pull tickets from Freshdesk.</p>
         </div>
       ) : (
         <>

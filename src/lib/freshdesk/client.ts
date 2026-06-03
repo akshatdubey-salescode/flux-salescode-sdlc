@@ -1,8 +1,6 @@
 const BASE_URL = process.env.FRESHDESK_BASE_URL?.replace(/\/$/, "");
 const API_KEY = process.env.FRESHDESK_API_KEY;
 
-// CavinKare's company ID in Freshdesk (confirmed from API response)
-export const CAVINCARE_COMPANY_ID = 1130000301547;
 
 const FD_STATUS_LABELS: Record<number, string> = {
   2: "Open",
@@ -66,8 +64,11 @@ async function get<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-// Fetch all open+pending tickets for CavinKare, paginated
-export async function fetchCavinKareTickets(options?: { updatedSince?: Date }): Promise<FdTicket[]> {
+// Fetch all tickets for a Freshdesk company, paginated
+export async function fetchCompanyTickets(
+  companyId: string | number,
+  options?: { updatedSince?: Date }
+): Promise<FdTicket[]> {
   const all: FdTicket[] = [];
   let page = 1;
   const updatedSince = options?.updatedSince
@@ -76,7 +77,7 @@ export async function fetchCavinKareTickets(options?: { updatedSince?: Date }): 
 
   while (true) {
     const tickets = await get<FdTicket[]>(
-      `/api/v2/tickets?company_id=${CAVINCARE_COMPANY_ID}&per_page=100&page=${page}&include=requester,company${updatedSince}`
+      `/api/v2/tickets?company_id=${companyId}&per_page=100&page=${page}&include=requester,company${updatedSince}`
     );
     if (!tickets.length) break;
     all.push(...tickets);

@@ -65,7 +65,7 @@ export default async function ProjectPage(props: {
 
       <main className="flex-1 min-w-0 w-full">
         <Suspense fallback={<TabsSkeleton />}>
-          <ProjectTabs projectId={project.id} projectName={project.name} jiraProjectKey={project.jiraProjectKey} isAdmin={isAdmin} isSuperuser={isSuperuser} />
+          <ProjectTabs projectId={project.id} projectName={project.name} hasFreshdesk={project.freshdeskCompanyId != null} isAdmin={isAdmin} isSuperuser={isSuperuser} />
         </Suspense>
       </main>
     </div>

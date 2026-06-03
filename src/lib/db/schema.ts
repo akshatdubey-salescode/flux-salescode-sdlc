@@ -69,6 +69,9 @@ export const jiraProjects = pgTable(
     jiraApiToken: text("jira_api_token").notNull(), // TODO: encrypt at rest
     webhookSecret: text("webhook_secret").notNull(), // random hex; included in webhook URL
     isActive: boolean("is_active").notNull().default(true),
+    // Freshdesk company ID this project's Client Issue Tracking is scoped to.
+    // null = Freshdesk integration disabled for the project; set = enabled.
+    freshdeskCompanyId: text("freshdesk_company_id"),
     headerImageUrl: text("header_image_url"),
     headerColor: text("header_color"),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
