@@ -120,7 +120,7 @@ export async function fetchTopUnplannedAssignees(
       unplanned_count
     FROM ranked
     ORDER BY unplanned_count DESC
-    LIMIT 15
+    LIMIT 30
   `);
 
   const topRows = ranked.rows as RankRow[];
