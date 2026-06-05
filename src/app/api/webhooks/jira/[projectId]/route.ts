@@ -124,7 +124,7 @@ export async function POST(
           const created = await upsertIssue(
             projectId,
             issue,
-            project.multiAssigneeFieldId ?? undefined,
+            project.multiAssigneeFieldIds,
             undefined,
             await getAccountIdEmailMap()
           );
@@ -180,7 +180,7 @@ export async function POST(
           const existingIssue = await upsertIssue(
             projectId,
             issue,
-            project.multiAssigneeFieldId ?? undefined,
+            project.multiAssigneeFieldIds,
             undefined,
             await getAccountIdEmailMap()
           );

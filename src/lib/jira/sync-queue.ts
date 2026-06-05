@@ -100,7 +100,7 @@ export async function runSyncJob(jobId: string): Promise<void> {
     apiToken: decrypt(project.jiraApiToken),
   });
 
-  const { multiAssigneeFieldId, extraFields } = await resolveProjectFieldConfig(
+  const { multiAssigneeFieldIds, extraFields } = await resolveProjectFieldConfig(
     client,
     project
   );
@@ -130,7 +130,7 @@ export async function runSyncJob(jobId: string): Promise<void> {
             upsertIssue(
               job.projectId,
               issue,
-              multiAssigneeFieldId || undefined,
+              multiAssigneeFieldIds,
               doneRawStatuses,
               accountIdEmailMap
             )

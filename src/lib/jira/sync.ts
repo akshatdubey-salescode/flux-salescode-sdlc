@@ -70,7 +70,7 @@ export type SyncResult = {
 const MULTI_USER_PICKER_TYPE = "com.atlassian.jira.plugin.system.customfieldtypes:multiuserpicker";
 
 type DiscoveredFields = {
-  multiAssigneeFieldId: string;
+  multiAssigneeFieldIds: string[];
   endDateFieldIds: string[];
   startDateFieldIds: string[];
 };
@@ -81,19 +81,20 @@ async function discoverProjectFields(
 ): Promise<DiscoveredFields> {
   const fields = await client.fetchFields();
 
-  const multiUserPickerFields = fields.filter(
-    (f) =>
-      f.custom &&
-      f.id !== "assignee" &&
-      f.schema?.custom === MULTI_USER_PICKER_TYPE &&
-      f.name.toLowerCase() !== "assignee"
-  );
-  // Prefer a field explicitly named "multiple assignee" (or similar); fall back to first match.
-  const multiAssigneeMatch =
-    multiUserPickerFields.find((f) =>
-      /multiple.{0,4}assignee/i.test(f.name)
-    ) ?? multiUserPickerFields[0];
-  const multiAssigneeFieldId = multiAssigneeMatch?.id ?? "";
+  // Collect every multi-user picker whose name mentions "assignee" — a project
+  // may assign people through more than one such field (e.g. EMAMI has both an
+  // "Assignee" and a "Multiple Assignee" people field, separate from the native
+  // Jira assignee). All of them feed additional_assignee_emails. The name match
+  // keeps unrelated pickers like "Approvers" / "Task Collaborator" out.
+  const multiAssigneeFieldIds = fields
+    .filter(
+      (f) =>
+        f.custom &&
+        f.id !== "assignee" &&
+        f.schema?.custom === MULTI_USER_PICKER_TYPE &&
+        /assignee/i.test(f.name)
+    )
+    .map((f) => f.id);
 
   // Exact-name match avoids picking up "Weekend Date" / "Intended End Date" etc.
   const endDateFieldIds = fields
@@ -106,10 +107,10 @@ async function discoverProjectFields(
 
   await db
     .update(jiraProjects)
-    .set({ multiAssigneeFieldId, endDateFieldIds, startDateFieldIds })
+    .set({ multiAssigneeFieldIds, endDateFieldIds, startDateFieldIds })
     .where(eq(jiraProjects.id, projectId));
 
-  return { multiAssigneeFieldId, endDateFieldIds, startDateFieldIds };
+  return { multiAssigneeFieldIds, endDateFieldIds, startDateFieldIds };
 }
 
 /**
@@ -121,18 +122,18 @@ export async function resolveProjectFieldConfig(
   client: JiraClient,
   project: {
     id: string;
-    multiAssigneeFieldId: string | null;
+    multiAssigneeFieldIds: string[] | null;
     endDateFieldIds: string[] | null;
     startDateFieldIds: string[] | null;
   }
-): Promise<{ multiAssigneeFieldId: string; extraFields: string[] }> {
-  let multiAssigneeFieldId: string | null = project.multiAssigneeFieldId;
+): Promise<{ multiAssigneeFieldIds: string[]; extraFields: string[] }> {
+  let multiAssigneeFieldIds: string[] | null = project.multiAssigneeFieldIds;
   let endDateFieldIds: string[] | null = project.endDateFieldIds;
   let startDateFieldIds: string[] | null = project.startDateFieldIds;
 
   try {
     const discovered = await discoverProjectFields(client, project.id);
-    multiAssigneeFieldId = discovered.multiAssigneeFieldId;
+    multiAssigneeFieldIds = discovered.multiAssigneeFieldIds;
     endDateFieldIds = discovered.endDateFieldIds;
     startDateFieldIds = discovered.startDateFieldIds;
   } catch (err) {
@@ -141,11 +142,11 @@ export async function resolveProjectFieldConfig(
   }
 
   const extraFields: string[] = [];
-  if (multiAssigneeFieldId) extraFields.push(multiAssigneeFieldId);
+  if (multiAssigneeFieldIds?.length) extraFields.push(...multiAssigneeFieldIds);
   if (endDateFieldIds?.length) extraFields.push(...endDateFieldIds);
   if (startDateFieldIds?.length) extraFields.push(...startDateFieldIds);
 
-  return { multiAssigneeFieldId: multiAssigneeFieldId ?? "", extraFields };
+  return { multiAssigneeFieldIds: multiAssigneeFieldIds ?? [], extraFields };
 }
 
 export async function syncProject(projectId: string): Promise<SyncResult> {
@@ -163,7 +164,7 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
     apiToken: decrypt(project.jiraApiToken),
   });
 
-  const { multiAssigneeFieldId, extraFields } = await resolveProjectFieldConfig(
+  const { multiAssigneeFieldIds, extraFields } = await resolveProjectFieldConfig(
     client,
     project
   );
@@ -192,7 +193,7 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
           upsertIssue(
             projectId,
             issue,
-            multiAssigneeFieldId ?? undefined,
+            multiAssigneeFieldIds,
             doneRawStatuses,
             accountIdEmailMap
           )
@@ -239,7 +240,7 @@ export type UpsertedIssue = {
 export async function upsertIssue(
   projectId: string,
   raw: JiraIssueRaw,
-  multiAssigneeFieldId?: string,
+  multiAssigneeFieldIds?: string[] | null,
   doneRawStatuses?: Set<string>,
   accountIdEmailMap?: Map<string, string>
 ): Promise<UpsertedIssue> {
@@ -253,13 +254,14 @@ export async function upsertIssue(
     }
   }
 
-  // Extract additional assignee emails from the multi-user picker field.
-  // The field returns an array of user objects: [{accountId, emailAddress, displayName}]
-  // When emailAddress is hidden by Atlassian privacy settings, fall back to
-  // the known accountId → email map built from our users/board_members tables.
-  const additionalAssigneeEmails: string[] = [];
-  if (multiAssigneeFieldId) {
-    const raw_additional = (f as Record<string, unknown>)[multiAssigneeFieldId];
+  // Extract additional assignee emails from every configured multi-user picker
+  // field. Each returns an array of user objects: [{accountId, emailAddress,
+  // displayName}]. When emailAddress is hidden by Atlassian privacy settings,
+  // fall back to the known accountId → email map built from our
+  // users/board_members tables. Emails are de-duplicated across fields.
+  const additionalAssigneeEmailSet = new Set<string>();
+  for (const fieldId of multiAssigneeFieldIds ?? []) {
+    const raw_additional = (f as Record<string, unknown>)[fieldId];
     if (Array.isArray(raw_additional)) {
       for (const u of raw_additional) {
         const obj = u as { emailAddress?: string; accountId?: string };
@@ -267,10 +269,11 @@ export async function upsertIssue(
         const mapped =
           !direct && obj.accountId ? accountIdEmailMap?.get(obj.accountId) ?? null : null;
         const email = direct ?? mapped;
-        if (email) additionalAssigneeEmails.push(email);
+        if (email) additionalAssigneeEmailSet.add(email);
       }
     }
   }
+  const additionalAssigneeEmails = [...additionalAssigneeEmailSet];
 
   // Same privacy fallback for the primary assignee: if Jira withheld the
   // email, look it up by accountId. This is the single change that makes

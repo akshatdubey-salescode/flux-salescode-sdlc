@@ -218,6 +218,13 @@
       "when": 1780472264086,
       "tag": "0031_rare_hellcat",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1780640622691,
+      "tag": "0032_lush_multi_assignee",
+      "breakpoints": true
     }
   ]
 }

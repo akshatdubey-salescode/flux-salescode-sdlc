@@ -75,9 +75,11 @@ export const jiraProjects = pgTable(
     headerImageUrl: text("header_image_url"),
     headerColor: text("header_color"),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
-    // Auto-discovered Jira custom field ID for multi-user assignee picker.
-    // null = not yet attempted, "" = attempted and not found, "customfield_XXXXX" = found.
-    multiAssigneeFieldId: text("multi_assignee_field_id"),
+    // Auto-discovered Jira custom field IDs for multi-user assignee pickers.
+    // A project may use more than one (e.g. both an "Assignee" and a "Multiple
+    // Assignee" people field); every match feeds additional_assignee_emails.
+    // null = not yet attempted, [] = attempted and none found, [...] = found.
+    multiAssigneeFieldIds: text("multi_assignee_field_ids").array(),
     // Auto-discovered Jira custom field IDs for end date / start date.
     // null = not yet attempted, [] = attempted and not found, [...] = found.
     endDateFieldIds: text("end_date_field_ids").array(),
