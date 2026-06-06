@@ -6,8 +6,20 @@ import { getValidAccessToken } from "@/lib/google/oauth";
 const CALENDAR_LIST_URL =
   "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 
-// How far back to look on the very first sync (or after a syncToken expiry).
+// How far back to look on a full window pull (first sync, syncToken expiry,
+// or a periodic refresh).
 const INITIAL_WINDOW_DAYS = 7;
+
+// How far *forward* to look on a full window pull. Recurring series that
+// pre-date the integration and are never edited only ever materialize through
+// the full pull — the incremental syncToken feed only re-delivers events that
+// are created or changed, so future occurrences never arrive on their own.
+const FUTURE_WINDOW_DAYS = 60;
+
+// Re-run a full pull once the last one is older than this, so future
+// occurrences keep getting re-materialized before they fall past the forward
+// horizon. Must stay comfortably below FUTURE_WINDOW_DAYS to avoid a gap.
+const FULL_SYNC_REFRESH_DAYS = 30;
 
 // ---------------------------------------------------------------------------
 // Google event shape (only the fields we read).
@@ -65,7 +77,10 @@ export async function syncUserCalendar(userId: string): Promise<SyncOutcome> {
   }
 
   const [row] = await db
-    .select({ googleSyncToken: userIntegrations.googleSyncToken })
+    .select({
+      googleSyncToken: userIntegrations.googleSyncToken,
+      googleFullSyncedAt: userIntegrations.googleFullSyncedAt,
+    })
     .from(userIntegrations)
     .where(
       and(
@@ -79,14 +94,20 @@ export async function syncUserCalendar(userId: string): Promise<SyncOutcome> {
   let eventsUpserted = 0;
   let deletions = 0;
 
+  // Force a full window pull when we've never done one, or the last one is
+  // stale enough that the forward horizon needs re-materializing. Otherwise
+  // sync incrementally off the stored token.
+  let didFullSync = !syncToken || isFullSyncStale(row?.googleFullSyncedAt);
+  const effectiveToken = didFullSync ? null : syncToken;
+
   try {
-    const result = await fetchAndApply(userId, accessToken, syncToken);
+    const result = await fetchAndApply(userId, accessToken, effectiveToken);
     eventsUpserted = result.eventsUpserted;
     deletions = result.deletions;
-    syncToken = result.nextSyncToken ?? syncToken;
+    syncToken = result.nextSyncToken ?? (didFullSync ? null : syncToken);
   } catch (err) {
     if (err instanceof SyncTokenExpired) {
-      // Fall back to a clean full-window sync.
+      // Token expired mid-incremental — fall back to a clean full-window sync.
       await db
         .update(userIntegrations)
         .set({ googleSyncToken: null })
@@ -100,17 +121,23 @@ export async function syncUserCalendar(userId: string): Promise<SyncOutcome> {
       eventsUpserted = result.eventsUpserted;
       deletions = result.deletions;
       syncToken = result.nextSyncToken ?? null;
+      didFullSync = true;
     } else {
       const msg = err instanceof Error ? err.message : String(err);
       return { status: "error", userId, error: msg };
     }
   }
 
+  const now = new Date();
   await db
     .update(userIntegrations)
     .set({
       googleSyncToken: syncToken,
-      googleLastSyncedAt: new Date(),
+      googleLastSyncedAt: now,
+      // Only stamp the full-sync marker when we actually did a full pull, so
+      // the refresh cadence is measured from the last full window — not every
+      // incremental run.
+      ...(didFullSync ? { googleFullSyncedAt: now } : {}),
     })
     .where(
       and(
@@ -125,6 +152,12 @@ export async function syncUserCalendar(userId: string): Promise<SyncOutcome> {
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
+
+function isFullSyncStale(lastFullSyncedAt: Date | null | undefined): boolean {
+  if (!lastFullSyncedAt) return true;
+  const ageMs = Date.now() - lastFullSyncedAt.getTime();
+  return ageMs > FULL_SYNC_REFRESH_DAYS * 86_400_000;
+}
 
 class SyncTokenExpired extends Error {
   constructor() {
@@ -165,7 +198,10 @@ async function fetchAndApply(
         "timeMin",
         new Date(now - INITIAL_WINDOW_DAYS * 86_400_000).toISOString()
       );
-      url.searchParams.set("timeMax", new Date(now).toISOString());
+      url.searchParams.set(
+        "timeMax",
+        new Date(now + FUTURE_WINDOW_DAYS * 86_400_000).toISOString()
+      );
     }
     if (pageToken) url.searchParams.set("pageToken", pageToken);
 

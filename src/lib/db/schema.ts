@@ -482,6 +482,12 @@ export const userIntegrations = pgTable(
     // NULL on 410 GONE to trigger a fresh full sync.
     googleSyncToken: text("google_sync_token"),
     googleLastSyncedAt: timestamp("google_last_synced_at", { withTimezone: true }),
+    // When we last did a *full window* pull (as opposed to an incremental
+    // syncToken sync). Incremental sync never delivers future occurrences of
+    // recurring series that nobody edits, so they fall past the forward
+    // horizon over time. We periodically re-run a full pull to re-materialize
+    // the window. NULL = never full-synced → next sync is a full pull.
+    googleFullSyncedAt: timestamp("google_full_synced_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

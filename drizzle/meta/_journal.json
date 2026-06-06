@@ -225,6 +225,13 @@
       "when": 1780640622691,
       "tag": "0032_lush_multi_assignee",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1780646808424,
+      "tag": "0033_fantastic_dagger",
+      "breakpoints": true
     }
   ]
 }
