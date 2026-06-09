@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { UserManagementTable } from "@/components/user-management-table";
 import { JiraUserSyncTable } from "@/components/jira-user-sync-table";
+import { JiraInactiveUsersTable } from "@/components/jira-inactive-users-table";
 import type { UserRole } from "@/lib/auth/types";
 
 const PAGE_SIZE = 20;
@@ -111,6 +112,8 @@ export default async function UserManagementPage(props: {
             <JiraUserSyncTable users={jiraUsersWithMissingEmail} />
           </div>
         )}
+
+        <JiraInactiveUsersTable />
       </main>
     </div>
   );

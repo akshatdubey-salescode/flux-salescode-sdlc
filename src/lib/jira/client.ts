@@ -340,6 +340,52 @@ export class JiraClient {
   }
 
   /**
+   * Bulk-fetch users by accountId, preserving each account's active status.
+   * Endpoint: GET /rest/api/3/user/bulk?accountId={id}&...
+   *
+   * Unlike fetchAssignableUsers / searchUserAccountIdByEmail — which both drop
+   * users where active === false — this method KEEPS the active flag so callers
+   * can surface inactive accounts (e.g. people who have left the company).
+   * Accounts that Jira no longer knows about (hard-deleted) are simply absent
+   * from the response rather than returned as inactive.
+   *
+   * Chunked at 50 ids/request: the API allows 200, but ~64 encoded chars per
+   * accountId would overflow the URL length limit (Jira returns 414) well
+   * before then.
+   */
+  async fetchUsersByAccountId(
+    accountIds: string[]
+  ): Promise<Array<{ accountId: string; displayName: string; active: boolean }>> {
+    const chunkSize = 50;
+    const out: Array<{ accountId: string; displayName: string; active: boolean }> = [];
+
+    for (let i = 0; i < accountIds.length; i += chunkSize) {
+      const chunk = accountIds.slice(i, i + chunkSize);
+      const params = chunk
+        .map((id) => `accountId=${encodeURIComponent(id)}`)
+        .join("&");
+      const res = await this.get(
+        `${this.baseUrl}/rest/api/3/user/bulk?maxResults=${chunkSize}&${params}`
+      );
+      if (!res.ok) continue;
+
+      const data = (await res.json()) as {
+        values?: Array<{ accountId: string; displayName: string; active?: boolean }>;
+      };
+
+      for (const u of data.values ?? []) {
+        out.push({
+          accountId: u.accountId,
+          displayName: u.displayName,
+          active: u.active !== false,
+        });
+      }
+    }
+
+    return out;
+  }
+
+  /**
    * Look up a Jira user by email. Returns the first matching active
    * accountId, or null when Jira returns no match. Works even when the
    * user's email visibility is restricted on their profile — the caller
