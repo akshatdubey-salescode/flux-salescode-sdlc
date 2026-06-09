@@ -29,6 +29,32 @@ export function currentQuarterNum(): number {
   return 4; // Jan–Mar
 }
 
+export type QuarterChip = { label: string; start: string; end: string };
+
+/** Fiscal-quarter chips (Apr–Mar) for filter bars: last 2, current, next. */
+export function getQuarterChips(): QuarterChip[] {
+  return getRelevantQuarters().map((q) => ({
+    label: `${q.label} ${q.year}`,
+    start: q.start,
+    end: q.end,
+  }));
+}
+
+/** The chip for the current fiscal quarter — the sensible default selection. */
+export function currentFiscalQuarterChip(): QuarterChip {
+  const { start } = quarterBounds(currentFyStartYear(), currentQuarterNum());
+  const chips = getQuarterChips();
+  return chips.find((q) => q.start === start) ?? chips[0];
+}
+
+/** Fiscal-quarter bounds containing the given YYYY-MM-DD date. */
+export function fiscalQuarterOf(dateStr: string): { start: string; end: string } {
+  const [y, m] = dateStr.split("-").map(Number);
+  const fyStart = m >= 4 ? y : y - 1;
+  const q = m >= 4 && m <= 6 ? 1 : m >= 7 && m <= 9 ? 2 : m >= 10 ? 3 : 4;
+  return quarterBounds(fyStart, q);
+}
+
 export function getRelevantQuarters() {
   const monthRanges = ["Apr–Jun", "Jul–Sep", "Oct–Dec", "Jan–Mar"];
   const currentQ = currentQuarterNum();

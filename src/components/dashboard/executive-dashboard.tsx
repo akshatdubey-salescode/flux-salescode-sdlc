@@ -35,7 +35,24 @@ import {
   RiInboxLine,
   RiExternalLinkLine,
 } from "@remixicon/react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import type { OverviewResponse, ProjectHealth } from "@/app/api/analytics/overview/route";
+import type {
+  OverviewIssue,
+  OverviewIssuesResponse,
+  OverviewBucket,
+} from "@/app/api/analytics/overview/issues/route";
+import {
+  getQuarterChips,
+  currentFiscalQuarterChip,
+  type QuarterChip,
+} from "@/lib/date-utils";
 
 const flowConfig: ChartConfig = {
   completed: { label: "Completed", color: "var(--chart-1)" },
@@ -49,79 +66,260 @@ const cycleConfig: ChartConfig = {
 export function ExecutiveDashboard() {
   const [data, setData] = useState<OverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [quarter, setQuarter] = useState<QuarterChip | null>(null);
+  const [drill, setDrill] = useState<{ bucket: OverviewBucket; title: string } | null>(null);
 
   useEffect(() => {
+    setQuarter(currentFiscalQuarterChip());
+  }, []);
+
+  useEffect(() => {
+    if (!quarter) return;
+    setLoading(true);
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, "0");
     const nowStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(
       now.getDate()
     )}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-    fetch(`/api/analytics/overview?now=${encodeURIComponent(nowStr)}`)
+    const params = new URLSearchParams({
+      now: nowStr,
+      ustart: quarter.start,
+      uend: quarter.end,
+    });
+    fetch(`/api/analytics/overview?${params}`)
       .then((r) => r.json())
       .then((d) => {
         setData(d);
         setLoading(false);
       });
-  }, []);
+  }, [quarter]);
 
-  if (loading || !data) return <DashboardSkeleton />;
-
-  const { kpis } = data;
+  const quarters = getQuarterChips();
+  const qLabel = quarter?.label ?? "";
 
   return (
-    <div className="space-y-5 animate-in fade-in duration-500">
-      {/* ── KPI strip ── */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
-        <KpiCard label="Active Work" value={kpis.totalActive} sub={`${kpis.activeWip} in progress`} />
-        <KpiCard
-          label="Completed · 30d"
-          value={kpis.completed30d}
-          trend={kpis.completedDeltaPct}
-          trendLabel="vs prior 30d"
-        />
-        <KpiCard label="At Risk" value={kpis.atRisk} tone={kpis.atRisk > 0 ? "amber" : undefined} />
-        <KpiCard label="Overdue" value={kpis.overdue} alert={kpis.overdue > 0} />
-        <KpiCard
-          label="On-Time Rate"
-          value={kpis.onTimeRatePct}
-          suffix="%"
-          tone={
-            kpis.onTimeRatePct == null
-              ? undefined
-              : kpis.onTimeRatePct >= 80
-              ? "green"
-              : kpis.onTimeRatePct >= 60
-              ? "amber"
-              : "red"
-          }
-          sub="last 90d delivered"
-        />
-        <KpiCard
-          label="Unplanned"
-          value={kpis.unplannedPct}
-          suffix="%"
-          tone={kpis.unplannedPct >= 30 ? "amber" : undefined}
-          sub={`${kpis.unplanned} without dates`}
-        />
-      </div>
-
-      {/* ── Flow + Cycle time ── */}
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-        <div className="xl:col-span-2">
-          <DeliveryFlow flow={data.flow} />
+    <div className="space-y-5">
+      {/* ── Quarter filter ── */}
+      <div className="flex items-center justify-end gap-1.5">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          Quarter
+        </span>
+        <div className="flex items-center gap-0.5">
+          {quarters.map((q) => (
+            <button
+              key={q.label}
+              onClick={() => setQuarter(q)}
+              className={cn(
+                "h-6 rounded-md px-2.5 text-[11px] font-medium transition-all duration-150",
+                quarter?.label === q.label
+                  ? "bg-background text-foreground shadow-sm ring-1 ring-border/60"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {q.label}
+            </button>
+          ))}
         </div>
-        <CycleTime cycle={data.cycleTimeByType} />
       </div>
 
-      {/* ── Project health + Aging WIP ── */}
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-        <div className="xl:col-span-2">
+      {loading || !data ? (
+        <DashboardSkeleton />
+      ) : (
+        <div className="space-y-5 animate-in fade-in duration-500">
+          {/* ── KPI strip ── */}
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+            <KpiCard
+              label="Active Work"
+              value={data.kpis.totalActive}
+              sub={`${data.kpis.activeWip} in progress · due ${qLabel}`}
+              info={`Open issues whose due date falls in ${qLabel || "the quarter"}. Click to list them.`}
+              onClick={() => setDrill({ bucket: "active", title: "Active Work" })}
+            />
+            <KpiCard
+              label={`Completed · ${qLabel}`}
+              value={data.kpis.completed}
+              trend={data.kpis.completedDeltaPct}
+              trendLabel="vs prior quarter"
+              info={`Issues completed during ${qLabel || "the quarter"}. The trend compares against the previous quarter.`}
+            />
+            <KpiCard
+              label="At Risk"
+              value={data.kpis.atRisk}
+              tone={data.kpis.atRisk > 0 ? "amber" : undefined}
+              info="Open issues due this quarter with 20% or less of their scheduled working time left. Check in before they slip. Click to list them."
+              onClick={() => setDrill({ bucket: "at_risk", title: "At Risk issues" })}
+            />
+            <KpiCard
+              label="Overdue"
+              value={data.kpis.overdue}
+              alert={data.kpis.overdue > 0}
+              info="Open issues due this quarter whose due date has already passed. Needs follow-up or reschedule. Click to list them."
+              onClick={() => setDrill({ bucket: "overdue", title: "Overdue issues" })}
+            />
+            <KpiCard
+              label="On-Time Rate"
+              value={data.kpis.onTimeRatePct}
+              suffix="%"
+              tone={
+                data.kpis.onTimeRatePct == null
+                  ? undefined
+                  : data.kpis.onTimeRatePct >= 80
+                  ? "green"
+                  : data.kpis.onTimeRatePct >= 60
+                  ? "amber"
+                  : "red"
+              }
+              sub={`${qLabel} delivered`}
+              info={`Of the issues completed in ${qLabel || "the quarter"} that had a due date, the share delivered on or before it.`}
+            />
+            <KpiCard
+              label="Unplanned"
+              value={data.kpis.unplannedPct}
+              suffix="%"
+              tone={data.kpis.unplannedPct >= 30 ? "amber" : undefined}
+              sub={`${data.kpis.unplanned} without dates`}
+              info="Open issues created this quarter that are missing a start or due date — work that isn't scheduled. Click to list them."
+              onClick={() => setDrill({ bucket: "unplanned", title: "Unplanned issues" })}
+            />
+          </div>
+
+          {/* ── Flow + Cycle time ── */}
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+            <div className="xl:col-span-2">
+              <DeliveryFlow flow={data.flow} />
+            </div>
+            <CycleTime cycle={data.cycleTimeByType} />
+          </div>
+
+          {/* ── Project health ── */}
           <ProjectHealthTable projects={data.projectHealth} />
         </div>
-        <AgingWip stale={data.staleWip} />
-      </div>
+      )}
+
+      {drill && quarter && (
+        <BucketDialog
+          bucket={drill.bucket}
+          title={drill.title}
+          quarter={quarter}
+          onClose={() => setDrill(null)}
+        />
+      )}
     </div>
   );
+}
+
+// ── Issue drill-down dialog ─────────────────────────────────────────────────────
+
+function BucketDialog({
+  bucket,
+  title,
+  quarter,
+  onClose,
+}: {
+  bucket: OverviewBucket;
+  title: string;
+  quarter: QuarterChip;
+  onClose: () => void;
+}) {
+  const [issues, setIssues] = useState<OverviewIssue[] | null>(null);
+  const [truncated, setTruncated] = useState(false);
+
+  useEffect(() => {
+    setIssues(null);
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const nowStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(
+      now.getDate()
+    )}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    const params = new URLSearchParams({
+      bucket,
+      ustart: quarter.start,
+      uend: quarter.end,
+      now: nowStr,
+    });
+    fetch(`/api/analytics/overview/issues?${params}`)
+      .then((r) => r.json())
+      .then((d: OverviewIssuesResponse) => {
+        setIssues(d.issues);
+        setTruncated(d.truncated);
+      })
+      .catch(() => setIssues([]));
+  }, [bucket, quarter]);
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-4xl sm:max-w-4xl">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>
+            {quarter.label}
+            {issues ? ` · ${issues.length}${truncated ? "+" : ""} issue${issues.length === 1 ? "" : "s"}` : ""}
+            {" · click a key to open it in Jira"}
+          </DialogDescription>
+        </DialogHeader>
+
+        {issues === null ? (
+          <div className="space-y-2 py-2">
+            {[...Array(6)].map((_, i) => (
+              <Skeleton key={i} className="h-8 w-full rounded" />
+            ))}
+          </div>
+        ) : issues.length === 0 ? (
+          <EmptyState message="No issues in this bucket" />
+        ) : (
+          <div className="max-h-[60vh] overflow-auto rounded-lg border border-border">
+            <table className="w-full table-fixed text-sm">
+              <colgroup>
+                <col className="w-[96px]" />
+                <col />
+                <col className="w-[140px]" />
+                <col className="w-[140px]" />
+                <col className="w-[104px]" />
+              </colgroup>
+              <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                <tr className="border-b border-border">
+                  <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Key</th>
+                  <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Summary</th>
+                  <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Assignee</th>
+                  <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Project</th>
+                  <th className="px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Due</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {issues.map((it) => (
+                  <tr key={it.jiraKey} className="hover:bg-muted/30 transition-colors">
+                    <td className="px-3 py-2">
+                      <a
+                        href={it.jiraUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group inline-flex items-center gap-1 font-mono text-xs font-medium text-primary hover:underline"
+                      >
+                        <span className="truncate">{it.jiraKey}</span>
+                        <RiExternalLinkLine className="size-3 shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground" />
+                      </a>
+                    </td>
+                    <td className="px-3 py-2"><span className="block truncate" title={it.summary}>{it.summary}</span></td>
+                    <td className="px-3 py-2 text-muted-foreground"><span className="block truncate" title={it.assigneeName ?? "Unassigned"}>{it.assigneeName ?? "Unassigned"}</span></td>
+                    <td className="px-3 py-2 text-muted-foreground"><span className="block truncate" title={it.projectName}>{it.projectName}</span></td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums"><DueLabel issue={it} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DueLabel({ issue }: { issue: OverviewIssue }) {
+  if (issue.daysToDue == null) return <span className="text-muted-foreground/50">—</span>;
+  if (issue.daysToDue < 0)
+    return <span className="font-medium text-destructive">{Math.abs(issue.daysToDue)}d overdue</span>;
+  if (issue.daysToDue === 0) return <span className="font-medium text-amber-600 dark:text-amber-400">due today</span>;
+  return <span className="text-muted-foreground">in {issue.daysToDue}d</span>;
 }
 
 // ── KPI Card ──────────────────────────────────────────────────────────────────
@@ -135,6 +333,8 @@ function KpiCard({
   suffix,
   alert,
   tone,
+  info,
+  onClick,
 }: {
   label: string;
   value: number | null;
@@ -144,6 +344,8 @@ function KpiCard({
   suffix?: string;
   alert?: boolean;
   tone?: "green" | "amber" | "red";
+  info?: string;
+  onClick?: () => void;
 }) {
   const toneClass =
     tone === "green"
@@ -158,14 +360,33 @@ function KpiCard({
 
   return (
     <Card
+      onClick={onClick}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
       className={cn(
         "gap-1.5 p-4",
+        onClick && "cursor-pointer transition-colors hover:bg-muted/40 hover:ring-1 hover:ring-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
         alert && "ring-destructive/30 bg-destructive/5 dark:bg-destructive/10"
       )}
     >
       <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
         {alert && <RiErrorWarningLine className="size-3 shrink-0 text-destructive" />}
         {label}
+        {info && (
+          <span className="ml-auto" onClick={(e) => e.stopPropagation()}>
+            <ChartInfo description={info} />
+          </span>
+        )}
       </p>
       <p className={cn("text-3xl font-semibold tabular-nums", toneClass)}>
         {value == null ? "—" : value}
@@ -225,7 +446,7 @@ function DeliveryFlow({ flow }: { flow: OverviewResponse["flow"] }) {
           <>
             <div className="mb-3 flex items-center gap-4 text-xs">
               <span className="text-muted-foreground">
-                Last 12 wks:{" "}
+                This quarter:{" "}
                 <span className="font-semibold text-foreground tabular-nums">{totalCompleted}</span> completed
                 {" · "}
                 <span className="font-semibold text-foreground tabular-nums">{totalCreated}</span> created
@@ -276,7 +497,7 @@ function CycleTime({ cycle }: { cycle: OverviewResponse["cycleTimeByType"] }) {
       <CardHeader>
         <CardTitle>Cycle Time</CardTitle>
         <CardAction>
-          <ChartInfo description="Median active working hours (in-progress, review, QA) from start to completion, by issue type, over the last 90 days. Longer bars are slower-moving work types worth investigating." />
+          <ChartInfo description="Median active working hours (in-progress, review, QA) from start to completion, by issue type, for work completed in the selected quarter. Longer bars are slower-moving work types worth investigating." />
         </CardAction>
       </CardHeader>
       <CardContent>
@@ -336,7 +557,7 @@ function ProjectHealthTable({ projects }: { projects: ProjectHealth[] }) {
                 <tr className="border-b border-border bg-muted/30">
                   <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Project</th>
                   <th className="px-3 py-2.5 text-center text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Health</th>
-                  {["Active", "On Track", "At Risk", "Overdue", "Done 30d"].map((h) => (
+                  {["Active", "On Track", "At Risk", "Overdue", "Done"].map((h) => (
                     <th key={h} className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-widest text-muted-foreground whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -360,7 +581,7 @@ function ProjectHealthTable({ projects }: { projects: ProjectHealth[] }) {
                       <Cell value={p.onTrack} tone="blue" />
                       <Cell value={p.atRisk} tone="amber" />
                       <Cell value={p.overdue} tone="red" />
-                      <Cell value={p.completed30d} tone="green" />
+                      <Cell value={p.completed} tone="green" />
                     </tr>
                   );
                 })}
@@ -384,58 +605,6 @@ function Cell({ value, tone }: { value: number; tone: "blue" | "amber" | "red" |
       }[tone];
   return (
     <td className={cn("px-4 py-3 text-right tabular-nums font-semibold", cls)}>{value}</td>
-  );
-}
-
-// ── Aging WIP ─────────────────────────────────────────────────────────────────
-
-function AgingWip({ stale }: { stale: OverviewResponse["staleWip"] }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Aging WIP</CardTitle>
-        <CardAction>
-          <ChartInfo description="In-progress issues with no Jira update in the longest time, across all projects. These are the most likely stalled or blocked items dragging on delivery." />
-        </CardAction>
-      </CardHeader>
-      <CardContent>
-        {stale.length === 0 ? (
-          <EmptyState message="Nothing stalled — work is moving" />
-        ) : (
-          <div className="space-y-1">
-            {stale.map((issue) => {
-              const jiraUrl = `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`;
-              return (
-                <a
-                  key={issue.id}
-                  href={jiraUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="group flex items-start gap-3 rounded-lg px-3 py-2 -mx-3 hover:bg-muted/40 transition-colors"
-                >
-                  <span className="mt-1.5 shrink-0 rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-destructive">
-                    {issue.daysStale}d
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground leading-tight">
-                      {issue.summary}
-                    </p>
-                    <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                      <span className="font-mono">{issue.jiraKey}</span>
-                      <span className="text-border">·</span>
-                      <span className="truncate">{issue.assigneeName ?? "Unassigned"}</span>
-                      <span className="text-border">·</span>
-                      <span className="truncate">{issue.projectName}</span>
-                    </p>
-                  </div>
-                  <RiExternalLinkLine className="mt-1 size-3.5 shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground transition-colors" />
-                </a>
-              );
-            })}
-          </div>
-        )}
-      </CardContent>
-    </Card>
   );
 }
 

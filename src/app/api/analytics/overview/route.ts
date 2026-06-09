@@ -5,6 +5,7 @@ import { cacheLife, cacheTag } from "next/cache";
 import { requireAuth } from "@/lib/auth/server";
 import { stampCache, withCacheMetrics } from "@/lib/cache/metrics";
 import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
+import { fiscalQuarterOf } from "@/lib/date-utils";
 
 // ── Working-hours helpers (identical to dashboard / timeline routes) ──────────
 
@@ -66,6 +67,7 @@ type IssueRow = {
   assignee_name: string | null;
   custom_fields: Record<string, unknown>;
   completed_at: string | null;
+  jira_created_at: string | null;
   issue_type: string;
   project_id: string;
   project_name: string;
@@ -80,16 +82,18 @@ export type ProjectHealth = {
   overdue: number;
   atRisk: number;
   onTrack: number;
-  completed30d: number;
+  completed: number;
   riskScore: number;
   health: "healthy" | "watch" | "critical";
 };
 
 export type OverviewResponse = {
+  /** Fiscal quarter the whole dashboard is scoped to. */
+  quarter: { start: string; end: string };
   kpis: {
     totalActive: number;
     activeWip: number;
-    completed30d: number;
+    completed: number;
     completedDeltaPct: number | null;
     overdue: number;
     atRisk: number;
@@ -100,15 +104,6 @@ export type OverviewResponse = {
   flow: { week: string; completed: number; created: number }[];
   cycleTimeByType: { issueType: string; p50Hours: number }[];
   projectHealth: ProjectHealth[];
-  staleWip: {
-    id: string;
-    jiraKey: string;
-    summary: string;
-    assigneeName: string | null;
-    projectName: string;
-    daysStale: number;
-    jiraBaseUrl: string;
-  }[];
 };
 
 const WIP = new Set(["IN_PROGRESS", "IN_REVIEW", "IN_QA"]);
@@ -122,9 +117,15 @@ export async function GET(request: Request) {
     const rawNow =
       url.searchParams.get("now") ?? new Date().toISOString().slice(0, 19);
     const nowStr = rawNow.slice(0, 16) + ":00";
+    const today = nowStr.slice(0, 10);
+
+    // Whole dashboard is scoped to a fiscal quarter; default to the current one.
+    const dq = fiscalQuarterOf(today);
+    const qStart = url.searchParams.get("ustart") ?? dq.start;
+    const qEnd = url.searchParams.get("uend") ?? dq.end;
 
     const { data, headers } = await withCacheMetrics("overview", () =>
-      fetchOverview(nowStr)
+      fetchOverview(nowStr, qStart, qEnd)
     );
     return NextResponse.json(data, { headers });
   } catch (error) {
@@ -135,18 +136,26 @@ export async function GET(request: Request) {
 
 // ── Core fetch ────────────────────────────────────────────────────────────────
 
-async function fetchOverview(nowStr: string): Promise<ReturnType<typeof stampCache>> {
+async function fetchOverview(
+  nowStr: string,
+  qStart: string,
+  qEnd: string
+): Promise<ReturnType<typeof stampCache>> {
   "use cache";
   cacheLife("minutes");
   cacheTag("jira-issues", "overview");
 
-  const today = nowStr.slice(0, 10);
-  const d30 = addDays(today, -30);
-  const d60 = addDays(today, -60);
-  const d90 = addDays(today, -90);
+  // Prior fiscal quarter, for the completed-throughput delta.
+  const prior = fiscalQuarterOf(addDays(qStart, -1));
+  const priorQStart = prior.start;
+  const priorQEnd = prior.end;
+  // Exclusive upper bound for timestamp comparisons (qEnd is an inclusive date).
+  const qEndExclusive = addDays(qEnd, 1);
 
-  const [issuesRes, flowRes, cycleRes, staleRes] = await Promise.all([
-    // A — issue-level fetch for KPIs + project health (app-code classification)
+  const [issuesRes, flowRes, cycleRes] = await Promise.all([
+    // A — issue-level fetch for KPIs + project health (app-code classification).
+    // Open issues (any age) plus anything completed since the prior quarter
+    // start, so we can compute this quarter's + last quarter's throughput.
     db.execute(sql`
       SELECT
         psm.canonical_status,
@@ -154,6 +163,7 @@ async function fetchOverview(nowStr: string): Promise<ReturnType<typeof stampCac
         ji.assignee_name,
         ji.custom_fields,
         ji.completed_at,
+        ji.jira_created_at,
         ji.issue_type,
         jp.id            AS project_id,
         jp.name          AS project_name,
@@ -170,16 +180,16 @@ async function fetchOverview(nowStr: string): Promise<ReturnType<typeof stampCac
             OR lower(ji.status_category) LIKE '%complete%'
             OR lower(ji.status_category) LIKE '%closed%'
           )
-          OR ji.completed_at >= ${d90}
+          OR ji.completed_at >= ${priorQStart}
         )
     `),
 
-    // B — weekly created vs completed flow, last 12 weeks
+    // B — weekly created vs completed flow across the selected quarter
     db.execute(sql`
       WITH weeks AS (
         SELECT generate_series(
-          date_trunc('week', NOW()) - INTERVAL '11 weeks',
-          date_trunc('week', NOW()),
+          date_trunc('week', ${qStart}::date),
+          date_trunc('week', ${qEnd}::date),
           INTERVAL '1 week'
         ) AS week
       ),
@@ -187,14 +197,16 @@ async function fetchOverview(nowStr: string): Promise<ReturnType<typeof stampCac
         SELECT date_trunc('week', ji.completed_at) AS week, COUNT(*)::int AS n
         FROM jira_issues ji
         JOIN jira_projects jp ON jp.id = ji.project_id AND jp.is_active = true
-        WHERE ji.completed_at >= date_trunc('week', NOW()) - INTERVAL '11 weeks'
+        WHERE ji.completed_at >= date_trunc('week', ${qStart}::date)
+          AND ji.completed_at < ${qEndExclusive}::date
         GROUP BY 1
       ),
       created AS (
         SELECT date_trunc('week', ji.jira_created_at) AS week, COUNT(*)::int AS n
         FROM jira_issues ji
         JOIN jira_projects jp ON jp.id = ji.project_id AND jp.is_active = true
-        WHERE ji.jira_created_at >= date_trunc('week', NOW()) - INTERVAL '11 weeks'
+        WHERE ji.jira_created_at >= date_trunc('week', ${qStart}::date)
+          AND ji.jira_created_at < ${qEndExclusive}::date
         GROUP BY 1
       )
       SELECT
@@ -207,7 +219,7 @@ async function fetchOverview(nowStr: string): Promise<ReturnType<typeof stampCac
       ORDER BY w.week
     `),
 
-    // C — org-wide cycle time (p50 active hours) by issue type
+    // C — org-wide cycle time (p50 active hours) by issue type, completed in quarter
     db.execute(sql`
       WITH issue_cycle_times AS (
         SELECT
@@ -220,7 +232,8 @@ async function fetchOverview(nowStr: string): Promise<ReturnType<typeof stampCac
           ON psm.project_id = ji.project_id AND psm.raw_status = tis.status
         WHERE psm.canonical_status IN ('IN_PROGRESS', 'IN_REVIEW', 'IN_QA')
           AND ji.completed_at IS NOT NULL
-          AND ji.completed_at >= ${d90}
+          AND ji.completed_at >= ${qStart}
+          AND ji.completed_at < ${qEndExclusive}::date
         GROUP BY ji.issue_type, ji.id
       )
       SELECT
@@ -233,36 +246,20 @@ async function fetchOverview(nowStr: string): Promise<ReturnType<typeof stampCac
       ORDER BY p50_hours DESC
       LIMIT 6
     `),
-
-    // D — oldest stuck WIP org-wide (bottleneck signal)
-    db.execute(sql`
-      SELECT
-        ji.id,
-        ji.jira_key,
-        ji.summary,
-        ji.assignee_name,
-        jp.name AS project_name,
-        jp.jira_base_url,
-        date_part('day', NOW() - ji.jira_updated_at)::int AS days_stale
-      FROM jira_issues ji
-      JOIN jira_projects jp ON jp.id = ji.project_id AND jp.is_active = true
-      JOIN project_status_mappings psm
-        ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
-      WHERE psm.canonical_status IN ('IN_PROGRESS', 'IN_REVIEW', 'IN_QA')
-        AND ji.jira_updated_at < NOW() - INTERVAL '7 days'
-      ORDER BY days_stale DESC
-      LIMIT 8
-    `),
   ]);
 
   // ── App-code classification over issue rows ──────────────────────────────────
+  // Everything is scoped to the selected quarter:
+  //  • Completed / on-time / cycle  → completed_at within the quarter
+  //  • Active / overdue / at-risk   → OPEN issues whose due date falls in the quarter
+  //  • Unplanned                    → OPEN issues created in the quarter, missing dates
   let totalActive = 0;
   let activeWip = 0;
   let overdue = 0;
   let atRisk = 0;
   let unplanned = 0;
-  let completed30d = 0;
-  let completedPrior30d = 0;
+  let completedInQ = 0;
+  let completedPriorQ = 0;
   let onTimeNum = 0;
   let onTimeDenom = 0;
 
@@ -277,7 +274,7 @@ async function fetchOverview(nowStr: string): Promise<ReturnType<typeof stampCac
         overdue: 0,
         atRisk: 0,
         onTrack: 0,
-        completed30d: 0,
+        completed: 0,
         riskScore: 0,
         health: "healthy",
       };
@@ -300,32 +297,37 @@ async function fetchOverview(nowStr: string): Promise<ReturnType<typeof stampCac
     if (isDone) {
       const completedDate = raw.completed_at?.slice(0, 10);
       if (!completedDate) continue;
-      const proj = ensureProject(raw);
-      if (completedDate >= d30) {
-        completed30d++;
-        proj.completed30d++;
-      } else if (completedDate >= d60 && completedDate < d30) {
-        completedPrior30d++;
-      }
-      // On-time delivery rate over the last 90 days (issues that had a due date)
-      if (completedDate >= d90 && dueDate) {
-        onTimeDenom++;
-        if (completedDate <= dueDate) onTimeNum++;
+      if (completedDate >= qStart && completedDate <= qEnd) {
+        completedInQ++;
+        ensureProject(raw).completed++;
+        // On-time delivery among issues completed this quarter that had a due date
+        if (dueDate) {
+          onTimeDenom++;
+          if (completedDate <= dueDate) onTimeNum++;
+        }
+      } else if (completedDate >= priorQStart && completedDate <= priorQEnd) {
+        completedPriorQ++;
       }
       continue;
     }
 
-    // Active (non-done, non-cancelled)
+    // Open (non-done, non-cancelled)
+    const startDate = extractStartDate(cf, raw.start_date_field_ids);
+    const createdDate = raw.jira_created_at?.slice(0, 10) ?? null;
+
+    // Unplanned: missing start or due date, created within the quarter
+    if (!startDate || !dueDate) {
+      if (createdDate && createdDate >= qStart && createdDate <= qEnd) unplanned++;
+      continue;
+    }
+
+    // Only count open work whose deadline falls in the selected quarter
+    if (dueDate < qStart || dueDate > qEnd) continue;
+
     const proj = ensureProject(raw);
     totalActive++;
     proj.active++;
     if (WIP.has(cs)) activeWip++;
-
-    const startDate = extractStartDate(cf, raw.start_date_field_ids);
-    if (!startDate || !dueDate) {
-      unplanned++;
-      continue;
-    }
 
     const label = classifyActive(startDate, dueDate, nowStr);
     if (label === "overdue") {
@@ -340,15 +342,16 @@ async function fetchOverview(nowStr: string): Promise<ReturnType<typeof stampCac
   }
 
   const completedDeltaPct =
-    completedPrior30d > 0
-      ? Math.round(((completed30d - completedPrior30d) / completedPrior30d) * 100)
+    completedPriorQ > 0
+      ? Math.round(((completedInQ - completedPriorQ) / completedPriorQ) * 100)
       : null;
 
   const onTimeRatePct =
     onTimeDenom > 0 ? Math.round((onTimeNum / onTimeDenom) * 100) : null;
 
+  const plannedTotal = totalActive + unplanned;
   const unplannedPct =
-    totalActive > 0 ? Math.round((unplanned / totalActive) * 100) : 0;
+    plannedTotal > 0 ? Math.round((unplanned / plannedTotal) * 100) : 0;
 
   // Project health scoring
   const projectHealth = Array.from(projectMap.values())
@@ -359,7 +362,7 @@ async function fetchOverview(nowStr: string): Promise<ReturnType<typeof stampCac
       else if (riskScore > 0) health = "watch";
       return { ...p, riskScore, health };
     })
-    .filter((p) => p.active > 0 || p.completed30d > 0)
+    .filter((p) => p.active > 0 || p.completed > 0)
     .sort(
       (a, b) =>
         b.riskScore - a.riskScore ||
@@ -377,10 +380,11 @@ async function fetchOverview(nowStr: string): Promise<ReturnType<typeof stampCac
   );
 
   const response: OverviewResponse = {
+    quarter: { start: qStart, end: qEnd },
     kpis: {
       totalActive,
       activeWip,
-      completed30d,
+      completed: completedInQ,
       completedDeltaPct,
       overdue,
       atRisk,
@@ -393,25 +397,6 @@ async function fetchOverview(nowStr: string): Promise<ReturnType<typeof stampCac
       (r) => ({ issueType: r.issue_type, p50Hours: Number(r.p50_hours) })
     ),
     projectHealth,
-    staleWip: (
-      staleRes.rows as {
-        id: string;
-        jira_key: string;
-        summary: string;
-        assignee_name: string | null;
-        project_name: string;
-        jira_base_url: string;
-        days_stale: number;
-      }[]
-    ).map((r) => ({
-      id: r.id,
-      jiraKey: r.jira_key,
-      summary: r.summary,
-      assigneeName: r.assignee_name,
-      projectName: r.project_name,
-      jiraBaseUrl: r.jira_base_url,
-      daysStale: Number(r.days_stale),
-    })),
   };
 
   return stampCache(response);

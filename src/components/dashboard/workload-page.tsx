@@ -8,33 +8,15 @@ import { RiInboxLine, RiArrowLeftSLine, RiArrowRightSLine } from "@remixicon/rea
 import type { ProjectSummary } from "@/app/api/analytics/dashboard/route";
 import type { BoardSummary } from "@/app/api/analytics/workload/boards/route";
 import {
-  getRelevantQuarters,
-  quarterBounds,
-  currentFyStartYear,
-  currentQuarterNum,
+  getQuarterChips,
+  currentFiscalQuarterChip,
+  type QuarterChip,
 } from "@/lib/date-utils";
 
-// ── Quarter helpers ───────────────────────────────────────────────────────────
-
-type Quarter = { label: string; start: string; end: string };
-
-// Fiscal-year quarters (Apr–Mar), shared with the Team Tracking view so the
-// same "Q1 2026" chip resolves to the same date range on both dashboards.
-// (Previously this page used calendar quarters, which made Overdue — and hence
-// Active — diverge from Team Tracking because the quarter start dates differed.)
-function getQuarterChips(): Quarter[] {
-  return getRelevantQuarters().map((q) => ({
-    label: `${q.label} ${q.year}`,
-    start: q.start,
-    end: q.end,
-  }));
-}
-
-function currentFiscalQuarter(): Quarter {
-  const { start } = quarterBounds(currentFyStartYear(), currentQuarterNum());
-  const chips = getQuarterChips();
-  return chips.find((q) => q.start === start) ?? chips[0];
-}
+// Fiscal-year quarters (Apr–Mar), shared via date-utils with the Team Tracking
+// and Organisation dashboards so the same "Q1 2026" chip resolves to the same
+// date range everywhere.
+type Quarter = QuarterChip;
 
 function offsetDate(dateStr: string, days: number): string {
   const d = new Date(dateStr + "T00:00:00");
@@ -82,7 +64,7 @@ export function WorkloadPage() {
     setDate(today);
     setRangeStart(today);
     setRangeEnd(offsetDate(today, 7));
-    setQuarter(currentFiscalQuarter());
+    setQuarter(currentFiscalQuarterChip());
   }, []);
 
   const buildParams = useCallback(() => {
