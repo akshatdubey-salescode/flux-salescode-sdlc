@@ -21,6 +21,7 @@ import {
   RiCloseLine,
   RiFlag2Line,
   RiLightbulbLine,
+  RiBarChart2Line,
 } from "@remixicon/react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -65,6 +66,7 @@ export const NAV_ITEMS = [
   { label: "Requirement Builder", href: "/requirements", icon: RiFileList3Line },
   { label: "My Tasks", href: "/my-tasks", icon: RiTaskLine },
   { label: "Team Pulse", href: "/observer", icon: RiTeamLine },
+  { label: "Workload", href: "/workload", icon: RiBarChart2Line },
   { label: "Search", href: "/search", icon: RiSearchLine },
   { label: "All Projects", href: "/projects", icon: RiBriefcaseLine },
 ];
