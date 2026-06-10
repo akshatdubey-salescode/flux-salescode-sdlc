@@ -117,6 +117,33 @@ export async function POST(
   const getAccountIdEmailMap = () =>
     (accountIdEmailMapPromise ??= loadAccountIdEmailMap());
 
+  // When an issue moves between Jira projects, only the destination's webhook
+  // hears about it: the source webhook's JQL filter (`project = "KEY"`) is
+  // evaluated against the post-move issue, so no issue_deleted ever reaches
+  // the source. Any row for the same jira_id under a different project is
+  // therefore a zombie — delete it and refresh the caches it was feeding.
+  async function cleanupCrossProjectZombies(jiraId: string) {
+    const zombies = await db
+      .delete(jiraIssues)
+      .where(and(eq(jiraIssues.jiraId, jiraId), ne(jiraIssues.projectId, projectId)))
+      .returning({
+        projectId: jiraIssues.projectId,
+        jiraKey: jiraIssues.jiraKey,
+        assigneeEmail: jiraIssues.assigneeEmail,
+        additionalAssigneeEmails: jiraIssues.additionalAssigneeEmails,
+      });
+    for (const zombie of zombies) {
+      const zombieEmails: string[] = [];
+      if (zombie.assigneeEmail) zombieEmails.push(zombie.assigneeEmail);
+      zombieEmails.push(...(zombie.additionalAssigneeEmails ?? []));
+      await revalidateIssueChange({
+        projectId: zombie.projectId,
+        emails: zombieEmails,
+        issueKey: zombie.jiraKey,
+      });
+    }
+  }
+
   try {
     switch (webhookEvent) {
       case "jira:issue_created": {
@@ -141,30 +168,7 @@ export async function POST(
             await relinkFreshdeskTicket(created.id, created.jiraKey, created.status, created.assigneeName, fdId, projectId);
           }
 
-          // When an issue moves between Jira projects, Jira fires issue_created
-          // on the destination webhook but does NOT fire issue_deleted on the
-          // source webhook (the JQL filter evaluates post-move, so the source
-          // no longer matches). Delete any stale rows with the same jira_id in
-          // other projects to avoid zombie entries.
-          const zombies = await db
-            .delete(jiraIssues)
-            .where(and(eq(jiraIssues.jiraId, issue.id), ne(jiraIssues.projectId, projectId)))
-            .returning({
-              projectId: jiraIssues.projectId,
-              jiraKey: jiraIssues.jiraKey,
-              assigneeEmail: jiraIssues.assigneeEmail,
-              additionalAssigneeEmails: jiraIssues.additionalAssigneeEmails,
-            });
-          for (const zombie of zombies) {
-            const zombieEmails: string[] = [];
-            if (zombie.assigneeEmail) zombieEmails.push(zombie.assigneeEmail);
-            zombieEmails.push(...(zombie.additionalAssigneeEmails ?? []));
-            await revalidateIssueChange({
-              projectId: zombie.projectId,
-              emails: zombieEmails,
-              issueKey: zombie.jiraKey,
-            });
-          }
+          await cleanupCrossProjectZombies(issue.id);
         }
         break;
       }
@@ -186,6 +190,22 @@ export async function POST(
           );
           if (existingIssue.assigneeEmail) affectedEmails.push(existingIssue.assigneeEmail);
           affectedEmails.push(...existingIssue.additionalAssigneeEmails);
+
+          // A cross-project move arrives here as issue_updated (issue_moved)
+          // on the destination's webhook — NOT as issue_created — so the
+          // upsert above just inserted a fresh row under this project while
+          // the source project's row went stale. Jira signals the move via
+          // the event type and via "project"/"Key" changelog items (an issue
+          // key only ever changes on a move).
+          const movedAcrossProjects =
+            payload.issue_event_type_name === "issue_moved" ||
+            changelog?.items?.some((item) => {
+              const field = item.field.toLowerCase();
+              return field === "project" || field === "key";
+            });
+          if (movedAcrossProjects) {
+            await cleanupCrossProjectZombies(issue.id);
+          }
 
           if (changelog?.items) {
             const hasStatusChange = changelog.items.some(
