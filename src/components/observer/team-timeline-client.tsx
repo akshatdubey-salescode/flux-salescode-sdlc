@@ -645,30 +645,53 @@ function SummaryCards({
   );
 }
 
-function TimelineTableRow({ issue }: { issue: TimelineIssue }) {
+function formatEst(estWorkingDays: number | null | undefined): string {
+  if (estWorkingDays == null) return "NA";
+  if (estWorkingDays < 1) return `${Math.round(estWorkingDays * 9)}h`;
+  return `${Math.round(estWorkingDays)}d`;
+}
+
+function estColor(estWorkingDays: number | null | undefined, threshold: number): string {
+  if (estWorkingDays == null) return "text-muted-foreground/50 italic";
+  return estWorkingDays > threshold
+    ? "text-red-600 dark:text-red-400 font-semibold"
+    : "text-green-600 dark:text-green-400 font-semibold";
+}
+
+function TimelineTableRow({ issue, estimateThreshold }: { issue: TimelineIssue; estimateThreshold: number }) {
   const cfg = LABEL_CONFIG[issue.label];
   const tStyles = issueTypeStyles(issue.issueType);
   const sStyles = statusCategoryStyles(issue.statusCategory);
   const pStyles = priorityStyles(issue.priority);
   const jiraUrl = `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`;
 
-  const daysText =
-    issue.label === "done" || issue.daysRemaining === null
-      ? null
-      : issue.daysRemaining < 0
-      ? `Overdue by ${Math.abs(issue.daysRemaining)}d`
-      : issue.daysRemaining === 0
-      ? "Due today"
-      : issue.daysRemaining === 1
-      ? "Due tomorrow"
-      : `${issue.daysRemaining}d left`;
+  // Use working days (Mon–Fri) for the Remaining column so weekends don't
+  // artificially inflate the count. Falls back to calendar daysRemaining only
+  // when workingDaysRemaining is absent (e.g. legacy API response).
+  const wdr = issue.workingDaysRemaining ?? null;
 
+  /** Human-readable label for the Remaining cell. Null means "done / no value". */
+  const daysText: string | null =
+    issue.label === "done" || wdr === null
+      ? null
+      : wdr < 0
+      ? `Overdue by ${formatEst(Math.abs(wdr))}`  // e.g. "Overdue by 3d"
+      : wdr === 0
+      ? "Due today"
+      : formatEst(wdr);  // e.g. "1d", "5d", "4h"
+
+  /**
+   * Color thresholds (working days):
+   *   overdue / ≤ 1 → red
+   *   2–3            → amber
+   *   > 3            → green  (requested: show green for issues with plenty of time)
+   */
   const daysColor =
     !daysText ? "" :
-    issue.daysRemaining! < 0  ? "text-red-600 dark:text-red-400 font-semibold" :
-    issue.daysRemaining! <= 1 ? "text-red-500 dark:text-red-400 font-semibold" :
-    issue.daysRemaining! <= 3 ? "text-amber-600 dark:text-amber-400 font-semibold" :
-    "text-muted-foreground";
+    wdr! < 0    ? "text-red-600 dark:text-red-400 font-semibold" :
+    wdr! <= 1   ? "text-red-500 dark:text-red-400 font-semibold" :
+    wdr! <= 3   ? "text-amber-600 dark:text-amber-400 font-semibold" :
+    "text-green-600 dark:text-green-400 font-semibold";
 
   return (
     <tr className={`transition-colors ${
@@ -736,6 +759,12 @@ function TimelineTableRow({ issue }: { issue: TimelineIssue }) {
       <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">
         {formatDateRange(issue.startDate, issue.dueDate)}
       </td>
+      {/* Est */}
+      <td className="px-3 py-2.5 text-right whitespace-nowrap text-xs">
+        <span className={estColor(issue.estWorkingDays ?? null, estimateThreshold)}>
+          {formatEst(issue.estWorkingDays ?? null)}
+        </span>
+      </td>
       {/* Days remaining */}
       <td className="px-3 py-2.5 text-right whitespace-nowrap text-xs">
         {daysText ? <span className={daysColor}>{daysText}</span> : <span className="text-muted-foreground/30">—</span>}
@@ -750,12 +779,14 @@ function MemberTimelineCard({
   onSwitchToUnplanned,
   quarterStart,
   quarterEnd,
+  estimateThreshold,
 }: {
   member: TimelineMember;
   meetings?: { totalMinutes: number; eventCount: number; events: MeetingEvent[] };
   onSwitchToUnplanned?: (name: string) => void;
   quarterStart: string;
   quarterEnd: string;
+  estimateThreshold: number;
 }) {
   const { counts } = member;
   const [collapsed, setCollapsed] = useState(false);
@@ -885,12 +916,13 @@ function MemberTimelineCard({
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-36">Status</th>
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-28">Priority</th>
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-36">Dates</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-muted-foreground w-20">Est</th>
                   <th className="px-3 py-2.5 text-right font-medium text-muted-foreground w-32">Remaining</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {member.issues.map((issue) => (
-                  <TimelineTableRow key={issue.id} issue={issue} />
+                  <TimelineTableRow key={issue.id} issue={issue} estimateThreshold={estimateThreshold} />
                 ))}
               </tbody>
             </table>
@@ -1648,7 +1680,7 @@ function formatHoursRemaining(hours: number): string {
   return m > 0 ? `${h}h ${m}m left` : `${h}h left`;
 }
 
-function AtRiskIssueRow({ issue }: { issue: AtRiskIssueItem }) {
+function AtRiskIssueRow({ issue, estimateThreshold }: { issue: AtRiskIssueItem; estimateThreshold: number }) {
   const jiraUrl = `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`;
   const tStyles = issueTypeStyles(issue.issueType);
   const sStyles = statusCategoryStyles(issue.statusCategory);
@@ -1708,6 +1740,11 @@ function AtRiskIssueRow({ issue }: { issue: AtRiskIssueItem }) {
         {formatDateRange(issue.startDate, issue.dueDate)}
       </td>
       <td className="px-3 py-2.5 text-right whitespace-nowrap text-xs">
+        <span className={estColor(issue.estWorkingDays, estimateThreshold)}>
+          {formatEst(issue.estWorkingDays)}
+        </span>
+      </td>
+      <td className="px-3 py-2.5 text-right whitespace-nowrap text-xs">
         <span className={urgencyColor}>{formatHoursRemaining(issue.remainingWorkingHours)}</span>
         <span className="ml-1 text-muted-foreground">({Math.round(issue.percentRemaining)}%)</span>
       </td>
@@ -1715,7 +1752,7 @@ function AtRiskIssueRow({ issue }: { issue: AtRiskIssueItem }) {
   );
 }
 
-function AtRiskPersonCard({ person }: { person: AtRiskPersonGroup }) {
+function AtRiskPersonCard({ person, estimateThreshold }: { person: AtRiskPersonGroup; estimateThreshold: number }) {
   const [open, setOpen] = useState(true);
 
   return (
@@ -1751,12 +1788,13 @@ function AtRiskPersonCard({ person }: { person: AtRiskPersonGroup }) {
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Priority</th>
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date Range</th>
+                <th className="px-3 py-2 text-right font-medium text-muted-foreground w-20">Est</th>
                 <th className="px-3 py-2 text-right font-medium text-muted-foreground">Time Left</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {person.issues.map((issue) => (
-                <AtRiskIssueRow key={issue.id} issue={issue} />
+                <AtRiskIssueRow key={issue.id} issue={issue} estimateThreshold={estimateThreshold} />
               ))}
             </tbody>
           </table>
@@ -1770,10 +1808,12 @@ function AtRiskTab({
   apiBase,
   quarterStart,
   quarterEnd,
+  estimateThreshold,
 }: {
   apiBase: string;
   quarterStart: string;
   quarterEnd: string;
+  estimateThreshold: number;
 }) {
   const [data, setData] = useState<AtRiskResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1861,7 +1901,7 @@ function AtRiskTab({
       ) : (
         <div className="space-y-4">
           {filteredPersons.map((person) => (
-            <AtRiskPersonCard key={person.email} person={person} />
+            <AtRiskPersonCard key={person.email} person={person} estimateThreshold={estimateThreshold} />
           ))}
         </div>
       )}
@@ -1873,7 +1913,7 @@ function AtRiskTab({
 // Active tab — per-person view of all tasks (overdue + on-track + at-risk + done)
 // ---------------------------------------------------------------------------
 
-function ActivePersonCard({ member }: { member: TimelineMember }) {
+function ActivePersonCard({ member, estimateThreshold }: { member: TimelineMember; estimateThreshold: number }) {
   const [open, setOpen] = useState(true);
   const allIssues = [...(member.overdueIssues ?? []), ...member.issues];
   if (allIssues.length === 0) return null;
@@ -1924,12 +1964,13 @@ function ActivePersonCard({ member }: { member: TimelineMember }) {
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Priority</th>
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date Range</th>
+                <th className="px-3 py-2 text-right font-medium text-muted-foreground w-20">Est</th>
                 <th className="px-3 py-2 text-right font-medium text-muted-foreground">Time</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {allIssues.map((issue) => (
-                <TimelineTableRow key={issue.id} issue={issue} />
+                <TimelineTableRow key={issue.id} issue={issue} estimateThreshold={estimateThreshold} />
               ))}
             </tbody>
           </table>
@@ -1941,10 +1982,12 @@ function ActivePersonCard({ member }: { member: TimelineMember }) {
 
 function ActiveTab({
   members,
+  estimateThreshold,
 }: {
   members: TimelineMember[];
   filterStart: string;
   filterEnd: string;
+  estimateThreshold: number;
 }) {
   const [search, setSearch] = useState("");
 
@@ -1991,7 +2034,7 @@ function ActiveTab({
       ) : (
         <div className="space-y-4">
           {filtered.map((member) => (
-            <ActivePersonCard key={member.memberId} member={member} />
+            <ActivePersonCard key={member.memberId} member={member} estimateThreshold={estimateThreshold} />
           ))}
         </div>
       )}
@@ -2007,10 +2050,12 @@ function CompletedTab({
   members,
   filterStart,
   filterEnd,
+  estimateThreshold,
 }: {
   members: TimelineMember[];
   filterStart: string;
   filterEnd: string;
+  estimateThreshold: number;
 }) {
   const [search, setSearch] = useState("");
 
@@ -2076,7 +2121,7 @@ function CompletedTab({
       ) : (
         <div className="space-y-4">
           {filtered.map((member) => (
-            <CompletedPersonCard key={member.memberId} member={member} />
+            <CompletedPersonCard key={member.memberId} member={member} estimateThreshold={estimateThreshold} />
           ))}
         </div>
       )}
@@ -2084,7 +2129,7 @@ function CompletedTab({
   );
 }
 
-function CompletedPersonCard({ member }: { member: TimelineMember }) {
+function CompletedPersonCard({ member, estimateThreshold }: { member: TimelineMember; estimateThreshold: number }) {
   const [open, setOpen] = useState(true);
   const done = member.issues.filter((i) => i.label === "done");
 
@@ -2118,11 +2163,12 @@ function CompletedPersonCard({ member }: { member: TimelineMember }) {
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Priority</th>
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date Range</th>
+                <th className="px-3 py-2 text-right font-medium text-muted-foreground w-20">Est</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {done.map((issue) => (
-                <TimelineTableRow key={issue.id} issue={issue} />
+                <TimelineTableRow key={issue.id} issue={issue} estimateThreshold={estimateThreshold} />
               ))}
             </tbody>
           </table>
@@ -2136,7 +2182,7 @@ function CompletedPersonCard({ member }: { member: TimelineMember }) {
 // Overdue tab
 // ---------------------------------------------------------------------------
 
-function OverdueIssueRow({ issue }: { issue: OverdueIssueItem }) {
+function OverdueIssueRow({ issue, estimateThreshold }: { issue: OverdueIssueItem; estimateThreshold: number }) {
   const jiraUrl = `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`;
   const tStyles = issueTypeStyles(issue.issueType);
   const sStyles = statusCategoryStyles(issue.statusCategory);
@@ -2188,6 +2234,11 @@ function OverdueIssueRow({ issue }: { issue: OverdueIssueItem }) {
       <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">
         {issue.dueDate}
       </td>
+      <td className="px-3 py-2.5 text-right whitespace-nowrap text-xs">
+        <span className={estColor(issue.estWorkingDays, estimateThreshold)}>
+          {formatEst(issue.estWorkingDays)}
+        </span>
+      </td>
       <td className="px-3 py-2.5 text-right whitespace-nowrap text-xs font-semibold text-red-600 dark:text-red-400">
         {issue.daysOverdue}d overdue
       </td>
@@ -2195,7 +2246,7 @@ function OverdueIssueRow({ issue }: { issue: OverdueIssueItem }) {
   );
 }
 
-function OverduePersonCard({ person }: { person: OverduePersonGroup }) {
+function OverduePersonCard({ person, estimateThreshold }: { person: OverduePersonGroup; estimateThreshold: number }) {
   const [open, setOpen] = useState(true);
 
   return (
@@ -2231,12 +2282,13 @@ function OverduePersonCard({ person }: { person: OverduePersonGroup }) {
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Priority</th>
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Due Date</th>
+                <th className="px-3 py-2 text-right font-medium text-muted-foreground w-20">Est</th>
                 <th className="px-3 py-2 text-right font-medium text-muted-foreground">Overdue By</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {person.issues.map((issue) => (
-                <OverdueIssueRow key={issue.id} issue={issue} />
+                <OverdueIssueRow key={issue.id} issue={issue} estimateThreshold={estimateThreshold} />
               ))}
             </tbody>
           </table>
@@ -2250,10 +2302,12 @@ function OverdueTab({
   apiBase,
   quarterStart,
   quarterEnd,
+  estimateThreshold,
 }: {
   apiBase: string;
   quarterStart: string;
   quarterEnd: string;
+  estimateThreshold: number;
 }) {
   const [data, setData] = useState<OverdueResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -2338,7 +2392,7 @@ function OverdueTab({
       ) : (
         <div className="space-y-4">
           {filteredPersons.map((person) => (
-            <OverduePersonCard key={person.email} person={person} />
+            <OverduePersonCard key={person.email} person={person} estimateThreshold={estimateThreshold} />
           ))}
         </div>
       )}
@@ -2630,6 +2684,7 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember }: Props) {
                             onSwitchToUnplanned={(name) => updateParams({ tab: "unplanned", uq: name })}
                             quarterStart={ustart}
                             quarterEnd={uend}
+                            estimateThreshold={data.estimateThresholdDays}
                           />
                         ))}
                       </div>
@@ -2640,19 +2695,19 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember }: Props) {
             </TabsContent>
 
             <TabsContent value="active">
-              <ActiveTab members={data.members} filterStart={data.filterStart} filterEnd={data.filterEnd} />
+              <ActiveTab members={data.members} filterStart={data.filterStart} filterEnd={data.filterEnd} estimateThreshold={data.estimateThresholdDays} />
             </TabsContent>
 
             <TabsContent value="at-risk">
-              <AtRiskTab apiBase={`/api/observer/boards/${boardId}`} quarterStart={ustart} quarterEnd={uend} />
+              <AtRiskTab apiBase={`/api/observer/boards/${boardId}`} quarterStart={ustart} quarterEnd={uend} estimateThreshold={data.estimateThresholdDays} />
             </TabsContent>
 
             <TabsContent value="overdue">
-              <OverdueTab apiBase={`/api/observer/boards/${boardId}`} quarterStart={ustart} quarterEnd={uend} />
+              <OverdueTab apiBase={`/api/observer/boards/${boardId}`} quarterStart={ustart} quarterEnd={uend} estimateThreshold={data.estimateThresholdDays} />
             </TabsContent>
 
             <TabsContent value="completed">
-              <CompletedTab members={data.members} filterStart={data.filterStart} filterEnd={data.filterEnd} />
+              <CompletedTab members={data.members} filterStart={data.filterStart} filterEnd={data.filterEnd} estimateThreshold={data.estimateThresholdDays} />
             </TabsContent>
 
             <TabsContent value="unplanned">
@@ -2975,7 +3030,7 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
                     ) : (
                       <div className="space-y-4">
                         {filteredMembers.map((member) => (
-                          <MemberTimelineCard key={member.memberId} member={member} quarterStart={ustart} quarterEnd={uend} onSwitchToUnplanned={(name) => updateParams({ pttab: "unplanned", ptuq: name })} />
+                          <MemberTimelineCard key={member.memberId} member={member} quarterStart={ustart} quarterEnd={uend} onSwitchToUnplanned={(name) => updateParams({ pttab: "unplanned", ptuq: name })} estimateThreshold={data.estimateThresholdDays} />
                         ))}
                       </div>
                     )}
@@ -2985,19 +3040,19 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
             </TabsContent>
 
             <TabsContent value="active">
-              <ActiveTab members={data.members} filterStart={data.filterStart} filterEnd={data.filterEnd} />
+              <ActiveTab members={data.members} filterStart={data.filterStart} filterEnd={data.filterEnd} estimateThreshold={data.estimateThresholdDays} />
             </TabsContent>
 
             <TabsContent value="at-risk">
-              <AtRiskTab apiBase={apiBase} quarterStart={ustart} quarterEnd={uend} />
+              <AtRiskTab apiBase={apiBase} quarterStart={ustart} quarterEnd={uend} estimateThreshold={data.estimateThresholdDays} />
             </TabsContent>
 
             <TabsContent value="overdue">
-              <OverdueTab apiBase={apiBase} quarterStart={ustart} quarterEnd={uend} />
+              <OverdueTab apiBase={apiBase} quarterStart={ustart} quarterEnd={uend} estimateThreshold={data.estimateThresholdDays} />
             </TabsContent>
 
             <TabsContent value="completed">
-              <CompletedTab members={data.members} filterStart={data.filterStart} filterEnd={data.filterEnd} />
+              <CompletedTab members={data.members} filterStart={data.filterStart} filterEnd={data.filterEnd} estimateThreshold={data.estimateThresholdDays} />
             </TabsContent>
 
             <TabsContent value="unplanned">

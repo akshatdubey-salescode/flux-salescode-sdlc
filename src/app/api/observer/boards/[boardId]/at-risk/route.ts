@@ -5,6 +5,11 @@ import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
+import {
+  workingDaysBetween,
+  totalWorkingHours,
+  workingHoursRemaining,
+} from "@/lib/jira/estimate";
 
 type Params = { params: Promise<{ boardId: string }> };
 
@@ -23,6 +28,7 @@ export type AtRiskIssueItem = {
   percentRemaining: number;
   projectName: string;
   jiraBaseUrl: string;
+  estWorkingDays: number;
 };
 
 export type AtRiskPersonGroup = {
@@ -57,35 +63,7 @@ type IssueRow = {
   start_date_field_ids: string[] | null;
 };
 
-function totalWorkingHours(startDate: string, dueDate: string): number {
-  const startMs = new Date(startDate + "T00:00:00").getTime();
-  const dueMs = new Date(dueDate + "T00:00:00").getTime();
-  const days = Math.max(0, Math.round((dueMs - startMs) / 86_400_000) + 1);
-  return days * 9;
-}
-
-function workingHoursRemaining(nowStr: string, dueDate: string): number {
-  const dueEndStr = dueDate + "T19:00:00";
-  if (nowStr >= dueEndStr) return 0;
-
-  let hours = 0;
-  const todayDate = nowStr.slice(0, 10);
-  const todayStartStr = todayDate + "T10:00:00";
-  const todayEndStr = todayDate + "T19:00:00";
-
-  if (nowStr < todayStartStr) {
-    hours += 9;
-  } else if (nowStr < todayEndStr) {
-    hours += (new Date(todayEndStr).getTime() - new Date(nowStr).getTime()) / 3_600_000;
-  }
-
-  const tomorrowMs = new Date(todayDate + "T00:00:00").getTime() + 86_400_000;
-  const dueMs = new Date(dueDate + "T00:00:00").getTime();
-  const fullDays = Math.max(0, Math.round((dueMs - tomorrowMs) / 86_400_000) + 1);
-  hours += fullDays * 9;
-
-  return hours;
-}
+// Working-day helpers imported from @/lib/jira/estimate.
 
 export async function GET(req: Request, { params }: Params) {
   try {
@@ -229,6 +207,7 @@ async function fetchBoardAtRisk(
       percentRemaining,
       projectName: raw.project_name,
       jiraBaseUrl: raw.jira_base_url,
+      estWorkingDays: workingDaysBetween(startDate, dueDate),
     });
     byEmail.set(email, list);
   }
