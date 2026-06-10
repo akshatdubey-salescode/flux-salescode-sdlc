@@ -6,6 +6,14 @@ import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
+import {
+  workingDaysBetween,
+  workingDaysRemainingFromToday,
+  totalWorkingHours,
+  workingHoursRemaining,
+  classifyIssue as classifyIssueFn,
+  safeThreshold,
+} from "@/lib/jira/estimate";
 
 type Params = { params: Promise<{ boardId: string }> };
 
@@ -21,10 +29,15 @@ export type TimelineIssue = {
   issueType: string;
   startDate: string;
   dueDate: string;
+  /** Calendar days remaining (legacy field kept for sort/filter logic). */
   daysRemaining: number | null;
+  /** Working days remaining (Mon–Fri). 0 = due today, negative = overdue. */
+  workingDaysRemaining: number | null;
   label: IssueLabel;
   projectName: string;
   jiraBaseUrl: string;
+  /** Working days of total estimated span (start → due). Null if dates missing. */
+  estWorkingDays: number | null;
 };
 
 export type UnplannedIssue = {
@@ -63,6 +76,7 @@ export type UnplannedMember = {
 export type TimelineResponse = {
   filterStart: string;
   filterEnd: string;
+  estimateThresholdDays: number;
   summary: {
     active: number;
     onTrack: number;
@@ -78,55 +92,9 @@ export type TimelineResponse = {
   };
 };
 
-function totalWorkingHours(startDate: string, dueDate: string): number {
-  const startMs = new Date(startDate + "T00:00:00").getTime();
-  const dueMs = new Date(dueDate + "T00:00:00").getTime();
-  const days = Math.max(0, Math.round((dueMs - startMs) / 86_400_000) + 1);
-  return days * 9;
-}
-
-function workingHoursRemaining(nowStr: string, dueDate: string): number {
-  const dueEndStr = dueDate + "T19:00:00";
-  if (nowStr >= dueEndStr) return 0;
-
-  let hours = 0;
-  const todayDate = nowStr.slice(0, 10);
-  const todayStartStr = todayDate + "T10:00:00";
-  const todayEndStr = todayDate + "T19:00:00";
-
-  if (nowStr < todayStartStr) {
-    hours += 9;
-  } else if (nowStr < todayEndStr) {
-    hours += (new Date(todayEndStr).getTime() - new Date(nowStr).getTime()) / 3_600_000;
-  }
-
-  // Full working days from tomorrow through dueDate — O(1)
-  const tomorrowMs = new Date(todayDate + "T00:00:00").getTime() + 86_400_000;
-  const dueMs = new Date(dueDate + "T00:00:00").getTime();
-  const fullDays = Math.max(0, Math.round((dueMs - tomorrowMs) / 86_400_000) + 1);
-  hours += fullDays * 9;
-
-  return hours;
-}
-
-function classifyIssue(
-  statusCategory: string | null,
-  startDate: string,
-  dueDate: string,
-  nowStr: string,
-): IssueLabel {
-  const cat = (statusCategory ?? "").toLowerCase();
-  if (cat === "done" || cat.includes("complete")) return "done";
-
-  const today = nowStr.slice(0, 10);
-  if (dueDate < today) return "overdue";
-
-  const total = totalWorkingHours(startDate, dueDate);
-  const remaining = workingHoursRemaining(nowStr, dueDate);
-  if (total > 0 && remaining / total <= 0.2) return "at_risk";
-
-  return "on_track";
-}
+// All working-day / classification helpers live in @/lib/jira/estimate.
+// Use the re-exported alias so call-sites below don't need renaming.
+const classifyIssue = classifyIssueFn;
 
 type IssueRow = {
   id: string;
@@ -197,6 +165,8 @@ async function fetchBoardTimeline(
     return {
       filterStart,
       filterEnd,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      estimateThresholdDays: safeThreshold((board as any).estimateThresholdDays, "board/timeline"),
       summary: { active: 0, onTrack: 0, atRisk: 0, overdue: 0, completed: 0, unplanned: 0 },
       members: [],
       unplanned: { totalCount: 0, byMember: [] },
@@ -300,9 +270,11 @@ async function fetchBoardTimeline(
           startDate: startDate ?? "",
           dueDate,
           daysRemaining,
+          workingDaysRemaining: workingDaysRemainingFromToday(today, dueDate),
           label: "overdue",
           projectName: raw.project_name,
           jiraBaseUrl: raw.jira_base_url,
+          estWorkingDays: startDate ? workingDaysBetween(startDate, dueDate) : null,
         });
         overdueByEmail.set(email, list);
       }
@@ -335,9 +307,11 @@ async function fetchBoardTimeline(
       startDate,
       dueDate,
       daysRemaining,
+      workingDaysRemaining: isDone ? null : workingDaysRemainingFromToday(today, dueDate),
       label,
       projectName: raw.project_name,
       jiraBaseUrl: raw.jira_base_url,
+      estWorkingDays: workingDaysBetween(startDate, dueDate),
     });
     timelineByEmail.set(email, list);
   }
@@ -423,6 +397,8 @@ async function fetchBoardTimeline(
   return {
     filterStart,
     filterEnd,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    estimateThresholdDays: safeThreshold((board as any).estimateThresholdDays, "board/timeline"),
     summary,
     members: memberResults,
     unplanned: {

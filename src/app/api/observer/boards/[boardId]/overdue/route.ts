@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
+import { workingDaysBetween } from "@/lib/jira/estimate";
 
 type Params = { params: Promise<{ boardId: string }> };
 
@@ -22,6 +23,7 @@ export type OverdueIssueItem = {
   daysOverdue: number;
   projectName: string;
   jiraBaseUrl: string;
+  estWorkingDays: number | null;
 };
 
 export type OverduePersonGroup = {
@@ -55,6 +57,8 @@ type IssueRow = {
   end_date_field_ids: string[] | null;
   start_date_field_ids: string[] | null;
 };
+
+// workingDaysBetween imported from @/lib/jira/estimate.
 
 export async function GET(req: Request, { params }: Params) {
   try {
@@ -192,6 +196,7 @@ async function fetchBoardOverdue(
       daysOverdue,
       projectName: raw.project_name,
       jiraBaseUrl: raw.jira_base_url,
+      estWorkingDays: startDate ? workingDaysBetween(startDate, dueDate) : null,
     });
     byEmail.set(email, list);
   }

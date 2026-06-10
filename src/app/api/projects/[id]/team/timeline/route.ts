@@ -5,6 +5,13 @@ import { db } from "@/lib/db";
 import { jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
+import {
+  workingDaysBetween,
+  workingDaysRemainingFromToday,
+  totalWorkingHours,
+  workingHoursRemaining,
+  classifyIssue as classifyIssueFn,
+} from "@/lib/jira/estimate";
 
 // Re-export the same types as the board timeline so client components are interchangeable.
 export type {
@@ -43,38 +50,8 @@ type IssueRow = {
   start_date_field_ids: string[] | null;
 };
 
-function totalWorkingHours(startDate: string, dueDate: string): number {
-  const startMs = new Date(startDate + "T00:00:00").getTime();
-  const dueMs = new Date(dueDate + "T00:00:00").getTime();
-  const days = Math.max(0, Math.round((dueMs - startMs) / 86_400_000) + 1);
-  return days * 9;
-}
-
-function workingHoursRemaining(nowStr: string, dueDate: string): number {
-  const dueEndStr = dueDate + "T19:00:00";
-  if (nowStr >= dueEndStr) return 0;
-  let hours = 0;
-  const todayDate = nowStr.slice(0, 10);
-  const todayStartStr = todayDate + "T10:00:00";
-  const todayEndStr = todayDate + "T19:00:00";
-  if (nowStr < todayStartStr) { hours += 9; }
-  else if (nowStr < todayEndStr) { hours += (new Date(todayEndStr).getTime() - new Date(nowStr).getTime()) / 3_600_000; }
-  const tomorrowMs = new Date(todayDate + "T00:00:00").getTime() + 86_400_000;
-  const dueMs = new Date(dueDate + "T00:00:00").getTime();
-  hours += Math.max(0, Math.round((dueMs - tomorrowMs) / 86_400_000) + 1) * 9;
-  return hours;
-}
-
-function classifyIssue(statusCategory: string | null, startDate: string, dueDate: string, nowStr: string): IssueLabel {
-  const cat = (statusCategory ?? "").toLowerCase();
-  if (cat === "done" || cat.includes("complete")) return "done";
-  const today = nowStr.slice(0, 10);
-  if (dueDate < today) return "overdue";
-  const total = totalWorkingHours(startDate, dueDate);
-  const remaining = workingHoursRemaining(nowStr, dueDate);
-  if (total > 0 && remaining / total <= 0.2) return "at_risk";
-  return "on_track";
-}
+// All working-day / classification helpers imported from @/lib/jira/estimate.
+const classifyIssue = classifyIssueFn;
 
 export async function GET(req: Request, { params }: Params) {
   try {
@@ -131,6 +108,7 @@ async function fetchProjectTeamTimeline(
   if (members.length === 0) {
     return {
       filterStart, filterEnd,
+      estimateThresholdDays: 2,
       summary: { active: 0, onTrack: 0, atRisk: 0, overdue: 0, completed: 0, unplanned: 0 },
       members: [],
       unplanned: { totalCount: 0, byMember: [] },
@@ -208,7 +186,9 @@ async function fetchProjectTeamTimeline(
           status: raw.status, statusCategory: raw.status_category,
           priority: raw.priority, issueType: raw.issue_type,
           startDate: startDate ?? "", dueDate, daysRemaining,
+          workingDaysRemaining: workingDaysRemainingFromToday(today, dueDate),
           label: "overdue", projectName: raw.project_name, jiraBaseUrl: raw.jira_base_url,
+          estWorkingDays: startDate ? workingDaysBetween(startDate, dueDate) : null,
         });
         overdueByEmail.set(email, list);
       }
@@ -229,8 +209,11 @@ async function fetchProjectTeamTimeline(
       id: raw.id, jiraKey: raw.jira_key, summary: raw.summary,
       status: raw.status, statusCategory: raw.status_category,
       priority: raw.priority, issueType: raw.issue_type,
-      startDate, dueDate, daysRemaining, label,
+      startDate, dueDate, daysRemaining,
+      workingDaysRemaining: isDone ? null : workingDaysRemainingFromToday(today, dueDate),
+      label,
       projectName: raw.project_name, jiraBaseUrl: raw.jira_base_url,
+      estWorkingDays: workingDaysBetween(startDate, dueDate),
     });
     timelineByEmail.set(email, list);
   }
@@ -283,6 +266,7 @@ async function fetchProjectTeamTimeline(
 
   return {
     filterStart, filterEnd,
+    estimateThresholdDays: 2,
     summary: {
       active: onTrack + atRisk + overdueCount,
       onTrack, atRisk, overdue: overdueCount,
