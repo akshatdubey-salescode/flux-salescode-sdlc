@@ -7,7 +7,7 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
-import { RiFlag2Line, RiRefreshLine, RiLightbulbLine, RiDeleteBin2Line, RiCalendarLine, RiCustomerService2Line } from "@remixicon/react";
+import { RiFlag2Line, RiRefreshLine, RiLightbulbLine, RiDeleteBin2Line, RiCalendarLine, RiCustomerService2Line, RiArrowLeftRightLine } from "@remixicon/react";
 
 const TOOLS = [
   {
@@ -39,6 +39,12 @@ const TOOLS = [
     icon: RiCustomerService2Line,
     title: "Freshdesk Integration",
     description: "Enable Client Issue Tracking for any project by mapping it to a Freshdesk company.",
+  },
+  {
+    href: "/superuser/unmapped-projects",
+    icon: RiArrowLeftRightLine,
+    title: "Unmapped Projects",
+    description: "List active projects that have no canonical status mapping configured yet.",
   },
   {
     href: "/superuser/delete-project",
