@@ -53,6 +53,7 @@ export function MyTasksFilterBar({ filters, fields, onUpdate, total }: Props) {
     !!(filters.qstart || filters.dateFrom),
     !!(filters.qend || filters.dateTo),
     filters.includeReported,
+    filters.unplannedOnly,
   ].filter(Boolean).length;
 
   function handleSearch(value: string) {
@@ -77,6 +78,7 @@ export function MyTasksFilterBar({ filters, fields, onUpdate, total }: Props) {
       dateTo: null,
       qstart: "all",
       qend: "all",
+      unplannedOnly: null,
       page: "1",
     });
   }
@@ -165,6 +167,19 @@ export function MyTasksFilterBar({ filters, fields, onUpdate, total }: Props) {
           />
           <Label htmlFor="show-completed" className="cursor-pointer text-xs font-normal text-zinc-600 dark:text-zinc-400">
             Show Completed
+          </Label>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="unplanned-only"
+            checked={filters.unplannedOnly}
+            onCheckedChange={(checked) =>
+              onUpdate({ unplannedOnly: checked ? "true" : null, page: "1" })
+            }
+          />
+          <Label htmlFor="unplanned-only" className="cursor-pointer text-xs font-normal text-zinc-600 dark:text-zinc-400">
+            Unplanned only
           </Label>
         </div>
 

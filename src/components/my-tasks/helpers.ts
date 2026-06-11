@@ -13,6 +13,7 @@ export type MyTasksFilterState = FilterState & {
   qstart: string;
   qend: string;
   includeReported: boolean;
+  unplannedOnly: boolean;
 };
 
 export * from "../project-tracking/helpers";

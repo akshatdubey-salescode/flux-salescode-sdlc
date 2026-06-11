@@ -16,6 +16,14 @@ import { db } from "@/lib/db";
 import { jiraIssues, jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { stampCache, withCacheMetrics, type Stamped } from "@/lib/cache/metrics";
+import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
+import { hasStartDateSql, hasDueDateSql } from "@/lib/jira/planned-sql";
+
+/** Issue is "planned" only with both a start and a due/end date set. */
+const UNPLANNED_EXPR = sql`NOT (${hasStartDateSql(
+  jiraIssues.customFields,
+  jiraProjects.startDateFieldIds
+)} AND ${hasDueDateSql(jiraIssues.customFields, jiraProjects.endDateFieldIds)})`;
 
 type MyTaskFilters = {
   q: string;
@@ -29,6 +37,7 @@ type MyTaskFilters = {
   dateTo: string;
   showCompleted: boolean;
   includeReported: boolean;
+  unplannedOnly: boolean;
   sortBy: string;
   sortDir: string;
   pageSize: number;
@@ -48,6 +57,14 @@ function buildOrderExpr(sortBy: string, sortDir: string) {
         : sql`CASE WHEN ${jiraIssues.priority} = 'Highest' THEN 1 WHEN ${jiraIssues.priority} = 'High' THEN 2 WHEN ${jiraIssues.priority} = 'Medium' THEN 3 WHEN ${jiraIssues.priority} = 'Low' THEN 4 WHEN ${jiraIssues.priority} = 'Lowest' THEN 5 ELSE 6 END DESC`;
     case "status":
       return isAsc ? asc(jiraIssues.status) : desc(jiraIssues.status);
+    case "planned": {
+      // Order by planned-ness (false < true). asc → unplanned first.
+      const planned = sql`(${hasStartDateSql(
+        jiraIssues.customFields,
+        jiraProjects.startDateFieldIds
+      )} AND ${hasDueDateSql(jiraIssues.customFields, jiraProjects.endDateFieldIds)})`;
+      return isAsc ? sql`${planned} ASC` : sql`${planned} DESC`;
+    }
     default:
       return isAsc
         ? asc(jiraIssues.jiraUpdatedAt)
@@ -75,6 +92,7 @@ export async function GET(req: NextRequest) {
     dateTo: searchParams.get("dateTo") ?? "",
     showCompleted: searchParams.get("showCompleted") === "true",
     includeReported: searchParams.get("includeReported") === "true",
+    unplannedOnly: searchParams.get("unplannedOnly") === "true",
     sortBy: searchParams.get("sortBy") ?? "created",
     sortDir: searchParams.get("sortDir") === "asc" ? "asc" : "desc",
     pageSize: Math.min(200, Math.max(1, parseInt(searchParams.get("pageSize") ?? "50", 10))),
@@ -98,7 +116,7 @@ async function fetchMyTasks(
   const {
     q, projectList, statusList, priorityList, reporterList,
     issueTypeList, labelsList, dateFrom, dateTo,
-    showCompleted, includeReported, sortBy, sortDir, pageSize, page,
+    showCompleted, includeReported, unplannedOnly, sortBy, sortDir, pageSize, page,
   } = filters;
 
   const offset = (page - 1) * pageSize;
@@ -144,6 +162,7 @@ async function fetchMyTasks(
       sql`LOWER(TRIM(${jiraIssues.statusCategory})) NOT IN ('done', 'complete')`
     );
   }
+  if (unplannedOnly) conditions.push(UNPLANNED_EXPR);
 
   const where = and(...conditions);
   const orderExpr = buildOrderExpr(sortBy, sortDir);
@@ -166,6 +185,9 @@ async function fetchMyTasks(
         jiraCreatedAt: jiraIssues.jiraCreatedAt,
         jiraUpdatedAt: jiraIssues.jiraUpdatedAt,
         jiraBaseUrl: jiraProjects.jiraBaseUrl,
+        customFields: jiraIssues.customFields,
+        startDateFieldIds: jiraProjects.startDateFieldIds,
+        endDateFieldIds: jiraProjects.endDateFieldIds,
       })
       .from(jiraIssues)
       .innerJoin(jiraProjects, eq(jiraIssues.projectId, jiraProjects.id))
@@ -176,13 +198,25 @@ async function fetchMyTasks(
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(jiraIssues)
+      // Joined because `where` (unplanned filter / planned sort) references project columns.
+      .innerJoin(jiraProjects, eq(jiraIssues.projectId, jiraProjects.id))
       .where(where),
   ]);
 
   const total = countResult[0]?.count ?? 0;
 
+  // Derive planned-ness for display; drop the raw fields used to compute it.
+  const processed = issues.map(
+    ({ customFields, startDateFieldIds, endDateFieldIds, ...rest }) => {
+      const cf = (customFields ?? {}) as Record<string, unknown>;
+      const startDate = extractStartDate(cf, startDateFieldIds);
+      const dueDate = extractDueDate(cf, endDateFieldIds);
+      return { ...rest, startDate, dueDate, isPlanned: !!startDate && !!dueDate };
+    }
+  );
+
   return stampCache({
-    issues,
+    issues: processed,
     total,
     page,
     pageSize,
