@@ -4,7 +4,12 @@ import { db } from "@/lib/db";
 import { jiraProjects, jiraSyncJobs, jiraIssues, observerBoardMembers } from "@/lib/db/schema";
 import { JiraClient } from "./client";
 import { decrypt } from "@/lib/crypto";
-import { upsertIssue, resolveProjectFieldConfig, getDoneRawStatuses } from "./sync";
+import {
+  upsertIssue,
+  resolveProjectFieldConfig,
+  getDoneRawStatuses,
+  pruneIssuesMissingFromJira,
+} from "./sync";
 import { loadAccountIdEmailMap, reconcileHiddenAssigneeEmails } from "./identity";
 
 const SYNC_CONCURRENCY = 5;
@@ -113,6 +118,8 @@ export async function runSyncJob(jobId: string): Promise<void> {
   const errorMessages: string[] = [];
   let nextPageToken: string | undefined = undefined;
   const maxResults = 100;
+  const syncStartedAt = new Date();
+  const seenJiraIds = new Set<string>();
 
   try {
     for (;;) {
@@ -122,6 +129,7 @@ export async function runSyncJob(jobId: string): Promise<void> {
         maxResults,
         extraFields
       );
+      for (const issue of result.issues) seenJiraIds.add(issue.id);
 
       for (let i = 0; i < result.issues.length; i += SYNC_CONCURRENCY) {
         const chunk = result.issues.slice(i, i + SYNC_CONCURRENCY);
@@ -158,6 +166,14 @@ export async function runSyncJob(jobId: string): Promise<void> {
       if (!result.nextPageToken || result.issues.length === 0) break;
       nextPageToken = result.nextPageToken;
     }
+
+    // All pages fetched — reconcile deletions missed by webhooks (deleted
+    // issues, moves to untracked projects). See pruneIssuesMissingFromJira.
+    const pruneResult = await pruneIssuesMissingFromJira(
+      job.projectId,
+      seenJiraIds,
+      syncStartedAt
+    );
 
     await db
       .update(jiraProjects)
@@ -196,7 +212,15 @@ export async function runSyncJob(jobId: string): Promise<void> {
           sql`${jiraIssues.assigneeEmail} IS NOT NULL AND ${jiraIssues.assigneeEmail} != ''`
         )
       );
-    const emails = projectMembers.map((r) => r.email).filter(Boolean) as string[];
+    const emails = [
+      ...new Set([
+        ...(projectMembers.map((r) => r.email).filter(Boolean) as string[]),
+        // Assignees of pruned issues may have no remaining issues in this
+        // project and would be missed by the query above, yet their boards
+        // still show the now-deleted issues until invalidated.
+        ...pruneResult.affectedEmails,
+      ]),
+    ];
     if (emails.length > 0) {
       const boards = await db
         .selectDistinct({ boardId: observerBoardMembers.boardId })

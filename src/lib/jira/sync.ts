@@ -1,4 +1,4 @@
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, lt, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   jiraProjects,
@@ -60,7 +60,91 @@ export type SyncResult = {
   synced: number;
   errors: number;
   errorMessages: string[];
+  pruned: number;
 };
+
+export type PruneResult = {
+  pruned: number;
+  prunedKeys: string[];
+  affectedEmails: string[];
+};
+
+/**
+ * Reconciliation: delete rows for issues that no longer exist in Jira.
+ *
+ * Webhooks are the primary deletion signal, but delivery is best-effort — a
+ * missed issue_deleted (downtime, timeout, secret mismatch) or a move to an
+ * untracked Jira project leaves a permanent zombie row. This runs after a
+ * full sync as the safety net.
+ *
+ * Callers must only invoke this after ALL pages were fetched successfully —
+ * a partial fetch would make unseen live issues look deleted. Two further
+ * guards here:
+ *  - Only rows untouched by this sync (synced_at < syncStartedAt) are
+ *    candidates, so an issue created mid-sync and inserted by a concurrent
+ *    webhook is never pruned.
+ *  - An empty fetch against a non-empty mirror is treated as suspicious
+ *    (revoked permissions / bad JQL would look exactly like that) and skipped
+ *    rather than wiping the project.
+ */
+export async function pruneIssuesMissingFromJira(
+  projectId: string,
+  seenJiraIds: Set<string>,
+  syncStartedAt: Date
+): Promise<PruneResult> {
+  const empty: PruneResult = { pruned: 0, prunedKeys: [], affectedEmails: [] };
+
+  const candidates = await db
+    .select({
+      id: jiraIssues.id,
+      jiraId: jiraIssues.jiraId,
+      jiraKey: jiraIssues.jiraKey,
+      assigneeEmail: jiraIssues.assigneeEmail,
+      additionalAssigneeEmails: jiraIssues.additionalAssigneeEmails,
+    })
+    .from(jiraIssues)
+    .where(
+      and(
+        eq(jiraIssues.projectId, projectId),
+        lt(jiraIssues.syncedAt, syncStartedAt)
+      )
+    );
+
+  if (candidates.length === 0) return empty;
+
+  if (seenJiraIds.size === 0) {
+    console.warn(
+      `[jira-sync] prune skipped for project ${projectId}: Jira returned 0 issues but ${candidates.length} rows exist locally — refusing to wipe the mirror`
+    );
+    return empty;
+  }
+
+  // A failed upsert leaves synced_at stale but the issue is still in Jira —
+  // it appears in seenJiraIds and is spared here.
+  const stale = candidates.filter((c) => !seenJiraIds.has(c.jiraId));
+  if (stale.length === 0) return empty;
+
+  const emails = new Set<string>();
+  for (const row of stale) {
+    if (row.assigneeEmail) emails.add(row.assigneeEmail);
+    for (const e of row.additionalAssigneeEmails ?? []) emails.add(e);
+  }
+
+  for (let i = 0; i < stale.length; i += 500) {
+    await db.delete(jiraIssues).where(
+      inArray(
+        jiraIssues.id,
+        stale.slice(i, i + 500).map((r) => r.id)
+      )
+    );
+  }
+
+  const prunedKeys = stale.map((r) => r.jiraKey);
+  console.log(
+    `[jira-sync] pruned ${prunedKeys.length} issue(s) no longer in Jira for project ${projectId}: ${prunedKeys.join(", ")}`
+  );
+  return { pruned: stale.length, prunedKeys, affectedEmails: [...emails] };
+}
 
 /**
  * Full sync of all issues for a project. Paginates through the Jira API in
@@ -177,6 +261,8 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
   const errorMessages: string[] = [];
   let nextPageToken: string | undefined = undefined;
   const maxResults = 100;
+  const syncStartedAt = new Date();
+  const seenJiraIds = new Set<string>();
 
   for (;;) {
     const result = await client.fetchIssues(
@@ -185,6 +271,7 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
       maxResults,
       extraFields
     );
+    for (const issue of result.issues) seenJiraIds.add(issue.id);
 
     for (let i = 0; i < result.issues.length; i += SYNC_CONCURRENCY) {
       const chunk = result.issues.slice(i, i + SYNC_CONCURRENCY);
@@ -216,12 +303,19 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
     nextPageToken = result.nextPageToken;
   }
 
+  // All pages fetched — safe to reconcile deletions (see helper docs).
+  const { pruned } = await pruneIssuesMissingFromJira(
+    projectId,
+    seenJiraIds,
+    syncStartedAt
+  );
+
   await db
     .update(jiraProjects)
     .set({ lastSyncedAt: new Date() })
     .where(eq(jiraProjects.id, projectId));
 
-  return { synced, errors, errorMessages };
+  return { synced, errors, errorMessages, pruned };
 }
 
 // ---------------------------------------------------------------------------
