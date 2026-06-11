@@ -14,6 +14,10 @@ export type TrackingIssue = {
   jiraCreatedAt: string | null;
   jiraUpdatedAt: string | null;
   jiraBaseUrl: string | null;
+  // Planning state (populated by My Tasks; absent in project-tracking).
+  startDate?: string | null;
+  dueDate?: string | null;
+  isPlanned?: boolean;
 };
 
 export type TrackingFields = {

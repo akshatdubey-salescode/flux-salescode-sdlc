@@ -15,6 +15,7 @@ import ExcelJS from "exceljs";
 import { db } from "@/lib/db";
 import { jiraIssues, jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
+import { hasStartDateSql, hasDueDateSql } from "@/lib/jira/planned-sql";
 
 export async function GET(req: NextRequest) {
   const user = await requireAuth();
@@ -35,6 +36,7 @@ export async function GET(req: NextRequest) {
   const dateTo = searchParams.get("dateTo") ?? "";
   const showCompleted = searchParams.get("showCompleted") === "true";
   const includeReported = searchParams.get("includeReported") === "true";
+  const unplannedOnly = searchParams.get("unplannedOnly") === "true";
   const sortBy = searchParams.get("sortBy") ?? "created";
   const sortDir = searchParams.get("sortDir") === "asc" ? "asc" : "desc";
 
@@ -79,6 +81,14 @@ export async function GET(req: NextRequest) {
   if (!showCompleted) {
     conditions.push(
       sql`LOWER(TRIM(${jiraIssues.statusCategory})) NOT IN ('done', 'complete')`
+    );
+  }
+  if (unplannedOnly) {
+    conditions.push(
+      sql`NOT (${hasStartDateSql(
+        jiraIssues.customFields,
+        jiraProjects.startDateFieldIds
+      )} AND ${hasDueDateSql(jiraIssues.customFields, jiraProjects.endDateFieldIds)})`
     );
   }
 

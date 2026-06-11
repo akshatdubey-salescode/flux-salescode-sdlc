@@ -35,6 +35,8 @@ type Props = {
   onPinToggle?: (jiraKey: string) => void;
   pinnedCount?: number;
   renderActions?: (issue: TrackingIssue) => React.ReactNode;
+  /** Show the Planned/Unplanned column (My Tasks only). */
+  showPlanned?: boolean;
 };
 
 const SORTABLE_COLS: Record<string, string> = {
@@ -44,6 +46,26 @@ const SORTABLE_COLS: Record<string, string> = {
   updated: "updated",
   created: "created",
 };
+
+/** Full date (with year) for the planned-badge hover, or "—" when unset. */
+function formatDateOrDash(dateStr: string | null | undefined): string {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/** Compact date (day + short month, no year) for the inline date line. */
+function formatShort(dateStr: string | null | undefined): string {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
 
 export function ListView({
   issues,
@@ -59,6 +81,7 @@ export function ListView({
   onPinToggle,
   pinnedCount = 0,
   renderActions,
+  showPlanned = false,
 }: Props) {
   function handleColSort(col: string) {
     if (sortBy === col) {
@@ -67,6 +90,10 @@ export function ListView({
       onSortChange(col, "desc");
     }
   }
+
+  // 8 always-on columns + optional pin / plan / actions columns.
+  const colCount =
+    8 + (onPinToggle ? 1 : 0) + (showPlanned ? 1 : 0) + (renderActions ? 1 : 0);
 
   return (
     <div className="flex flex-col gap-3">
@@ -114,6 +141,16 @@ export function ListView({
                 <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-20">
                   Reporter
                 </th>
+                {showPlanned && (
+                  <SortableHeader
+                    label="Plan"
+                    colKey="planned"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleColSort}
+                    className="w-32"
+                  />
+                )}
                 <SortableHeader
                   label="Updated"
                   colKey="updated"
@@ -129,7 +166,7 @@ export function ListView({
               {loading
                 ? Array.from({ length: 10 }).map((_, i) => (
                     <tr key={i}>
-                      <td colSpan={onPinToggle ? (renderActions ? 11 : 10) : (renderActions ? 10 : 9)} className="px-3 py-2.5">
+                      <td colSpan={colCount} className="px-3 py-2.5">
                         <div className="h-3.5 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
                       </td>
                     </tr>
@@ -138,7 +175,7 @@ export function ListView({
                 ? (
                     <tr>
                       <td
-                        colSpan={onPinToggle ? (renderActions ? 11 : 10) : (renderActions ? 10 : 9)}
+                        colSpan={colCount}
                         className="px-4 py-12 text-center text-zinc-400"
                       >
                         No issues found. Try adjusting your filters.
@@ -149,7 +186,7 @@ export function ListView({
                     <Fragment key={issue.id}>
                       {onPinToggle && pinnedCount > 0 && idx === pinnedCount && (
                         <tr className="pointer-events-none">
-                          <td colSpan={renderActions ? 11 : 10} className="h-px bg-amber-200/60 dark:bg-amber-700/30 p-0" />
+                          <td colSpan={colCount} className="h-px bg-amber-200/60 dark:bg-amber-700/30 p-0" />
                         </tr>
                       )}
                       <IssueRow
@@ -157,6 +194,7 @@ export function ListView({
                         pinned={pinnedKeys?.has(issue.jiraKey)}
                         onPinToggle={onPinToggle}
                         renderActions={renderActions}
+                        showPlanned={showPlanned}
                       />
                     </Fragment>
                   ))}
@@ -241,11 +279,13 @@ function IssueRow({
   pinned,
   onPinToggle,
   renderActions,
+  showPlanned,
 }: {
   issue: TrackingIssue;
   pinned?: boolean;
   onPinToggle?: (jiraKey: string) => void;
   renderActions?: (issue: TrackingIssue) => React.ReactNode;
+  showPlanned?: boolean;
 }) {
   const pStyles = priorityStyles(issue.priority);
   const tStyles = issueTypeStyles(issue.issueType);
@@ -392,6 +432,30 @@ function IssueRow({
         )}
       </td>
 
+
+      {/* Planned / Unplanned + dates */}
+      {showPlanned && (
+        <td className="px-3 py-2">
+          <div
+            className="flex flex-col items-start gap-1"
+            title={`Start: ${formatDateOrDash(issue.startDate)} · Due: ${formatDateOrDash(issue.dueDate)}`}
+          >
+            <span
+              className={cn(
+                "inline-block cursor-default rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                issue.isPlanned
+                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                  : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+              )}
+            >
+              {issue.isPlanned ? "Planned" : "Unplanned"}
+            </span>
+            <span className="whitespace-nowrap text-[10px] tabular-nums text-zinc-400 dark:text-zinc-500">
+              {formatShort(issue.startDate)} – {formatShort(issue.dueDate)}
+            </span>
+          </div>
+        </td>
+      )}
 
       {/* Updated */}
       <td className="px-3 py-2 text-right text-zinc-400">

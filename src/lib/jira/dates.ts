@@ -2,20 +2,20 @@
 // Falls back through well-known field keys, then any project-specific
 // custom fields discovered during sync (e.g. "End date" plugins).
 
-const DEFAULT_START_DATE_KEYS = [
+export const DEFAULT_START_DATE_KEYS = [
   "customfield_10015", // start date (sprint)
   "customfield_10014", // start date (epic / alternate)
   "startdate",
   "start_date",
-];
+] as const;
 
-const DEFAULT_DUE_DATE_KEYS = [
+export const DEFAULT_DUE_DATE_KEYS = [
   "duedate", // Jira-native due date
   "due_date",
   "customfield_10021", // due date (alternate)
   "end_date",
   "customfield_11449", // end date (Applicate)
-];
+] as const;
 
 function pickDate(
   cf: Record<string, unknown>,

@@ -93,6 +93,7 @@ function readFilters(
     qend,
     showCompleted,
     includeReported,
+    unplannedOnly: searchParams.get("unplannedOnly") === "true",
     sortBy: searchParams.get("sortBy") ?? "created",
     sortDir: searchParams.get("sortDir") === "asc" ? "asc" : "desc",
     view: "list", // Only list view for My Tasks for now
@@ -142,6 +143,7 @@ export function MyTasksView({
       if (effectiveDateTo) params.set("dateTo", effectiveDateTo);
       if (filters.showCompleted) params.set("showCompleted", "true");
       if (filters.includeReported) params.set("includeReported", "true");
+      if (filters.unplannedOnly) params.set("unplannedOnly", "true");
       params.set("sortBy", filters.sortBy);
       params.set("sortDir", filters.sortDir);
       if (targetEmail) params.set("forEmail", targetEmail);
@@ -181,6 +183,7 @@ export function MyTasksView({
     qend: filters.qend,
     showCompleted: filters.showCompleted,
     includeReported: filters.includeReported,
+    unplannedOnly: filters.unplannedOnly,
     sortBy: filters.sortBy,
     sortDir: filters.sortDir,
     page: filters.page,
@@ -245,6 +248,7 @@ export function MyTasksView({
     if (effectiveDateTo) params.set("dateTo", effectiveDateTo);
     if (parsed.showCompleted) params.set("showCompleted", "true");
     if (parsed.includeReported) params.set("includeReported", "true");
+    if (parsed.unplannedOnly) params.set("unplannedOnly", "true");
     params.set("sortBy", parsed.sortBy);
     params.set("sortDir", parsed.sortDir);
     params.set("pageSize", "50");
@@ -325,6 +329,7 @@ export function MyTasksView({
           }
           onPageChange={(page) => updateParams({ page: String(page) })}
           renderActions={renderIssueActions}
+          showPlanned
           {...(!isObserving && {
             pinnedKeys,
             onPinToggle: togglePin,
