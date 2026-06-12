@@ -7,9 +7,20 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
-import { RiUserStarLine, RiUserUnfollowLine } from "@remixicon/react";
+import {
+  RiUserStarLine,
+  RiUserUnfollowLine,
+  RiCodeSSlashLine,
+} from "@remixicon/react";
 
 const VIEWS = [
+  {
+    href: "/views/lines-of-code",
+    icon: RiCodeSSlashLine,
+    title: "Lines of Code Delivered",
+    description:
+      "Ranks people by net lines delivered (additions − deletions) on GitHub, attributed by commit author and filterable by quarter or custom date range.",
+  },
   {
     href: "/views/top-unplanned-assignees",
     icon: RiUserStarLine,
@@ -47,7 +58,7 @@ export default async function ViewsPage() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Views</h1>
             <p className="text-sm text-zinc-500 mt-1">
-              Cross-cutting reports and aggregations over your Jira data.
+              Cross-cutting reports and aggregations over your Jira and GitHub data.
             </p>
           </div>
 

@@ -1,0 +1,1 @@
+ALTER TABLE "github_repos" ADD COLUMN "stats_mode" text DEFAULT 'api' NOT NULL;

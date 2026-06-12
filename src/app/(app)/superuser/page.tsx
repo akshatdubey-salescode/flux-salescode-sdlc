@@ -7,9 +7,27 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
-import { RiFlag2Line, RiRefreshLine, RiLightbulbLine, RiDeleteBin2Line, RiCalendarLine, RiCustomerService2Line } from "@remixicon/react";
+import { RiFlag2Line, RiRefreshLine, RiLightbulbLine, RiDeleteBin2Line, RiCalendarLine, RiCustomerService2Line, RiGithubLine, RiGitMergeLine, RiBuilding2Line } from "@remixicon/react";
 
 const TOOLS = [
+  {
+    href: "/superuser/github-orgs",
+    icon: RiBuilding2Line,
+    title: "GitHub Orgs",
+    description: "Add or remove GitHub organisations (each with its own token) that feed the Lines of Code view.",
+  },
+  {
+    href: "/superuser/github-sync",
+    icon: RiGithubLine,
+    title: "GitHub Sync",
+    description: "Refresh repos and pull per-author contributor stats for the Lines of Code view. Runs daily on a cron; trigger on demand here.",
+  },
+  {
+    href: "/superuser/github-accounts",
+    icon: RiGitMergeLine,
+    title: "GitHub Accounts",
+    description: "Map GitHub accounts that couldn't be auto-matched by email to their person, so their lines of code are attributed.",
+  },
   {
     href: "/superuser/feature-flags",
     icon: RiFlag2Line,

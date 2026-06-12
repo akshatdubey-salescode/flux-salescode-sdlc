@@ -13,7 +13,11 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "sync:all": "tsx --env-file=.env.local scripts/force-sync-all-projects.ts",
+    "seed:github-orgs": "tsx --env-file=.env.local scripts/seed-github-orgs.ts",
+    "sync:github": "tsx --env-file=.env.local scripts/sync-all-github.ts",
+    "collect:git-stats": "tsx --env-file=.env.local scripts/collect-git-stats.ts",
     "backfill:jira-identities": "tsx --env-file=.env.local scripts/backfill-jira-identities.ts",
+    "backfill:github-identities": "tsx --env-file=.env.local scripts/backfill-github-identities.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
