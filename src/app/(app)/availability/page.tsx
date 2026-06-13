@@ -68,8 +68,10 @@ export default async function AvailabilityPage() {
               Availability Finder
             </h1>
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              See who&apos;s free before you assign. Availability is global — it
-              counts every open, dated task a person holds across all projects.
+              Everyone&apos;s next free date across the org, shown by default —
+              narrow by project, team, or person below. Availability is global:
+              it counts every open, dated task a person holds across all
+              projects.
             </p>
           </div>
 

@@ -15,14 +15,21 @@ function addDays(dateStr: string, days: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/** Inclusive day count between two YYYY-MM-DD dates (a..b). */
-function daysInclusive(a: string, b: string): number {
-  return (
-    Math.round(
-      (new Date(b + "T00:00:00").getTime() - new Date(a + "T00:00:00").getTime()) /
-        86_400_000
-    ) + 1
-  );
+/**
+ * Weekend test (Sat/Sun). Availability is reckoned in working days only:
+ * weekends are non-working, so they are never reported as a "free" day and a
+ * "free from" date always lands on a weekday.
+ */
+function isWeekend(dateStr: string): boolean {
+  const dow = new Date(dateStr + "T00:00:00").getDay(); // 0 = Sun … 6 = Sat
+  return dow === 0 || dow === 6;
+}
+
+/** First working day on/after the given date (skips Sat/Sun). */
+function firstWorkingDay(dateStr: string): string {
+  let d = dateStr;
+  while (isWeekend(d)) d = addDays(d, 1);
+  return d;
 }
 
 /** Fiscal-year start (1 April) for the given date — the default staleness cutoff. */
@@ -125,7 +132,12 @@ export async function GET(request: Request) {
     // Duration params
     const duration = Math.max(1, parseInt(p.get("duration") ?? "1", 10) || 1);
     const from = p.get("from") ?? today;
-    const horizon = Math.max(1, parseInt(p.get("horizon") ?? "60", 10) || 60);
+    // Capped at a year: nextFreeSlot scans calendar-day-by-day to horizonEnd, so
+    // an unbounded value would let a single request drive a runaway scan.
+    const horizon = Math.min(
+      365,
+      Math.max(1, parseInt(p.get("horizon") ?? "60", 10) || 60)
+    );
 
     // Ignore stale work: only count issues touched on/after this cutoff.
     const activeSince = p.get("activeSince") ?? fiscalYearStart(today);
@@ -277,9 +289,12 @@ async function fetchAvailability(opts: {
       return { ...base, free: conflicts.length === 0, conflicts };
     }
 
-    // duration mode
+    // duration mode — weekends are skipped, so the earliest a slot can start is
+    // the first working day on/after `from`; "free now" means their next free
+    // slot starts exactly there.
+    const earliestStart = firstWorkingDay(opts.from);
     const nextFreeFrom = nextFreeSlot(b.intervals, opts.from, horizonEnd, opts.duration);
-    return { ...base, freeNow: nextFreeFrom === opts.from, nextFreeFrom };
+    return { ...base, freeNow: nextFreeFrom === earliestStart, nextFreeFrom };
   });
 
   // Most useful first.
@@ -310,28 +325,35 @@ async function fetchAvailability(opts: {
   return stampCache(response);
 }
 
-/** Earliest start date of a `duration`-day free slot within [from, searchEnd], or null. */
+/**
+ * Earliest start date of a free slot of `duration` WORKING days (Mon–Fri)
+ * within [from, searchEnd], or null. Weekends are skipped entirely — they
+ * count neither as free days nor toward the required length, so a slot may
+ * span a weekend (e.g. Fri + Mon for duration 2) and the returned date is
+ * always a weekday, never a Saturday or Sunday.
+ */
 function nextFreeSlot(
   intervals: { start: string; due: string }[],
   from: string,
   searchEnd: string,
   duration: number
 ): string | null {
-  const rel = intervals
-    .filter((iv) => iv.due >= from)
-    .map((iv) => ({ s: iv.start < from ? from : iv.start, e: iv.due }))
-    .sort((a, b) => (a.s < b.s ? -1 : a.s > b.s ? 1 : 0));
+  const busyOn = (d: string) =>
+    intervals.some((iv) => iv.start <= d && iv.due >= d);
 
-  let cursor = from;
-  for (const iv of rel) {
-    if (cursor > searchEnd) break;
-    if (iv.s > cursor) {
-      const gapEnd = addDays(iv.s, -1);
-      if (daysInclusive(cursor, gapEnd) >= duration) return cursor;
+  let runStart: string | null = null;
+  let runLen = 0;
+  for (let d = from; d <= searchEnd; d = addDays(d, 1)) {
+    if (isWeekend(d)) continue; // non-working day — neither free nor counted
+    if (busyOn(d)) {
+      runStart = null;
+      runLen = 0;
+      continue;
     }
-    if (iv.e >= cursor) cursor = addDays(iv.e, 1);
+    if (runLen === 0) runStart = d;
+    runLen++;
+    if (runLen >= duration) return runStart;
   }
-  if (cursor <= searchEnd && daysInclusive(cursor, searchEnd) >= duration) return cursor;
   return null;
 }
 
