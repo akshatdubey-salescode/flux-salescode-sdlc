@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { eq } from "drizzle-orm";
-import { db } from "@/lib/db";
+import { db, withDbRetry } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { authOptions } from "./nextauth-options";
 import { ALLOWED_EMAIL_DOMAIN } from "./constants";
@@ -23,11 +23,12 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   const email = session?.user?.email?.toLowerCase();
   if (!email || !email.endsWith(ALLOWED_EMAIL_DOMAIN)) return null;
 
-  const [user] = await db
-    .select()
-    .from(users)
-    .where(eq(users.id, email))
-    .limit(1);
+  // Wrap the DB reads/writes so a transient connection blip to the remote DB
+  // (idle socket reaped, network hiccup, connect timeout) doesn't crash the
+  // app shell — requireAuth runs in the root layout on every request.
+  const [user] = await withDbRetry(() =>
+    db.select().from(users).where(eq(users.id, email)).limit(1)
+  );
 
   if (user) {
     return { id: user.id, email: user.email, role: user.role as UserRole };
@@ -35,10 +36,9 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
 
   // Defensive fallback: the signIn callback should have inserted this row,
   // but if it didn't (e.g. transient DB error), create it now.
-  await db
-    .insert(users)
-    .values({ id: email, email, role: "USER" })
-    .onConflictDoNothing();
+  await withDbRetry(() =>
+    db.insert(users).values({ id: email, email, role: "USER" }).onConflictDoNothing()
+  );
   return { id: email, email, role: "USER" };
 }
 

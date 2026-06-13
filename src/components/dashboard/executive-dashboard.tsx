@@ -11,7 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ChartInfo } from "@/components/ui/chart-info";
 import {
   ChartContainer,
@@ -42,12 +42,17 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import type { OverviewResponse, ProjectHealth } from "@/app/api/analytics/overview/route";
+import type { OverviewResponse, TopProject } from "@/app/api/analytics/overview/route";
 import type {
   OverviewIssue,
   OverviewIssuesResponse,
   OverviewBucket,
 } from "@/app/api/analytics/overview/issues/route";
+import type {
+  ThroughputResponse,
+  PersonThroughput,
+} from "@/app/api/analytics/throughput/route";
+import type { BoardSummary } from "@/app/api/analytics/workload/boards/route";
 import {
   getQuarterChips,
   currentFiscalQuarterChip,
@@ -65,7 +70,10 @@ const cycleConfig: ChartConfig = {
 
 export function ExecutiveDashboard() {
   const [data, setData] = useState<OverviewResponse | null>(null);
+  const [throughput, setThroughput] = useState<ThroughputResponse | null>(null);
+  const [boards, setBoards] = useState<{ boards: BoardSummary[] } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
   const [quarter, setQuarter] = useState<QuarterChip | null>(null);
   const [drill, setDrill] = useState<{ bucket: OverviewBucket; title: string } | null>(null);
 
@@ -81,18 +89,41 @@ export function ExecutiveDashboard() {
     const nowStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(
       now.getDate()
     )}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-    const params = new URLSearchParams({
+    // All three leaderboards are scoped to the selected quarter.
+    const overviewParams = new URLSearchParams({
       now: nowStr,
       ustart: quarter.start,
       uend: quarter.end,
     });
-    fetch(`/api/analytics/overview?${params}`)
-      .then((r) => r.json())
-      .then((d) => {
-        setData(d);
-        setLoading(false);
+    const throughputParams = new URLSearchParams({
+      start: quarter.start,
+      end: quarter.end,
+    });
+    const boardParams = new URLSearchParams({
+      now: nowStr,
+      start: quarter.start,
+      end: quarter.end,
+      ustart: quarter.start,
+      uend: quarter.end,
+    });
+    const getJson = (url: string) =>
+      fetch(url).then((r) => {
+        if (!r.ok) throw new Error(`${url} → ${r.status}`);
+        return r.json();
       });
-  }, [quarter]);
+    // Settle independently so a failing leaderboard endpoint degrades only its
+    // own card (cards fall back to empty) while the core overview still renders.
+    Promise.allSettled([
+      getJson(`/api/analytics/overview?${overviewParams}`),
+      getJson(`/api/analytics/throughput?${throughputParams}`),
+      getJson(`/api/analytics/workload/boards?${boardParams}`),
+    ]).then(([o, t, b]) => {
+      if (o.status === "fulfilled") setData(o.value);
+      if (t.status === "fulfilled") setThroughput(t.value);
+      if (b.status === "fulfilled") setBoards(b.value);
+      setLoading(false);
+    });
+  }, [quarter, reloadKey]);
 
   const quarters = getQuarterChips();
   const qLabel = quarter?.label ?? "";
@@ -122,8 +153,10 @@ export function ExecutiveDashboard() {
         </div>
       </div>
 
-      {loading || !data ? (
+      {loading ? (
         <DashboardSkeleton />
+      ) : !data ? (
+        <DashboardError onRetry={() => setReloadKey((k) => k + 1)} />
       ) : (
         <div className="space-y-5 animate-in fade-in duration-500">
           {/* ── KPI strip ── */}
@@ -191,8 +224,12 @@ export function ExecutiveDashboard() {
             <CycleTime cycle={data.cycleTimeByType} />
           </div>
 
-          {/* ── Project health ── */}
-          <ProjectHealthTable projects={data.projectHealth} />
+          {/* ── Leaderboards ── */}
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+            <TopThroughputCard people={throughput?.people ?? []} />
+            <TopTeamsCard boards={boards?.boards ?? []} />
+            <TopProjectsCard projects={data.topProjects} />
+          </div>
         </div>
       )}
 
@@ -530,81 +567,155 @@ function CycleTime({ cycle }: { cycle: OverviewResponse["cycleTimeByType"] }) {
   );
 }
 
-// ── Project health leaderboard ───────────────────────────────────────────────────
+// ── Leaderboards (Top 10) ─────────────────────────────────────────────────────
 
-const HEALTH_BADGE: Record<ProjectHealth["health"], { label: string; variant: "default" | "secondary" | "destructive" | "outline"; className: string }> = {
-  critical: { label: "Critical", variant: "destructive", className: "" },
-  watch: { label: "Watch", variant: "secondary", className: "bg-amber-500/15 text-amber-700 dark:text-amber-400" },
-  healthy: { label: "Healthy", variant: "secondary", className: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" },
+type LeaderItem = {
+  key: string;
+  primary: string;
+  secondary?: string;
+  value: number;
+  /** Optional unit shown after the value, e.g. "/person". */
+  valueSuffix?: string;
+  href?: string;
 };
 
-function ProjectHealthTable({ projects }: { projects: ProjectHealth[] }) {
+/** Shared ranked Top-10 list with a proportional bar per row. */
+function LeaderboardCard({
+  title,
+  info,
+  emptyMessage,
+  items,
+}: {
+  title: string;
+  info: string;
+  emptyMessage: string;
+  items: LeaderItem[];
+}) {
+  const max = items.reduce((m, it) => Math.max(m, it.value), 0);
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Project Health</CardTitle>
+        <CardTitle>{title}</CardTitle>
         <CardAction>
-          <ChartInfo description="Projects ranked by delivery risk (overdue counts double, plus at-risk). Critical projects have mounting overdue work and need attention first." />
+          <ChartInfo description={info} />
         </CardAction>
       </CardHeader>
       <CardContent className="p-0">
-        {projects.length === 0 ? (
-          <div className="px-5 pb-5"><EmptyState message="No active projects" /></div>
+        {items.length === 0 ? (
+          <div className="px-5 pb-5"><EmptyState message={emptyMessage} /></div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/30">
-                  <th className="px-5 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Project</th>
-                  <th className="px-3 py-2.5 text-center text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Health</th>
-                  {["Active", "On Track", "At Risk", "Overdue", "Done"].map((h) => (
-                    <th key={h} className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-widest text-muted-foreground whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50">
-                {projects.map((p) => {
-                  const badge = HEALTH_BADGE[p.health];
-                  return (
-                    <tr
-                      key={p.projectId}
-                      className="transition-colors hover:bg-muted/30 cursor-pointer"
-                      onClick={() => { window.location.href = `/projects/${p.projectId}`; }}
-                    >
-                      <td className="px-5 py-3 font-semibold text-foreground max-w-[200px]">
-                        <span className="block truncate">{p.projectName}</span>
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <Badge variant={badge.variant} className={badge.className}>{badge.label}</Badge>
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums font-semibold">{p.active}</td>
-                      <Cell value={p.onTrack} tone="blue" />
-                      <Cell value={p.atRisk} tone="amber" />
-                      <Cell value={p.overdue} tone="red" />
-                      <Cell value={p.completed} tone="green" />
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <ol className="divide-y divide-border/50">
+            {items.map((it, i) => {
+              const pct = max > 0 ? Math.round((it.value / max) * 100) : 0;
+              const row = (
+                <div className="flex items-center gap-3 px-5 py-2.5">
+                  <span className="w-4 shrink-0 text-center text-xs font-semibold tabular-nums text-muted-foreground">
+                    {i + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{it.primary}</p>
+                    {it.secondary && (
+                      <p className="truncate text-[11px] text-muted-foreground">{it.secondary}</p>
+                    )}
+                    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary/70"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
+                    {it.value}
+                    {it.valueSuffix && (
+                      <span className="ml-0.5 text-[11px] font-normal text-muted-foreground">
+                        {it.valueSuffix}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              );
+              return (
+                <li key={it.key}>
+                  {it.href ? (
+                    <a href={it.href} className="block transition-colors hover:bg-muted/30">
+                      {row}
+                    </a>
+                  ) : (
+                    row
+                  )}
+                </li>
+              );
+            })}
+          </ol>
         )}
       </CardContent>
     </Card>
   );
 }
 
-function Cell({ value, tone }: { value: number; tone: "blue" | "amber" | "red" | "green" }) {
-  const cls = value === 0
-    ? "text-muted-foreground/30"
-    : {
-        blue: "text-blue-600 dark:text-blue-400",
-        amber: "text-amber-600 dark:text-amber-400",
-        red: "text-red-600 dark:text-red-400",
-        green: "text-emerald-600 dark:text-emerald-400",
-      }[tone];
+function TopThroughputCard({ people }: { people: PersonThroughput[] }) {
+  const items: LeaderItem[] = people.slice(0, 10).map((p) => ({
+    key: p.email,
+    primary: p.name,
+    secondary: p.email,
+    value: p.closed,
+  }));
   return (
-    <td className={cn("px-4 py-3 text-right tabular-nums font-semibold", cls)}>{value}</td>
+    <LeaderboardCard
+      title="Top Throughput · People"
+      info="People who closed the most Jira issues in the selected quarter. Each issue is credited to its primary and additional assignees; cancelled issues are excluded."
+      emptyMessage="No issues closed this quarter"
+      items={items}
+    />
+  );
+}
+
+function TopTeamsCard({ boards }: { boards: BoardSummary[] }) {
+  // Rank by load per person (active work ÷ team size), so the most overloaded
+  // teams relative to their headcount rise to the top — not just the biggest
+  // teams. The boards API pre-sorts by raw active count, so we re-sort here.
+  const items: LeaderItem[] = boards
+    .map((b) => ({
+      board: b,
+      perPerson: b.memberCount > 0 ? b.active / b.memberCount : b.active,
+    }))
+    .sort((a, b) => b.perPerson - a.perPerson || b.board.active - a.board.active)
+    .slice(0, 10)
+    .map(({ board: b, perPerson }) => ({
+      key: b.boardId,
+      primary: b.boardName,
+      secondary: `${b.active} active · ${b.memberCount} member${
+        b.memberCount === 1 ? "" : "s"
+      }`,
+      value: Math.round(perPerson * 10) / 10,
+      valueSuffix: "/person",
+      href: `/observer/${b.boardId}`,
+    }));
+  return (
+    <LeaderboardCard
+      title="Top Workload · Teams"
+      info="Teams ranked by active work per person — total active issues this quarter divided by team size — so the most overloaded teams relative to their headcount surface first. Each row also shows the team's total active work and member count."
+      emptyMessage="No team workload this quarter"
+      items={items}
+    />
+  );
+}
+
+function TopProjectsCard({ projects }: { projects: TopProject[] }) {
+  const items: LeaderItem[] = projects.map((p) => ({
+    key: p.projectId,
+    primary: p.projectName,
+    value: p.workload,
+    href: `/projects/${p.projectId}`,
+  }));
+  return (
+    <LeaderboardCard
+      title="Top Workload · Projects"
+      info="Projects ranked by active, scheduled issues due in the selected quarter — counted directly per issue, regardless of how many people are assigned."
+      emptyMessage="No project workload this quarter"
+      items={items}
+    />
   );
 }
 
@@ -616,6 +727,20 @@ function EmptyState({ message }: { message: string }) {
       <RiInboxLine className="size-5 text-muted-foreground/30" />
       <p className="text-xs text-muted-foreground">{message}</p>
     </div>
+  );
+}
+
+function DashboardError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <Card className="flex flex-col items-center justify-center gap-3 py-16">
+      <RiErrorWarningLine className="size-6 text-destructive" />
+      <p className="text-sm text-muted-foreground">
+        Couldn&rsquo;t load the dashboard. Please try again.
+      </p>
+      <Button variant="outline" size="sm" onClick={onRetry}>
+        Retry
+      </Button>
+    </Card>
   );
 }
 
@@ -636,8 +761,9 @@ function DashboardSkeleton() {
         <Skeleton className="h-[320px] rounded-xl" />
       </div>
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-        <Skeleton className="h-[320px] rounded-xl xl:col-span-2" />
-        <Skeleton className="h-[320px] rounded-xl" />
+        <Skeleton className="h-[360px] rounded-xl" />
+        <Skeleton className="h-[360px] rounded-xl" />
+        <Skeleton className="h-[360px] rounded-xl" />
       </div>
     </div>
   );
