@@ -91,9 +91,9 @@ export function ListView({
     }
   }
 
-  // 8 always-on columns + optional pin / plan / actions columns.
+  // 9 always-on columns + optional pin / plan / actions columns.
   const colCount =
-    8 + (onPinToggle ? 1 : 0) + (showPlanned ? 1 : 0) + (renderActions ? 1 : 0);
+    9 + (onPinToggle ? 1 : 0) + (showPlanned ? 1 : 0) + (renderActions ? 1 : 0);
 
   return (
     <div className="flex flex-col gap-3">
@@ -151,6 +151,14 @@ export function ListView({
                     className="w-32"
                   />
                 )}
+                <SortableHeader
+                  label="Created"
+                  colKey="created"
+                  sortBy={sortBy}
+                  sortDir={sortDir}
+                  onSort={handleColSort}
+                  className="w-24 text-right"
+                />
                 <SortableHeader
                   label="Updated"
                   colKey="updated"
@@ -456,6 +464,11 @@ function IssueRow({
           </div>
         </td>
       )}
+
+      {/* Created */}
+      <td className="px-3 py-2 text-right text-zinc-400">
+        {formatRelativeTime(issue.jiraCreatedAt)}
+      </td>
 
       {/* Updated */}
       <td className="px-3 py-2 text-right text-zinc-400">
