@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSession, signOut } from "next-auth/react";
 import {
   RiHome3Line,
@@ -15,8 +15,6 @@ import {
   RiUserSettingsLine,
   RiFileList3Line,
   RiSettings3Line,
-  RiArrowDownSLine,
-  RiArrowUpSLine,
   RiTeamLine,
   RiCloseLine,
   RiFlag2Line,
@@ -143,17 +141,6 @@ export function AppSidebar({ user, projects, requirementBuilderEnabled }: Props)
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const projectsScrollRef = useRef<HTMLDivElement>(null);
-  const [hasMoreBelow, setHasMoreBelow] = useState(false);
-  const [hasMoreAbove, setHasMoreAbove] = useState(false);
-
-  const checkScroll = useCallback(() => {
-    const el = projectsScrollRef.current;
-    if (!el) return;
-    setHasMoreAbove(el.scrollTop > 4);
-    setHasMoreBelow(el.scrollHeight - el.scrollTop - el.clientHeight > 4);
-  }, []);
-
   useEffect(() => {
     if (isSearching && searchInputRef.current) {
       const timer = setTimeout(() => {
@@ -162,19 +149,6 @@ export function AppSidebar({ user, projects, requirementBuilderEnabled }: Props)
       return () => clearTimeout(timer);
     }
   }, [isSearching]);
-
-  useEffect(() => {
-    const el = projectsScrollRef.current;
-    if (!el) return;
-    checkScroll();
-    el.addEventListener("scroll", checkScroll, { passive: true });
-    const ro = new ResizeObserver(checkScroll);
-    ro.observe(el);
-    return () => {
-      el.removeEventListener("scroll", checkScroll);
-      ro.disconnect();
-    };
-  }, [checkScroll]);
 
   const filteredProjects = projects.filter((project) => {
     if (!searchQuery) return true;
@@ -213,56 +187,68 @@ export function AppSidebar({ user, projects, requirementBuilderEnabled }: Props)
       </SidebarHeader>
 
       <SidebarContent className="overflow-hidden">
-        {/* Main nav — grouped by how each destination is used */}
-        {NAV_SECTIONS.map((section) => {
-          if (section.superuserOnly && user.role !== "SUPERUSER") return null;
-          const items = section.items.filter(
-            ({ href }) => href !== "/requirements" || requirementBuilderEnabled
-          );
-          if (items.length === 0) return null;
+        {(() => {
+          const renderSection = (section: NavSection, pinned: boolean) => {
+            if (section.superuserOnly && user.role !== "SUPERUSER") return null;
+            const items = section.items.filter(
+              ({ href }) => href !== "/requirements" || requirementBuilderEnabled
+            );
+            if (items.length === 0) return null;
+            return (
+              <SidebarGroup
+                key={section.label ?? "primary"}
+                className={cn("py-0.5", pinned && "shrink-0")}
+              >
+                {section.label && (
+                  <SidebarGroupLabel className="text-[10px] font-bold uppercase tracking-widest text-zinc-500/70 dark:text-zinc-400/50">
+                    {section.label}
+                  </SidebarGroupLabel>
+                )}
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {items.map(({ label, href, icon: Icon }) => (
+                      <SidebarMenuItem key={href}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={
+                            href === "/home"
+                              ? pathname === href
+                              : pathname.startsWith(href)
+                          }
+                          tooltip={label}
+                          className="transition-all hover:bg-sidebar-accent hover:translate-x-0.5"
+                        >
+                          <Link href={href}>
+                            <Icon className="text-muted-foreground group-data-[active=true]:text-primary" />
+                            <span className="font-medium flex-1">{label}</span>
+                            {href === "/search" && (
+                              <kbd className="group-data-[collapsible=icon]:hidden inline-flex items-center rounded border border-border bg-muted px-1 py-0.5 font-mono text-[9px] leading-none text-muted-foreground/60">
+                                ⌘K
+                              </kbd>
+                            )}
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            );
+          };
+
           return (
-            <SidebarGroup key={section.label ?? "primary"} className="shrink-0 py-0.5">
-              {section.label && (
-                <SidebarGroupLabel className="text-[10px] font-bold uppercase tracking-widest text-zinc-500/70 dark:text-zinc-400/50">
-                  {section.label}
-                </SidebarGroupLabel>
-              )}
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {items.map(({ label, href, icon: Icon }) => (
-                    <SidebarMenuItem key={href}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={
-                          href === "/home"
-                            ? pathname === href
-                            : pathname.startsWith(href)
-                        }
-                        tooltip={label}
-                        className="transition-all hover:bg-sidebar-accent hover:translate-x-0.5"
-                      >
-                        <Link href={href}>
-                          <Icon className="text-muted-foreground group-data-[active=true]:text-primary" />
-                          <span className="font-medium flex-1">{label}</span>
-                          {href === "/search" && (
-                            <kbd className="group-data-[collapsible=icon]:hidden inline-flex items-center rounded border border-border bg-muted px-1 py-0.5 font-mono text-[9px] leading-none text-muted-foreground/60">
-                              ⌘K
-                            </kbd>
-                          )}
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          );
-        })}
+            <>
+              {/* Pinned: Dashboard + Search stay fixed at the top */}
+              {renderSection(NAV_SECTIONS[0], true)}
 
-        <SidebarSeparator className="opacity-50 shrink-0" />
+              {/* Everything below scrolls together */}
+              <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar flex flex-col">
+                {NAV_SECTIONS.slice(1).map((section) => renderSection(section, false))}
 
-        {/* Projects */}
-        <SidebarGroup className="min-h-0 flex-1 flex flex-col">
+                <SidebarSeparator className="opacity-50 shrink-0" />
+
+                {/* Projects */}
+                <SidebarGroup className="flex flex-col">
           <div className="flex items-center justify-between pr-2 shrink-0 group-data-[collapsible=icon]:hidden">
             <SidebarGroupLabel className="text-[10px] font-bold uppercase tracking-widest text-zinc-500/70 dark:text-zinc-400/50">
               Projects
@@ -347,16 +333,7 @@ export function AppSidebar({ user, projects, requirementBuilderEnabled }: Props)
             </SidebarMenuItem>
           </SidebarMenu>
 
-          {hasMoreAbove && (
-            <div className="pointer-events-none shrink-0 flex justify-center pt-1 pb-2 group-data-[collapsible=icon]:hidden">
-              <RiArrowUpSLine className="size-4 text-zinc-400" />
-            </div>
-          )}
-
-          <SidebarGroupContent
-            ref={projectsScrollRef}
-            className="min-h-0 flex-1 overflow-y-auto no-scrollbar"
-          >
+          <SidebarGroupContent>
             <SidebarMenu>
               {filteredProjects.length === 0 ? (
                 <div className="px-3 py-4 text-center text-xs text-muted-foreground/60 group-data-[collapsible=icon]:hidden">
@@ -381,13 +358,11 @@ export function AppSidebar({ user, projects, requirementBuilderEnabled }: Props)
               )}
             </SidebarMenu>
           </SidebarGroupContent>
-
-          {hasMoreBelow && (
-            <div className="pointer-events-none shrink-0 flex justify-center pt-2 pb-1 group-data-[collapsible=icon]:hidden">
-              <RiArrowDownSLine className="size-4 text-zinc-400" />
-            </div>
-          )}
-        </SidebarGroup>
+                </SidebarGroup>
+              </div>
+            </>
+          );
+        })()}
       </SidebarContent>
 
       <SidebarSeparator className="opacity-50" />
