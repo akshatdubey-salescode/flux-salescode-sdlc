@@ -9,6 +9,7 @@ import {
   RiErrorWarningLine,
   RiSearchLine,
   RiCloseLine,
+  RiEqualizerLine,
 } from "@remixicon/react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
@@ -109,6 +110,11 @@ export function AvailabilityFinder({ projects, boards, people }: Props) {
   const [horizon, setHorizon] = useState(60);
   const [activeSince, setActiveSince] = useState(fiscalAprilFirst());
 
+  // The finder starts minimised: the default Global view auto-loads, so the
+  // user lands on results and only opens the controls when they want to change
+  // the search. Opens on demand, collapses again once a search is fired.
+  const [expanded, setExpanded] = useState(false);
+
   const [data, setData] = useState<AvailabilityResponse | null>(null);
   const [error, setError] = useState(false);
   // Starts true: the default Global view auto-loads on mount, so we want the
@@ -127,8 +133,27 @@ export function AvailabilityFinder({ projects, boards, people }: Props) {
     (scope === "team" && !!boardId) ||
     (scope === "people" && emails.length > 0);
 
+  // One-line description of the current search, shown on the collapsed bar so
+  // the user can see what's configured without opening the controls.
+  const scopeSummary =
+    scope === "global"
+      ? `All ${people.length} people`
+      : scope === "project"
+      ? projects.find((p) => p.id === projectId)?.name ?? "Pick a project"
+      : scope === "team"
+      ? boards.find((b) => b.id === boardId)?.name ?? "Pick a team"
+      : emails.length > 0
+      ? `${emails.length} ${emails.length === 1 ? "person" : "people"}`
+      : "Pick people";
+  const modeSummary =
+    mode === "range"
+      ? `free ${fmt(start)} – ${fmt(end)}`
+      : `free for ${duration} ${duration === 1 ? "day" : "days"}`;
+
   function run() {
     if (!canRun) return;
+    // Fold the controls away so the results take focus once a search fires.
+    setExpanded(false);
     const myId = ++reqId.current;
     setLoading(true);
     setError(false);
@@ -190,8 +215,37 @@ export function AvailabilityFinder({ projects, boards, people }: Props) {
   return (
     <TooltipProvider delayDuration={150}>
     <div className="space-y-5">
-      <Card>
-        <CardContent className="space-y-4 p-4">
+      <Card className="gap-0 py-0">
+        {/* Collapsed bar — summarises the current search and toggles the
+            controls open. Always visible so the finder can be re-opened. */}
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          aria-expanded={expanded}
+          className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
+        >
+          <RiEqualizerLine className="size-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1">
+            <span className="text-sm font-medium text-foreground">
+              {expanded ? "Find availability" : scopeSummary}
+            </span>
+            {!expanded && (
+              <span className="ml-2 text-xs text-muted-foreground">{modeSummary}</span>
+            )}
+          </span>
+          {!expanded && (
+            <span className="shrink-0 text-xs text-muted-foreground">Change search</span>
+          )}
+          <RiArrowDownSLine
+            className={cn(
+              "size-4 shrink-0 text-muted-foreground transition-transform",
+              expanded && "rotate-180"
+            )}
+          />
+        </button>
+
+        {expanded && (
+        <CardContent className="space-y-4 border-t border-border p-4">
           {/* Scope */}
           <div className="space-y-1.5">
             <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -343,6 +397,7 @@ export function AvailabilityFinder({ projects, boards, people }: Props) {
             )}
           </div>
         </CardContent>
+        )}
       </Card>
 
       {loading && !data ? (
