@@ -53,6 +53,10 @@ import type {
   PersonThroughput,
 } from "@/app/api/analytics/throughput/route";
 import type { BoardSummary } from "@/app/api/analytics/workload/boards/route";
+import type {
+  CommittersResponse,
+  CommitterStat,
+} from "@/app/api/analytics/committers/route";
 import {
   getQuarterChips,
   currentFiscalQuarterChip,
@@ -72,6 +76,7 @@ export function ExecutiveDashboard() {
   const [data, setData] = useState<OverviewResponse | null>(null);
   const [throughput, setThroughput] = useState<ThroughputResponse | null>(null);
   const [boards, setBoards] = useState<{ boards: BoardSummary[] } | null>(null);
+  const [committers, setCommitters] = useState<CommittersResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
   const [quarter, setQuarter] = useState<QuarterChip | null>(null);
@@ -106,6 +111,10 @@ export function ExecutiveDashboard() {
       ustart: quarter.start,
       uend: quarter.end,
     });
+    const committerParams = new URLSearchParams({
+      start: quarter.start,
+      end: quarter.end,
+    });
     const getJson = (url: string) =>
       fetch(url).then((r) => {
         if (!r.ok) throw new Error(`${url} → ${r.status}`);
@@ -117,10 +126,12 @@ export function ExecutiveDashboard() {
       getJson(`/api/analytics/overview?${overviewParams}`),
       getJson(`/api/analytics/throughput?${throughputParams}`),
       getJson(`/api/analytics/workload/boards?${boardParams}`),
-    ]).then(([o, t, b]) => {
+      getJson(`/api/analytics/committers?${committerParams}`),
+    ]).then(([o, t, b, c]) => {
       if (o.status === "fulfilled") setData(o.value);
       if (t.status === "fulfilled") setThroughput(t.value);
       if (b.status === "fulfilled") setBoards(b.value);
+      if (c.status === "fulfilled") setCommitters(c.value);
       setLoading(false);
     });
   }, [quarter, reloadKey]);
@@ -225,8 +236,9 @@ export function ExecutiveDashboard() {
           </div>
 
           {/* ── Leaderboards ── */}
-          <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
             <TopThroughputCard people={throughput?.people ?? []} />
+            <TopCommittersCard committers={committers?.committers ?? []} />
             <TopTeamsCard boards={boards?.boards ?? []} />
             <TopProjectsCard projects={data.topProjects} />
           </div>
@@ -671,6 +683,24 @@ function TopThroughputCard({ people }: { people: PersonThroughput[] }) {
   );
 }
 
+function TopCommittersCard({ committers }: { committers: CommitterStat[] }) {
+  const items: LeaderItem[] = committers.slice(0, 10).map((c) => ({
+    key: c.email,
+    primary: c.name,
+    secondary: `${c.repos} repo${c.repos === 1 ? "" : "s"} · ${c.net >= 0 ? "+" : ""}${c.net} net LOC`,
+    value: c.commits,
+    href: "/views/lines-of-code",
+  }));
+  return (
+    <LeaderboardCard
+      title="Top Committers · People"
+      info="People ranked by GitHub commits in the selected quarter, summed across every GitHub login mapped to them and across tracked repos. Bots and unmapped accounts are excluded. Open the Lines of Code view for the full breakdown."
+      emptyMessage="No commits recorded this quarter"
+      items={items}
+    />
+  );
+}
+
 function TopTeamsCard({ boards }: { boards: BoardSummary[] }) {
   // Rank by load per person (active work ÷ team size), so the most overloaded
   // teams relative to their headcount rise to the top — not just the biggest
@@ -760,10 +790,10 @@ function DashboardSkeleton() {
         <Skeleton className="h-[320px] rounded-xl xl:col-span-2" />
         <Skeleton className="h-[320px] rounded-xl" />
       </div>
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-        <Skeleton className="h-[360px] rounded-xl" />
-        <Skeleton className="h-[360px] rounded-xl" />
-        <Skeleton className="h-[360px] rounded-xl" />
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
+        {[...Array(4)].map((_, i) => (
+          <Skeleton key={i} className="h-[360px] rounded-xl" />
+        ))}
       </div>
     </div>
   );

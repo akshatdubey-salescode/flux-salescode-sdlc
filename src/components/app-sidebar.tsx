@@ -24,6 +24,7 @@ import {
   RiBarChart2Line,
   RiCalendarCheckLine,
   RiCheckboxCircleLine,
+  RiCodeSSlashLine,
 } from "@remixicon/react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -71,6 +72,7 @@ export const NAV_ITEMS = [
   { label: "Workload", href: "/workload", icon: RiBarChart2Line },
   { label: "Availability", href: "/availability", icon: RiCalendarCheckLine },
   { label: "Throughput", href: "/throughput", icon: RiCheckboxCircleLine },
+  { label: "Lines of Code", href: "/views/lines-of-code", icon: RiCodeSSlashLine },
   { label: "Search", href: "/search", icon: RiSearchLine },
   { label: "All Projects", href: "/projects", icon: RiBriefcaseLine },
 ];
