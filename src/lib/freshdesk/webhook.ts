@@ -32,6 +32,9 @@ export interface FreshdeskWebhookPayload {
   freshdesk_webhook: {
     ticket_id: number | string;
     ticket_subject: string;
+    // Plain-text body — only present if the automation rule sends the
+    // {{ticket.description_text}} placeholder.
+    ticket_description?: string;
     ticket_status: number | string;
     ticket_priority: number | string;
     ticket_type: string;
@@ -67,10 +70,15 @@ export async function processFreshdeskWebhook(
     return { status: 400, body: { error: "Invalid numeric fields" } };
   }
 
+  // Distinguish "rule didn't send a description" (undefined) from "ticket has an
+  // empty body" so we never clobber an existing description on update.
+  const hasDescription = t.ticket_description !== undefined;
+
   const values = {
     projectId,
     fdTicketId: ticketId,
     subject: t.ticket_subject,
+    description: hasDescription ? t.ticket_description || null : null,
     fdStatus: status,
     fdStatusLabel: fdStatusLabel(status),
     fdPriority: priority,
@@ -93,6 +101,9 @@ export async function processFreshdeskWebhook(
         target: [freshdeskTickets.projectId, freshdeskTickets.fdTicketId],
         set: {
           subject: values.subject,
+          // Only update the body when the webhook carried one; otherwise leave
+          // whatever the REST sync stored intact.
+          ...(hasDescription ? { description: values.description } : {}),
           fdStatus: values.fdStatus,
           fdStatusLabel: values.fdStatusLabel,
           fdPriority: values.fdPriority,

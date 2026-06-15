@@ -232,6 +232,13 @@
       "when": 1780646808424,
       "tag": "0033_fantastic_dagger",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1781268777008,
+      "tag": "0034_glorious_swordsman",
+      "breakpoints": true
     }
   ]
 }

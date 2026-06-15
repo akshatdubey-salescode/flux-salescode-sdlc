@@ -29,6 +29,9 @@ export function fdPriorityLabel(priority: number): string {
 export interface FdTicket {
   id: number;
   subject: string;
+  // Plain-text body of the ticket; `description` (HTML) is also returned by the
+  // API but we only persist the text form.
+  description_text: string | null;
   status: number;
   priority: number;
   type: string | null;
@@ -77,7 +80,7 @@ export async function fetchCompanyTickets(
 
   while (true) {
     const tickets = await get<FdTicket[]>(
-      `/api/v2/tickets?company_id=${companyId}&per_page=100&page=${page}&include=requester,company${updatedSince}`
+      `/api/v2/tickets?company_id=${companyId}&per_page=100&page=${page}&include=requester,company,description${updatedSince}`
     );
     if (!tickets.length) break;
     all.push(...tickets);

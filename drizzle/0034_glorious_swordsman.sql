@@ -1,0 +1,1 @@
+ALTER TABLE "freshdesk_tickets" ADD COLUMN "description" text;

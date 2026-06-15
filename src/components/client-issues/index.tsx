@@ -160,48 +160,6 @@ function slaLabel(ticket: FreshdeskTicket): string {
   return "";
 }
 
-// ─── csv export ──────────────────────────────────────────────────────────────
-
-function csvCell(val: string | number | null | undefined): string {
-  if (val === null || val === undefined) return "";
-  const s = String(val);
-  return s.includes(",") || s.includes('"') || s.includes("\n")
-    ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
-const CSV_COLS: { id: ColumnId; header: string; get: (t: TicketWithJiraDate) => string | number | null | undefined }[] = [
-  { id: "ticket",      header: "FD Ticket",       get: (t) => `#${t.fdTicketId}` },
-  { id: "subject",     header: "Subject",          get: (t) => t.subject },
-  { id: "fdStatus",    header: "FD Status",        get: (t) => t.fdStatusLabel },
-  { id: "priority",    header: "Priority",         get: (t) => t.fdPriorityLabel },
-  { id: "type",        header: "Type",             get: (t) => t.ticketType },
-  { id: "jiraTicket",  header: "Jira Key",         get: (t) => t.linkedJiraKey },
-  { id: "jiraStatus",   header: "Jira Status",    get: (t) => t.linkedJiraStatus },
-  { id: "jiraAssignee", header: "Jira Assignee",  get: (t) => t.linkedJiraAssigneeName },
-  { id: "jiraPriority", header: "Jira Priority",  get: (t) => t.jiraPriority },
-  { id: "requester",    header: "Requester",      get: (t) => t.requesterName },
-  { id: "fdCreated",   header: "FD Created",       get: (t) => fmtDate(t.fdCreatedAt ? String(t.fdCreatedAt) : null) },
-  { id: "jiraCreated", header: "Jira Created",     get: (t) => fmtDate(t.jiraCreatedAt) },
-  { id: "response",    header: "Response (days)",  get: (t) => { const r = responseDays(t.fdCreatedAt ? String(t.fdCreatedAt) : null, t.jiraCreatedAt ?? null); return r !== null ? r : ""; } },
-  { id: "daysOpen",    header: "Days Open",        get: (t) => daysOpen(t.fdCreatedAt ? String(t.fdCreatedAt) : null) },
-  { id: "sla",         header: "SLA",              get: (t) => slaLabel(t) },
-];
-
-function downloadCsv(tickets: TicketWithJiraDate[], visibleCols: Set<ColumnId>) {
-  const cols = CSV_COLS.filter((c) => visibleCols.has(c.id));
-  const headers = cols.map((c) => c.header);
-  const rows = tickets.map((t) => cols.map((c) => csvCell(c.get(t))).join(","));
-  const blob = new Blob(["﻿" + [headers.join(","), ...rows].join("\n")], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `freshdesk-tickets-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
 // ─── column toggle dropdown ───────────────────────────────────────────────────
 
 function ColumnToggle({
@@ -420,7 +378,7 @@ function FilterBar({
           className="flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-xs text-zinc-600 shadow-sm hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
         >
           <RiDownloadLine className={`h-3.5 w-3.5 ${exporting ? "animate-spin" : ""}`} />
-          {exporting ? "Exporting…" : "Export"}
+          {exporting ? "Exporting…" : "Export Excel"}
         </button>
       </div>
 
@@ -769,12 +727,23 @@ export function ClientIssuesTab({ projectId, projectName }: { projectId: string;
 
   async function handleExport() {
     setExporting(true);
-    const res = await fetch(`/api/freshdesk/tickets/${projectId}?${buildParams(filters, 1, 10000)}`);
-    if (res.ok) {
-      const data = await res.json();
-      downloadCsv(data.tickets ?? [], visibleCols);
+    try {
+      const res = await fetch(`/api/freshdesk/export/${projectId}?${buildParams(filters, 1, 10000)}`);
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `freshdesk-tickets-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // silently ignore — user can retry
+    } finally {
+      setExporting(false);
     }
-    setExporting(false);
   }
 
   const fdBaseUrl = process.env.NEXT_PUBLIC_FRESHDESK_BASE_URL;

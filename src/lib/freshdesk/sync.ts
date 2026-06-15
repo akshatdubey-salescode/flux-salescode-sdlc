@@ -101,6 +101,7 @@ export async function syncFreshdeskTickets(
           projectId,
           fdTicketId: ticket.id,
           subject: ticket.subject,
+          description: ticket.description_text ?? null,
           fdStatus: ticket.status,
           fdStatusLabel: fdStatusLabel(ticket.status),
           fdPriority: ticket.priority,
@@ -126,6 +127,7 @@ export async function syncFreshdeskTickets(
           target: [freshdeskTickets.projectId, freshdeskTickets.fdTicketId],
           set: {
             subject: sql`excluded.subject`,
+            description: sql`excluded.description`,
             fdStatus: sql`excluded.fd_status`,
             fdStatusLabel: sql`excluded.fd_status_label`,
             fdPriority: sql`excluded.fd_priority`,
@@ -216,6 +218,7 @@ export async function relinkFreshdeskTicket(
         projectId,
         fdTicketId: ticket.id,
         subject: ticket.subject,
+        description: ticket.description_text ?? null,
         fdStatus: ticket.status,
         fdStatusLabel: fdStatusLabel(ticket.status),
         fdPriority: ticket.priority,
@@ -241,6 +244,7 @@ export async function relinkFreshdeskTicket(
         target: [freshdeskTickets.projectId, freshdeskTickets.fdTicketId],
         set: {
           subject: ticket.subject,
+          description: ticket.description_text ?? null,
           fdStatus: ticket.status,
           fdStatusLabel: fdStatusLabel(ticket.status),
           fdPriority: ticket.priority,

@@ -686,6 +686,9 @@ export const freshdeskTickets = pgTable(
     // Freshdesk ticket number (plain integer, e.g. 1042)
     fdTicketId: integer("fd_ticket_id").notNull(),
     subject: text("subject").notNull(),
+    // Plain-text ticket body (Freshdesk `description_text`). Nullable because the
+    // automation-rule webhook only includes it when configured to send it.
+    description: text("description"),
     // Freshdesk numeric status: 2=Open 3=Pending 4=Resolved 5=Closed
     fdStatus: integer("fd_status").notNull(),
     fdStatusLabel: text("fd_status_label").notNull(),
