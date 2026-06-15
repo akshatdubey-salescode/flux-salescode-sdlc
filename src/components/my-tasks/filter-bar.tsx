@@ -108,6 +108,8 @@ export function MyTasksFilterBar({ filters, fields, onUpdate, total }: Props) {
               onChange={(vals) =>
                 onUpdate({ projects: vals.join(",") || null, page: "1" })
               }
+              searchable
+              searchPlaceholder="Search projects…"
             />
             <MultiSelect
               label="Issue Type"
@@ -214,12 +216,23 @@ export function MyTasksFilterBar({ filters, fields, onUpdate, total }: Props) {
   );
 }
 
-function MultiSelect({ label, options, selected, onChange }: {
+function MultiSelect({
+  label,
+  options,
+  selected,
+  onChange,
+  searchable = false,
+  searchPlaceholder = "Search…",
+}: {
   label: string;
   options: { value: string; label: string }[];
   selected: string[];
   onChange: (values: string[]) => void;
+  searchable?: boolean;
+  searchPlaceholder?: string;
 }) {
+  const [query, setQuery] = useState("");
+
   function toggle(value: string) {
     if (selected.includes(value)) {
       onChange(selected.filter((v) => v !== value));
@@ -229,6 +242,12 @@ function MultiSelect({ label, options, selected, onChange }: {
   }
 
   const hasSelection = selected.length > 0;
+  const filteredOptions =
+    searchable && query.trim()
+      ? options.filter((o) =>
+          o.label.toLowerCase().includes(query.trim().toLowerCase())
+        )
+      : options;
 
   return (
     <Popover>
@@ -251,13 +270,29 @@ function MultiSelect({ label, options, selected, onChange }: {
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-52 p-0">
+        {searchable && options.length > 0 && (
+          <div className="relative border-b border-zinc-100 dark:border-zinc-800">
+            <RiSearchLine className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-zinc-400" />
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={searchPlaceholder}
+              className="w-full bg-transparent py-2 pl-8 pr-2.5 text-xs text-zinc-700 placeholder:text-zinc-400 focus:outline-none dark:text-zinc-300"
+            />
+          </div>
+        )}
         {options.length === 0 ? (
           <p className="px-3 py-4 text-center text-xs text-zinc-400">
             No options
           </p>
+        ) : filteredOptions.length === 0 ? (
+          <p className="px-3 py-4 text-center text-xs text-zinc-400">
+            No matches
+          </p>
         ) : (
           <div className="max-h-60 overflow-y-auto py-1">
-            {options.map((opt) => (
+            {filteredOptions.map((opt) => (
               <div
                 key={opt.value}
                 className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
