@@ -1,6 +1,6 @@
 {
-  "id": "b34b85cd-e11a-4fa6-9f97-6145a44fd676",
-  "prevId": "998ab9e0-d62b-48c9-aef7-ac35fc815e36",
+  "id": "651c0985-4eb8-4474-814c-51ca9f9b00b8",
+  "prevId": "713a302a-05a2-485d-bb86-c9d4f927afe7",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -938,6 +938,93 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.github_orgs": {
+      "name": "github_orgs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "login": {
+          "name": "login",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "api_token": {
+          "name": "api_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "last_synced_at": {
+          "name": "last_synced_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "github_orgs_created_by_users_id_fk": {
+          "name": "github_orgs_created_by_users_id_fk",
+          "tableFrom": "github_orgs",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "github_orgs_login_unique": {
+          "name": "github_orgs_login_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "login"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.github_repos": {
       "name": "github_repos",
       "schema": "",
@@ -948,6 +1035,12 @@
           "primaryKey": true,
           "notNull": true,
           "default": "gen_random_uuid()"
+        },
+        "org_id": {
+          "name": "org_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         },
         "github_repo_id": {
           "name": "github_repo_id",
@@ -992,6 +1085,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": true
+        },
+        "stats_mode": {
+          "name": "stats_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'api'"
         },
         "pushed_at": {
           "name": "pushed_at",
@@ -1050,9 +1150,38 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "github_repos_org_idx": {
+          "name": "github_repos_org_idx",
+          "columns": [
+            {
+              "expression": "org_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "github_repos_org_id_github_orgs_id_fk": {
+          "name": "github_repos_org_id_github_orgs_id_fk",
+          "tableFrom": "github_repos",
+          "tableTo": "github_orgs",
+          "columnsFrom": [
+            "org_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},

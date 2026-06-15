@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "prepare": "husky && git config user.name 'Akshat Dubey' && git config user.email 'akshat.dubey@salescode.ai'",
+    "prepare": "husky || true; git rev-parse --git-dir >/dev/null 2>&1 && git config user.name 'Akshat Dubey' && git config user.email 'akshat.dubey@salescode.ai' || true",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -13,7 +13,11 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "sync:all": "tsx --env-file=.env.local scripts/force-sync-all-projects.ts",
+    "seed:github-orgs": "tsx --env-file=.env.local scripts/seed-github-orgs.ts",
+    "sync:github": "tsx --env-file=.env.local scripts/sync-all-github.ts",
+    "collect:git-stats": "tsx --env-file=.env.local scripts/collect-git-stats.ts",
     "backfill:jira-identities": "tsx --env-file=.env.local scripts/backfill-jira-identities.ts",
+    "backfill:github-identities": "tsx --env-file=.env.local scripts/backfill-github-identities.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -29,6 +29,32 @@ export function currentQuarterNum(): number {
   return 4; // Jan–Mar
 }
 
+export type QuarterChip = { label: string; start: string; end: string };
+
+/** Fiscal-quarter chips (Apr–Mar) for filter bars: last 2, current, next. */
+export function getQuarterChips(): QuarterChip[] {
+  return getRelevantQuarters().map((q) => ({
+    label: `${q.label} ${q.year}`,
+    start: q.start,
+    end: q.end,
+  }));
+}
+
+/** The chip for the current fiscal quarter — the sensible default selection. */
+export function currentFiscalQuarterChip(): QuarterChip {
+  const { start } = quarterBounds(currentFyStartYear(), currentQuarterNum());
+  const chips = getQuarterChips();
+  return chips.find((q) => q.start === start) ?? chips[0];
+}
+
+/** Fiscal-quarter bounds containing the given YYYY-MM-DD date. */
+export function fiscalQuarterOf(dateStr: string): { start: string; end: string } {
+  const [y, m] = dateStr.split("-").map(Number);
+  const fyStart = m >= 4 ? y : y - 1;
+  const q = m >= 4 && m <= 6 ? 1 : m >= 7 && m <= 9 ? 2 : m >= 10 ? 3 : 4;
+  return quarterBounds(fyStart, q);
+}
+
 export function getRelevantQuarters() {
   const monthRanges = ["Apr–Jun", "Jul–Sep", "Oct–Dec", "Jan–Mar"];
   const currentQ = currentQuarterNum();
@@ -56,4 +82,42 @@ export function getRelevantQuarters() {
       ...quarterBounds(fy, q),
     };
   });
+}
+
+export type RangePreset = { label: string; start: string; end: string };
+
+/**
+ * Relative quick-select ranges (rolling windows + calendar/fiscal periods) for
+ * filter bars. End-inclusive YYYY-MM-DD strings. Rolling windows include today,
+ * so "Last 7 days" is today and the 6 days before it.
+ */
+export function getRangePresets(): RangePreset[] {
+  const now = new Date();
+  const today = localDateStr(now);
+
+  const minusDays = (days: number) => {
+    const d = new Date(now);
+    d.setDate(d.getDate() - days);
+    return localDateStr(d);
+  };
+
+  // Month-to-date (1st of the current month → today).
+  const monthStart = localDateStr(new Date(now.getFullYear(), now.getMonth(), 1));
+
+  // Previous full calendar month. Day 0 of the current month = last day of the
+  // previous month; month-1 with day 1 = its first day (JS rolls Jan→prev Dec).
+  const lastMonthStart = localDateStr(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+  const lastMonthEnd = localDateStr(new Date(now.getFullYear(), now.getMonth(), 0));
+
+  // Fiscal-year-to-date (1 April of the current fiscal year → today).
+  const fyStartYear = now.getMonth() + 1 >= 4 ? now.getFullYear() : now.getFullYear() - 1;
+
+  return [
+    { label: "Last 7 days", start: minusDays(6), end: today },
+    { label: "Last 30 days", start: minusDays(29), end: today },
+    { label: "Last 90 days", start: minusDays(89), end: today },
+    { label: "This month", start: monthStart, end: today },
+    { label: "Last month", start: lastMonthStart, end: lastMonthEnd },
+    { label: "FY to date", start: `${fyStartYear}-04-01`, end: today },
+  ];
 }

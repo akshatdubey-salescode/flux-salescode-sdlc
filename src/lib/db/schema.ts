@@ -744,6 +744,177 @@ export const featureFlags = pgTable("feature_flags", {
 });
 
 // ---------------------------------------------------------------------------
+// GitHub Orgs — the organisations we mirror repos from. Each carries its own
+// fine-grained PAT (encrypted at rest, like jira_projects.jira_api_token),
+// since a fine-grained PAT is scoped to a single org. Managed via the superuser
+// page; the sync iterates every active org using its own token.
+// ---------------------------------------------------------------------------
+
+export const githubOrgs = pgTable("github_orgs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  // The org login, e.g. "salescode-ai".
+  login: text("login").notNull().unique(),
+  // Fine-grained PAT with Contents + Metadata read on the org's repos.
+  // Encrypted at rest; decrypt() before use.
+  apiToken: text("api_token").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+  // Superuser who added the org; null for the seeded legacy org.
+  createdBy: text("created_by").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// GitHub Repos — synced mirror of each org's repositories. Scopes the LOC
+// metric and lets a superuser untrack noisy repos (archived, vendored mirrors)
+// so they're excluded from stats collection and the dashboard.
+// ---------------------------------------------------------------------------
+
+export const githubRepos = pgTable(
+  "github_repos",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The org this repo belongs to. Drives per-org sync/prune and which PAT to
+    // use. Nullable only for legacy rows pre-multi-org; backfilled by the seed.
+    orgId: uuid("org_id").references(() => githubOrgs.id, { onDelete: "cascade" }),
+    // GitHub's stable numeric repo id — the natural key for upsert.
+    githubRepoId: integer("github_repo_id").notNull(),
+    name: text("name").notNull(), // e.g. "schemes-service"
+    fullName: text("full_name").notNull(), // e.g. "salescode-ai/schemes-service"
+    // The branch contributor-stats aggregates over. Informational here.
+    defaultBranch: text("default_branch"),
+    isPrivate: boolean("is_private").notNull().default(false),
+    language: text("language"),
+    // false = excluded from stats sync and the dashboard.
+    isTracked: boolean("is_tracked").notNull().default(true),
+    // How this repo's line stats are sourced: 'api' = GitHub contributor-stats
+    // (fast, default); 'git' = computed locally via `git log --numstat` because
+    // GitHub disables line stats for repos past ~10k commits. 'git' repos are
+    // owned by the git collector and skipped by the API/cron path.
+    statsMode: text("stats_mode").notNull().default("api"),
+    pushedAt: timestamp("pushed_at", { withTimezone: true }),
+    // When contributor stats were last successfully pulled for this repo.
+    statsSyncedAt: timestamp("stats_synced_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("github_repos_github_repo_id_idx").on(t.githubRepoId),
+    index("github_repos_tracked_idx").on(t.isTracked),
+    index("github_repos_org_idx").on(t.orgId),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// GitHub Accounts — identity bridge from a GitHub login to an app user.
+// Contributor stats are attributed by GitHub account, not commit email, so we
+// need this mapping to roll LOC up per person. Auto-resolved by email where
+// possible (resolved_via = 'email_auto'); the rest are mapped by a superuser
+// (resolved_via = 'manual'). Bot accounts (e.g. dependabot[bot]) are flagged
+// and excluded from the dashboard.
+// ---------------------------------------------------------------------------
+
+export const githubAccounts = pgTable(
+  "github_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    githubLogin: text("github_login").notNull(),
+    githubUserId: integer("github_user_id"),
+    displayName: text("display_name"),
+    avatarUrl: text("avatar_url"),
+    // The app user this GitHub account belongs to. null = not yet resolved.
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    // How userId was set: 'email_auto' | 'manual'. null while unresolved.
+    resolvedVia: text("resolved_via"),
+    isBot: boolean("is_bot").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("github_accounts_login_idx").on(t.githubLogin),
+    index("github_accounts_user_idx").on(t.userId),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// GitHub Contributor Stats — the granular LOC store, one row per
+// (repo, login, week). Sourced from GET /repos/{o}/{r}/stats/contributors,
+// whose weekly buckets (UTC, Sunday-aligned) carry additions/deletions/commits
+// on the default branch. Net LOC = additions − deletions. GitHub recomputes the
+// full history on each call, so the upsert overwrites a/d/c outright.
+// ---------------------------------------------------------------------------
+
+export const githubContributorStats = pgTable(
+  "github_contributor_stats",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repoId: uuid("repo_id")
+      .notNull()
+      .references(() => githubRepos.id, { onDelete: "cascade" }),
+    githubLogin: text("github_login").notNull(),
+    weekStart: timestamp("week_start", { withTimezone: true }).notNull(),
+    additions: integer("additions").notNull().default(0),
+    deletions: integer("deletions").notNull().default(0),
+    commits: integer("commits").notNull().default(0),
+    syncedAt: timestamp("synced_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("github_contributor_stats_repo_login_week_idx").on(
+      t.repoId,
+      t.githubLogin,
+      t.weekStart
+    ),
+    index("github_contributor_stats_week_idx").on(t.weekStart),
+    index("github_contributor_stats_login_idx").on(t.githubLogin),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// GitHub Sync Jobs — tracks async background sync operations (org-wide, so no
+// project scope, unlike jira_sync_jobs). Powers the superuser progress UI.
+// ---------------------------------------------------------------------------
+
+export const githubSyncJobs = pgTable(
+  "github_sync_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // pending | running | completed | failed
+    status: text("status").notNull().default("pending"),
+    // Set after the repo list returns — null until then.
+    totalRepos: integer("total_repos"),
+    syncedRepos: integer("synced_repos").notNull().default(0),
+    statsRowsUpserted: integer("stats_rows_upserted").notNull().default(0),
+    accountsResolved: integer("accounts_resolved").notNull().default(0),
+    errorCount: integer("error_count").notNull().default(0),
+    errorMessages: text("error_messages")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("github_sync_jobs_status_idx").on(t.status)]
+);
+
+// ---------------------------------------------------------------------------
 // Type exports
 // ---------------------------------------------------------------------------
 
@@ -776,4 +947,13 @@ export type NewFreshdeskTicket = typeof freshdeskTickets.$inferInsert;
 export type FeatureFlag = typeof featureFlags.$inferSelect;
 export type CalendarEvent = typeof calendarEvents.$inferSelect;
 export type NewCalendarEvent = typeof calendarEvents.$inferInsert;
+export type GithubOrg = typeof githubOrgs.$inferSelect;
+export type NewGithubOrg = typeof githubOrgs.$inferInsert;
+export type GithubRepo = typeof githubRepos.$inferSelect;
+export type NewGithubRepo = typeof githubRepos.$inferInsert;
+export type GithubAccount = typeof githubAccounts.$inferSelect;
+export type NewGithubAccount = typeof githubAccounts.$inferInsert;
+export type GithubContributorStat = typeof githubContributorStats.$inferSelect;
+export type NewGithubContributorStat = typeof githubContributorStats.$inferInsert;
+export type GithubSyncJob = typeof githubSyncJobs.$inferSelect;
 

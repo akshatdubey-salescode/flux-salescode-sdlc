@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSession, signOut } from "next-auth/react";
 import {
   RiHome3Line,
@@ -15,12 +15,16 @@ import {
   RiUserSettingsLine,
   RiFileList3Line,
   RiSettings3Line,
-  RiArrowDownSLine,
-  RiArrowUpSLine,
   RiTeamLine,
   RiCloseLine,
   RiFlag2Line,
   RiLightbulbLine,
+  RiBarChart2Line,
+  RiCalendarCheckLine,
+  RiCheckboxCircleLine,
+  RiCodeSSlashLine,
+  RiUserStarLine,
+  RiUserUnfollowLine,
 } from "@remixicon/react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -60,13 +64,70 @@ type Props = {
   requirementBuilderEnabled: boolean;
 };
 
-export const NAV_ITEMS = [
-  { label: "Dashboard", href: "/home", icon: RiHome3Line },
-  { label: "Requirement Builder", href: "/requirements", icon: RiFileList3Line },
-  { label: "My Tasks", href: "/my-tasks", icon: RiTaskLine },
-  { label: "Team Pulse", href: "/observer", icon: RiTeamLine },
-  { label: "Search", href: "/search", icon: RiSearchLine },
-  { label: "All Projects", href: "/projects", icon: RiBriefcaseLine },
+type NavItem = { label: string; href: string; icon: typeof RiHome3Line };
+type NavSection = { label?: string; superuserOnly?: boolean; items: NavItem[] };
+
+// The "All Projects" entry lives at the top of the Projects group (next to the
+// dynamic project list), not in a nav section — but it's still exported in the
+// flat NAV_ITEMS below so the command palette can find it.
+const ALL_PROJECTS_ITEM: NavItem = {
+  label: "All Projects",
+  href: "/projects",
+  icon: RiBriefcaseLine,
+};
+
+// Grouped by how the destination is used, not just by type:
+//  • top (unlabeled) — the everyday entry point + global finder
+//  • My Work        — your own, single-user "do work" pages
+//  • Teams          — manager-daily people & capacity views
+//  • Analytics      — org delivery/contribution reports (quarter-filtered)
+//  • Admin          — superuser-only setup/ops
+export const NAV_SECTIONS: NavSection[] = [
+  {
+    items: [
+      { label: "Dashboard", href: "/home", icon: RiHome3Line },
+      { label: "Search", href: "/search", icon: RiSearchLine },
+    ],
+  },
+  {
+    label: "My Work",
+    items: [
+      { label: "My Tasks", href: "/my-tasks", icon: RiTaskLine },
+      { label: "Requirement Builder", href: "/requirements", icon: RiFileList3Line },
+    ],
+  },
+  {
+    label: "Teams",
+    items: [
+      { label: "Team Pulse", href: "/observer", icon: RiTeamLine },
+      { label: "Workload", href: "/workload", icon: RiBarChart2Line },
+      { label: "Availability", href: "/availability", icon: RiCalendarCheckLine },
+    ],
+  },
+  {
+    label: "Analytics",
+    items: [
+      { label: "Throughput", href: "/throughput", icon: RiCheckboxCircleLine },
+      { label: "Lines of Code", href: "/views/lines-of-code", icon: RiCodeSSlashLine },
+      { label: "Unplanned Assignees", href: "/views/top-unplanned-assignees", icon: RiUserStarLine },
+      { label: "Self-Deassigners", href: "/views/self-deassigners", icon: RiUserUnfollowLine },
+    ],
+  },
+  {
+    label: "Admin",
+    superuserOnly: true,
+    items: [
+      { label: "User Management", href: "/admin/users", icon: RiUserSettingsLine },
+      { label: "Superuser Tools", href: "/superuser", icon: RiFlag2Line },
+    ],
+  },
+];
+
+// Flat list of non-admin nav links (plus All Projects) for the command palette,
+// which appends the superuser links itself.
+export const NAV_ITEMS: NavItem[] = [
+  ...NAV_SECTIONS.filter((s) => !s.superuserOnly).flatMap((s) => s.items),
+  ALL_PROJECTS_ITEM,
 ];
 
 export function AppSidebar({ user, projects, requirementBuilderEnabled }: Props) {
@@ -80,17 +141,6 @@ export function AppSidebar({ user, projects, requirementBuilderEnabled }: Props)
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const projectsScrollRef = useRef<HTMLDivElement>(null);
-  const [hasMoreBelow, setHasMoreBelow] = useState(false);
-  const [hasMoreAbove, setHasMoreAbove] = useState(false);
-
-  const checkScroll = useCallback(() => {
-    const el = projectsScrollRef.current;
-    if (!el) return;
-    setHasMoreAbove(el.scrollTop > 4);
-    setHasMoreBelow(el.scrollHeight - el.scrollTop - el.clientHeight > 4);
-  }, []);
-
   useEffect(() => {
     if (isSearching && searchInputRef.current) {
       const timer = setTimeout(() => {
@@ -99,19 +149,6 @@ export function AppSidebar({ user, projects, requirementBuilderEnabled }: Props)
       return () => clearTimeout(timer);
     }
   }, [isSearching]);
-
-  useEffect(() => {
-    const el = projectsScrollRef.current;
-    if (!el) return;
-    checkScroll();
-    el.addEventListener("scroll", checkScroll, { passive: true });
-    const ro = new ResizeObserver(checkScroll);
-    ro.observe(el);
-    return () => {
-      el.removeEventListener("scroll", checkScroll);
-      ro.disconnect();
-    };
-  }, [checkScroll]);
 
   const filteredProjects = projects.filter((project) => {
     if (!searchQuery) return true;
@@ -150,75 +187,68 @@ export function AppSidebar({ user, projects, requirementBuilderEnabled }: Props)
       </SidebarHeader>
 
       <SidebarContent className="overflow-hidden">
-        {/* Main nav */}
-        <SidebarGroup className="shrink-0">
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {NAV_ITEMS.filter(
-                ({ href }) =>
-                  href !== "/requirements" || requirementBuilderEnabled
-              ).map(({ label, href, icon: Icon }) => (
-                <SidebarMenuItem key={href}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={
-                    href === "/home" || href === "/projects"
-                      ? pathname === href
-                      : pathname.startsWith(href)
-                  }
-                    tooltip={label}
-                    className="transition-all hover:bg-sidebar-accent hover:translate-x-0.5"
-                  >
-                    <Link href={href}>
-                      <Icon className="text-muted-foreground group-data-[active=true]:text-primary" />
-                      <span className="font-medium flex-1">{label}</span>
-                      {href === "/search" && (
-                        <kbd className="group-data-[collapsible=icon]:hidden inline-flex items-center rounded border border-border bg-muted px-1 py-0.5 font-mono text-[9px] leading-none text-muted-foreground/60">
-                          ⌘K
-                        </kbd>
-                      )}
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-              {user.role === "SUPERUSER" && (
-                <>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={pathname === "/admin/users"}
-                      tooltip="User Management"
-                      className="transition-all hover:bg-sidebar-accent hover:translate-x-0.5"
-                    >
-                      <Link href="/admin/users">
-                        <RiUserSettingsLine className="text-muted-foreground group-data-[active=true]:text-primary" />
-                        <span className="font-medium">User Management</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={pathname.startsWith("/superuser")}
-                      tooltip="Superuser Tools"
-                      className="transition-all hover:bg-sidebar-accent hover:translate-x-0.5"
-                    >
-                      <Link href="/superuser">
-                        <RiFlag2Line className="text-muted-foreground group-data-[active=true]:text-primary" />
-                        <span className="font-medium">Superuser Tools</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                </>
-              )}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {(() => {
+          const renderSection = (section: NavSection, pinned: boolean) => {
+            if (section.superuserOnly && user.role !== "SUPERUSER") return null;
+            const items = section.items.filter(
+              ({ href }) => href !== "/requirements" || requirementBuilderEnabled
+            );
+            if (items.length === 0) return null;
+            return (
+              <SidebarGroup
+                key={section.label ?? "primary"}
+                className={cn("py-0.5", pinned && "shrink-0")}
+              >
+                {section.label && (
+                  <SidebarGroupLabel className="text-[10px] font-bold uppercase tracking-widest text-zinc-500/70 dark:text-zinc-400/50">
+                    {section.label}
+                  </SidebarGroupLabel>
+                )}
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {items.map(({ label, href, icon: Icon }) => (
+                      <SidebarMenuItem key={href}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={
+                            href === "/home"
+                              ? pathname === href
+                              : pathname.startsWith(href)
+                          }
+                          tooltip={label}
+                          className="transition-all hover:bg-sidebar-accent hover:translate-x-0.5"
+                        >
+                          <Link href={href}>
+                            <Icon className="text-muted-foreground group-data-[active=true]:text-primary" />
+                            <span className="font-medium flex-1">{label}</span>
+                            {href === "/search" && (
+                              <kbd className="group-data-[collapsible=icon]:hidden inline-flex items-center rounded border border-border bg-muted px-1 py-0.5 font-mono text-[9px] leading-none text-muted-foreground/60">
+                                ⌘K
+                              </kbd>
+                            )}
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            );
+          };
 
-        <SidebarSeparator className="opacity-50 shrink-0" />
+          return (
+            <>
+              {/* Pinned: Dashboard + Search stay fixed at the top */}
+              {renderSection(NAV_SECTIONS[0], true)}
 
-        {/* Projects */}
-        <SidebarGroup className="min-h-0 flex-1 flex flex-col">
+              {/* Everything below scrolls together */}
+              <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar flex flex-col">
+                {NAV_SECTIONS.slice(1).map((section) => renderSection(section, false))}
+
+                <SidebarSeparator className="opacity-50 shrink-0" />
+
+                {/* Projects */}
+                <SidebarGroup className="flex flex-col">
           <div className="flex items-center justify-between pr-2 shrink-0 group-data-[collapsible=icon]:hidden">
             <SidebarGroupLabel className="text-[10px] font-bold uppercase tracking-widest text-zinc-500/70 dark:text-zinc-400/50">
               Projects
@@ -286,16 +316,24 @@ export function AppSidebar({ user, projects, requirementBuilderEnabled }: Props)
             </div>
           </div>
 
-          {hasMoreAbove && (
-            <div className="pointer-events-none shrink-0 flex justify-center pt-1 pb-2 group-data-[collapsible=icon]:hidden">
-              <RiArrowUpSLine className="size-4 text-zinc-400" />
-            </div>
-          )}
+          {/* All Projects — entry point pinned above the project list */}
+          <SidebarMenu className="shrink-0">
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                asChild
+                isActive={pathname === "/projects"}
+                tooltip="All Projects"
+                className="transition-all hover:bg-sidebar-accent hover:translate-x-0.5"
+              >
+                <Link href="/projects">
+                  <RiBriefcaseLine className="text-muted-foreground group-data-[active=true]:text-primary" />
+                  <span className="font-medium">All Projects</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
 
-          <SidebarGroupContent
-            ref={projectsScrollRef}
-            className="min-h-0 flex-1 overflow-y-auto no-scrollbar"
-          >
+          <SidebarGroupContent>
             <SidebarMenu>
               {filteredProjects.length === 0 ? (
                 <div className="px-3 py-4 text-center text-xs text-muted-foreground/60 group-data-[collapsible=icon]:hidden">
@@ -320,13 +358,11 @@ export function AppSidebar({ user, projects, requirementBuilderEnabled }: Props)
               )}
             </SidebarMenu>
           </SidebarGroupContent>
-
-          {hasMoreBelow && (
-            <div className="pointer-events-none shrink-0 flex justify-center pt-2 pb-1 group-data-[collapsible=icon]:hidden">
-              <RiArrowDownSLine className="size-4 text-zinc-400" />
-            </div>
-          )}
-        </SidebarGroup>
+                </SidebarGroup>
+              </div>
+            </>
+          );
+        })()}
       </SidebarContent>
 
       <SidebarSeparator className="opacity-50" />
