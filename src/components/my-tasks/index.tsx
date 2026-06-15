@@ -6,10 +6,22 @@ import { ListView } from "../project-tracking/list-view";
 import { MyTasksFilterBar } from "./filter-bar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { RiDownload2Line } from "@remixicon/react";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { RiDownload2Line, RiLayoutColumnLine } from "@remixicon/react";
 import { UserInsightsDashboard } from "./user-insights-dashboard";
 import { MyMeetings } from "./my-meetings";
 import { usePinnedTasks } from "./use-pinned-tasks";
+import {
+  useColumnVisibility,
+  TOGGLEABLE_COLUMNS,
+} from "./use-column-visibility";
 import type { MyTasksFields, MyTasksFilterState, TrackingIssue } from "./helpers";
 import {
   quarterBounds,
@@ -118,6 +130,7 @@ export function MyTasksView({
     tabParam === "insights" || tabParam === "meetings" ? tabParam : "list";
 
   const { pinnedKeys, togglePin } = usePinnedTasks();
+  const { visibleColumns, toggleColumn, resetColumns } = useColumnVisibility();
   const isObserving = !!targetEmail;
   const [issues, setIssues] = useState<TrackingIssue[]>([]);
   const [total, setTotal] = useState(0);
@@ -295,15 +308,53 @@ export function MyTasksView({
             <div />
           )}
           {showExport && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExport}
-              disabled={exporting || total === 0}
-            >
-              <RiDownload2Line className="size-3.5" />
-              {exporting ? "Exporting…" : "Export Excel"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <RiLayoutColumnLine className="size-3.5" />
+                    Columns
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuLabel>Visible columns</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {TOGGLEABLE_COLUMNS.map((col) => {
+                    const checked = visibleColumns.has(col.key);
+                    return (
+                      <DropdownMenuCheckboxItem
+                        key={col.key}
+                        checked={checked}
+                        // Prevent the menu from closing on each toggle.
+                        onSelect={(e) => e.preventDefault()}
+                        onCheckedChange={() => toggleColumn(col.key)}
+                        // Block hiding the last remaining column.
+                        disabled={checked && visibleColumns.size <= 1}
+                      >
+                        {col.label}
+                      </DropdownMenuCheckboxItem>
+                    );
+                  })}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuCheckboxItem
+                    checked={false}
+                    onSelect={(e) => e.preventDefault()}
+                    onCheckedChange={resetColumns}
+                  >
+                    Show all
+                  </DropdownMenuCheckboxItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExport}
+                disabled={exporting || total === 0}
+              >
+                <RiDownload2Line className="size-3.5" />
+                {exporting ? "Exporting…" : "Export Excel"}
+              </Button>
+            </div>
           )}
         </div>
       )}
@@ -330,6 +381,7 @@ export function MyTasksView({
           onPageChange={(page) => updateParams({ page: String(page) })}
           renderActions={renderIssueActions}
           showPlanned
+          visibleColumns={visibleColumns}
           {...(!isObserving && {
             pinnedKeys,
             onPinToggle: togglePin,

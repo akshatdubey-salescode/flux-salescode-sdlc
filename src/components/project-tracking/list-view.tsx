@@ -37,6 +37,12 @@ type Props = {
   renderActions?: (issue: TrackingIssue) => React.ReactNode;
   /** Show the Planned/Unplanned column (My Tasks only). */
   showPlanned?: boolean;
+  /**
+   * Set of column keys to render. When omitted, every column is shown.
+   * Keys: type, key, summary, status, priority, assignee, reporter, planned,
+   * created, updated.
+   */
+  visibleColumns?: Set<string>;
 };
 
 const SORTABLE_COLS: Record<string, string> = {
@@ -82,6 +88,7 @@ export function ListView({
   pinnedCount = 0,
   renderActions,
   showPlanned = false,
+  visibleColumns,
 }: Props) {
   function handleColSort(col: string) {
     if (sortBy === col) {
@@ -91,9 +98,18 @@ export function ListView({
     }
   }
 
-  // 9 always-on columns + optional pin / plan / actions columns.
+  // When no set is provided, every column is visible.
+  const isVisible = (key: string) => !visibleColumns || visibleColumns.has(key);
+  const planVisible = showPlanned && isVisible("planned");
+
+  // Toggleable data columns + optional pin / actions columns.
   const colCount =
-    9 + (onPinToggle ? 1 : 0) + (showPlanned ? 1 : 0) + (renderActions ? 1 : 0);
+    ["type", "key", "summary", "status", "priority", "assignee", "reporter", "created", "updated"].filter(
+      isVisible
+    ).length +
+    (planVisible ? 1 : 0) +
+    (onPinToggle ? 1 : 0) +
+    (renderActions ? 1 : 0);
 
   return (
     <div className="flex flex-col gap-3">
@@ -103,45 +119,57 @@ export function ListView({
             <thead>
               <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
                 {onPinToggle && <th className="w-6 px-2 py-2.5" />}
-                <th className="w-8 px-3 py-2.5" />
-                <SortableHeader
-                  label="Key"
-                  colKey="key"
-                  sortBy={sortBy}
-                  sortDir={sortDir}
-                  onSort={handleColSort}
-                  className="w-24"
-                />
-                <SortableHeader
-                  label="Summary"
-                  colKey="summary"
-                  sortBy={sortBy}
-                  sortDir={sortDir}
-                  onSort={handleColSort}
-                />
-                <SortableHeader
-                  label="Status"
-                  colKey="status"
-                  sortBy={sortBy}
-                  sortDir={sortDir}
-                  onSort={handleColSort}
-                  className="w-36"
-                />
-                <SortableHeader
-                  label="Priority"
-                  colKey="priority"
-                  sortBy={sortBy}
-                  sortDir={sortDir}
-                  onSort={handleColSort}
-                  className="w-28"
-                />
-                <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-20">
-                  Assign.
-                </th>
-                <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-20">
-                  Reporter
-                </th>
-                {showPlanned && (
+                {isVisible("type") && <th className="w-8 px-3 py-2.5" />}
+                {isVisible("key") && (
+                  <SortableHeader
+                    label="Key"
+                    colKey="key"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleColSort}
+                    className="w-24"
+                  />
+                )}
+                {isVisible("summary") && (
+                  <SortableHeader
+                    label="Summary"
+                    colKey="summary"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleColSort}
+                  />
+                )}
+                {isVisible("status") && (
+                  <SortableHeader
+                    label="Status"
+                    colKey="status"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleColSort}
+                    className="w-36"
+                  />
+                )}
+                {isVisible("priority") && (
+                  <SortableHeader
+                    label="Priority"
+                    colKey="priority"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleColSort}
+                    className="w-28"
+                  />
+                )}
+                {isVisible("assignee") && (
+                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-20">
+                    Assign.
+                  </th>
+                )}
+                {isVisible("reporter") && (
+                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-20">
+                    Reporter
+                  </th>
+                )}
+                {planVisible && (
                   <SortableHeader
                     label="Plan"
                     colKey="planned"
@@ -151,22 +179,26 @@ export function ListView({
                     className="w-32"
                   />
                 )}
-                <SortableHeader
-                  label="Created"
-                  colKey="created"
-                  sortBy={sortBy}
-                  sortDir={sortDir}
-                  onSort={handleColSort}
-                  className="w-24 text-right"
-                />
-                <SortableHeader
-                  label="Updated"
-                  colKey="updated"
-                  sortBy={sortBy}
-                  sortDir={sortDir}
-                  onSort={handleColSort}
-                  className="w-24 text-right"
-                />
+                {isVisible("created") && (
+                  <SortableHeader
+                    label="Created"
+                    colKey="created"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleColSort}
+                    className="w-24 text-right"
+                  />
+                )}
+                {isVisible("updated") && (
+                  <SortableHeader
+                    label="Updated"
+                    colKey="updated"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleColSort}
+                    className="w-24 text-right"
+                  />
+                )}
                 {renderActions && <th className="w-10 px-3 py-2.5" />}
               </tr>
             </thead>
@@ -202,7 +234,8 @@ export function ListView({
                         pinned={pinnedKeys?.has(issue.jiraKey)}
                         onPinToggle={onPinToggle}
                         renderActions={renderActions}
-                        showPlanned={showPlanned}
+                        showPlanned={planVisible}
+                        isVisible={isVisible}
                       />
                     </Fragment>
                   ))}
@@ -288,12 +321,14 @@ function IssueRow({
   onPinToggle,
   renderActions,
   showPlanned,
+  isVisible,
 }: {
   issue: TrackingIssue;
   pinned?: boolean;
   onPinToggle?: (jiraKey: string) => void;
   renderActions?: (issue: TrackingIssue) => React.ReactNode;
   showPlanned?: boolean;
+  isVisible: (key: string) => boolean;
 }) {
   const pStyles = priorityStyles(issue.priority);
   const tStyles = issueTypeStyles(issue.issueType);
@@ -330,22 +365,25 @@ function IssueRow({
         </td>
       )}
       {/* Type icon */}
-      <td className="px-3 py-2">
-        <span
-          className={cn(
-            "flex size-5 items-center justify-center rounded text-[10px] font-bold",
-            tStyles.bg,
-            tStyles.text
-          )}
-          title={issue.issueType}
-        >
-          {tStyles.abbr}
-        </span>
-      </td>
+      {isVisible("type") && (
+        <td className="px-3 py-2">
+          <span
+            className={cn(
+              "flex size-5 items-center justify-center rounded text-[10px] font-bold",
+              tStyles.bg,
+              tStyles.text
+            )}
+            title={issue.issueType}
+          >
+            {tStyles.abbr}
+          </span>
+        </td>
+      )}
 
       {/* Key */}
-      <td className="px-3 py-2 whitespace-nowrap">
-        {issue.jiraBaseUrl ? (
+      {isVisible("key") && (
+        <td className="px-3 py-2 whitespace-nowrap">
+          {issue.jiraBaseUrl ? (
           <a
             href={`${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`}
             target="_blank"
@@ -364,81 +402,92 @@ function IssueRow({
             {issue.jiraKey}
           </Link>
         )}
-      </td>
+        </td>
+      )}
 
       {/* Summary */}
-      <td className="px-3 py-2 max-w-0">
-        {issue.jiraBaseUrl ? (
-          <a
-            href={`${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block truncate font-medium text-zinc-800 hover:text-zinc-950 dark:text-zinc-200 dark:hover:text-zinc-50"
-            title={issue.summary}
-          >
-            {issue.summary}
-          </a>
-        ) : (
-          <Link
-            href={`/issues/${issue.jiraKey}`}
-            prefetch={false}
-            className="block truncate font-medium text-zinc-800 hover:text-zinc-950 dark:text-zinc-200 dark:hover:text-zinc-50"
-            title={issue.summary}
-          >
-            {issue.summary}
-          </Link>
-        )}
-      </td>
+      {isVisible("summary") && (
+        <td className="px-3 py-2 max-w-0">
+          {issue.jiraBaseUrl ? (
+            <a
+              href={`${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block truncate font-medium text-zinc-800 hover:text-zinc-950 dark:text-zinc-200 dark:hover:text-zinc-50"
+              title={issue.summary}
+            >
+              {issue.summary}
+            </a>
+          ) : (
+            <Link
+              href={`/issues/${issue.jiraKey}`}
+              prefetch={false}
+              className="block truncate font-medium text-zinc-800 hover:text-zinc-950 dark:text-zinc-200 dark:hover:text-zinc-50"
+              title={issue.summary}
+            >
+              {issue.summary}
+            </Link>
+          )}
+        </td>
+      )}
 
       {/* Status */}
-      <td className="px-3 py-2">
-        <span
-          className={cn(
-            "inline-block rounded-full px-2.5 py-0.5 text-[10px] font-semibold",
-            sStyles.badge
-          )}
-        >
-          {issue.status}
-        </span>
-      </td>
+      {isVisible("status") && (
+        <td className="px-3 py-2">
+          <span
+            className={cn(
+              "inline-block rounded-full px-2.5 py-0.5 text-[10px] font-semibold",
+              sStyles.badge
+            )}
+          >
+            {issue.status}
+          </span>
+        </td>
+      )}
 
       {/* Priority */}
-      <td className="px-3 py-2">
-        <span className="inline-flex items-center gap-1.5">
-          <span className={cn("size-1.5 rounded-full", pStyles.dot)} />
-          <span className={cn("font-medium", pStyles.text)}>
-            {issue.priority ?? "—"}
+      {isVisible("priority") && (
+        <td className="px-3 py-2">
+          <span className="inline-flex items-center gap-1.5">
+            <span className={cn("size-1.5 rounded-full", pStyles.dot)} />
+            <span className={cn("font-medium", pStyles.text)}>
+              {issue.priority ?? "—"}
+            </span>
           </span>
-        </span>
-      </td>
+        </td>
+      )}
 
       {/* Assignee */}
-      <td className="px-3 py-2">
-        {issue.assigneeName ? (
-          <span
-            className="flex size-6 items-center justify-center rounded-full bg-zinc-200 text-[9px] font-bold text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"
-            title={issue.assigneeName}
-          >
-            {initials(issue.assigneeName)}
-          </span>
-        ) : (
-          <span className="text-zinc-300 dark:text-zinc-600">—</span>
-        )}
-      </td>
+      {isVisible("assignee") && (
+        <td className="px-3 py-2">
+          {issue.assigneeName ? (
+            <span
+              className="flex size-6 items-center justify-center rounded-full bg-zinc-200 text-[9px] font-bold text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"
+              title={issue.assigneeName}
+            >
+              {initials(issue.assigneeName)}
+            </span>
+          ) : (
+            <span className="text-zinc-300 dark:text-zinc-600">—</span>
+          )}
+        </td>
+      )}
 
       {/* Reporter */}
-      <td className="px-3 py-2">
-        {issue.reporterName ? (
-          <span
-            className="flex size-6 items-center justify-center rounded-full bg-zinc-200 text-[9px] font-bold text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"
-            title={issue.reporterName}
-          >
-            {initials(issue.reporterName)}
-          </span>
-        ) : (
-          <span className="text-zinc-300 dark:text-zinc-600">—</span>
-        )}
-      </td>
+      {isVisible("reporter") && (
+        <td className="px-3 py-2">
+          {issue.reporterName ? (
+            <span
+              className="flex size-6 items-center justify-center rounded-full bg-zinc-200 text-[9px] font-bold text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"
+              title={issue.reporterName}
+            >
+              {initials(issue.reporterName)}
+            </span>
+          ) : (
+            <span className="text-zinc-300 dark:text-zinc-600">—</span>
+          )}
+        </td>
+      )}
 
 
       {/* Planned / Unplanned + dates */}
@@ -466,14 +515,18 @@ function IssueRow({
       )}
 
       {/* Created */}
-      <td className="px-3 py-2 text-right text-zinc-400">
-        {formatRelativeTime(issue.jiraCreatedAt)}
-      </td>
+      {isVisible("created") && (
+        <td className="px-3 py-2 text-right text-zinc-400">
+          {formatRelativeTime(issue.jiraCreatedAt)}
+        </td>
+      )}
 
       {/* Updated */}
-      <td className="px-3 py-2 text-right text-zinc-400">
-        {formatRelativeTime(issue.jiraUpdatedAt)}
-      </td>
+      {isVisible("updated") && (
+        <td className="px-3 py-2 text-right text-zinc-400">
+          {formatRelativeTime(issue.jiraUpdatedAt)}
+        </td>
+      )}
 
       {/* Custom Actions */}
       {renderActions && (
