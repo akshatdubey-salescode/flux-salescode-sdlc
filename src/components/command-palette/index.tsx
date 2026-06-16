@@ -56,10 +56,16 @@ export function CommandPalette({ projects, teams, isSuperUser, requirementBuilde
         e.preventDefault();
         setOpen((prev) => !prev);
       }
+      // ⌘, (Ctrl+, on Windows/Linux) — jump to Settings.
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        setOpen(false);
+        router.push("/settings");
+      }
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [router]);
 
   const fetchJira = useCallback((q: string) => {
     clearTimeout(debounceRef.current);
