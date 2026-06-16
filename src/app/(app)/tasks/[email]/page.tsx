@@ -3,7 +3,7 @@
 import { Suspense, use, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { PageHeader } from "@/components/page-header";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -30,8 +30,30 @@ export default function UserTasksPage({ params }: Props) {
 
   return (
     <div className="flex flex-col min-h-svh">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
-        <SidebarTrigger />
+      <PageHeader
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => router.back()}
+              className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 gap-1.5 h-7 px-2"
+            >
+              <RiArrowLeftLine className="size-3.5" />
+              Go back
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPickerOpen(true)}
+              className="text-xs gap-1.5 h-7 px-2.5"
+            >
+              <RiUserSearchLine className="size-3.5" />
+              Check someone else&apos;s tasks
+            </Button>
+          </>
+        }
+      >
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -45,28 +67,7 @@ export default function UserTasksPage({ params }: Props) {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-
-        <div className="ml-auto flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => router.back()}
-            className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 gap-1.5 h-7 px-2"
-          >
-            <RiArrowLeftLine className="size-3.5" />
-            Go back
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPickerOpen(true)}
-            className="text-xs gap-1.5 h-7 px-2.5"
-          >
-            <RiUserSearchLine className="size-3.5" />
-            Check someone else&apos;s tasks
-          </Button>
-        </div>
-      </header>
+      </PageHeader>
 
       <main className="flex-1 p-6">
         <Suspense fallback={<TasksLoading />}>

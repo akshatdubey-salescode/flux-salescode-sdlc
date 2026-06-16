@@ -34,6 +34,13 @@ export const canonicalStatusEnum = pgEnum("canonical_status", [
   "CANCELLED",
 ]);
 
+// "What's New" release notes. INFO appears only in the notification bell;
+// ALERT additionally pops up as a modal the first time a user sees it.
+export const releaseNoteTypeEnum = pgEnum("release_note_type", [
+  "INFO",
+  "ALERT",
+]);
+
 // ---------------------------------------------------------------------------
 // Users
 // ---------------------------------------------------------------------------
@@ -956,4 +963,35 @@ export type NewGithubAccount = typeof githubAccounts.$inferInsert;
 export type GithubContributorStat = typeof githubContributorStats.$inferSelect;
 export type NewGithubContributorStat = typeof githubContributorStats.$inferInsert;
 export type GithubSyncJob = typeof githubSyncJobs.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Release Notes — admin-authored "What's New" entries surfaced via the bell
+// ---------------------------------------------------------------------------
+
+export const releaseNotes = pgTable(
+  "release_notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    title: text("title").notNull(),
+    body: text("body").notNull(), // markdown
+    type: releaseNoteTypeEnum("type").notNull().default("INFO"),
+    // Optional call-to-action link (e.g. to the page the note is about).
+    linkLabel: text("link_label"),
+    linkHref: text("link_href"),
+    isPublished: boolean("is_published").notNull().default(false),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    // Null for system-seeded notes.
+    createdBy: text("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("release_notes_published_idx").on(t.isPublished, t.publishedAt)]
+);
+
+export type ReleaseNote = typeof releaseNotes.$inferSelect;
+export type NewReleaseNote = typeof releaseNotes.$inferInsert;
 

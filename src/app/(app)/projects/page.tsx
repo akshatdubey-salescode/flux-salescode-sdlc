@@ -4,7 +4,7 @@ import { eq, sql, or, ilike, and, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { jiraProjects, jiraIssues } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { PageHeader } from "@/components/page-header";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from "@/components/ui/breadcrumb";
 import { SearchInput } from "./search-input";
 
@@ -42,8 +42,18 @@ export default async function ProjectsPage(props: {
 
   return (
     <div className="flex flex-col min-h-svh">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
-        <SidebarTrigger />
+      <PageHeader
+        actions={
+          user.role === "SUPERUSER" ? (
+            <Link
+              href="/projects/new"
+              className="inline-flex items-center rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Add project
+            </Link>
+          ) : null
+        }
+      >
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -51,15 +61,7 @@ export default async function ProjectsPage(props: {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-        {user.role === "SUPERUSER" && (
-          <Link
-            href="/projects/new"
-            className="ml-auto inline-flex items-center rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            Add project
-          </Link>
-        )}
-      </header>
+      </PageHeader>
 
       <main className="flex-1 p-6 space-y-6">
         <div className="flex items-center justify-between gap-4 flex-wrap">

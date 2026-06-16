@@ -2,7 +2,7 @@ import { asc, count, ilike, isNull, sql } from "drizzle-orm";
 import { requireRole } from "@/lib/auth/server";
 import { db } from "@/lib/db";
 import { users, jiraIssues } from "@/lib/db/schema";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { PageHeader } from "@/components/page-header";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -69,8 +69,7 @@ export default async function UserManagementPage(props: {
 
   return (
     <div className="flex flex-col min-h-svh">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
-        <SidebarTrigger />
+      <PageHeader>
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -78,7 +77,7 @@ export default async function UserManagementPage(props: {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-      </header>
+      </PageHeader>
 
       <main className="flex-1 p-6 space-y-6">
         <div>

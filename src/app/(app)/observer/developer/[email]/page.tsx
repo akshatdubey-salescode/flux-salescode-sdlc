@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { PageHeader } from "@/components/page-header";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -24,8 +24,7 @@ export default async function DeveloperInsightsPage({ params, searchParams }: Pr
 
   return (
     <div className="flex flex-col min-h-svh bg-zinc-50 dark:bg-zinc-950">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <SidebarTrigger />
+      <PageHeader className="bg-white dark:bg-zinc-900">
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -49,7 +48,7 @@ export default async function DeveloperInsightsPage({ params, searchParams }: Pr
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-      </header>
+      </PageHeader>
 
       <main className="flex-1 p-6">
         <DeveloperInsightsClient

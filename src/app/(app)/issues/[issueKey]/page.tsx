@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { requireAuth } from "@/lib/auth/server";
 import { getIssueDetail } from "@/lib/jira/issue-detail";
 import { cn } from "@/lib/utils";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { PageHeader } from "@/components/page-header";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -160,8 +160,19 @@ export default async function IssuePage(props: {
   return (
     <div className="flex flex-col min-h-svh">
       {/* Header */}
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-        <SidebarTrigger />
+      <PageHeader
+        actions={
+          <Button asChild size="sm" className="h-7 gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs">
+            <a
+              href={`${project?.jiraBaseUrl}/browse/${issue.jiraKey}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open in Jira
+            </a>
+          </Button>
+        }
+      >
         <Separator orientation="vertical" className="h-4" />
         <Breadcrumb>
           <BreadcrumbList>
@@ -180,18 +191,7 @@ export default async function IssuePage(props: {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-        <div className="ml-auto">
-          <Button asChild size="sm" className="h-7 gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs">
-            <a
-              href={`${project?.jiraBaseUrl}/browse/${issue.jiraKey}`}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Open in Jira
-            </a>
-          </Button>
-        </div>
-      </header>
+      </PageHeader>
 
       <main className="flex-1 p-6 space-y-5 max-w-4xl">
         {/* Issue info */}

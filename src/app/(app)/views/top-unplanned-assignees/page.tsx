@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { RiArrowRightUpLine } from "@remixicon/react";
 import { requireAuth } from "@/lib/auth/server";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { PageHeader } from "@/components/page-header";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -70,8 +70,7 @@ export default async function TopUnplannedAssigneesPage({
     );
     return (
       <div className="flex flex-col min-h-svh bg-zinc-50 dark:bg-zinc-950">
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
-          <SidebarTrigger />
+        <PageHeader>
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
@@ -93,7 +92,7 @@ export default async function TopUnplannedAssigneesPage({
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-        </header>
+        </PageHeader>
 
         <main className="flex-1 p-6">
           <div className="max-w-4xl mx-auto space-y-6">
@@ -185,8 +184,7 @@ export default async function TopUnplannedAssigneesPage({
 
   return (
     <div className="flex flex-col min-h-svh bg-zinc-50 dark:bg-zinc-950">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
-        <SidebarTrigger />
+      <PageHeader>
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -200,7 +198,7 @@ export default async function TopUnplannedAssigneesPage({
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-      </header>
+      </PageHeader>
 
       <main className="flex-1 p-6">
         <div className="max-w-4xl mx-auto space-y-6">

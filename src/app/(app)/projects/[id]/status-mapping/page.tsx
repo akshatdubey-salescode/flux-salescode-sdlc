@@ -6,7 +6,7 @@ import { requireRole } from "@/lib/auth/server";
 import { JiraClient } from "@/lib/jira/client";
 import { decrypt } from "@/lib/crypto";
 import { StatusMappingEditor } from "@/components/status-mapping-editor";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { PageHeader } from "@/components/page-header";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -54,8 +54,7 @@ export default async function StatusMappingPage(props: {
 
   return (
     <div className="flex flex-col min-h-svh">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
-        <SidebarTrigger />
+      <PageHeader>
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -73,7 +72,7 @@ export default async function StatusMappingPage(props: {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-      </header>
+      </PageHeader>
 
       <main className="flex-1 p-6 max-w-2xl">
         {isOnboarding && (

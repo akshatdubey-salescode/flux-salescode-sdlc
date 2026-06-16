@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { PageHeader } from "@/components/page-header";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -12,8 +12,7 @@ import {
 export default function ProjectNotFound() {
   return (
     <div className="flex flex-col min-h-svh min-w-0 w-full">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
-        <SidebarTrigger />
+      <PageHeader>
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -25,7 +24,7 @@ export default function ProjectNotFound() {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-      </header>
+      </PageHeader>
 
       <main className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
         <div className="space-y-2">

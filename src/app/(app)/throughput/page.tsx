@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { requireAuth } from "@/lib/auth/server";
 import { db } from "@/lib/db";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { PageHeader } from "@/components/page-header";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -40,8 +40,7 @@ export default async function ThroughputPage() {
 
   return (
     <div className="flex flex-col min-h-svh">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
-        <SidebarTrigger />
+      <PageHeader>
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -49,7 +48,7 @@ export default async function ThroughputPage() {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-      </header>
+      </PageHeader>
 
       <main className="flex-1 p-6">
         <div className="mx-auto max-w-5xl space-y-6">

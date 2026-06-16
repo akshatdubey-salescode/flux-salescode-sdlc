@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { PageHeader } from "@/components/page-header";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -18,17 +18,8 @@ export default function MyTasksPage() {
 
   return (
     <div className="flex flex-col min-h-svh">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
-        <SidebarTrigger />
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbPage>My Tasks</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-
-        <div className="ml-auto">
+      <PageHeader
+        actions={
           <Button
             variant="outline"
             size="sm"
@@ -38,8 +29,16 @@ export default function MyTasksPage() {
             <RiUserSearchLine className="size-3.5" />
             Curious about someone else&apos;s bandwidth?
           </Button>
-        </div>
-      </header>
+        }
+      >
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbPage>My Tasks</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+      </PageHeader>
 
       <main className="flex-1 p-6">
         <Suspense fallback={<MyTasksLoading />}>

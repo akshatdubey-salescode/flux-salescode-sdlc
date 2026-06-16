@@ -5,6 +5,7 @@ import { requireAuth } from "@/lib/auth/server";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { CommandPalette } from "@/components/command-palette";
+import { WhatsNewProvider } from "@/components/whats-new/context";
 import { isEnabled, FEATURE_FLAGS } from "@/lib/feature-flags";
 
 export default async function AppLayout({
@@ -41,7 +42,9 @@ export default async function AppLayout({
         projects={projects}
         requirementBuilderEnabled={requirementBuilderEnabled}
       />
-      <SidebarInset>{children}</SidebarInset>
+      <SidebarInset>
+        <WhatsNewProvider>{children}</WhatsNewProvider>
+      </SidebarInset>
       <CommandPalette
         projects={projects}
         teams={teams}

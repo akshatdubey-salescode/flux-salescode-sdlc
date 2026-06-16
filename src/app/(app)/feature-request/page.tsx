@@ -1,5 +1,5 @@
 import { requireAuth } from "@/lib/auth/server";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { PageHeader } from "@/components/page-header";
 import { FeatureRequestForm } from "./form";
 
 export default async function FeatureRequestPage() {
@@ -7,9 +7,7 @@ export default async function FeatureRequestPage() {
 
   return (
     <div className="flex flex-col min-h-svh">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
-        <SidebarTrigger />
-      </header>
+      <PageHeader />
 
       <main className="flex-1 p-6">
         <div className="mx-auto max-w-lg space-y-6">

@@ -3,7 +3,7 @@ import { desc, asc, eq, and, ilike, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { requirements } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { PageHeader } from "@/components/page-header";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -49,8 +49,17 @@ export default async function RequirementsPage(props: {
 
   return (
     <div className="flex flex-col min-h-svh">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-800">
-        <SidebarTrigger />
+      <PageHeader
+        actions={
+          <Link
+            href="/requirements/new"
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            <RiAddLine size={14} />
+            New Requirement
+          </Link>
+        }
+      >
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -58,14 +67,7 @@ export default async function RequirementsPage(props: {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-        <Link
-          href="/requirements/new"
-          className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          <RiAddLine size={14} />
-          New Requirement
-        </Link>
-      </header>
+      </PageHeader>
 
       <main className="flex-1 p-6 space-y-6">
         <div className="flex items-center justify-between gap-4 flex-wrap">
