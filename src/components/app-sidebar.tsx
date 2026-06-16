@@ -55,6 +55,7 @@ import {
 } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
+import { useSidebarPreferences } from "@/components/use-sidebar-preferences";
 import type { JiraProject } from "@/lib/db/schema";
 import type { AuthUser } from "@/lib/auth/server";
 
@@ -132,6 +133,7 @@ export const NAV_ITEMS: NavItem[] = [
 
 export function AppSidebar({ user, projects, requirementBuilderEnabled }: Props) {
   const pathname = usePathname();
+  const { isVisible } = useSidebarPreferences();
   const { data: session } = useSession();
   const sessionUser = session?.user;
   const displayName = sessionUser?.name ?? user.email.split("@")[0];
@@ -191,7 +193,9 @@ export function AppSidebar({ user, projects, requirementBuilderEnabled }: Props)
           const renderSection = (section: NavSection, pinned: boolean) => {
             if (section.superuserOnly && user.role !== "SUPERUSER") return null;
             const items = section.items.filter(
-              ({ href }) => href !== "/requirements" || requirementBuilderEnabled
+              ({ href }) =>
+                (href !== "/requirements" || requirementBuilderEnabled) &&
+                isVisible(href)
             );
             if (items.length === 0) return null;
             return (
