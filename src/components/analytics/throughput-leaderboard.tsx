@@ -225,6 +225,17 @@ function Results({ data, loading }: { data: ThroughputResponse; loading: boolean
         </span>
       </div>
 
+      {/* Legend for the split bar / per-issue tags */}
+      <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <span className="size-2 rounded-full bg-emerald-500/80" /> self-created (they
+          reported it)
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="size-2 rounded-full bg-primary/70" /> reported by someone else
+        </span>
+      </div>
+
       {data.people.length === 0 ? (
         <div className="flex items-center gap-2 rounded-lg border border-dashed border-border px-4 py-8 text-sm text-muted-foreground">
           <RiInboxLine className="size-4" /> No issues closed in this period.
@@ -243,6 +254,8 @@ function Results({ data, loading }: { data: ThroughputResponse; loading: boolean
 function PersonRow({ person, max }: { person: PersonThroughput; max: number }) {
   const [open, setOpen] = useState(false);
   const pct = max > 0 ? Math.round((person.closed / max) * 100) : 0;
+  const selfPct =
+    person.closed > 0 ? Math.round((person.selfReported / person.closed) * 100) : 0;
 
   return (
     <div className="border-b border-border/60 last:border-0">
@@ -253,14 +266,27 @@ function PersonRow({ person, max }: { person: PersonThroughput; max: number }) {
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-foreground">{person.name}</p>
           <p className="truncate text-xs text-muted-foreground">{person.email}</p>
-          {/* Proportional bar */}
+          {/* Proportional bar (length = volume), split into self-created (emerald)
+              and reported-by-someone-else (blue). */}
           <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-primary/70"
-              style={{ width: `${pct}%` }}
-            />
+            <div className="flex h-full" style={{ width: `${pct}%` }}>
+              <div className="h-full bg-emerald-500/80" style={{ width: `${selfPct}%` }} />
+              <div className="h-full bg-primary/70" style={{ width: `${100 - selfPct}%` }} />
+            </div>
           </div>
         </div>
+
+        <Tip
+          text={`${person.selfReported} self-created (this person also reported the issue) · ${person.othersReported} reported by someone else (assigned / client work).`}
+        >
+          <Badge variant="outline" className="shrink-0 tabular-nums">
+            <span className="text-emerald-600 dark:text-emerald-400">
+              {person.selfReported} self
+            </span>
+            <span className="mx-1 text-muted-foreground/40">·</span>
+            <span className="text-muted-foreground">{person.othersReported} others</span>
+          </Badge>
+        </Tip>
 
         {person.asAdditional > 0 && (
           <Tip text={`${person.asPrimary} as primary assignee, ${person.asAdditional} as an additional assignee.`}>
@@ -295,6 +321,16 @@ function PersonRow({ person, max }: { person: PersonThroughput; max: number }) {
               rel="noopener noreferrer"
               className="group flex items-center gap-2 text-xs"
             >
+              <span
+                className={cn(
+                  "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
+                  i.selfReported
+                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                    : "bg-muted text-muted-foreground"
+                )}
+              >
+                {i.selfReported ? "self" : "others"}
+              </span>
               <span className="font-mono font-medium text-primary group-hover:underline">
                 {i.jiraKey}
               </span>

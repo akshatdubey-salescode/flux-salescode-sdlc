@@ -15,6 +15,11 @@ export type ClosedIssue = {
   jiraUrl: string;
   /** Day the issue first transitioned to a DONE status (YYYY-MM-DD). */
   completedAt: string;
+  /**
+   * True when this person also reported the issue (self-created work) vs work
+   * reported by someone else (e.g. a client/manager-raised task).
+   */
+  selfReported: boolean;
 };
 
 export type PersonThroughput = {
@@ -26,6 +31,10 @@ export type PersonThroughput = {
   asPrimary: number;
   /** Subset closed where they were only an additional assignee. */
   asAdditional: number;
+  /** Subset closed where this person also reported the issue (self-created). */
+  selfReported: number;
+  /** Subset closed reported by someone else (assigned / client work). */
+  othersReported: number;
   issues: ClosedIssue[];
 };
 
@@ -42,7 +51,10 @@ type IssueRow = {
   completed_at: string | Date | null;
   assignee_email: string | null;
   assignee_name: string | null;
+  assignee_account_id: string | null;
   additional_assignee_emails: string[] | null;
+  reporter_account_id: string | null;
+  reporter_email: string | null;
   canonical_status: string;
   project_name: string;
   jira_base_url: string;
@@ -104,7 +116,10 @@ async function fetchThroughput(opts: {
         ji.completed_at,
         ji.assignee_email,
         ji.assignee_name,
+        ji.assignee_account_id,
         ji.additional_assignee_emails,
+        ji.reporter_account_id,
+        ji.reporter_email,
         psm.canonical_status,
         jp.name AS project_name,
         jp.jira_base_url
@@ -123,6 +138,8 @@ async function fetchThroughput(opts: {
     closed: number;
     asPrimary: number;
     asAdditional: number;
+    selfReported: number;
+    othersReported: number;
     issues: ClosedIssue[];
   };
   const byEmail = new Map<string, Acc>();
@@ -138,13 +155,20 @@ async function fetchThroughput(opts: {
 
     const completedAt = toDateStr(r.completed_at) ?? opts.start;
     const jiraUrl = `${r.jira_base_url.replace(/\/$/, "")}/browse/${r.jira_key}`;
-    const issue: ClosedIssue = {
+    const base = {
       jiraKey: r.jira_key,
       summary: r.summary,
       projectName: r.project_name,
       jiraUrl,
       completedAt,
     };
+
+    // Reporter identity — distinguishes self-created work from work raised by
+    // someone else. Match by accountId when available (survives Atlassian email
+    // privacy), otherwise fall back to email.
+    const reporterAccount = r.reporter_account_id?.trim() || null;
+    const reporterEmail = r.reporter_email?.trim().toLowerCase() || null;
+    const assigneeAccount = r.assignee_account_id?.trim() || null;
 
     // Distinct people this issue is credited to, tracking how each held it.
     const primary = r.assignee_email?.trim().toLowerCase() || null;
@@ -154,11 +178,29 @@ async function fetchThroughput(opts: {
         .filter((e): e is string => !!e && e !== primary)
     );
 
-    const credit = (email: string, isPrimary: boolean, displayName: string | null) => {
+    // Did the primary assignee also report it? Prefer accountId, else email.
+    const primarySelf =
+      (!!reporterAccount && !!assigneeAccount && reporterAccount === assigneeAccount) ||
+      (!!reporterEmail && !!primary && reporterEmail === primary);
+
+    const credit = (
+      email: string,
+      isPrimary: boolean,
+      selfReported: boolean,
+      displayName: string | null
+    ) => {
       if (focus && !focus.has(email)) return;
       let acc = byEmail.get(email);
       if (!acc) {
-        acc = { name: nameFor(email, displayName), closed: 0, asPrimary: 0, asAdditional: 0, issues: [] };
+        acc = {
+          name: nameFor(email, displayName),
+          closed: 0,
+          asPrimary: 0,
+          asAdditional: 0,
+          selfReported: 0,
+          othersReported: 0,
+          issues: [],
+        };
         byEmail.set(email, acc);
       } else if (displayName?.trim() && acc.name === email.split("@")[0]) {
         acc.name = displayName.trim();
@@ -166,11 +208,15 @@ async function fetchThroughput(opts: {
       acc.closed++;
       if (isPrimary) acc.asPrimary++;
       else acc.asAdditional++;
-      acc.issues.push(issue);
+      if (selfReported) acc.selfReported++;
+      else acc.othersReported++;
+      acc.issues.push({ ...base, selfReported });
     };
 
-    if (primary) credit(primary, true, r.assignee_name);
-    for (const ae of additional) credit(ae, false, null);
+    if (primary) credit(primary, true, primarySelf, r.assignee_name);
+    // Additional assignees only carry emails, so match the reporter on email.
+    for (const ae of additional)
+      credit(ae, false, !!reporterEmail && ae === reporterEmail, null);
   }
 
   const people: PersonThroughput[] = [...byEmail.entries()]
@@ -180,6 +226,8 @@ async function fetchThroughput(opts: {
       closed: a.closed,
       asPrimary: a.asPrimary,
       asAdditional: a.asAdditional,
+      selfReported: a.selfReported,
+      othersReported: a.othersReported,
       issues: a.issues.sort((x, y) => (x.completedAt < y.completedAt ? 1 : -1)),
     }))
     .sort((a, b) => b.closed - a.closed || a.name.localeCompare(b.name));
