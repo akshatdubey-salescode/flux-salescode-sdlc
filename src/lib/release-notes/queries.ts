@@ -1,7 +1,7 @@
 import { cacheLife, cacheTag } from "next/cache";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { releaseNotes } from "@/lib/db/schema";
+import { releaseNotes, releaseNoteReads } from "@/lib/db/schema";
 import { RELEASE_NOTES_TAG } from "./cache-tags";
 
 /**
@@ -45,4 +45,28 @@ export async function getPublishedReleaseNotes(): Promise<PublicReleaseNote[]> {
     ...r,
     publishedAt: r.publishedAt ? r.publishedAt.toISOString() : null,
   }));
+}
+
+/** Note ids the given user has already seen (read in the bell or dismissed). */
+export async function getSeenNoteIds(userId: string): Promise<string[]> {
+  const rows = await db
+    .select({ noteId: releaseNoteReads.noteId })
+    .from(releaseNoteReads)
+    .where(eq(releaseNoteReads.userId, userId));
+  return rows.map((r) => r.noteId);
+}
+
+/**
+ * Record that a user has seen the given notes. Idempotent — re-marking a note
+ * is a no-op, so this is safe to call optimistically from the client.
+ */
+export async function markReleaseNotesSeen(
+  userId: string,
+  noteIds: string[]
+): Promise<void> {
+  if (noteIds.length === 0) return;
+  await db
+    .insert(releaseNoteReads)
+    .values(noteIds.map((noteId) => ({ noteId, userId })))
+    .onConflictDoNothing();
 }

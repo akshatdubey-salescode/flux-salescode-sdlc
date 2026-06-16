@@ -11,6 +11,7 @@ import {
   integer,
   numeric,
   date,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -994,4 +995,27 @@ export const releaseNotes = pgTable(
 
 export type ReleaseNote = typeof releaseNotes.$inferSelect;
 export type NewReleaseNote = typeof releaseNotes.$inferInsert;
+
+// Per-user record of which release notes a user has seen. One row = the user
+// has acknowledged that note (read it in the bell or dismissed its alert
+// modal). Drives the unread badge and stops alerts re-popping across devices.
+export const releaseNoteReads = pgTable(
+  "release_note_reads",
+  {
+    noteId: uuid("note_id")
+      .notNull()
+      .references(() => releaseNotes.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    seenAt: timestamp("seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.noteId, t.userId] }),
+    index("release_note_reads_user_idx").on(t.userId),
+  ]
+);
+
+export type ReleaseNoteRead = typeof releaseNoteReads.$inferSelect;
+export type NewReleaseNoteRead = typeof releaseNoteReads.$inferInsert;
 
