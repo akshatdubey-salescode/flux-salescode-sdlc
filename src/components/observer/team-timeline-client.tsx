@@ -2062,21 +2062,22 @@ function CompletedTab({
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return members
-      .map((m) => ({
-        ...m,
-        issues: m.issues.filter(
-          (i) =>
-            i.label === "done" &&
-            (!needle ||
-              i.summary.toLowerCase().includes(needle) ||
-              i.jiraKey.toLowerCase().includes(needle))
-        ),
-      }))
-      .filter(
-        (m) =>
-          m.issues.length > 0 &&
-          (!needle || m.name.toLowerCase().includes(needle) || m.email.toLowerCase().includes(needle) || m.issues.length > 0)
-      );
+      .map((m) => {
+        const matchesMember =
+          m.name.toLowerCase().includes(needle) || m.email.toLowerCase().includes(needle);
+        return {
+          ...m,
+          issues: m.issues.filter(
+            (i) =>
+              i.label === "done" &&
+              (!needle ||
+                matchesMember ||
+                i.summary.toLowerCase().includes(needle) ||
+                i.jiraKey.toLowerCase().includes(needle))
+          ),
+        };
+      })
+      .filter((m) => m.issues.length > 0);
   }, [members, search]);
 
   const total = filtered.reduce((s, m) => s + m.issues.length, 0);
