@@ -57,6 +57,8 @@ import type {
   CommittersResponse,
   CommitterStat,
 } from "@/app/api/analytics/committers/route";
+import type { LinesOfCodeResponse } from "@/app/api/analytics/lines-of-code/route";
+import type { LocRow } from "@/app/(app)/views/lines-of-code/data";
 import {
   getQuarterChips,
   currentFiscalQuarterChip,
@@ -77,6 +79,7 @@ export function ExecutiveDashboard() {
   const [throughput, setThroughput] = useState<ThroughputResponse | null>(null);
   const [boards, setBoards] = useState<{ boards: BoardSummary[] } | null>(null);
   const [committers, setCommitters] = useState<CommittersResponse | null>(null);
+  const [linesOfCode, setLinesOfCode] = useState<LinesOfCodeResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
   const [quarter, setQuarter] = useState<QuarterChip | null>(null);
@@ -127,11 +130,13 @@ export function ExecutiveDashboard() {
       getJson(`/api/analytics/throughput?${throughputParams}`),
       getJson(`/api/analytics/workload/boards?${boardParams}`),
       getJson(`/api/analytics/committers?${committerParams}`),
-    ]).then(([o, t, b, c]) => {
+      getJson(`/api/analytics/lines-of-code?${committerParams}`),
+    ]).then(([o, t, b, c, l]) => {
       if (o.status === "fulfilled") setData(o.value);
       if (t.status === "fulfilled") setThroughput(t.value);
       if (b.status === "fulfilled") setBoards(b.value);
       if (c.status === "fulfilled") setCommitters(c.value);
+      if (l.status === "fulfilled") setLinesOfCode(l.value);
       setLoading(false);
     });
   }, [quarter, reloadKey]);
@@ -236,9 +241,10 @@ export function ExecutiveDashboard() {
           </div>
 
           {/* ── Leaderboards ── */}
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
             <TopThroughputCard people={throughput?.people ?? []} />
             <TopCommittersCard committers={committers?.committers ?? []} />
+            <TopNetLocCard people={linesOfCode?.people ?? []} />
             <TopTeamsCard boards={boards?.boards ?? []} />
             <TopProjectsCard projects={data.topProjects} />
           </div>
@@ -619,7 +625,7 @@ function LeaderboardCard({
         ) : (
           <ol className="divide-y divide-border/50">
             {items.map((it, i) => {
-              const pct = max > 0 ? Math.round((it.value / max) * 100) : 0;
+              const pct = max > 0 ? Math.max(0, Math.round((it.value / max) * 100)) : 0;
               const row = (
                 <div className="flex items-center gap-3 px-5 py-2.5">
                   <span className="w-4 shrink-0 text-center text-xs font-semibold tabular-nums text-muted-foreground">
@@ -638,7 +644,7 @@ function LeaderboardCard({
                     </div>
                   </div>
                   <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
-                    {it.value}
+                    {it.value.toLocaleString("en-US")}
                     {it.valueSuffix && (
                       <span className="ml-0.5 text-[11px] font-normal text-muted-foreground">
                         {it.valueSuffix}
@@ -696,6 +702,28 @@ function TopCommittersCard({ committers }: { committers: CommitterStat[] }) {
       title="Top Committers · People"
       info="People ranked by GitHub commits in the selected quarter, summed across every GitHub login mapped to them and across tracked repos. Bots and unmapped accounts are excluded. Open the Lines of Code view for the full breakdown."
       emptyMessage="No commits recorded this quarter"
+      items={items}
+    />
+  );
+}
+
+function TopNetLocCard({ people }: { people: LocRow[] }) {
+  // Already net-ranked by the same query that powers the Lines of Code page, so
+  // the two stay in lockstep. Just take the top 10.
+  const items: LeaderItem[] = people.slice(0, 10).map((c) => ({
+    key: c.email,
+    primary: c.name,
+    secondary: `${c.commits} commit${c.commits === 1 ? "" : "s"} · ${c.repos} repo${
+      c.repos === 1 ? "" : "s"
+    }`,
+    value: c.net,
+    href: "/views/lines-of-code",
+  }));
+  return (
+    <LeaderboardCard
+      title="Top Net LOC · People"
+      info="People ranked by net lines of code (additions − deletions) committed in the selected quarter, summed across every GitHub login mapped to them and across tracked repos. Bots and unmapped accounts are excluded. Matches the Lines of Code view exactly — open it for the full breakdown."
+      emptyMessage="No lines of code recorded this quarter"
       items={items}
     />
   );
@@ -790,8 +818,8 @@ function DashboardSkeleton() {
         <Skeleton className="h-[320px] rounded-xl xl:col-span-2" />
         <Skeleton className="h-[320px] rounded-xl" />
       </div>
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
-        {[...Array(4)].map((_, i) => (
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+        {[...Array(5)].map((_, i) => (
           <Skeleton key={i} className="h-[360px] rounded-xl" />
         ))}
       </div>
