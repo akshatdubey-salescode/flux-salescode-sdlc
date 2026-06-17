@@ -560,10 +560,12 @@ function GanttGrid({
 
 // ---------------------------------------------------------------------------
 // Main export — dates are controlled by the parent (TeamTimelineClient)
+// `apiBase` is the route prefix exposing `/timeline` and `/meetings`, e.g.
+// `/api/observer/boards/{boardId}` or `/api/projects/{id}/team`.
 // ---------------------------------------------------------------------------
-type Props = { boardId: string; start: string; end: string };
+type Props = { apiBase: string; start: string; end: string };
 
-export function TeamGanttClient({ boardId, start, end }: Props) {
+export function TeamGanttClient({ apiBase, start, end }: Props) {
   const [data, setData] = useState<TimelineResponse | null>(null);
   const [meetingsByEmail, setMeetingsByEmail] = useState<
     Record<string, MeetingEvent[]>
@@ -578,9 +580,9 @@ export function TeamGanttClient({ boardId, start, end }: Props) {
       try {
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const [timelineRes, meetingsRes] = await Promise.all([
-          fetch(`/api/observer/boards/${boardId}/timeline?start=${s}&end=${e}`),
+          fetch(`${apiBase}/timeline?start=${s}&end=${e}`),
           fetch(
-            `/api/observer/boards/${boardId}/meetings?start=${s}&end=${e}&tz=${encodeURIComponent(tz)}`
+            `${apiBase}/meetings?start=${s}&end=${e}&tz=${encodeURIComponent(tz)}`
           ),
         ]);
         if (timelineRes.ok) {
@@ -604,7 +606,7 @@ export function TeamGanttClient({ boardId, start, end }: Props) {
         setLoading(false);
       }
     },
-    [boardId]
+    [apiBase]
   );
 
   useEffect(() => {

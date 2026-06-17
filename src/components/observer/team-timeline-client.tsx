@@ -2716,7 +2716,7 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember }: Props) {
             </TabsContent>
 
             <TabsContent value="gantt">
-              <TeamGanttClient boardId={boardId} start={ganttStart} end={ganttEnd} />
+              <TeamGanttClient apiBase={`/api/observer/boards/${boardId}`} start={ganttStart} end={ganttEnd} />
             </TabsContent>
           </Tabs>
         </>
@@ -2860,7 +2860,7 @@ function UnassignedTab({ projectId, quarterStart, quarterEnd }: { projectId: str
 // No Gantt, no member management UI.
 // ---------------------------------------------------------------------------
 
-const PROJECT_VALID_TABS = ["timeline", "active", "at-risk", "overdue", "completed", "unplanned", "unassigned"] as const;
+const PROJECT_VALID_TABS = ["timeline", "active", "at-risk", "overdue", "completed", "unplanned", "unassigned", "gantt"] as const;
 type ProjectTabValue = (typeof PROJECT_VALID_TABS)[number];
 
 export function ProjectTeamClient({ projectId, name }: { projectId: string; name?: string }) {
@@ -2950,6 +2950,14 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
       .catch(() => {});
   }, [projectId, ustart, uend]);
 
+  // Gantt dates derived from the top-level filter (single date → 7-day window)
+  const ganttStart = filter.mode === "single" ? filter.date : filter.start;
+  const ganttEnd = filter.mode === "single"
+    ? offsetDate(filter.date, 6)
+    : daysBetween(filter.start, filter.end) > 9
+      ? offsetDate(filter.start, 9)
+      : filter.end;
+
   if (error) return (
     <div className="py-12 text-center">
       <p className="text-sm text-destructive mb-2">{error}</p>
@@ -2989,6 +2997,7 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
                 <TabsTrigger value="completed">Completed</TabsTrigger>
                 <TabsTrigger value="unplanned">Unplanned</TabsTrigger>
                 <TabsTrigger value="unassigned">Unassigned</TabsTrigger>
+                <TabsTrigger value="gantt">Gantt</TabsTrigger>
               </TabsList>
               <div className="flex items-center gap-3">
                 {(data.summary.overdue > 0 || data.summary.atRisk > 0) && (
@@ -3062,6 +3071,10 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
 
             <TabsContent value="unassigned">
               <UnassignedTab projectId={projectId} quarterStart={ustart} quarterEnd={uend} />
+            </TabsContent>
+
+            <TabsContent value="gantt">
+              <TeamGanttClient apiBase={apiBase} start={ganttStart} end={ganttEnd} />
             </TabsContent>
           </Tabs>
         </>
