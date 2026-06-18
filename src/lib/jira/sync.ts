@@ -181,8 +181,10 @@ async function discoverProjectFields(
     .map((f) => f.id);
 
   // Exact-name match avoids picking up "Weekend Date" / "Intended End Date" etc.
+  // Also match "Due Date" — some workspaces (e.g. EMAMI) use a custom "Due Date"
+  // field (e.g. customfield_10030) instead of Jira's native duedate.
   const endDateFieldIds = fields
-    .filter((f) => f.custom && /^end\s*date$/i.test(f.name.trim()))
+    .filter((f) => f.custom && /^(end|due)\s*date$/i.test(f.name.trim()))
     .map((f) => f.id);
 
   const startDateFieldIds = fields
