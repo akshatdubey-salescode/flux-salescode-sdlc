@@ -116,6 +116,7 @@ const ISSUE_FIELDS = [
   "customfield_10021", // due date (alternate)
   "customfield_11449", // end date (Applicate)
   "customfield_11699", // Freshdesk Ticket ID
+  "timeoriginalestimate", // original estimate (seconds) — performance-review AI-tasks metric
 ].join(",");
 
 export class JiraClient {

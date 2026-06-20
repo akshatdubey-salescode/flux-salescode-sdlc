@@ -21,6 +21,7 @@ import {
   RiExternalLinkLine,
   RiFlag2Line,
   RiTeamLine,
+  RiMedalLine,
 } from "@remixicon/react";
 import type { JiraProject, ObserverBoard } from "@/lib/db/schema";
 
@@ -111,6 +112,7 @@ export function CommandPalette({ projects, teams, isSuperUser, requirementBuilde
     ...NAV_ITEMS.filter(({ href }) => href !== "/requirements" || requirementBuilderEnabled),
     ...(isSuperUser
       ? [
+          { label: "Performance Review", href: "/performance-review", icon: RiMedalLine },
           { label: "User Management", href: "/admin/users", icon: RiUserSettingsLine },
           { label: "Superuser Tools", href: "/superuser", icon: RiFlag2Line },
         ]

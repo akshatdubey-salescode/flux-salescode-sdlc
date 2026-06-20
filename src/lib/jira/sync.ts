@@ -157,6 +157,8 @@ type DiscoveredFields = {
   multiAssigneeFieldIds: string[];
   endDateFieldIds: string[];
   startDateFieldIds: string[];
+  complexityFieldIds: string[];
+  issueOwnerFieldIds: string[];
 };
 
 async function discoverProjectFields(
@@ -191,12 +193,35 @@ async function discoverProjectFields(
     .filter((f) => f.custom && /^start\s*date$/i.test(f.name.trim()))
     .map((f) => f.id);
 
+  // Task complexity (1–5) and the "Issue Owner" user-picker — both feed the
+  // performance-review rating engine. Exact-name match keeps unrelated fields
+  // (e.g. "Complexity Notes", "Issue Owner Team") out.
+  const complexityFieldIds = fields
+    .filter((f) => f.custom && /^complexity$/i.test(f.name.trim()))
+    .map((f) => f.id);
+
+  const issueOwnerFieldIds = fields
+    .filter((f) => f.custom && /^issue\s*owner$/i.test(f.name.trim()))
+    .map((f) => f.id);
+
   await db
     .update(jiraProjects)
-    .set({ multiAssigneeFieldIds, endDateFieldIds, startDateFieldIds })
+    .set({
+      multiAssigneeFieldIds,
+      endDateFieldIds,
+      startDateFieldIds,
+      complexityFieldIds,
+      issueOwnerFieldIds,
+    })
     .where(eq(jiraProjects.id, projectId));
 
-  return { multiAssigneeFieldIds, endDateFieldIds, startDateFieldIds };
+  return {
+    multiAssigneeFieldIds,
+    endDateFieldIds,
+    startDateFieldIds,
+    complexityFieldIds,
+    issueOwnerFieldIds,
+  };
 }
 
 /**
@@ -211,17 +236,27 @@ export async function resolveProjectFieldConfig(
     multiAssigneeFieldIds: string[] | null;
     endDateFieldIds: string[] | null;
     startDateFieldIds: string[] | null;
+    complexityFieldIds: string[] | null;
+    issueOwnerFieldIds: string[] | null;
   }
-): Promise<{ multiAssigneeFieldIds: string[]; extraFields: string[] }> {
+): Promise<{
+  multiAssigneeFieldIds: string[];
+  issueOwnerFieldIds: string[];
+  extraFields: string[];
+}> {
   let multiAssigneeFieldIds: string[] | null = project.multiAssigneeFieldIds;
   let endDateFieldIds: string[] | null = project.endDateFieldIds;
   let startDateFieldIds: string[] | null = project.startDateFieldIds;
+  let complexityFieldIds: string[] | null = project.complexityFieldIds;
+  let issueOwnerFieldIds: string[] | null = project.issueOwnerFieldIds;
 
   try {
     const discovered = await discoverProjectFields(client, project.id);
     multiAssigneeFieldIds = discovered.multiAssigneeFieldIds;
     endDateFieldIds = discovered.endDateFieldIds;
     startDateFieldIds = discovered.startDateFieldIds;
+    complexityFieldIds = discovered.complexityFieldIds;
+    issueOwnerFieldIds = discovered.issueOwnerFieldIds;
   } catch (err) {
     // Transient API failure — keep the previously-cached values for this sync.
     console.warn(`[sync] field discovery failed for project ${project.id}:`, err);
@@ -231,8 +266,14 @@ export async function resolveProjectFieldConfig(
   if (multiAssigneeFieldIds?.length) extraFields.push(...multiAssigneeFieldIds);
   if (endDateFieldIds?.length) extraFields.push(...endDateFieldIds);
   if (startDateFieldIds?.length) extraFields.push(...startDateFieldIds);
+  if (complexityFieldIds?.length) extraFields.push(...complexityFieldIds);
+  if (issueOwnerFieldIds?.length) extraFields.push(...issueOwnerFieldIds);
 
-  return { multiAssigneeFieldIds: multiAssigneeFieldIds ?? [], extraFields };
+  return {
+    multiAssigneeFieldIds: multiAssigneeFieldIds ?? [],
+    issueOwnerFieldIds: issueOwnerFieldIds ?? [],
+    extraFields,
+  };
 }
 
 export async function syncProject(projectId: string): Promise<SyncResult> {

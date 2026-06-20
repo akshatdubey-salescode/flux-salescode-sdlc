@@ -10,6 +10,7 @@ import {
   jsonb,
   integer,
   numeric,
+  doublePrecision,
   date,
   primaryKey,
 } from "drizzle-orm/pg-core";
@@ -92,6 +93,11 @@ export const jiraProjects = pgTable(
     // null = not yet attempted, [] = attempted and not found, [...] = found.
     endDateFieldIds: text("end_date_field_ids").array(),
     startDateFieldIds: text("start_date_field_ids").array(),
+    // Auto-discovered Jira custom field IDs for task complexity (1–5 scale) and
+    // the "Issue Owner" user-picker field. Both feed the performance-review
+    // rating engine. Same null/[]/[...] semantics as above.
+    complexityFieldIds: text("complexity_field_ids").array(),
+    issueOwnerFieldIds: text("issue_owner_field_ids").array(),
     createdBy: text("created_by")
       .notNull()
       .references(() => users.id),
@@ -1018,4 +1024,73 @@ export const releaseNoteReads = pgTable(
 
 export type ReleaseNoteRead = typeof releaseNoteReads.$inferSelect;
 export type NewReleaseNoteRead = typeof releaseNoteReads.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Performance Scorecards — per-developer, per-quarter performance-review
+// ratings. One row per (user_email, quarter_key), overwritten on each compute
+// run. Sub-scores and their raw inputs are stored alongside a full breakdown
+// blob so the drill-down renders without recomputation. Superuser-only.
+// ---------------------------------------------------------------------------
+
+export const performanceScorecards = pgTable(
+  "performance_scorecards",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Normalized (lower-cased) developer email.
+    userEmail: text("user_email").notNull(),
+    // Fiscal quarter key, e.g. "2026-Q2".
+    quarterKey: text("quarter_key").notNull(),
+    // Timestamp of the compute run that produced this row.
+    computedAt: timestamp("computed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+
+    // Bug Quality (§4.1)
+    weightedBugs: doublePrecision("weighted_bugs").notNull().default(0),
+    featureCount: integer("feature_count").notNull().default(0),
+    bugQualityPoints: doublePrecision("bug_quality_points"),
+
+    // MTTR (§4.3) — minutes null when no qualifying samples.
+    mttrMinutes: doublePrecision("mttr_minutes"),
+    mttrPoints: doublePrecision("mttr_points"),
+
+    // Sprint Commitment (§4.5) — points null when no due-dated tasks.
+    sprintCommitmentNotDelayed: integer("sprint_commitment_not_delayed")
+      .notNull()
+      .default(0),
+    sprintCommitmentTotal: integer("sprint_commitment_total").notNull().default(0),
+    sprintCommitmentPoints: doublePrecision("sprint_commitment_points"),
+
+    // Complex Tasks (§4.4)
+    complexTasksCount: integer("complex_tasks_count").notNull().default(0),
+    complexTasksPoints: doublePrecision("complex_tasks_points"),
+
+    // AI / Underestimated Tasks (§4.6)
+    underestimatedTasksCount: integer("underestimated_tasks_count")
+      .notNull()
+      .default(0),
+    underestimatedTasksPoints: doublePrecision("underestimated_tasks_points"),
+
+    // Weighted sum of sub-scores (§6.2).
+    finalScore: doublePrecision("final_score").notNull().default(0),
+
+    // Full §6.4-style contribution breakdown (per-metric raw → points → weight
+    // → contribution) plus display metadata, for the drill-down view.
+    breakdown: jsonb("breakdown").$type<Record<string, unknown>>().default({}),
+  },
+  (t) => [
+    uniqueIndex("performance_scorecards_user_quarter_idx").on(
+      t.userEmail,
+      t.quarterKey
+    ),
+    index("performance_scorecards_quarter_idx").on(t.quarterKey),
+    index("performance_scorecards_quarter_score_idx").on(
+      t.quarterKey,
+      t.finalScore
+    ),
+  ]
+);
+
+export type PerformanceScorecard = typeof performanceScorecards.$inferSelect;
+export type NewPerformanceScorecard = typeof performanceScorecards.$inferInsert;
 

@@ -25,6 +25,7 @@ import {
   RiCodeSSlashLine,
   RiUserStarLine,
   RiUserUnfollowLine,
+  RiMedalLine,
 } from "@remixicon/react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -118,6 +119,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Admin",
     superuserOnly: true,
     items: [
+      { label: "Performance Review", href: "/performance-review", icon: RiMedalLine },
       { label: "User Management", href: "/admin/users", icon: RiUserSettingsLine },
       { label: "Superuser Tools", href: "/superuser", icon: RiFlag2Line },
     ],
