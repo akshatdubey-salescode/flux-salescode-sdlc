@@ -24,6 +24,7 @@ import {
   P1_PRIORITIES,
   P2_PRIORITIES,
   AI_TASK_MAX_ESTIMATE_HOURS,
+  normalizeStatus,
 } from "./config";
 import { computeScorecard, type ScorecardInputs } from "./engine";
 import { quarterFromKey } from "./quarter";
@@ -184,8 +185,8 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
 
   // Pass 1 — bugs: weighted bugs → owner; MTTR sample → assignee.
   for (const b of bugs) {
-    const status = (b.status ?? "").trim().toLowerCase();
-    if (BUG_INVALID_STATUSES.has(status)) continue; // not a bug / can't reproduce
+    // not a bug / couldn't reproduce → excluded from all scoring
+    if (BUG_INVALID_STATUSES.has(normalizeStatus(b.status))) continue;
 
     const assignee = normalizeEmail(b.assigneeEmail);
     const owner =

@@ -45,7 +45,8 @@ synced Jira data.
   A missing estimate does not qualify.
 - **Bugs vs tasks**: issue type (normalized) in {`bug`, `defect`, `sub-bug`} is a
   bug (feeds weighted-bugs + MTTR); everything else is a "task" (feeds Complex /
-  AI / Sprint). Bugs with status `not a bug` / `can't reproduce` are excluded.
+  AI / Sprint). Bugs with status `not a bug` / `couldn't reproduce` are excluded
+  (matched apostrophe- and spacing-insensitively).
 
 ## Data capture
 

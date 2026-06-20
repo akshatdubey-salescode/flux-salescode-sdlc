@@ -78,8 +78,25 @@ export const COMPLEXITY_WEIGHTS: Record<number, number> = {
 
 export const DEFAULT_COMPLEXITY_WEIGHT = 1;
 
-/** Bug statuses (normalized) that exclude a bug from all scoring. */
-export const BUG_INVALID_STATUSES = new Set(["not a bug", "can't reproduce"]);
+/**
+ * Bug statuses that exclude a bug from all scoring. Compared after normalizing
+ * (lower-cased, trimmed, apostrophes stripped, whitespace collapsed) so curly
+ * vs straight apostrophes and spacing don't matter — see normalizeStatus().
+ */
+export const BUG_INVALID_STATUSES = new Set([
+  "not a bug",
+  "cant reproduce", // actual Jira status: "Can't Reproduce"
+  "couldnt reproduce", // tolerate the "Couldn't Reproduce" wording too
+]);
+
+/** Normalize a status for comparison against BUG_INVALID_STATUSES. */
+export function normalizeStatus(status: string | null | undefined): string {
+  return (status ?? "")
+    .toLowerCase()
+    .replace(/['’`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 /**
  * Issue types (normalized) treated as bugs. Bugs feed weighted-bugs + MTTR and

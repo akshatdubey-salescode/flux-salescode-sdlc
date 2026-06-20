@@ -19,7 +19,7 @@ export const METRIC_INFO: Record<MetricKey, MetricInfo> = {
     range: "0–5",
     summary: "Feature output relative to the bugs attributed to the developer.",
     detail:
-      "Score = features ÷ (features + priority-weighted bugs) × 5. Every non-bug task the developer delivered counts as a feature. Bugs are weighted by priority (P0 = 10, P1 = 7, P2 = 5, P3 = 3, P4 = 1) and charged to the bug's Issue Owner, falling back to its assignee. Bugs marked “not a bug” or “can’t reproduce” are ignored. A developer with no bugs and no features scores a full 5.",
+      "Score = features ÷ (features + priority-weighted bugs) × 5. Every non-bug task the developer delivered counts as a feature. Bugs are weighted by priority (P0 = 10, P1 = 7, P2 = 5, P3 = 3, P4 = 1) and charged to the bug's Issue Owner, falling back to its assignee. Bugs whose status is “Not a bug” or “Can’t Reproduce” are ignored entirely. A developer with no bugs and no features scores a full 5.",
   },
   codeChurn: {
     range: "N/A",

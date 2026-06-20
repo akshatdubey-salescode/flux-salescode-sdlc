@@ -176,7 +176,16 @@ export default async function PerformanceReviewPage({
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
                     Bugs attributed to this developer (as Issue Owner, or assignee
                     when no owner is set), each weighted by priority. Higher total
-                    weight lowers the Bug Quality score.
+                    weight lowers the Bug Quality score. Bugs whose status is{" "}
+                    <span className="font-medium text-zinc-600 dark:text-zinc-300">
+                      “Not a bug”
+                    </span>{" "}
+                    or{" "}
+                    <span className="font-medium text-zinc-600 dark:text-zinc-300">
+                      “Can’t Reproduce”
+                    </span>{" "}
+                    are excluded entirely — they count toward neither weighted bugs
+                    nor MTTR.
                   </p>
                   <div className="max-h-96 overflow-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
                     <table className="w-full text-sm">
