@@ -26,6 +26,7 @@ import {
   RiUserStarLine,
   RiUserUnfollowLine,
   RiMedalLine,
+  RiBugLine,
 } from "@remixicon/react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -109,6 +110,7 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: "Analytics",
     items: [
+      { label: "Bug Board", href: "/bugs", icon: RiBugLine },
       { label: "Throughput", href: "/throughput", icon: RiCheckboxCircleLine },
       { label: "Lines of Code", href: "/views/lines-of-code", icon: RiCodeSSlashLine },
       { label: "Unplanned Assignees", href: "/views/top-unplanned-assignees", icon: RiUserStarLine },
