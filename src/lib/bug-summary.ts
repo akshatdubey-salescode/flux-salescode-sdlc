@@ -3,11 +3,16 @@
 
 export type BugPriorityBucket = "P1" | "P2" | "P3" | "Other";
 
-/** One bug row as returned by /api/projects/[id]/bugs. */
+/** One bug row as returned by the bug-tracker endpoints. */
 export type BugRow = {
   id: string;
   jiraKey: string;
   summary: string;
+  /** Project this bug belongs to — shown in cross-project (My Bugs / Team) views. */
+  projectKey: string;
+  projectName: string;
+  /** Jira base URL of the bug's project, for building per-row browse links. */
+  jiraBaseUrl: string | null;
   status: string;
   statusCategory: string | null;
   priority: string | null;
@@ -27,11 +32,6 @@ export type BugRow = {
   isInvalid: boolean;
   jiraCreatedAt: string | null;
   jiraUpdatedAt: string | null;
-};
-
-export type BugSummaryResponse = {
-  bugs: BugRow[];
-  jiraBaseUrl: string;
 };
 
 export const UNASSIGNED_OWNER = "Unassigned";

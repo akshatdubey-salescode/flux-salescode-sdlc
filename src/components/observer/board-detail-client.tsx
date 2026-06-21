@@ -12,6 +12,8 @@ import {
   RiSettings3Line,
 } from "@remixicon/react";
 import { TeamTimelineClient } from "@/components/observer/team-timeline-client";
+import { BugTracker } from "@/components/bug-summary";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -212,14 +214,29 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
             }}
           />
         ) : (
-          <TeamTimelineClient
-            boardId={board.id}
-            name={board.name}
-            onRemoveMember={isOwner
-              ? (email) => setRemoveMember(members.find((m) => m.email === email) ?? null)
-              : undefined
-            }
-          />
+          <Tabs defaultValue="timeline" className="w-full space-y-4">
+            <TabsList>
+              <TabsTrigger value="timeline">Timeline</TabsTrigger>
+              <TabsTrigger value="bugs">Bugs</TabsTrigger>
+            </TabsList>
+            <TabsContent value="timeline" className="outline-none">
+              <TeamTimelineClient
+                boardId={board.id}
+                name={board.name}
+                onRemoveMember={isOwner
+                  ? (email) => setRemoveMember(members.find((m) => m.email === email) ?? null)
+                  : undefined
+                }
+              />
+            </TabsContent>
+            <TabsContent value="bugs" className="outline-none">
+              <BugTracker
+                dataUrl={`/api/observer/boards/${board.id}/bugs`}
+                exportTitle={board.name}
+                showProject
+              />
+            </TabsContent>
+          </Tabs>
         )}
       </div>
 

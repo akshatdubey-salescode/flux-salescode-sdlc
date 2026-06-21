@@ -23,7 +23,7 @@ import { ProjectTrackingTab } from "@/components/project-tracking";
 import { StatusMappingTabContent } from "@/components/status-mapping-editor";
 import { ProjectOverviewDashboard } from "@/components/project-overview/project-dashboard";
 import { ClientIssuesTab } from "@/components/client-issues";
-import { BugSummaryTab } from "@/components/bug-summary";
+import { BugTracker } from "@/components/bug-summary";
 import { ProjectTeamClient } from "@/components/observer/team-timeline-client";
 
 type SyncJob = {
@@ -217,7 +217,10 @@ export function ProjectTabs({ projectId, projectName, hasFreshdesk, isAdmin, isS
             </TabsContent>
 
             <TabsContent value="bug-summary">
-              <BugSummaryTab projectId={projectId} projectName={projectName} />
+              <BugTracker
+                dataUrl={`/api/projects/${projectId}/bugs`}
+                exportTitle={projectName}
+              />
             </TabsContent>
 
             {isAdmin && (

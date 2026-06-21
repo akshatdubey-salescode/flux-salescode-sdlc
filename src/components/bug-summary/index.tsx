@@ -32,10 +32,22 @@ import {
 } from "@/lib/bug-summary";
 import { DateRangeBar } from "./date-range-bar";
 
-type Props = { projectId: string; projectName: string };
+type Props = {
+  /** GET endpoint returning { bugs: BugRow[] }; receives ?start&end (+extraParams). */
+  dataUrl: string;
+  /** Title used for the export workbook + download filename. */
+  exportTitle: string;
+  /** Show a Project column + include it in the export (cross-project views). */
+  showProject?: boolean;
+  /** Show the developer-wise count table (hidden for single-person My Bugs). */
+  showDeveloperTable?: boolean;
+  /** Extra static query params forwarded to dataUrl (e.g. forEmail). */
+  extraParams?: Record<string, string>;
+};
 
 type DetailSortKey =
   | "key"
+  | "project"
   | "summary"
   | "owner"
   | "priority"
@@ -45,6 +57,7 @@ type DetailSortKey =
 
 const SORT_KEYS: DetailSortKey[] = [
   "key",
+  "project",
   "summary",
   "owner",
   "priority",
@@ -121,12 +134,17 @@ function asSortKey(v: string | null): DetailSortKey {
   return v && (SORT_KEYS as string[]).includes(v) ? (v as DetailSortKey) : DEFAULT_SORT;
 }
 
-export function BugSummaryTab({ projectId, projectName }: Props) {
+export function BugTracker({
+  dataUrl,
+  exportTitle,
+  showProject = false,
+  showDeveloperTable = true,
+  extraParams,
+}: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const [bugs, setBugs] = useState<BugRow[]>([]);
-  const [jiraBaseUrl, setJiraBaseUrl] = useState("");
   const [loading, setLoading] = useState(true);
 
   // --- Filters are derived from the URL so they persist + are shareable. -----
@@ -201,19 +219,20 @@ export function BugSummaryTab({ projectId, projectName }: Props) {
     }
   }
 
+  const extraKey = JSON.stringify(extraParams ?? {});
   useEffect(() => {
     if (!start || !end) return;
     setLoading(true);
     const params = new URLSearchParams({ start, end });
-    fetch(`/api/projects/${projectId}/bugs?${params.toString()}`)
+    for (const [k, v] of Object.entries(JSON.parse(extraKey) as Record<string, string>)) {
+      params.set(k, v);
+    }
+    fetch(`${dataUrl}?${params.toString()}`)
       .then((r) => r.json())
-      .then((data) => {
-        setBugs(data.bugs ?? []);
-        setJiraBaseUrl(data.jiraBaseUrl ?? "");
-      })
+      .then((data) => setBugs(data.bugs ?? []))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [projectId, start, end]);
+  }, [dataUrl, start, end, extraKey]);
 
   // Global filters (environment + invalid-status exclusion) feed BOTH tables,
   // so the developer-wise counts re-aggregate too.
@@ -274,7 +293,9 @@ export function BugSummaryTab({ projectId, projectName }: Props) {
         b.ownerName.toLowerCase().includes(needle) ||
         b.environment.toLowerCase().includes(needle) ||
         (b.priority ?? "").toLowerCase().includes(needle) ||
-        b.status.toLowerCase().includes(needle)
+        b.status.toLowerCase().includes(needle) ||
+        b.projectKey.toLowerCase().includes(needle) ||
+        b.projectName.toLowerCase().includes(needle)
       );
     });
 
@@ -284,6 +305,9 @@ export function BugSummaryTab({ projectId, projectName }: Props) {
       switch (sortKey) {
         case "key":
           cmp = a.jiraKey.localeCompare(b.jiraKey, undefined, { numeric: true });
+          break;
+        case "project":
+          cmp = a.projectKey.localeCompare(b.projectKey);
           break;
         case "summary":
           cmp = a.summary.localeCompare(b.summary);
@@ -333,9 +357,9 @@ export function BugSummaryTab({ projectId, projectName }: Props) {
     detailPageSafe * DETAIL_PAGE_SIZE
   );
 
-  function browseUrl(key: string) {
-    if (!jiraBaseUrl) return null;
-    return `${jiraBaseUrl.replace(/\/$/, "")}/browse/${key}`;
+  function browseUrl(bug: BugRow) {
+    if (!bug.jiraBaseUrl) return null;
+    return `${bug.jiraBaseUrl.replace(/\/$/, "")}/browse/${bug.jiraKey}`;
   }
 
   async function handleExport() {
@@ -343,13 +367,13 @@ export function BugSummaryTab({ projectId, projectName }: Props) {
     setExporting(true);
     try {
       // Send the exact filtered + sorted set on screen so the sheet matches.
-      const res = await fetch(`/api/projects/${projectId}/bugs/export`, {
+      const res = await fetch(`/api/bugs/export`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           rows: detailSorted,
-          jiraBaseUrl,
-          projectName,
+          title: exportTitle,
+          showProject,
           start,
           end,
           excludeInvalid,
@@ -361,7 +385,7 @@ export function BugSummaryTab({ projectId, projectName }: Props) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${projectName.replace(/[^\w-]+/g, "_")}-bugs-${end}.xlsx`;
+      a.download = `${exportTitle.replace(/[^\w-]+/g, "_")}-bugs-${end}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -450,6 +474,7 @@ export function BugSummaryTab({ projectId, projectName }: Props) {
           {/* ------------------------------------------------------------- */}
           {/* Developer-wise bug count                                       */}
           {/* ------------------------------------------------------------- */}
+          {showDeveloperTable && (
           <section className="space-y-3">
             <div className="flex items-baseline justify-between gap-3">
               <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
@@ -552,6 +577,7 @@ export function BugSummaryTab({ projectId, projectName }: Props) {
               onPage={setSummaryPage}
             />
           </section>
+          )}
 
           {/* ------------------------------------------------------------- */}
           {/* Detailed, searchable + sortable bug list                       */}
@@ -610,6 +636,9 @@ export function BugSummaryTab({ projectId, projectName }: Props) {
                   <thead>
                     <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
                       <SortHeader label="Key" col="key" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-24" />
+                      {showProject && (
+                        <SortHeader label="Project" col="project" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-28" />
+                      )}
                       <SortHeader label="Summary" col="summary" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                       <SortHeader label="Owner" col="owner" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-40" />
                       <SortHeader label="Priority" col="priority" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-24" />
@@ -621,13 +650,13 @@ export function BugSummaryTab({ projectId, projectName }: Props) {
                   <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/80">
                     {detailPageItems.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-4 py-12 text-center text-zinc-400">
+                        <td colSpan={showProject ? 8 : 7} className="px-4 py-12 text-center text-zinc-400">
                           No bugs match the current filters.
                         </td>
                       </tr>
                     ) : (
                       detailPageItems.map((b) => {
-                        const url = browseUrl(b.jiraKey);
+                        const url = browseUrl(b);
                         const pColor = PRIORITY_COLORS[priorityLevel(b.priority)];
                         const sStyles = statusCategoryStyles(b.statusCategory);
                         return (
@@ -650,6 +679,16 @@ export function BugSummaryTab({ projectId, projectName }: Props) {
                                 <span className="font-mono font-semibold text-zinc-500">{b.jiraKey}</span>
                               )}
                             </td>
+                            {showProject && (
+                              <td className="px-3 py-2 whitespace-nowrap">
+                                <span
+                                  className="font-medium text-zinc-600 dark:text-zinc-400"
+                                  title={b.projectName}
+                                >
+                                  {b.projectKey}
+                                </span>
+                              </td>
+                            )}
                             <td className="px-3 py-2 max-w-0">
                               {url ? (
                                 <a

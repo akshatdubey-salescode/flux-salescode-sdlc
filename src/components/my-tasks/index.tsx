@@ -17,6 +17,7 @@ import {
 import { RiDownload2Line, RiLayoutColumnLine } from "@remixicon/react";
 import { UserInsightsDashboard } from "./user-insights-dashboard";
 import { MyMeetings } from "./my-meetings";
+import { BugTracker } from "@/components/bug-summary";
 import { usePinnedTasks } from "./use-pinned-tasks";
 import {
   useColumnVisibility,
@@ -127,7 +128,9 @@ export function MyTasksView({
   const filters = readFilters(searchParams);
   const tabParam = searchParams.get("tab");
   const activeTab =
-    tabParam === "insights" || tabParam === "meetings" ? tabParam : "list";
+    tabParam === "insights" || tabParam === "meetings" || tabParam === "bugs"
+      ? tabParam
+      : "list";
 
   const { pinnedKeys, togglePin } = usePinnedTasks();
   const { visibleColumns, toggleColumn, resetColumns } = useColumnVisibility();
@@ -301,6 +304,7 @@ export function MyTasksView({
           {showTabs ? (
             <TabsList>
               <TabsTrigger value="list">Tasks List</TabsTrigger>
+              <TabsTrigger value="bugs">My Bugs</TabsTrigger>
               <TabsTrigger value="insights">My Insights</TabsTrigger>
               <TabsTrigger value="meetings">My Meetings</TabsTrigger>
             </TabsList>
@@ -389,6 +393,17 @@ export function MyTasksView({
           })}
         />
       </TabsContent>
+
+      {!isObserving && (
+        <TabsContent value="bugs" className="outline-none">
+          <BugTracker
+            dataUrl="/api/my-bugs"
+            exportTitle="My Bugs"
+            showProject
+            showDeveloperTable={false}
+          />
+        </TabsContent>
+      )}
 
       {!isObserving && (
         <TabsContent value="insights" className="outline-none">

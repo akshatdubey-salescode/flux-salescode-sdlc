@@ -10,18 +10,15 @@ import {
 
 type ExportBody = {
   rows: BugRow[];
-  jiraBaseUrl?: string;
-  projectName?: string;
+  title?: string;
+  showProject?: boolean;
   start?: string;
   end?: string;
   excludeInvalid?: boolean;
   environment?: string | null;
 };
 
-export async function POST(
-  req: NextRequest,
-  _props: { params: Promise<{ id: string }> }
-) {
+export async function POST(req: NextRequest) {
   await requireAuth();
 
   let body: ExportBody;
@@ -32,21 +29,22 @@ export async function POST(
   }
 
   const rows = Array.isArray(body.rows) ? body.rows : [];
-  const buffer = await buildWorkbook(rows, {
-    jiraBaseUrl: body.jiraBaseUrl ?? "",
-    projectName: body.projectName ?? "Project",
+  const opts: Opts = {
+    title: body.title?.trim() || "Bugs",
+    showProject: body.showProject === true,
     start: body.start ?? "",
     end: body.end ?? "",
     excludeInvalid: body.excludeInvalid !== false,
     environment: body.environment ?? null,
-  });
+  };
+  const buffer = await buildWorkbook(rows, opts);
 
-  const safeName = (body.projectName ?? "project").replace(/[^\w-]+/g, "_");
+  const safeName = opts.title.replace(/[^\w-]+/g, "_");
   return new Response(buffer as ArrayBuffer, {
     headers: {
       "Content-Type":
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="${safeName}-bugs-${body.end ?? ""}.xlsx"`,
+      "Content-Disposition": `attachment; filename="${safeName}-bugs-${opts.end}.xlsx"`,
       "Cache-Control": "no-store",
     },
   });
@@ -54,7 +52,6 @@ export async function POST(
 
 // ---- Workbook styling (matches the My Tasks export) -------------------------
 
-// Brand palette (ARGB — 8-digit hex, alpha first).
 const TEAL = "FF0D9488";
 const TEAL_DARK = "FF0F766E";
 const ZEBRA = "FFF0FDFA";
@@ -80,8 +77,8 @@ function fmtDate(iso: string | null): string {
 }
 
 type Opts = {
-  jiraBaseUrl: string;
-  projectName: string;
+  title: string;
+  showProject: boolean;
   start: string;
   end: string;
   excludeInvalid: boolean;
@@ -102,24 +99,33 @@ async function buildWorkbook(rows: BugRow[], opts: Opts): Promise<ArrayBuffer> {
 
 // ---- Sheet 1: the filtered bug list -----------------------------------------
 
-const BUG_COLUMNS: {
-  header: string;
-  key: keyof BugRow | "createdAt" | "updatedAt" | "open";
-  width?: number;
-  min: number;
-  max: number;
-}[] = [
-  { header: "Jira Key", key: "jiraKey", min: 10, max: 16 },
-  { header: "Summary", key: "summary", width: 50, min: 30, max: 60 },
-  { header: "Owner", key: "ownerName", min: 14, max: 28 },
-  { header: "Owner Email", key: "ownerEmail", min: 18, max: 36 },
-  { header: "Priority", key: "priority", min: 8, max: 12 },
-  { header: "Environment", key: "environment", min: 11, max: 16 },
-  { header: "Status", key: "status", min: 12, max: 26 },
-  { header: "Open", key: "open", min: 6, max: 8 },
-  { header: "Created", key: "createdAt", min: 12, max: 14 },
-  { header: "Updated", key: "updatedAt", min: 12, max: 14 },
-];
+type BugColKey =
+  | keyof BugRow
+  | "createdAt"
+  | "updatedAt"
+  | "open"
+  | "project";
+
+type BugCol = { header: string; key: BugColKey; width?: number; min: number; max: number };
+
+function bugColumns(showProject: boolean): BugCol[] {
+  const cols: BugCol[] = [
+    { header: "Jira Key", key: "jiraKey", min: 10, max: 16 },
+  ];
+  if (showProject) cols.push({ header: "Project", key: "project", min: 14, max: 30 });
+  cols.push(
+    { header: "Summary", key: "summary", width: 50, min: 30, max: 60 },
+    { header: "Owner", key: "ownerName", min: 14, max: 28 },
+    { header: "Owner Email", key: "ownerEmail", min: 18, max: 36 },
+    { header: "Priority", key: "priority", min: 8, max: 12 },
+    { header: "Environment", key: "environment", min: 11, max: 16 },
+    { header: "Status", key: "status", min: 12, max: 26 },
+    { header: "Open", key: "open", min: 6, max: 8 },
+    { header: "Created", key: "createdAt", min: 12, max: 14 },
+    { header: "Updated", key: "updatedAt", min: 12, max: 14 }
+  );
+  return cols;
+}
 
 function subtitle(rows: BugRow[], opts: Opts): string {
   const parts = [`${rows.length} bug${rows.length === 1 ? "" : "s"}`];
@@ -135,12 +141,7 @@ function subtitle(rows: BugRow[], opts: Opts): string {
   return parts.join(" · ");
 }
 
-function bannerRows(
-  ws: ExcelJS.Worksheet,
-  colCount: number,
-  title: string,
-  sub: string
-) {
+function bannerRows(ws: ExcelJS.Worksheet, colCount: number, title: string, sub: string) {
   ws.mergeCells(1, 1, 1, colCount);
   const titleCell = ws.getCell(1, 1);
   titleCell.value = title;
@@ -177,27 +178,28 @@ function headerRow(ws: ExcelJS.Worksheet, headers: string[]) {
 }
 
 function addBugsSheet(wb: ExcelJS.Workbook, rows: BugRow[], opts: Opts) {
+  const columns = bugColumns(opts.showProject);
   const ws = wb.addWorksheet("Bugs", { views: [{ state: "frozen", ySplit: 3 }] });
-  const colCount = BUG_COLUMNS.length;
+  const colCount = columns.length;
 
-  bannerRows(ws, colCount, `Bug Summary — ${opts.projectName}`, subtitle(rows, opts));
-  headerRow(ws, BUG_COLUMNS.map((c) => c.header));
+  bannerRows(ws, colCount, `Bug Summary — ${opts.title}`, subtitle(rows, opts));
+  headerRow(ws, columns.map((c) => c.header));
 
-  const widths = BUG_COLUMNS.map((c) => c.header.length);
+  const widths = columns.map((c) => c.header.length);
 
   rows.forEach((bug, idx) => {
     const row = ws.getRow(idx + 4);
     const zebra = idx % 2 === 1;
 
-    BUG_COLUMNS.forEach((col, ci) => {
+    columns.forEach((col, ci) => {
       const cell = row.getCell(ci + 1);
       let display = "";
 
       switch (col.key) {
         case "jiraKey": {
           const url =
-            opts.jiraBaseUrl && bug.jiraKey
-              ? `${opts.jiraBaseUrl.replace(/\/$/, "")}/browse/${bug.jiraKey}`
+            bug.jiraBaseUrl && bug.jiraKey
+              ? `${bug.jiraBaseUrl.replace(/\/$/, "")}/browse/${bug.jiraKey}`
               : null;
           display = bug.jiraKey ?? "";
           if (url) {
@@ -207,6 +209,12 @@ function addBugsSheet(wb: ExcelJS.Workbook, rows: BugRow[], opts: Opts) {
             cell.value = display;
             cell.font = { name: "Calibri", size: 11, bold: true, color: { argb: TEXT } };
           }
+          break;
+        }
+        case "project": {
+          display = bug.projectName || bug.projectKey;
+          cell.value = display;
+          cell.font = { name: "Calibri", size: 10, color: { argb: TEXT } };
           break;
         }
         case "priority": {
@@ -270,7 +278,7 @@ function addBugsSheet(wb: ExcelJS.Workbook, rows: BugRow[], opts: Opts) {
     });
   });
 
-  BUG_COLUMNS.forEach((col, i) => {
+  columns.forEach((col, i) => {
     const measured = col.key === "summary" ? (col.width ?? 50) : widths[i] + 3;
     ws.getColumn(i + 1).width = Math.min(col.max, Math.max(col.min, measured));
   });
@@ -282,18 +290,14 @@ function addBugsSheet(wb: ExcelJS.Workbook, rows: BugRow[], opts: Opts) {
 
 const DEV_HEADERS = ["Developer", "P1", "P2", "P3", "Other", "Total", "Open"];
 
-function addDeveloperSheet(
-  wb: ExcelJS.Workbook,
-  summaries: OwnerSummary[],
-  opts: Opts
-) {
+function addDeveloperSheet(wb: ExcelJS.Workbook, summaries: OwnerSummary[], opts: Opts) {
   const ws = wb.addWorksheet("By Developer", { views: [{ state: "frozen", ySplit: 3 }] });
   const colCount = DEV_HEADERS.length;
 
   bannerRows(
     ws,
     colCount,
-    `Developer-wise Bug Count — ${opts.projectName}`,
+    `Developer-wise Bug Count — ${opts.title}`,
     `${summaries.length} developer${summaries.length === 1 ? "" : "s"} · owner = Issue Owner, falling back to Assignee`
   );
   headerRow(ws, DEV_HEADERS);
@@ -332,7 +336,6 @@ function addDeveloperSheet(
     totals.open += s.open;
   });
 
-  // Totals row.
   const totalRow = ws.getRow(summaries.length + 4);
   const totalValues = ["Total", totals.p1, totals.p2, totals.p3, totals.other, totals.total, totals.open];
   totalValues.forEach((v, ci) => {
