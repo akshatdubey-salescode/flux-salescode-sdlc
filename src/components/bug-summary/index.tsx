@@ -10,9 +10,11 @@ import {
   RiSearchLine,
   RiBugLine,
   RiResetLeftLine,
+  RiDownload2Line,
 } from "@remixicon/react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getRangePresets } from "@/lib/date-utils";
@@ -24,23 +26,13 @@ import {
 import {
   ENV_UNSET,
   UNASSIGNED_OWNER,
+  buildOwnerSummaries,
   type BugRow,
   type BugPriorityBucket,
 } from "@/lib/bug-summary";
 import { DateRangeBar } from "./date-range-bar";
 
-type Props = { projectId: string };
-
-type OwnerSummary = {
-  ownerName: string;
-  ownerEmail: string | null;
-  p1: number;
-  p2: number;
-  p3: number;
-  other: number;
-  total: number;
-  open: number;
-};
+type Props = { projectId: string; projectName: string };
 
 type DetailSortKey =
   | "key"
@@ -129,42 +121,7 @@ function asSortKey(v: string | null): DetailSortKey {
   return v && (SORT_KEYS as string[]).includes(v) ? (v as DetailSortKey) : DEFAULT_SORT;
 }
 
-function buildOwnerSummaries(bugs: BugRow[]): OwnerSummary[] {
-  const map = new Map<string, OwnerSummary>();
-  for (const b of bugs) {
-    // Group by email when known so the same person isn't split by name casing;
-    // fall back to the display name for unassigned/unresolved owners.
-    const key = b.ownerEmail ?? b.ownerName;
-    let s = map.get(key);
-    if (!s) {
-      s = {
-        ownerName: b.ownerName,
-        ownerEmail: b.ownerEmail,
-        p1: 0,
-        p2: 0,
-        p3: 0,
-        other: 0,
-        total: 0,
-        open: 0,
-      };
-      map.set(key, s);
-    }
-    if (b.priorityBucket === "P1") s.p1++;
-    else if (b.priorityBucket === "P2") s.p2++;
-    else if (b.priorityBucket === "P3") s.p3++;
-    else s.other++;
-    s.total++;
-    if (b.isOpen) s.open++;
-  }
-  return [...map.values()].sort(
-    (a, b) =>
-      b.total - a.total ||
-      b.open - a.open ||
-      a.ownerName.localeCompare(b.ownerName)
-  );
-}
-
-export function BugSummaryTab({ projectId }: Props) {
+export function BugSummaryTab({ projectId, projectName }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -201,6 +158,8 @@ export function BugSummaryTab({ projectId }: Props) {
   // Pagination (transient — not persisted).
   const [summaryPage, setSummaryPage] = useState(1);
   const [detailPage, setDetailPage] = useState(1);
+
+  const [exporting, setExporting] = useState(false);
 
   function updateParams(updates: Record<string, string | null>) {
     const params = new URLSearchParams(searchParams.toString());
@@ -377,6 +336,41 @@ export function BugSummaryTab({ projectId }: Props) {
   function browseUrl(key: string) {
     if (!jiraBaseUrl) return null;
     return `${jiraBaseUrl.replace(/\/$/, "")}/browse/${key}`;
+  }
+
+  async function handleExport() {
+    if (exporting || detailSorted.length === 0) return;
+    setExporting(true);
+    try {
+      // Send the exact filtered + sorted set on screen so the sheet matches.
+      const res = await fetch(`/api/projects/${projectId}/bugs/export`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rows: detailSorted,
+          jiraBaseUrl,
+          projectName,
+          start,
+          end,
+          excludeInvalid,
+          environment: envFilter,
+        }),
+      });
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${projectName.replace(/[^\w-]+/g, "_")}-bugs-${end}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // silently ignore — user can retry
+    } finally {
+      setExporting(false);
+    }
   }
 
   return (
@@ -570,14 +564,25 @@ export function BugSummaryTab({ projectId }: Props) {
                   {detailSorted.length} of {filteredBugs.length}
                 </span>
               </h2>
-              <div className="relative w-full max-w-xs">
-                <RiSearchLine className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-zinc-400" />
-                <Input
-                  value={searchInput}
-                  onChange={(e) => handleSearch(e.target.value)}
-                  placeholder="Search key, summary, owner…"
-                  className="h-8 pl-8 text-xs"
-                />
+              <div className="flex flex-1 items-center justify-end gap-2">
+                <div className="relative w-full max-w-xl flex-1 sm:min-w-[320px]">
+                  <RiSearchLine className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-zinc-400" />
+                  <Input
+                    value={searchInput}
+                    onChange={(e) => handleSearch(e.target.value)}
+                    placeholder="Search key, summary, owner…"
+                    className="h-8 pl-8 text-xs"
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExport}
+                  disabled={exporting || detailSorted.length === 0}
+                >
+                  <RiDownload2Line className="size-3.5" />
+                  {exporting ? "Exporting…" : "Download in Excel"}
+                </Button>
               </div>
             </div>
 

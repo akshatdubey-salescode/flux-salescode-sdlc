@@ -217,7 +217,7 @@ export function ProjectTabs({ projectId, projectName, hasFreshdesk, isAdmin, isS
             </TabsContent>
 
             <TabsContent value="bug-summary">
-              <BugSummaryTab projectId={projectId} />
+              <BugSummaryTab projectId={projectId} projectName={projectName} />
             </TabsContent>
 
             {isAdmin && (

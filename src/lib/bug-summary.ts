@@ -37,6 +37,58 @@ export type BugSummaryResponse = {
 export const UNASSIGNED_OWNER = "Unassigned";
 export const ENV_UNSET = "—";
 
+/** Per-developer rollup for the "Developer-wise Bug Count" table. */
+export type OwnerSummary = {
+  ownerName: string;
+  ownerEmail: string | null;
+  p1: number;
+  p2: number;
+  p3: number;
+  other: number;
+  total: number;
+  open: number;
+};
+
+/**
+ * Aggregate bugs into per-owner P1/P2/P3/Other/Total/Open counts, sorted by
+ * total (then open, then name) descending. Shared by the tab UI and the Excel
+ * export so both show identical numbers.
+ */
+export function buildOwnerSummaries(bugs: BugRow[]): OwnerSummary[] {
+  const map = new Map<string, OwnerSummary>();
+  for (const b of bugs) {
+    // Group by email when known so the same person isn't split by name casing;
+    // fall back to the display name for unassigned/unresolved owners.
+    const key = b.ownerEmail ?? b.ownerName;
+    let s = map.get(key);
+    if (!s) {
+      s = {
+        ownerName: b.ownerName,
+        ownerEmail: b.ownerEmail,
+        p1: 0,
+        p2: 0,
+        p3: 0,
+        other: 0,
+        total: 0,
+        open: 0,
+      };
+      map.set(key, s);
+    }
+    if (b.priorityBucket === "P1") s.p1++;
+    else if (b.priorityBucket === "P2") s.p2++;
+    else if (b.priorityBucket === "P3") s.p3++;
+    else s.other++;
+    s.total++;
+    if (b.isOpen) s.open++;
+  }
+  return [...map.values()].sort(
+    (a, b) =>
+      b.total - a.total ||
+      b.open - a.open ||
+      a.ownerName.localeCompare(b.ownerName)
+  );
+}
+
 /**
  * Collapse Jira's free-text environment field to a canonical label. People
  * type the same environment many ways ("prod" / "Production" / "PRD"), so we
