@@ -305,9 +305,10 @@ export default async function PerformanceReviewPage({
                     )}
                   </h2>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    P1/P2 bugs assigned to this developer, with time from creation to
-                    completion. Their average drives the MTTR score; with no samples
-                    the metric defaults to a full 5.
+                    P1/P2 bugs owned by this developer (Issue Owner, assignee
+                    fallback), with time from creation to completion. Their average
+                    drives the MTTR score; with no samples the metric defaults to a
+                    full 5.
                   </p>
                   <div className="max-h-96 overflow-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
                     <table className="w-full text-sm">

@@ -194,14 +194,19 @@ async function discoverProjectFields(
     .map((f) => f.id);
 
   // Task complexity (1–5) and the "Issue Owner" user-picker — both feed the
-  // performance-review rating engine. Exact-name match keeps unrelated fields
-  // (e.g. "Complexity Notes", "Issue Owner Team") out.
+  // performance-review rating engine. Field names vary across the site
+  // (underscores, trailing "*", spacing), so normalize to letters-only before
+  // an exact match — e.g. "Issue_Owner*" / "Issue Owner" / "Issue_owner" all
+  // normalize to "issue owner", while "Dev Owner" / "Complexity Notes" don't.
+  const normName = (name: string) =>
+    name.toLowerCase().replace(/[^a-z]+/g, " ").trim();
+
   const complexityFieldIds = fields
-    .filter((f) => f.custom && /^complexity$/i.test(f.name.trim()))
+    .filter((f) => f.custom && normName(f.name) === "complexity")
     .map((f) => f.id);
 
   const issueOwnerFieldIds = fields
-    .filter((f) => f.custom && /^issue\s*owner$/i.test(f.name.trim()))
+    .filter((f) => f.custom && normName(f.name) === "issue owner")
     .map((f) => f.id);
 
   await db

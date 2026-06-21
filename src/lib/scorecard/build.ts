@@ -206,11 +206,13 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
       });
     }
 
-    if (assignee && isP1OrP2(b.priority) && b.completedAt && b.createdAt) {
+    // MTTR follows the same owner attribution as weighted bugs, so a bug is
+    // wholly the owner's (Issue Owner, assignee fallback) — not split.
+    if (owner && isP1OrP2(b.priority) && b.completedAt && b.createdAt) {
       const minutes =
         (b.completedAt.getTime() - b.createdAt.getTime()) / 60_000;
       if (minutes >= 0) {
-        const a = getAcc(assignee);
+        const a = getAcc(owner);
         a.mttrSamples.push(minutes);
         a.mttrItems.push({
           key: b.jiraKey,

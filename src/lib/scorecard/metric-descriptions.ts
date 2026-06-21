@@ -31,7 +31,7 @@ export const METRIC_INFO: Record<MetricKey, MetricInfo> = {
     range: "0–5",
     summary: "Average time to resolve the developer's high-priority bugs.",
     detail:
-      "Mean Time To Resolve — the average time from creation to completion across the developer's P1/P2 (high-priority) bugs, in minutes. Under 90 min → 5, under 180 min → 4, otherwise 0. (Thresholds are configurable.) Only P1/P2 bugs assigned to the developer count; a developer with no such bugs scores a full 5.",
+      "Mean Time To Resolve — the average time from creation to completion across the developer's P1/P2 (high-priority) bugs, in minutes. Under 90 min → 5, under 180 min → 4, otherwise 0. (Thresholds are configurable.) Only P1/P2 bugs owned by the developer (Issue Owner, assignee fallback) count; a developer with no such bugs scores a full 5.",
   },
   sprintCommitment: {
     range: "1–5",
