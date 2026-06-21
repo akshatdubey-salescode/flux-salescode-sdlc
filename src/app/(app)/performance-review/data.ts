@@ -1,7 +1,7 @@
 import { cacheLife, cacheTag } from "next/cache";
 import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { performanceScorecards } from "@/lib/db/schema";
+import { performanceScorecards, jiraProjects } from "@/lib/db/schema";
 import { PERFORMANCE_SCORECARDS_TAG } from "@/lib/scorecard/cache-tags";
 import type { MetricBreakdown } from "@/lib/scorecard/engine";
 
@@ -24,17 +24,21 @@ export type ScorecardBugItem = {
   summary: string;
   priority: string | null;
   weight: number;
+  /** Deep link to the issue in Jira; absent if the project base URL is unknown. */
+  url?: string;
 };
 export type ScorecardFeatureItem = {
   key: string;
   summary: string;
   complexity: number | null;
+  url?: string;
 };
 export type ScorecardMttrItem = {
   key: string;
   summary: string;
   priority: string | null;
   minutes: number;
+  url?: string;
 };
 export type ScorecardComplexityBucket = {
   label: string;
@@ -133,6 +137,31 @@ export async function fetchScorecards(quarterKey: string): Promise<ScorecardRow[
   }));
 }
 
+/**
+ * Map a Jira project key (e.g. "COCA") to its instance base URL, so per-issue
+ * breakdown rows can deep-link to the original Jira. Keyed upper-case.
+ */
+async function jiraBaseUrlByProjectKey(): Promise<Map<string, string>> {
+  const rows = await db
+    .select({
+      key: jiraProjects.jiraProjectKey,
+      baseUrl: jiraProjects.jiraBaseUrl,
+    })
+    .from(jiraProjects);
+  const map = new Map<string, string>();
+  for (const r of rows) {
+    map.set(r.key.toUpperCase(), r.baseUrl.replace(/\/+$/, ""));
+  }
+  return map;
+}
+
+/** `{baseUrl}/browse/{KEY}` for a Jira key, or undefined if the project is unknown. */
+function jiraUrl(key: string, baseUrls: Map<string, string>): string | undefined {
+  const prefix = key.split("-")[0]?.toUpperCase();
+  const base = prefix ? baseUrls.get(prefix) : undefined;
+  return base ? `${base}/browse/${key}` : undefined;
+}
+
 /** Full breakdown for one developer in a quarter (drill-down). */
 export async function fetchScorecardDetail(
   email: string,
@@ -153,10 +182,14 @@ export async function fetchScorecardDetail(
   if (!r) return null;
 
   const names = await nameMap();
+  const baseUrls = await jiraBaseUrlByProjectKey();
   const breakdown = (r.breakdown as ScorecardBreakdown) ?? {
     metrics: [],
     finalScore: 0,
   };
+
+  const withUrl = <T extends { key: string }>(items: T[]): T[] =>
+    items.map((i) => ({ ...i, url: jiraUrl(i.key, baseUrls) }));
 
   return {
     email: r.userEmail,
@@ -171,9 +204,9 @@ export async function fetchScorecardDetail(
     complexTasksCount: r.complexTasksCount,
     underestimatedTasksCount: r.underestimatedTasksCount,
     breakdown,
-    weightedBugItems: breakdown.items?.weightedBugs ?? [],
-    featureItems: breakdown.items?.features ?? [],
-    mttrItems: breakdown.items?.mttr ?? [],
+    weightedBugItems: withUrl(breakdown.items?.weightedBugs ?? []),
+    featureItems: withUrl(breakdown.items?.features ?? []),
+    mttrItems: withUrl(breakdown.items?.mttr ?? []),
     complexityBuckets: breakdown.items?.complexity ?? [],
   };
 }

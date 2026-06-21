@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireRole } from "@/lib/auth/server";
+import { requireAuth } from "@/lib/auth/server";
 import { PageHeader } from "@/components/page-header";
 import {
   Breadcrumb,
@@ -38,12 +38,30 @@ function resolveQuarterKey(raw: string | undefined): string {
   return currentQuarter().key;
 }
 
+/**
+ * Renders a Jira issue key. When the issue's instance URL is known it links to
+ * the original Jira issue, opening in a new tab; otherwise it's plain text.
+ */
+function JiraKeyLink({ item }: { item: { key: string; url?: string } }) {
+  if (!item.url) return <>{item.key}</>;
+  return (
+    <a
+      href={item.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-blue-600 hover:underline dark:text-blue-400"
+    >
+      {item.key}
+    </a>
+  );
+}
+
 export default async function PerformanceReviewPage({
   searchParams,
 }: {
   searchParams: SearchParams;
 }) {
-  await requireRole("SUPERUSER");
+  await requireAuth();
 
   const sp = await searchParams;
   const quarters = selectableQuarters();
@@ -212,7 +230,7 @@ export default async function PerformanceReviewPage({
                             className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60"
                           >
                             <td className="whitespace-nowrap px-4 py-2.5 align-top font-mono text-xs text-zinc-600 dark:text-zinc-300">
-                              {b.key}
+                              <JiraKeyLink item={b} />
                             </td>
                             <td className="px-4 py-2.5 align-top text-zinc-700 dark:text-zinc-300">
                               {b.summary}
@@ -270,7 +288,7 @@ export default async function PerformanceReviewPage({
                             className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60"
                           >
                             <td className="whitespace-nowrap px-4 py-2.5 align-top font-mono text-xs text-zinc-600 dark:text-zinc-300">
-                              {t.key}
+                              <JiraKeyLink item={t} />
                             </td>
                             <td className="px-4 py-2.5 align-top text-zinc-700 dark:text-zinc-300">
                               {t.summary}
@@ -335,7 +353,7 @@ export default async function PerformanceReviewPage({
                             className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60"
                           >
                             <td className="whitespace-nowrap px-4 py-2.5 align-top font-mono text-xs text-zinc-600 dark:text-zinc-300">
-                              {b.key}
+                              <JiraKeyLink item={b} />
                             </td>
                             <td className="px-4 py-2.5 align-top text-zinc-700 dark:text-zinc-300">
                               {b.summary}
