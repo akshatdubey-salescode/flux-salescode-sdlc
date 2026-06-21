@@ -43,7 +43,7 @@ function formatDuration(minutes: number): string {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
-export function MyMeetings() {
+export function MyMeetings({ forEmail }: { forEmail?: string } = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -77,6 +77,7 @@ export function MyMeetings() {
     setError(null);
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const params = new URLSearchParams({ start, end, tz });
+    if (forEmail) params.set("forEmail", forEmail);
     fetch(`/api/my-tasks/meetings?${params.toString()}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
       .then((body: MyMeetingsResponse) => {
@@ -93,7 +94,7 @@ export function MyMeetings() {
     return () => {
       cancelled = true;
     };
-  }, [start, end, refreshKey]);
+  }, [start, end, refreshKey, forEmail]);
 
   type Preset = "today" | "yesterday" | "thisWeek" | "last7" | "last30";
 
