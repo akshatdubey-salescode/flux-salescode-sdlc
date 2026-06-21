@@ -234,6 +234,8 @@ export function jiraOwnerBugLink(
   project: Pick<BugProject, "jiraBaseUrl" | "jiraProjectKey" | "ownerFieldNumIds">,
   account: string | null,
   priority?: string,
+  from?: string,
+  to?: string,
 ): string {
   const parts = [`project = "${project.jiraProjectKey}"`, `issuetype = Bug`];
 
@@ -242,6 +244,8 @@ export function jiraOwnerBugLink(
     parts.push(`(${ors.join(" OR ")})`);
   }
   if (priority) parts.push(`priority = "${priority}"`);
+  if (from)     parts.push(`created >= "${from}"`);
+  if (to)       parts.push(`created <= "${to}"`);
 
   const jql = parts.join(" AND ") + " ORDER BY priority ASC";
   const base = project.jiraBaseUrl.replace(/\/$/, "");

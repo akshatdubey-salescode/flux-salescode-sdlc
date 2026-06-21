@@ -252,6 +252,12 @@ export function BugBoardClient() {
       return next;
     });
 
+  // Resolved date range for Jira deep-links — stays in sync with the active filter
+  const { from: resolvedFrom, to: resolvedTo } = useMemo(
+    () => getDateParams(dateRange, customFrom || undefined, customTo || undefined),
+    [dateRange, customFrom, customTo],
+  );
+
   // Developer + visible-priority cols + Total + Open + % Share + View
   const colSpan = 1 + visiblePriorityCols.length + 4;
 
@@ -395,6 +401,8 @@ export function BugBoardClient() {
                     visiblePriorityCols={visiblePriorityCols}
                     prioritySet={prioritySet}
                     colSpan={colSpan}
+                    dateFrom={resolvedFrom}
+                    dateTo={resolvedTo}
                   />
                 ))
               )}
@@ -436,7 +444,7 @@ export function BugBoardClient() {
                 {expandedProjects.has("__total__") && (
                   <tr>
                     <td colSpan={colSpan} className="bg-zinc-50/50 px-5 py-3 dark:bg-zinc-800/20">
-                      <ProjectSplit row={totalOwnerRow} projectById={projectById} visiblePriorityCols={visiblePriorityCols} prioritySet={prioritySet} />
+                      <ProjectSplit row={totalOwnerRow} projectById={projectById} visiblePriorityCols={visiblePriorityCols} prioritySet={prioritySet} dateFrom={resolvedFrom} dateTo={resolvedTo} />
                     </td>
                   </tr>
                 )}
@@ -477,6 +485,8 @@ function OwnerRowView({
   visiblePriorityCols,
   prioritySet,
   colSpan,
+  dateFrom,
+  dateTo,
 }: {
   row: OwnerRow;
   team: TeamStats;
@@ -488,6 +498,8 @@ function OwnerRowView({
   visiblePriorityCols: PriorityCol[];
   prioritySet: Set<PriorityKey>;
   colSpan: number;
+  dateFrom?: string;
+  dateTo?: string;
 }) {
   const contrib = team.grandTotal > 0 ? (row.total / team.grandTotal) * 100 : 0;
   const neutral = row.isUnassigned;
@@ -525,7 +537,7 @@ function OwnerRowView({
       {projectsOpen && (
         <tr className="border-b border-zinc-100 dark:border-zinc-800/60">
           <td colSpan={colSpan} className="bg-zinc-50/50 px-5 py-3 dark:bg-zinc-800/20">
-            <ProjectSplit row={row} projectById={projectById} visiblePriorityCols={visiblePriorityCols} prioritySet={prioritySet} />
+            <ProjectSplit row={row} projectById={projectById} visiblePriorityCols={visiblePriorityCols} prioritySet={prioritySet} dateFrom={dateFrom} dateTo={dateTo} />
           </td>
         </tr>
       )}
@@ -655,12 +667,14 @@ function FoundBreakdown({ counts, prioritySet }: { counts: Counts; prioritySet: 
 // ---------------------------------------------------------------------------
 
 function ProjectSplit({
-  row, projectById, visiblePriorityCols, prioritySet,
+  row, projectById, visiblePriorityCols, prioritySet, dateFrom, dateTo,
 }: {
   row: OwnerRow;
   projectById: Map<string, BugProject>;
   visiblePriorityCols: PriorityCol[];
   prioritySet: Set<PriorityKey>;
+  dateFrom?: string;
+  dateTo?: string;
 }) {
   const projAvgTotal = row.projects.length > 0 ? row.total / row.projects.length : 0;
 
@@ -693,6 +707,8 @@ function ProjectSplit({
                 project={projectById.get(p.projectId)}
                 visiblePriorityCols={visiblePriorityCols}
                 prioritySet={prioritySet}
+                dateFrom={dateFrom}
+                dateTo={dateTo}
               />
             ))}
           </tbody>
@@ -703,7 +719,7 @@ function ProjectSplit({
 }
 
 function ProjectRowView({
-  p, ownerTotal, projAvgTotal, account, project, visiblePriorityCols,
+  p, ownerTotal, projAvgTotal, account, project, visiblePriorityCols, dateFrom, dateTo,
 }: {
   p: ProjectBreakdown;
   ownerTotal: number;
@@ -712,15 +728,17 @@ function ProjectRowView({
   project: BugProject | undefined;
   visiblePriorityCols: PriorityCol[];
   prioritySet: Set<PriorityKey>;
+  dateFrom?: string;
+  dateTo?: string;
 }) {
   const contrib  = ownerTotal > 0 ? (p.total / ownerTotal) * 100 : 0;
   const state    = rag(p.total, projAvgTotal);
   const badge    = RAG_BADGE[state];
-  const rowLink  = project ? jiraOwnerBugLink(project, account) : null;
+  const rowLink  = project ? jiraOwnerBugLink(project, account, undefined, dateFrom, dateTo) : null;
 
   const open = (priority?: string) => {
     if (!project) return;
-    window.open(jiraOwnerBugLink(project, account, priority), "_blank", "noopener,noreferrer");
+    window.open(jiraOwnerBugLink(project, account, priority, dateFrom, dateTo), "_blank", "noopener,noreferrer");
   };
 
   return (
