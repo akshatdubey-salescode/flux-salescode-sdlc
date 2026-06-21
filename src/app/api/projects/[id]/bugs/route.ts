@@ -11,6 +11,7 @@ import {
   normalizeEmail,
 } from "@/lib/jira/scorecard-fields";
 import { BUG_ISSUE_TYPES } from "@/lib/scorecard/config";
+import { localDateStr } from "@/lib/date-utils";
 import {
   resolveEnvironment,
   priorityBucket,
@@ -19,14 +20,32 @@ import {
   type BugSummaryResponse,
 } from "@/lib/bug-summary";
 
+/** Fallback window when the request omits an explicit range: last 30 days. */
+function defaultRange(): { start: string; end: string } {
+  const now = new Date();
+  const from = new Date(now);
+  from.setDate(from.getDate() - 29);
+  return { start: localDateStr(from), end: localDateStr(now) };
+}
+
+// Accept only YYYY-MM-DD; anything else falls back so a malformed query param
+// can't poison the cache key or the SQL date cast.
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
 export async function GET(
-  _request: Request,
+  request: Request,
   props: { params: Promise<{ id: string }> }
 ) {
   try {
     await requireAuth();
     const { id: projectId } = await props.params;
-    const data = await fetchProjectBugs(projectId);
+    const url = new URL(request.url);
+    const fallback = defaultRange();
+    const rawStart = url.searchParams.get("start");
+    const rawEnd = url.searchParams.get("end");
+    const start = rawStart && ISO_DATE.test(rawStart) ? rawStart : fallback.start;
+    const end = rawEnd && ISO_DATE.test(rawEnd) ? rawEnd : fallback.end;
+    const data = await fetchProjectBugs(projectId, start, end);
     return NextResponse.json(data);
   } catch (error) {
     console.error("Project bugs error:", error);
@@ -34,7 +53,11 @@ export async function GET(
   }
 }
 
-async function fetchProjectBugs(projectId: string): Promise<BugSummaryResponse> {
+async function fetchProjectBugs(
+  projectId: string,
+  start: string,
+  end: string
+): Promise<BugSummaryResponse> {
   "use cache";
   cacheLife("minutes");
   cacheTag("projects", `project:${projectId}`);
@@ -76,7 +99,11 @@ async function fetchProjectBugs(projectId: string): Promise<BugSummaryResponse> 
         sql`lower(trim(${jiraIssues.issueType})) in (${sql.join(
           [...BUG_ISSUE_TYPES].map((t) => sql`${t}`),
           sql`, `
-        )})`
+        )})`,
+        // Bugs raised within the selected range (by Jira creation date).
+        sql`${jiraIssues.jiraCreatedAt} is not null`,
+        sql`${jiraIssues.jiraCreatedAt}::date >= ${start}::date`,
+        sql`${jiraIssues.jiraCreatedAt}::date <= ${end}::date`
       )
     );
 
