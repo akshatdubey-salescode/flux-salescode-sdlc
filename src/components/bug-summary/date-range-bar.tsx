@@ -6,11 +6,22 @@ import type { DateRange as DayPickerRange } from "react-day-picker";
 import { RiCalendarLine } from "@remixicon/react";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getRangePresets, getQuarterChips } from "@/lib/date-utils";
 
-type Chip = { label: string; sublabel?: string; start: string; end: string };
+type Chip = { label: string; start: string; end: string; tooltip?: string };
+
+const activeChipClasses =
+  "border-primary bg-primary text-primary-foreground";
+const idleChipClasses =
+  "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900";
 
 /**
  * Quick-select chips (Last 7d / Last 30d + fiscal quarters) plus a custom
@@ -38,6 +49,8 @@ export function DateRangeBar({
       label: q.label,
       start: q.start,
       end: q.end,
+      // Month range, e.g. "Apr – Jun 2026", shown on hover.
+      tooltip: `${format(parseISO(q.start), "MMM")} – ${format(parseISO(q.end), "MMM yyyy")}`,
     })),
   ];
 
@@ -67,20 +80,28 @@ export function DateRangeBar({
       </span>
       {chips.map((c) => {
         const active = activeChip?.start === c.start && activeChip?.end === c.end;
-        return (
+        const button = (
           <button
-            key={c.label}
             onClick={() => onChange(c.start, c.end)}
             disabled={disabled}
             className={cn(
               "h-7 rounded-md border px-2.5 text-xs font-medium transition-colors disabled:opacity-50",
-              active
-                ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
-                : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900"
+              active ? activeChipClasses : idleChipClasses
             )}
           >
             {c.label}
           </button>
+        );
+        if (!c.tooltip) return <span key={c.label}>{button}</span>;
+        return (
+          <TooltipProvider key={c.label}>
+            <Tooltip>
+              <TooltipTrigger asChild>{button}</TooltipTrigger>
+              <TooltipContent side="top" className="text-xs">
+                {c.tooltip}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         );
       })}
 
@@ -92,9 +113,7 @@ export function DateRangeBar({
             disabled={disabled}
             className={cn(
               "flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors disabled:opacity-50",
-              isCustom
-                ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
-                : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900"
+              isCustom ? activeChipClasses : idleChipClasses
             )}
           >
             <RiCalendarLine className="size-3 shrink-0" />

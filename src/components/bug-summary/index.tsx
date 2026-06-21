@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   RiArrowUpSLine,
   RiArrowDownSLine,
@@ -8,14 +9,15 @@ import {
   RiExternalLinkLine,
   RiSearchLine,
   RiBugLine,
+  RiResetLeftLine,
 } from "@remixicon/react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getRangePresets } from "@/lib/date-utils";
 import {
   initials,
-  priorityStyles,
   statusCategoryStyles,
   formatRelativeTime,
 } from "@/components/project-tracking/helpers";
@@ -49,8 +51,33 @@ type DetailSortKey =
   | "status"
   | "updated";
 
+const SORT_KEYS: DetailSortKey[] = [
+  "key",
+  "summary",
+  "owner",
+  "priority",
+  "environment",
+  "status",
+  "updated",
+];
+const DEFAULT_SORT: DetailSortKey = "priority";
+const DEFAULT_DIR: "asc" | "desc" = "asc";
+
 const SUMMARY_PAGE_SIZE = 10;
 const DETAIL_PAGE_SIZE = 25;
+
+// URL query param keys. Prefixed so they never collide with the project's
+// other tabs (project-tracking uses bare `q`/`sortBy`/`page`/… on the same URL).
+const QP = {
+  start: "bs_start",
+  end: "bs_end",
+  env: "bs_env",
+  q: "bs_q",
+  owner: "bs_owner",
+  sort: "bs_sort",
+  dir: "bs_dir",
+  inv: "bs_inv", // "0" = include invalid statuses; absent = exclude (default)
+} as const;
 
 // Severity ordering so the Priority column sorts P1 → P2 → P3 → Other.
 const BUCKET_RANK: Record<BugPriorityBucket, number> = {
@@ -60,11 +87,46 @@ const BUCKET_RANK: Record<BugPriorityBucket, number> = {
   Other: 3,
 };
 
+// Severity colour ramp (most → least urgent): red → orange → amber → sky → slate.
+// Keyed by a normalized level so both numeric (P0–P4) and named (Highest/High/…)
+// Jira priorities land on the same colour. The shared priorityStyles helper only
+// knows the named set, so it leaves P0–P4 grey — hence this dedicated ramp.
+type PriorityLevel = "p0" | "p1" | "p2" | "p3" | "p4" | "none";
+
+function priorityLevel(priority: string | null): PriorityLevel {
+  const p = (priority ?? "").trim().toLowerCase();
+  if (p === "p0") return "p0";
+  if (["p1", "highest", "blocker", "critical"].includes(p)) return "p1";
+  if (["p2", "high", "major"].includes(p)) return "p2";
+  if (["p3", "medium", "moderate"].includes(p)) return "p3";
+  if (["p4", "low", "lowest", "minor", "trivial"].includes(p)) return "p4";
+  return "none";
+}
+
+const PRIORITY_COLORS: Record<PriorityLevel, { badge: string; dot: string }> = {
+  p0: { badge: "bg-red-200 text-red-900 dark:bg-red-950/60 dark:text-red-200", dot: "bg-red-700" },
+  p1: { badge: "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300", dot: "bg-red-500" },
+  p2: { badge: "bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300", dot: "bg-orange-500" },
+  p3: { badge: "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300", dot: "bg-amber-500" },
+  p4: { badge: "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300", dot: "bg-sky-500" },
+  none: { badge: "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400", dot: "bg-zinc-300 dark:bg-zinc-600" },
+};
+
+// Accent for the developer-table priority-bucket columns (P1/P2/P3/Other).
+const BUCKET_COLORS: Record<BugPriorityBucket, string> = {
+  P1: "text-red-600 dark:text-red-400",
+  P2: "text-orange-600 dark:text-orange-400",
+  P3: "text-amber-600 dark:text-amber-400",
+  Other: "text-zinc-500 dark:text-zinc-400",
+};
+
 function defaultRange(): { start: string; end: string } {
   const last30 = getRangePresets().find((p) => p.label === "Last 30 days");
-  return last30
-    ? { start: last30.start, end: last30.end }
-    : { start: "", end: "" };
+  return last30 ? { start: last30.start, end: last30.end } : { start: "", end: "" };
+}
+
+function asSortKey(v: string | null): DetailSortKey {
+  return v && (SORT_KEYS as string[]).includes(v) ? (v as DetailSortKey) : DEFAULT_SORT;
 }
 
 function buildOwnerSummaries(bugs: BugRow[]): OwnerSummary[] {
@@ -103,28 +165,87 @@ function buildOwnerSummaries(bugs: BugRow[]): OwnerSummary[] {
 }
 
 export function BugSummaryTab({ projectId }: Props) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const [bugs, setBugs] = useState<BugRow[]>([]);
   const [jiraBaseUrl, setJiraBaseUrl] = useState("");
   const [loading, setLoading] = useState(true);
 
-  // Global filters (apply to both tables).
-  const [range, setRange] = useState(defaultRange);
-  const [envFilter, setEnvFilter] = useState<string | null>(null);
+  // --- Filters are derived from the URL so they persist + are shareable. -----
+  const def = defaultRange();
+  const start = searchParams.get(QP.start) || def.start;
+  const end = searchParams.get(QP.end) || def.end;
+  const envFilter = searchParams.get(QP.env); // null when absent
+  const ownerFilter = searchParams.get(QP.owner); // owner key, null when absent
+  const q = searchParams.get(QP.q) ?? "";
+  const sortKey = asSortKey(searchParams.get(QP.sort));
+  const sortDir: "asc" | "desc" = searchParams.get(QP.dir) === "desc" ? "desc" : "asc";
+  // Exclude "Not a bug" / "Can't Reproduce" by default; bs_inv=0 includes them.
+  const excludeInvalid = searchParams.get(QP.inv) !== "0";
 
-  // Detail-table-only controls.
-  const [query, setQuery] = useState("");
-  const [ownerFilter, setOwnerFilter] = useState<string | null>(null); // owner key
-  const [sortKey, setSortKey] = useState<DetailSortKey>("priority");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const rangeChanged = start !== def.start || end !== def.end;
+  const hasActiveFilters =
+    rangeChanged ||
+    envFilter !== null ||
+    ownerFilter !== null ||
+    q !== "" ||
+    !excludeInvalid ||
+    sortKey !== DEFAULT_SORT ||
+    sortDir !== DEFAULT_DIR;
 
-  // Pagination.
+  // Local mirror of the search box for responsive typing; debounced into the URL.
+  const [searchInput, setSearchInput] = useState(q);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Pagination (transient — not persisted).
   const [summaryPage, setSummaryPage] = useState(1);
   const [detailPage, setDetailPage] = useState(1);
 
+  function updateParams(updates: Record<string, string | null>) {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === null || value === "") params.delete(key);
+      else params.set(key, value);
+    }
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }
+
+  function handleSearch(value: string) {
+    setSearchInput(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      updateParams({ [QP.q]: value || null });
+    }, 300);
+  }
+
+  function resetFilters() {
+    setSearchInput("");
+    updateParams({
+      [QP.start]: null,
+      [QP.end]: null,
+      [QP.env]: null,
+      [QP.owner]: null,
+      [QP.q]: null,
+      [QP.sort]: null,
+      [QP.dir]: null,
+      [QP.inv]: null,
+    });
+  }
+
+  function handleSort(key: DetailSortKey) {
+    if (sortKey === key) {
+      updateParams({ [QP.dir]: sortDir === "asc" ? "desc" : "asc" });
+    } else {
+      // Sensible default direction per column: text ascending, time descending.
+      updateParams({ [QP.sort]: key, [QP.dir]: key === "updated" ? "desc" : "asc" });
+    }
+  }
+
   useEffect(() => {
-    if (!range.start || !range.end) return;
+    if (!start || !end) return;
     setLoading(true);
-    const params = new URLSearchParams({ start: range.start, end: range.end });
+    const params = new URLSearchParams({ start, end });
     fetch(`/api/projects/${projectId}/bugs?${params.toString()}`)
       .then((r) => r.json())
       .then((data) => {
@@ -133,12 +254,18 @@ export function BugSummaryTab({ projectId }: Props) {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [projectId, range.start, range.end]);
+  }, [projectId, start, end]);
 
-  // Environment filter applies globally, so the developer table re-aggregates.
+  // Global filters (environment + invalid-status exclusion) feed BOTH tables,
+  // so the developer-wise counts re-aggregate too.
   const filteredBugs = useMemo(
-    () => (envFilter ? bugs.filter((b) => b.environment === envFilter) : bugs),
-    [bugs, envFilter]
+    () =>
+      bugs.filter(
+        (b) =>
+          (!envFilter || b.environment === envFilter) &&
+          (!excludeInvalid || !b.isInvalid)
+      ),
+    [bugs, envFilter, excludeInvalid]
   );
 
   const summaries = useMemo(() => buildOwnerSummaries(filteredBugs), [filteredBugs]);
@@ -178,17 +305,17 @@ export function BugSummaryTab({ projectId }: Props) {
   }, [bugs]);
 
   const detailSorted = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const needle = q.trim().toLowerCase();
     let list = filteredBugs.filter((b) => {
       if (ownerFilter && (b.ownerEmail ?? b.ownerName) !== ownerFilter) return false;
-      if (!q) return true;
+      if (!needle) return true;
       return (
-        b.jiraKey.toLowerCase().includes(q) ||
-        b.summary.toLowerCase().includes(q) ||
-        b.ownerName.toLowerCase().includes(q) ||
-        b.environment.toLowerCase().includes(q) ||
-        (b.priority ?? "").toLowerCase().includes(q) ||
-        b.status.toLowerCase().includes(q)
+        b.jiraKey.toLowerCase().includes(needle) ||
+        b.summary.toLowerCase().includes(needle) ||
+        b.ownerName.toLowerCase().includes(needle) ||
+        b.environment.toLowerCase().includes(needle) ||
+        (b.priority ?? "").toLowerCase().includes(needle) ||
+        b.status.toLowerCase().includes(needle)
       );
     });
 
@@ -224,11 +351,14 @@ export function BugSummaryTab({ projectId }: Props) {
       return cmp * dir;
     });
     return list;
-  }, [filteredBugs, query, ownerFilter, sortKey, sortDir]);
+  }, [filteredBugs, q, ownerFilter, sortKey, sortDir]);
 
   // Reset pagination when the underlying filtered set changes.
-  useEffect(() => setSummaryPage(1), [envFilter, bugs]);
-  useEffect(() => setDetailPage(1), [envFilter, query, ownerFilter, sortKey, sortDir, bugs]);
+  useEffect(() => setSummaryPage(1), [envFilter, excludeInvalid, bugs]);
+  useEffect(
+    () => setDetailPage(1),
+    [envFilter, excludeInvalid, q, ownerFilter, sortKey, sortDir, bugs]
+  );
 
   const summaryTotalPages = Math.max(1, Math.ceil(summaries.length / SUMMARY_PAGE_SIZE));
   const summaryPageSafe = Math.min(summaryPage, summaryTotalPages);
@@ -244,16 +374,6 @@ export function BugSummaryTab({ projectId }: Props) {
     detailPageSafe * DETAIL_PAGE_SIZE
   );
 
-  function handleSort(key: DetailSortKey) {
-    if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      // Sensible default direction per column: text ascending, time descending.
-      setSortDir(key === "updated" ? "desc" : "asc");
-    }
-  }
-
   function browseUrl(key: string) {
     if (!jiraBaseUrl) return null;
     return `${jiraBaseUrl.replace(/\/$/, "")}/browse/${key}`;
@@ -262,35 +382,58 @@ export function BugSummaryTab({ projectId }: Props) {
   return (
     <div className="space-y-7">
       {/* ----------------------------------------------------------------- */}
-      {/* Global filters: date range + environment                          */}
+      {/* Global filters: date range + environment + reset                  */}
       {/* ----------------------------------------------------------------- */}
       <div className="space-y-3">
-        <DateRangeBar
-          start={range.start}
-          end={range.end}
-          onChange={(start, end) => setRange({ start, end })}
-          disabled={loading}
-        />
-        {environments.length > 1 && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-0.5 text-[10px] font-bold uppercase tracking-widest text-zinc-400">
-              Env
-            </span>
-            <FilterChip
-              label="All"
-              active={envFilter === null}
-              onClick={() => setEnvFilter(null)}
-            />
-            {environments.map((env) => (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <DateRangeBar
+            start={start}
+            end={end}
+            onChange={(s, e) => updateParams({ [QP.start]: s, [QP.end]: e })}
+            disabled={loading}
+          />
+          {hasActiveFilters && (
+            <button
+              onClick={resetFilters}
+              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-zinc-200 px-2.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            >
+              <RiResetLeftLine className="size-3.5" />
+              Reset filters
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {environments.length > 1 ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-0.5 text-[10px] font-bold uppercase tracking-widest text-zinc-400">
+                Env
+              </span>
               <FilterChip
-                key={env}
-                label={env === ENV_UNSET ? "No env" : env}
-                active={envFilter === env}
-                onClick={() => setEnvFilter(envFilter === env ? null : env)}
+                label="All"
+                active={envFilter === null}
+                onClick={() => updateParams({ [QP.env]: null })}
               />
-            ))}
-          </div>
-        )}
+              {environments.map((env) => (
+                <FilterChip
+                  key={env}
+                  label={env === ENV_UNSET ? "No env" : env}
+                  active={envFilter === env}
+                  onClick={() => updateParams({ [QP.env]: envFilter === env ? null : env })}
+                />
+              ))}
+            </div>
+          ) : (
+            <span />
+          )}
+
+          <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+            <Checkbox
+              checked={excludeInvalid}
+              onCheckedChange={(v) => updateParams({ [QP.inv]: v === true ? null : "0" })}
+            />
+            Exclude “Not a bug” &amp; “Can’t Reproduce”
+          </label>
+        </div>
       </div>
 
       {loading ? (
@@ -332,10 +475,10 @@ export function BugSummaryTab({ projectId }: Props) {
                   <thead>
                     <tr className="border-b border-zinc-200 bg-zinc-50 text-left font-medium text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
                       <th className="px-4 py-2.5">Developer</th>
-                      <th className="px-3 py-2.5 text-center w-16">P1</th>
-                      <th className="px-3 py-2.5 text-center w-16">P2</th>
-                      <th className="px-3 py-2.5 text-center w-16">P3</th>
-                      {hasOther && <th className="px-3 py-2.5 text-center w-16">Other</th>}
+                      <th className={cn("px-3 py-2.5 text-center w-16 font-semibold", BUCKET_COLORS.P1)}>P1</th>
+                      <th className={cn("px-3 py-2.5 text-center w-16 font-semibold", BUCKET_COLORS.P2)}>P2</th>
+                      <th className={cn("px-3 py-2.5 text-center w-16 font-semibold", BUCKET_COLORS.P3)}>P3</th>
+                      {hasOther && <th className={cn("px-3 py-2.5 text-center w-16 font-semibold", BUCKET_COLORS.Other)}>Other</th>}
                       <th className="px-3 py-2.5 text-center w-20">Total</th>
                       <th className="px-3 py-2.5 text-center w-16">Open</th>
                     </tr>
@@ -347,7 +490,9 @@ export function BugSummaryTab({ projectId }: Props) {
                       return (
                         <tr
                           key={key}
-                          onClick={() => setOwnerFilter(active ? null : key)}
+                          onClick={() =>
+                            updateParams({ [QP.owner]: active ? null : key })
+                          }
                           className={cn(
                             "cursor-pointer transition-colors",
                             active
@@ -373,10 +518,10 @@ export function BugSummaryTab({ projectId }: Props) {
                               </span>
                             </span>
                           </td>
-                          <CountCell value={s.p1} />
-                          <CountCell value={s.p2} />
-                          <CountCell value={s.p3} />
-                          {hasOther && <CountCell value={s.other} />}
+                          <CountCell value={s.p1} colorClass={BUCKET_COLORS.P1} />
+                          <CountCell value={s.p2} colorClass={BUCKET_COLORS.P2} />
+                          <CountCell value={s.p3} colorClass={BUCKET_COLORS.P3} />
+                          {hasOther && <CountCell value={s.other} colorClass={BUCKET_COLORS.Other} />}
                           <td className="px-3 py-2 text-center">
                             <span className="font-semibold text-rose-600 dark:text-rose-400">
                               {s.total}
@@ -428,8 +573,8 @@ export function BugSummaryTab({ projectId }: Props) {
               <div className="relative w-full max-w-xs">
                 <RiSearchLine className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-zinc-400" />
                 <Input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
+                  value={searchInput}
+                  onChange={(e) => handleSearch(e.target.value)}
                   placeholder="Search key, summary, owner…"
                   className="h-8 pl-8 text-xs"
                 />
@@ -446,7 +591,7 @@ export function BugSummaryTab({ projectId }: Props) {
                   </span>
                 </span>
                 <button
-                  onClick={() => setOwnerFilter(null)}
+                  onClick={() => updateParams({ [QP.owner]: null })}
                   className="rounded border border-zinc-200 px-1.5 py-0.5 font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
                 >
                   Clear
@@ -478,7 +623,7 @@ export function BugSummaryTab({ projectId }: Props) {
                     ) : (
                       detailPageItems.map((b) => {
                         const url = browseUrl(b.jiraKey);
-                        const pStyles = priorityStyles(b.priority);
+                        const pColor = PRIORITY_COLORS[priorityLevel(b.priority)];
                         const sStyles = statusCategoryStyles(b.statusCategory);
                         return (
                           <tr
@@ -533,12 +678,19 @@ export function BugSummaryTab({ projectId }: Props) {
                               </span>
                             </td>
                             <td className="px-3 py-2">
-                              <span className="inline-flex items-center gap-1.5">
-                                <span className={cn("size-1.5 rounded-full", pStyles.dot)} />
-                                <span className={cn("font-medium", pStyles.text)}>
-                                  {b.priority ?? "—"}
+                              {b.priority ? (
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                                    pColor.badge
+                                  )}
+                                >
+                                  <span className={cn("size-1.5 rounded-full", pColor.dot)} />
+                                  {b.priority}
                                 </span>
-                              </span>
+                              ) : (
+                                <span className="text-zinc-300 dark:text-zinc-600">—</span>
+                              )}
                             </td>
                             <td className="px-3 py-2">
                               {b.environment === ENV_UNSET ? (
@@ -632,11 +784,13 @@ function Pagination({
   );
 }
 
-function CountCell({ value }: { value: number }) {
+function CountCell({ value, colorClass }: { value: number; colorClass?: string }) {
   return (
     <td className="px-3 py-2 text-center tabular-nums">
       {value > 0 ? (
-        <span className="text-zinc-700 dark:text-zinc-300">{value}</span>
+        <span className={cn("font-medium", colorClass ?? "text-zinc-700 dark:text-zinc-300")}>
+          {value}
+        </span>
       ) : (
         <span className="text-zinc-300 dark:text-zinc-700">·</span>
       )}
@@ -659,7 +813,7 @@ function FilterChip({
       className={cn(
         "rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
         active
-          ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+          ? "bg-primary text-primary-foreground"
           : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
       )}
     >

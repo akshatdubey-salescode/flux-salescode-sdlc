@@ -10,7 +10,7 @@ import {
   extractIssueOwnerName,
   normalizeEmail,
 } from "@/lib/jira/scorecard-fields";
-import { BUG_ISSUE_TYPES } from "@/lib/scorecard/config";
+import { BUG_ISSUE_TYPES, BUG_INVALID_STATUSES, normalizeStatus } from "@/lib/scorecard/config";
 import { localDateStr } from "@/lib/date-utils";
 import {
   resolveEnvironment,
@@ -124,6 +124,7 @@ async function fetchProjectBugs(
     );
 
     const isOpen = (r.statusCategory ?? "").trim().toLowerCase() !== "done";
+    const isInvalid = BUG_INVALID_STATUSES.has(normalizeStatus(r.status));
 
     return {
       id: r.id,
@@ -137,6 +138,7 @@ async function fetchProjectBugs(
       ownerName,
       ownerEmail,
       isOpen,
+      isInvalid,
       jiraCreatedAt: r.jiraCreatedAt ? r.jiraCreatedAt.toISOString() : null,
       jiraUpdatedAt: r.jiraUpdatedAt ? r.jiraUpdatedAt.toISOString() : null,
     };

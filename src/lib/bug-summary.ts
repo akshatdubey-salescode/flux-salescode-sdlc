@@ -20,6 +20,11 @@ export type BugRow = {
   ownerEmail: string | null;
   /** Not yet resolved (status category is not Done). */
   isOpen: boolean;
+  /**
+   * Status excludes this bug from "real" counts — "Not a bug" / "Can't
+   * Reproduce" — matching the performance engine's BUG_INVALID_STATUSES.
+   */
+  isInvalid: boolean;
   jiraCreatedAt: string | null;
   jiraUpdatedAt: string | null;
 };
