@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
-import { eq, or, sql } from "drizzle-orm";
 import { cacheLife, cacheTag } from "next/cache";
-import { jiraIssues } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { localDateStr } from "@/lib/date-utils";
-import { loadBugRows, dateRangeConditions } from "@/lib/bug-summary-query";
+import {
+  loadBugRows,
+  dateRangeConditions,
+  ownedByConditions,
+} from "@/lib/bug-summary-query";
 import type { BugRow } from "@/lib/bug-summary";
 
 function defaultRange(): { start: string; end: string } {
@@ -43,12 +45,9 @@ async function fetchMyBugs(
   cacheLife("minutes");
   cacheTag("projects", `bugs-owner:${email}`);
 
-  // Bugs on this person's plate across every project: primary assignee or an
-  // additional (multi-picker) assignee.
-  const mine = or(
-    eq(jiraIssues.assigneeEmail, email),
-    sql`${email} = ANY(${jiraIssues.additionalAssigneeEmails})`
-  )!;
-
-  return loadBugRows([mine, ...dateRangeConditions(start, end)]);
+  // Bugs I *own* across every project — Issue Owner = me, or (no Issue Owner)
+  // assigned to me. Candidate condition is a superset; loadBugRows narrows to
+  // the exact resolved owner.
+  const candidate = await ownedByConditions([email]);
+  return loadBugRows([candidate, ...dateRangeConditions(start, end)], [email]);
 }

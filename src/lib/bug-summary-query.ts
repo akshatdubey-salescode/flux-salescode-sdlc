@@ -1,4 +1,4 @@
-import { and, eq, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { jiraIssues, jiraProjects } from "@/lib/db/schema";
 import { loadAccountIdEmailMap } from "@/lib/jira/identity";
@@ -34,6 +34,40 @@ export function dateRangeConditions(start: string, end: string): SQL[] {
   ];
 }
 
+/** All accountIds we know for the given emails (reverse of the identity map). */
+async function accountIdsForEmails(emails: string[]): Promise<string[]> {
+  const want = new Set(emails.map((e) => e.toLowerCase()));
+  const map = await loadAccountIdEmailMap(); // accountId -> email
+  const out: string[] = [];
+  for (const [accountId, email] of map) {
+    if (want.has(email)) out.push(accountId);
+  }
+  return out;
+}
+
+/**
+ * SQL candidate superset for "owner ∈ these people". Owner resolves to the
+ * Issue Owner field, falling back to the primary assignee, so we match either:
+ *   - primary assignee is one of the emails (covers the assignee fallback), OR
+ *   - the issue-owner user object lives in custom_fields and references the
+ *     person's accountId (always present, even when their email is hidden) or
+ *     email.
+ * This is intentionally loose — loadBugRows then post-filters on the exact
+ * resolved ownerEmail, which removes the false positives (e.g. assigned-to-me
+ * but owned-by-someone-else) and any unrelated custom-field matches.
+ */
+export async function ownedByConditions(emails: string[]): Promise<SQL> {
+  const lower = emails.map((e) => e.toLowerCase());
+  const accountIds = await accountIdsForEmails(lower);
+
+  const clauses: SQL[] = [];
+  if (lower.length) clauses.push(inArray(jiraIssues.assigneeEmail, lower));
+  for (const token of [...accountIds, ...lower]) {
+    clauses.push(sql`${jiraIssues.customFields}::text ILIKE ${`%${token}%`}`);
+  }
+  return or(...clauses)!;
+}
+
 /**
  * Load bug rows across one or more projects, resolving owner (Issue Owner field
  * → assignee) and environment per project. Shared by every bug-tracker scope
@@ -41,7 +75,10 @@ export function dateRangeConditions(start: string, end: string): SQL[] {
  * The caller supplies the scope + date conditions; the bug-type filter is added
  * here.
  */
-export async function loadBugRows(conditions: SQL[]): Promise<BugRow[]> {
+export async function loadBugRows(
+  conditions: SQL[],
+  restrictToOwners?: string[]
+): Promise<BugRow[]> {
   const accountIdEmailMap = await loadAccountIdEmailMap();
 
   const rows = await db
@@ -67,7 +104,7 @@ export async function loadBugRows(conditions: SQL[]): Promise<BugRow[]> {
     .innerJoin(jiraProjects, eq(jiraIssues.projectId, jiraProjects.id))
     .where(and(bugTypeCondition, ...conditions));
 
-  return rows.map((r): BugRow => {
+  const mapped = rows.map((r): BugRow => {
     const ownerEmail =
       extractIssueOwnerEmail(r.customFields, r.issueOwnerFieldIds, accountIdEmailMap) ??
       normalizeEmail(r.assigneeEmail);
@@ -100,4 +137,13 @@ export async function loadBugRows(conditions: SQL[]): Promise<BugRow[]> {
       jiraUpdatedAt: r.jiraUpdatedAt ? r.jiraUpdatedAt.toISOString() : null,
     };
   });
+
+  // Keep only bugs whose resolved owner is in scope. This is what makes "My
+  // Bugs" / a team's bugs mean *owned by*, not merely *assigned to* — a bug
+  // assigned to me but owned by someone else is dropped here.
+  if (restrictToOwners && restrictToOwners.length) {
+    const owners = new Set(restrictToOwners.map((e) => e.toLowerCase()));
+    return mapped.filter((b) => b.ownerEmail != null && owners.has(b.ownerEmail));
+  }
+  return mapped;
 }

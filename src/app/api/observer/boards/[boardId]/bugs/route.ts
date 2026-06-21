@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
-import { eq, inArray, or, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
-import { jiraIssues, observerBoardMembers } from "@/lib/db/schema";
+import { observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { localDateStr } from "@/lib/date-utils";
-import { loadBugRows, dateRangeConditions } from "@/lib/bug-summary-query";
+import {
+  loadBugRows,
+  dateRangeConditions,
+  ownedByConditions,
+} from "@/lib/bug-summary-query";
 import type { BugRow } from "@/lib/bug-summary";
 
 function defaultRange(): { start: string; end: string } {
@@ -55,15 +59,9 @@ async function fetchTeamBugs(
   const emails = members.map((m) => m.email.toLowerCase());
   if (emails.length === 0) return [];
 
-  // Assigned to any team member — primary or additional (multi-picker) assignee.
-  const emailArray = sql`ARRAY[${sql.join(
-    emails.map((e) => sql`${e}`),
-    sql`, `
-  )}]::text[]`;
-  const assignedToTeam = or(
-    inArray(jiraIssues.assigneeEmail, emails),
-    sql`${jiraIssues.additionalAssigneeEmails} && ${emailArray}`
-  )!;
-
-  return loadBugRows([assignedToTeam, ...dateRangeConditions(start, end)]);
+  // Bugs *owned by* any team member (Issue Owner → assignee), across every
+  // project. Candidate condition is a superset; loadBugRows narrows to bugs
+  // whose resolved owner is actually on the team.
+  const candidate = await ownedByConditions(emails);
+  return loadBugRows([candidate, ...dateRangeConditions(start, end)], emails);
 }
