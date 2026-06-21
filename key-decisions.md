@@ -1,9 +1,10 @@
 # Performance Review Engine — Key Decisions
 
 Decisions taken while migrating the external "Rating Engine" logic (see
-`public/dev pulse rating doc.pdf`) into this platform as a superuser-only
+`public/dev pulse rating doc.pdf`) into this platform as a
 **Performance Review** dashboard that suggests quarterly developer ratings from
-synced Jira data.
+synced Jira data. Viewing is open to all signed-in users; only recomputing is
+superuser-gated (see Access control).
 
 > Naming: we deliberately avoid the product name from the source doc. Use
 > generic terms — "performance review", "scorecard", "rating" — everywhere in
@@ -35,7 +36,10 @@ synced Jira data.
   resolved via the same accountId→email map used for the assignee.
 - **MTTR** duration = `completed_at − jira_created_at` (wall-clock "time to
   resolve"), since we don't track bug `actual_start/actual_end` dates. Only P1/P2
-  bugs contribute samples; attributed to the **assignee**.
+  bugs contribute samples; attributed to the **bug owner** (Issue Owner field,
+  assignee fallback) — the *same* attribution as the weighted-bug penalty, so a
+  bug is wholly its owner's for both metrics rather than split between owner and
+  assignee.
 - **Sprint Commitment** uses the **due date** (existing `extractDueDate`, native
   + discovered fields) and treats **`completed_at` as the actual-end date**. The
   source rule "all four dates required" is relaxed to "has a due date and is
@@ -74,8 +78,14 @@ synced Jira data.
   `breakdown` JSONB powering the drill-down without recomputation.
 - A quarter is recomputed via a **superuser server action** ("Recompute"),
   which replaces that quarter's rows atomically and invalidates the
-  `performance-scorecards` cache tag with the `"max"` profile. No cron this round
-  (can be added later).
+  `performance-scorecards` cache tag with the `"max"` profile.
+- **Recompute cadence is manual, on purpose.** Scores are a stored snapshot, not
+  live: numbers only change after a Jira **resync** *and* a recompute. Recompute
+  at review time, after a bulk complexity backfill, or after the identity-resolve
+  script. **Realtime was explicitly rejected** — it's a full-quarter rebuild over
+  non-realtime inputs, so per-edit recompute is all cost and no benefit. A
+  **scheduled cron** (e.g. nightly for the current quarter, ideally chained after
+  the Jira sync) is the recommended next step but is **not built** this round.
 - **Config is centralized** (`src/lib/scorecard/config.ts`) as the source-doc
   defaults (weights, rubric thresholds, priority/complexity maps), structured so
   it can move to DB-backed config later without touching the formulas. The engine
@@ -84,6 +94,19 @@ synced Jira data.
 
 ## Access control
 
-- The dashboard (`/performance-review`) and its recompute action are gated by
-  `requireRole("SUPERUSER")`. The nav link and command-palette entry only appear
-  for superusers.
+- **Viewing is open to all signed-in users.** The dashboard
+  (`/performance-review`) is guarded only by `requireAuth()`, and its nav entry
+  lives in the **Analytics** section (visible to everyone), not the superuser-only
+  Admin section.
+- **Recompute stays superuser-only.** It's a heavy full-quarter rebuild, so the
+  button is hidden for non-superusers (a `canRecompute` prop) and the server
+  action is guarded by `requireRole("SUPERUSER")` — defense in depth, so the gate
+  holds even if the button is bypassed.
+
+## Drill-down UX
+
+- Each Jira key in the breakdown tables (weighted bugs, feature tasks, MTTR
+  samples) **deep-links to the original Jira issue** (`{baseUrl}/browse/{KEY}`,
+  opened in a new tab). The base URL is resolved from the issue key's
+  project-key prefix against `jira_projects`, so no extra data is stored on the
+  scorecard; keys for unknown projects render as plain text.
