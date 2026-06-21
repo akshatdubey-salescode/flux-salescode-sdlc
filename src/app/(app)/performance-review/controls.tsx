@@ -20,10 +20,12 @@ export function ReviewControls({
   quarters,
   selectedKey,
   computedAt,
+  canRecompute,
 }: {
   quarters: QuarterOption[];
   selectedKey: string;
   computedAt: string | null;
+  canRecompute: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -63,19 +65,21 @@ export function ReviewControls({
         </SelectContent>
       </Select>
 
-      <Button
-        variant="outline"
-        onClick={onRecompute}
-        disabled={isPending}
-        className="gap-2"
-      >
-        {isPending ? (
-          <RiLoader4Line className="size-4 animate-spin" />
-        ) : (
-          <RiRefreshLine className="size-4" />
-        )}
-        {isPending ? "Recomputing…" : "Recompute"}
-      </Button>
+      {canRecompute && (
+        <Button
+          variant="outline"
+          onClick={onRecompute}
+          disabled={isPending}
+          className="gap-2"
+        >
+          {isPending ? (
+            <RiLoader4Line className="size-4 animate-spin" />
+          ) : (
+            <RiRefreshLine className="size-4" />
+          )}
+          {isPending ? "Recomputing…" : "Recompute"}
+        </Button>
+      )}
 
       {computedAt && (
         <span className="text-xs text-zinc-500 dark:text-zinc-400">

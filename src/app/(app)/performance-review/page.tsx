@@ -61,7 +61,8 @@ export default async function PerformanceReviewPage({
 }: {
   searchParams: SearchParams;
 }) {
-  await requireAuth();
+  const user = await requireAuth();
+  const canRecompute = user.role === "SUPERUSER";
 
   const sp = await searchParams;
   const quarters = selectableQuarters();
@@ -574,6 +575,7 @@ export default async function PerformanceReviewPage({
             quarters={quarters}
             selectedKey={quarterKey}
             computedAt={computedAt}
+            canRecompute={canRecompute}
           />
 
           <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">

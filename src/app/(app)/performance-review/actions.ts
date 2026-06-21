@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidateTag } from "next/cache";
-import { requireAuth } from "@/lib/auth/server";
+import { requireRole } from "@/lib/auth/server";
 import { buildScorecards } from "@/lib/scorecard/build";
 import { PERFORMANCE_SCORECARDS_TAG } from "@/lib/scorecard/cache-tags";
 import { quarterFromKey } from "@/lib/scorecard/quarter";
@@ -13,12 +13,12 @@ export type RecomputeResult = {
 
 /**
  * Recompute and persist every developer's scorecard for the given quarter,
- * then invalidate the cached leaderboard/breakdown reads. Any signed-in user.
+ * then invalidate the cached leaderboard/breakdown reads. Superuser-only.
  */
 export async function recomputeScorecards(
   quarterKey: string
 ): Promise<RecomputeResult> {
-  await requireAuth();
+  await requireRole("SUPERUSER");
 
   if (!quarterFromKey(quarterKey)) {
     return { error: "Invalid quarter." };
