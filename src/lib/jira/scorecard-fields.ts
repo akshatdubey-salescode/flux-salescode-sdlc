@@ -55,6 +55,27 @@ export function extractIssueOwnerEmail(
 }
 
 /**
+ * Display name of the "Issue Owner" user-picker, paired with
+ * extractIssueOwnerEmail for UI attribution (the bug summary shows the owner's
+ * name, not their email). Handles single-user (object) and multi-user (array,
+ * first entry) pickers. Returns the trimmed displayName or null.
+ */
+export function extractIssueOwnerName(
+  cf: CustomFields | null | undefined,
+  discovered: string[] | null
+): string | null {
+  if (!cf || !discovered?.length) return null;
+  for (const key of discovered) {
+    const raw = cf[key];
+    const user = Array.isArray(raw) ? raw[0] : raw;
+    if (!user || typeof user !== "object") continue;
+    const name = (user as { displayName?: string }).displayName;
+    if (typeof name === "string" && name.trim()) return name.trim();
+  }
+  return null;
+}
+
+/**
  * Original estimate in seconds (Jira's timeoriginalestimate). Returns null
  * when missing. The AI-tasks metric treats a missing estimate as
  * non-qualifying, so null must be distinguishable from 0.

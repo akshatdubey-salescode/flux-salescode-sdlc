@@ -159,6 +159,7 @@ type DiscoveredFields = {
   startDateFieldIds: string[];
   complexityFieldIds: string[];
   issueOwnerFieldIds: string[];
+  environmentFieldIds: string[];
 };
 
 async function discoverProjectFields(
@@ -209,6 +210,13 @@ async function discoverProjectFields(
     .filter((f) => f.custom && normName(f.name) === "issue owner")
     .map((f) => f.id);
 
+  // The "Environment" dropdown (Prod/Demo/UAT) that feeds the bug summary.
+  // Exact normalized-name match keeps unrelated fields ("Test Environment
+  // Notes" etc.) out.
+  const environmentFieldIds = fields
+    .filter((f) => f.custom && normName(f.name) === "environment")
+    .map((f) => f.id);
+
   await db
     .update(jiraProjects)
     .set({
@@ -217,6 +225,7 @@ async function discoverProjectFields(
       startDateFieldIds,
       complexityFieldIds,
       issueOwnerFieldIds,
+      environmentFieldIds,
     })
     .where(eq(jiraProjects.id, projectId));
 
@@ -226,6 +235,7 @@ async function discoverProjectFields(
     startDateFieldIds,
     complexityFieldIds,
     issueOwnerFieldIds,
+    environmentFieldIds,
   };
 }
 
@@ -243,6 +253,7 @@ export async function resolveProjectFieldConfig(
     startDateFieldIds: string[] | null;
     complexityFieldIds: string[] | null;
     issueOwnerFieldIds: string[] | null;
+    environmentFieldIds: string[] | null;
   }
 ): Promise<{
   multiAssigneeFieldIds: string[];
@@ -254,6 +265,7 @@ export async function resolveProjectFieldConfig(
   let startDateFieldIds: string[] | null = project.startDateFieldIds;
   let complexityFieldIds: string[] | null = project.complexityFieldIds;
   let issueOwnerFieldIds: string[] | null = project.issueOwnerFieldIds;
+  let environmentFieldIds: string[] | null = project.environmentFieldIds;
 
   try {
     const discovered = await discoverProjectFields(client, project.id);
@@ -262,6 +274,7 @@ export async function resolveProjectFieldConfig(
     startDateFieldIds = discovered.startDateFieldIds;
     complexityFieldIds = discovered.complexityFieldIds;
     issueOwnerFieldIds = discovered.issueOwnerFieldIds;
+    environmentFieldIds = discovered.environmentFieldIds;
   } catch (err) {
     // Transient API failure — keep the previously-cached values for this sync.
     console.warn(`[sync] field discovery failed for project ${project.id}:`, err);
@@ -273,6 +286,7 @@ export async function resolveProjectFieldConfig(
   if (startDateFieldIds?.length) extraFields.push(...startDateFieldIds);
   if (complexityFieldIds?.length) extraFields.push(...complexityFieldIds);
   if (issueOwnerFieldIds?.length) extraFields.push(...issueOwnerFieldIds);
+  if (environmentFieldIds?.length) extraFields.push(...environmentFieldIds);
 
   return {
     multiAssigneeFieldIds: multiAssigneeFieldIds ?? [],

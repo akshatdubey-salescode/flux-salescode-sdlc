@@ -98,6 +98,11 @@ export const jiraProjects = pgTable(
     // rating engine. Same null/[]/[...] semantics as above.
     complexityFieldIds: text("complexity_field_ids").array(),
     issueOwnerFieldIds: text("issue_owner_field_ids").array(),
+    // Auto-discovered Jira custom field IDs for the "Environment" dropdown
+    // (e.g. Prod/Demo/UAT) that feeds the bug-summary env column. The system
+    // `environment` field is an unreliable fallback — most projects record it
+    // in this custom select instead. Same null/[]/[...] semantics as above.
+    environmentFieldIds: text("environment_field_ids").array(),
     createdBy: text("created_by")
       .notNull()
       .references(() => users.id),
