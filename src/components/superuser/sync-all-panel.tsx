@@ -8,6 +8,7 @@ import {
   RiErrorWarningLine,
   RiLoader4Line,
   RiRefreshLine,
+  RiTimeLine,
 } from "@remixicon/react";
 import {
   AlertDialog,
@@ -34,7 +35,19 @@ type Project = {
   lastSyncedAt: Date | null;
 };
 
-type SyncStatus = "idle" | "pending" | "running" | "completed" | "failed" | "skipped";
+type SyncStatus =
+  | "idle"
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "skipped"
+  | "timed-out";
+
+// Abandon a project whose sync job shows no forward progress (identical status
+// + counts) across this many consecutive polls (~5s each ≈ 60s of silence), so
+// one stuck project can't hold the entire queue behind it (convoy effect).
+const MAX_STALL_POLLS = 12;
 
 type ProjectState = {
   status: SyncStatus;
@@ -89,32 +102,54 @@ export function SyncAllPanel({ projects }: { projects: Project[] }) {
     }
   }
 
-  async function pollUntilDone(projectId: string, jobId: string) {
+  async function pollUntilDone(
+    projectId: string,
+    jobId: string
+  ): Promise<"done" | "aborted" | "stalled"> {
+    let lastSignature = "";
+    let stallCount = 0;
+
     for (;;) {
       await interruptibleSleep(5000);
-      if (abortRef.current) return;
+      if (abortRef.current) return "aborted";
+
+      // Empty signature = couldn't read the job this tick; treated as "no
+      // progress" so a persistently unreachable job also trips the stall guard.
+      let signature = "";
 
       const res = await fetch(`/api/sync-jobs/${jobId}`);
-      if (!res.ok) continue;
+      if (res.ok) {
+        const job = (await res.json()) as {
+          status: string;
+          syncedCount: number;
+          totalIssues: number | null;
+          errorCount: number;
+        };
 
-      const job = (await res.json()) as {
-        status: string;
-        syncedCount: number;
-        totalIssues: number | null;
-        errorCount: number;
-      };
+        const status: SyncStatus =
+          job.status === "completed" ? "completed" : job.status === "failed" ? "failed" : "running";
 
-      const status: SyncStatus =
-        job.status === "completed" ? "completed" : job.status === "failed" ? "failed" : "running";
+        patch(projectId, {
+          status,
+          syncedCount: job.syncedCount,
+          totalIssues: job.totalIssues,
+          errorCount: job.errorCount,
+        });
 
-      patch(projectId, {
-        status,
-        syncedCount: job.syncedCount,
-        totalIssues: job.totalIssues,
-        errorCount: job.errorCount,
-      });
+        if (job.status === "completed" || job.status === "failed") return "done";
 
-      if (job.status === "completed" || job.status === "failed") return;
+        signature = `${job.status}:${job.syncedCount}:${job.totalIssues}:${job.errorCount}`;
+      }
+
+      // Reset the stall counter whenever something actually advanced; otherwise
+      // count this poll as silence and give up once we hit the budget.
+      if (signature !== "" && signature !== lastSignature) {
+        lastSignature = signature;
+        stallCount = 0;
+      } else if (++stallCount >= MAX_STALL_POLLS) {
+        patch(projectId, { status: "timed-out" });
+        return "stalled";
+      }
     }
   }
 
@@ -153,11 +188,13 @@ export function SyncAllPanel({ projects }: { projects: Project[] }) {
 
         const { jobId } = (await res.json()) as { jobId: string };
         patch(project.id, { status: "running", jobId });
-        await pollUntilDone(project.id, jobId);
-        if (abortRef.current) {
+        const outcome = await pollUntilDone(project.id, jobId);
+        if (outcome === "aborted") {
           patch(project.id, { status: "idle" });
           break;
         }
+        // "stalled" → already marked timed-out; fall through to the next project
+        // rather than waiting on a job that isn't making progress.
       } catch {
         patch(project.id, { status: "failed" });
       }
@@ -188,12 +225,17 @@ export function SyncAllPanel({ projects }: { projects: Project[] }) {
     (acc, s) => {
       if (s.status === "completed") acc.completed++;
       else if (s.status === "failed") acc.failed++;
+      else if (s.status === "timed-out") acc.timedOut++;
       return acc;
     },
-    { completed: 0, failed: 0 }
+    { completed: 0, failed: 0, timedOut: 0 }
   );
 
-  const isDone = !isRunning && Object.values(states).some((s) => s.status === "completed" || s.status === "failed");
+  const isDone =
+    !isRunning &&
+    Object.values(states).some(
+      (s) => s.status === "completed" || s.status === "failed" || s.status === "timed-out"
+    );
 
   return (
     <div className="space-y-4">
@@ -203,7 +245,7 @@ export function SyncAllPanel({ projects }: { projects: Project[] }) {
           {isRunning && activeIndex !== null
             ? `Project ${activeIndex + 1} of ${queue.length} selected`
             : isDone
-              ? `${counts.completed} synced${counts.failed > 0 ? ` · ${counts.failed} failed` : ""}`
+              ? `${counts.completed} synced${counts.failed > 0 ? ` · ${counts.failed} failed` : ""}${counts.timedOut > 0 ? ` · ${counts.timedOut} timed out` : ""}`
               : `${selected.size} of ${projects.length} selected`}
         </p>
 
@@ -372,6 +414,11 @@ function ProjectRow({
             )}
             {state.status === "pending" && <span className="text-yellow-500">Queued…</span>}
             {state.status === "failed" && <span className="text-red-500">Sync failed</span>}
+            {state.status === "timed-out" && (
+              <span className="text-amber-500">
+                No progress — skipped after {(MAX_STALL_POLLS * 5)}s
+              </span>
+            )}
             {state.status === "skipped" && <span>Skipped</span>}
           </div>
         </div>
@@ -417,6 +464,7 @@ function StatusIcon({ status }: { status: SyncStatus }) {
       )}
       {status === "completed" && <RiCheckLine className="size-4 text-green-500" />}
       {status === "failed" && <RiErrorWarningLine className="size-4 text-red-500" />}
+      {status === "timed-out" && <RiTimeLine className="size-4 text-amber-500" />}
     </div>
   );
 }
@@ -436,13 +484,16 @@ function StatusBadge({ status, progress }: { status: SyncStatus; progress: numbe
         status === "completed" &&
           "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800",
         status === "failed" &&
-          "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800"
+          "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800",
+        status === "timed-out" &&
+          "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-800"
       )}
     >
       {status === "pending" && "Queued"}
       {status === "running" && (progress !== null ? `${progress}%` : "Starting")}
       {status === "completed" && "Done"}
       {status === "failed" && "Failed"}
+      {status === "timed-out" && "Timed out"}
     </Badge>
   );
 }
