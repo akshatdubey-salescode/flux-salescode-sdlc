@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   RiAddLine,
@@ -61,6 +61,16 @@ type Props = {
 
 export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Persist the active view (Timeline / Bugs) in the URL so it survives reloads
+  // and is shareable.
+  const boardTab = searchParams.get("tab") === "bugs" ? "bugs" : "timeline";
+  function handleTabChange(value: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value === "timeline") params.delete("tab");
+    else params.set("tab", value);
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }
   const [members, setMembers] = useState<Member[]>(initialMembers);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -214,7 +224,7 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
             }}
           />
         ) : (
-          <Tabs defaultValue="timeline" className="w-full space-y-4">
+          <Tabs value={boardTab} onValueChange={handleTabChange} className="w-full space-y-4">
             <TabsList>
               <TabsTrigger value="timeline">Timeline</TabsTrigger>
               <TabsTrigger value="bugs">Bugs</TabsTrigger>
