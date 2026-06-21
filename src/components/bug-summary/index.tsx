@@ -63,7 +63,7 @@ const SORT_KEYS: DetailSortKey[] = [
 const DEFAULT_SORT: DetailSortKey = "priority";
 const DEFAULT_DIR: "asc" | "desc" = "asc";
 
-const SUMMARY_PAGE_SIZE = 10;
+const SUMMARY_PAGE_SIZE = 20;
 const DETAIL_PAGE_SIZE = 25;
 
 // URL query param keys. Prefixed so they never collide with the project's
