@@ -100,7 +100,7 @@ export function BugBoardClient() {
   const [selOwners,     setSelOwners]     = useState<string[]>([]);
   const [selPriorities, setSelPriorities] = useState<PriorityKey[]>([...PRIORITIES]);
   const [cfOnly,        setCfOnly]        = useState(false);
-  const [dateRange,     setDateRange]     = useState<DateRangeKey>("all");
+  const [dateRange,     setDateRange]     = useState<DateRangeKey>("30d");
   const [customFrom,    setCustomFrom]    = useState("");
   const [customTo,      setCustomTo]      = useState("");
   const [sortBy,        setSortBy]        = useState<SortKey>("total");

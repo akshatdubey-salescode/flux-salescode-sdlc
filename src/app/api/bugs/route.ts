@@ -38,6 +38,7 @@ export type BugProject = {
   jiraBaseUrl: string;
   jiraProjectKey: string;
   ownerFieldNumIds: number[];
+  environmentFieldNumIds: number[];
 };
 
 export type BugBoardResponse = {
@@ -82,8 +83,8 @@ async function fetchBugBoard(from?: string, to?: string): Promise<BugBoardRespon
         jp.jira_base_url AS jira_base_url,
         jp.jira_project_key AS jira_project_key,
         (
-          ji.custom_fields ? ${fdField}
-          AND COALESCE(ji.custom_fields->>${fdField}, '') <> ''
+          (ji.custom_fields ? ${fdField} AND COALESCE(ji.custom_fields->>${fdField}, '') <> '')
+          OR COALESCE(env.v->>'value', env.v#>>'{}') ILIKE 'production'
         ) AS is_customer,
         ow.v AS owner_val
       FROM jira_issues ji
@@ -101,6 +102,14 @@ async function fetchBugBoard(from?: string, to?: string): Promise<BugBoardRespon
           )
         ORDER BY f.ord LIMIT 1
       ) ow ON true
+      LEFT JOIN LATERAL (
+        SELECT ji.custom_fields->e.fid AS v
+        FROM unnest(COALESCE(jp.environment_field_ids, '{}'::text[]))
+             WITH ORDINALITY AS e(fid, ord)
+        WHERE ji.custom_fields ? e.fid
+          AND ji.custom_fields->e.fid IS NOT NULL
+        ORDER BY e.ord LIMIT 1
+      ) env ON true
       WHERE ji.issue_type = 'Bug'${fromFilter}${toFilter}
     ),
     resolved AS (
@@ -175,20 +184,21 @@ async function fetchBugBoard(from?: string, to?: string): Promise<BugBoardRespon
         jiraBaseUrl: jiraProjects.jiraBaseUrl,
         jiraProjectKey: jiraProjects.jiraProjectKey,
         issueOwnerFieldIds: jiraProjects.issueOwnerFieldIds,
+        environmentFieldIds: jiraProjects.environmentFieldIds,
       })
       .from(jiraProjects)
       .where(inArray(jiraProjects.id, projIds));
 
     for (const r of projRows) {
-      const ownerFieldNumIds = (r.issueOwnerFieldIds ?? [])
-        .map((f) => Number(f.replace(/\D/g, "")))
-        .filter((n) => Number.isFinite(n) && n > 0);
+      const toNumIds = (fields: string[] | null) =>
+        (fields ?? []).map((f) => Number(f.replace(/\D/g, ""))).filter((n) => Number.isFinite(n) && n > 0);
       projects.push({
         id: r.id,
         name: r.name,
         jiraBaseUrl: r.jiraBaseUrl,
         jiraProjectKey: r.jiraProjectKey,
-        ownerFieldNumIds,
+        ownerFieldNumIds: toNumIds(r.issueOwnerFieldIds),
+        environmentFieldNumIds: toNumIds(r.environmentFieldIds),
       });
     }
     projects.sort((a, b) => a.name.localeCompare(b.name));

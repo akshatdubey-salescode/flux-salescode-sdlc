@@ -231,7 +231,7 @@ export const RAG_BADGE: Record<Rag, string> = {
  * @param priority optional "P1".."P4" to further scope the link.
  */
 export function jiraOwnerBugLink(
-  project: Pick<BugProject, "jiraBaseUrl" | "jiraProjectKey" | "ownerFieldNumIds">,
+  project: Pick<BugProject, "jiraBaseUrl" | "jiraProjectKey" | "ownerFieldNumIds" | "environmentFieldNumIds">,
   account: string | null,
   priority?: string,
   from?: string,
@@ -244,11 +244,19 @@ export function jiraOwnerBugLink(
   if (account && project.ownerFieldNumIds.length > 0) {
     const ors = project.ownerFieldNumIds.map((id) => `cf[${id}] = "${account}"`);
     parts.push(`(${ors.join(" OR ")})`);
+  } else if (account === null && project.ownerFieldNumIds.length > 0) {
+    // Unassigned: all owner fields must be empty
+    const empties = project.ownerFieldNumIds.map((id) => `cf[${id}] is EMPTY`);
+    parts.push(`(${empties.join(" AND ")})`);
   }
-  if (priority)                    parts.push(`priority = "${priority}"`);
-  if (from)                        parts.push(`created >= "${from}"`);
-  if (to)                          parts.push(`created <= "${to}"`);
-  if (cfOnly && freshdeskFieldId)  parts.push(`cf[${freshdeskFieldId}] is not EMPTY`);
+
+  if (priority) parts.push(`priority = "${priority}"`);
+  if (from)     parts.push(`created >= "${from}"`);
+  if (to)       parts.push(`created <= "${to}"`);
+
+  if (cfOnly && freshdeskFieldId) {
+    parts.push(`cf[${freshdeskFieldId}] is not EMPTY`);
+  }
 
   const jql = parts.join(" AND ") + " ORDER BY priority ASC";
   const base = project.jiraBaseUrl.replace(/\/$/, "");
