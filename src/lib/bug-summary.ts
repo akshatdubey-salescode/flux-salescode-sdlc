@@ -19,7 +19,7 @@ export type BugRow = {
   priorityBucket: BugPriorityBucket;
   /** Normalized environment label; "—" when unset. */
   environment: string;
-  /** Resolved owner: Issue Owner field, else assignee, else "Unassigned". */
+  /** Resolved owner: the Issue Owner field, else "Missing Issue Owner". */
   ownerName: string;
   /** Owner email (attribution key); null when unassigned/unresolved. */
   ownerEmail: string | null;
@@ -34,7 +34,8 @@ export type BugRow = {
   jiraUpdatedAt: string | null;
 };
 
-export const UNASSIGNED_OWNER = "Unassigned";
+/** Bucket label for bugs whose Issue Owner field is empty (no assignee fallback). */
+export const MISSING_ISSUE_OWNER = "Missing Issue Owner";
 export const ENV_UNSET = "—";
 
 /** Per-developer rollup for the "Developer-wise Bug Count" table. */

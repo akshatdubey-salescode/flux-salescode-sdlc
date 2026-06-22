@@ -191,15 +191,18 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
     else tasks.push(r);
   }
 
-  // Pass 1 — bugs: weighted bugs → owner; MTTR sample → assignee.
+  // Pass 1 — bugs: weighted bugs + MTTR → Issue Owner. Attribution is the
+  // Issue Owner field only (no assignee fallback); a bug with no Issue Owner is
+  // scored to nobody, matching the "Missing Issue Owner" bucket on the boards.
   for (const b of bugs) {
     // not a bug / couldn't reproduce → excluded from all scoring
     if (BUG_INVALID_STATUSES.has(normalizeStatus(b.status))) continue;
 
-    const assignee = normalizeEmail(b.assigneeEmail);
-    const owner =
-      extractIssueOwnerEmail(b.customFields, b.issueOwnerFieldIds, accountIdEmailMap) ??
-      assignee;
+    const owner = extractIssueOwnerEmail(
+      b.customFields,
+      b.issueOwnerFieldIds,
+      accountIdEmailMap
+    );
 
     if (owner) {
       const a = getAcc(owner);
@@ -215,7 +218,7 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
     }
 
     // MTTR follows the same owner attribution as weighted bugs, so a bug is
-    // wholly the owner's (Issue Owner, assignee fallback) — not split.
+    // wholly the Issue Owner's — not split.
     if (owner && isP1OrP2(b.priority) && b.completedAt && b.createdAt) {
       const minutes =
         (b.completedAt.getTime() - b.createdAt.getTime()) / 60_000;

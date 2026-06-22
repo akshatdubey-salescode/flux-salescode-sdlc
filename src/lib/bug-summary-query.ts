@@ -5,7 +5,6 @@ import { loadAccountIdEmailMap } from "@/lib/jira/identity";
 import {
   extractIssueOwnerEmail,
   extractIssueOwnerName,
-  normalizeEmail,
 } from "@/lib/jira/scorecard-fields";
 import {
   BUG_ISSUE_TYPES,
@@ -15,7 +14,7 @@ import {
 import {
   resolveEnvironment,
   priorityBucket,
-  UNASSIGNED_OWNER,
+  MISSING_ISSUE_OWNER,
   type BugRow,
 } from "@/lib/bug-summary";
 
@@ -89,8 +88,6 @@ export async function loadBugRows(
       status: jiraIssues.status,
       statusCategory: jiraIssues.statusCategory,
       priority: jiraIssues.priority,
-      assigneeEmail: jiraIssues.assigneeEmail,
-      assigneeName: jiraIssues.assigneeName,
       customFields: jiraIssues.customFields,
       jiraCreatedAt: jiraIssues.jiraCreatedAt,
       jiraUpdatedAt: jiraIssues.jiraUpdatedAt,
@@ -105,13 +102,15 @@ export async function loadBugRows(
     .where(and(bugTypeCondition, ...conditions));
 
   const mapped = rows.map((r): BugRow => {
-    const ownerEmail =
-      extractIssueOwnerEmail(r.customFields, r.issueOwnerFieldIds, accountIdEmailMap) ??
-      normalizeEmail(r.assigneeEmail);
+    // Attribution is the Issue Owner field only — no assignee fallback. Bugs
+    // with no Issue Owner are surfaced as "Missing Issue Owner".
+    const ownerEmail = extractIssueOwnerEmail(
+      r.customFields,
+      r.issueOwnerFieldIds,
+      accountIdEmailMap
+    );
     const ownerName =
-      extractIssueOwnerName(r.customFields, r.issueOwnerFieldIds) ??
-      r.assigneeName ??
-      UNASSIGNED_OWNER;
+      extractIssueOwnerName(r.customFields, r.issueOwnerFieldIds) ?? MISSING_ISSUE_OWNER;
     const environment = resolveEnvironment(
       r.customFields as Record<string, unknown> | null,
       r.environmentFieldIds
