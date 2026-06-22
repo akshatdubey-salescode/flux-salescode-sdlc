@@ -2,9 +2,13 @@
 // Falls back through well-known field keys, then any project-specific
 // custom fields discovered during sync (e.g. "End date" plugins).
 
+// NOTE: customfield_10014 used to live here labelled "start date (epic /
+// alternate)", but on this Jira site it is the Epic Link field and holds an
+// issue key (e.g. "CT-197"), not a date. It is intentionally omitted. The
+// per-project "Start Date" field (e.g. customfield_11448) is discovered by
+// name during sync and supplied via the `discovered` argument below.
 export const DEFAULT_START_DATE_KEYS = [
   "customfield_10015", // start date (sprint)
-  "customfield_10014", // start date (epic / alternate)
   "startdate",
   "start_date",
 ] as const;
@@ -17,13 +21,27 @@ export const DEFAULT_DUE_DATE_KEYS = [
   "customfield_11449", // end date (Applicate)
 ] as const;
 
+// A picked field value is only a usable date if it is (or begins with) an
+// ISO calendar date. Several candidate keys collide with non-date fields in
+// some Jira instances — e.g. customfield_10014 is the Epic Link in this site
+// and holds an issue key like "CT-197" — so the raw value must be validated
+// before it is treated as a planned date.
+function toIsoDate(val: unknown): string | null {
+  if (typeof val !== "string" || !val) return null;
+  const candidate = val.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return null;
+  const d = new Date(candidate + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return null;
+  return candidate;
+}
+
 function pickDate(
   cf: Record<string, unknown>,
   keys: readonly string[]
 ): string | null {
   for (const key of keys) {
-    const val = cf[key];
-    if (typeof val === "string" && val) return val.slice(0, 10);
+    const iso = toIsoDate(cf[key]);
+    if (iso) return iso;
   }
   return null;
 }
