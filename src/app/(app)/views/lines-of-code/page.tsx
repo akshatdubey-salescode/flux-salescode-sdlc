@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { RiArrowRightUpLine } from "@remixicon/react";
+import { RiArrowRightUpLine, RiCalendarLine } from "@remixicon/react";
+import { format, parseISO } from "date-fns";
 import { requireAuth } from "@/lib/auth/server";
 import { PageHeader } from "@/components/page-header";
 import {
@@ -11,10 +12,12 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import {
+  coveredWeekSpan,
   currentFyStartYear,
   currentQuarterNum,
   getRelevantQuarters,
   quarterBounds,
+  type CoveredWeeks,
 } from "@/lib/date-utils";
 import { fetchLinesOfCode, fetchUnattributed, fetchPersonBreakdown } from "./data";
 import { FilterBar } from "./filter-bar";
@@ -41,6 +44,26 @@ function signed(n: number): string {
   return `${n > 0 ? "+" : ""}${n.toLocaleString()}`;
 }
 
+/** Makes the actual weekly window explicit, so the dates shown and the data
+ *  counted can never be misread against each other. */
+function CoveredBanner({ firstDay, lastDay, weeks }: CoveredWeeks) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <RiCalendarLine className="size-4 shrink-0 text-zinc-400" />
+      <span className="text-zinc-600 dark:text-zinc-300">
+        Showing contributions for
+      </span>
+      <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+        {format(parseISO(firstDay), "EEE, MMM d")} –{" "}
+        {format(parseISO(lastDay), "EEE, MMM d, yyyy")}
+      </span>
+      <span className="text-zinc-400">
+        · {weeks} full week{weeks === 1 ? "" : "s"}
+      </span>
+    </div>
+  );
+}
+
 export default async function LinesOfCodePage({
   searchParams,
 }: {
@@ -50,6 +73,12 @@ export default async function LinesOfCodePage({
 
   const sp = await searchParams;
   const { start, end } = parseRange(sp);
+  // The data is weekly (Sunday-bucketed), so snap the selected window onto whole
+  // weeks. `span` is the exact Sun–Sat range queried — surfaced to the user via
+  // CoveredBanner so the dates shown always match the data counted.
+  const span = coveredWeekSpan(start, end);
+  const qStart = span.firstDay;
+  const qEnd = span.lastDay;
   // Hide the Q3 2025 (Oct–Dec 2025) quick-filter chip on this view. Matched by
   // start date so it's unambiguous; becomes a no-op once that quarter ages out
   // of the relevant window. Custom date ranges can still reach those dates.
@@ -58,7 +87,7 @@ export default async function LinesOfCodePage({
 
   // Drill-down: one person's contribution split per repo.
   if (sp.person) {
-    const detail = await fetchPersonBreakdown(sp.person, start, end);
+    const detail = await fetchPersonBreakdown(sp.person, qStart, qEnd);
     return (
       <div className="flex flex-col min-h-svh bg-zinc-50 dark:bg-zinc-950">
         <PageHeader>
@@ -108,6 +137,8 @@ export default async function LinesOfCodePage({
             </div>
 
             <FilterBar quarters={quarters} start={start} end={end} />
+
+            <CoveredBanner {...span} />
 
             <div className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
               <table className="w-full text-sm">
@@ -184,8 +215,8 @@ export default async function LinesOfCodePage({
   }
 
   const [rows, unattributed] = await Promise.all([
-    fetchLinesOfCode(start, end),
-    fetchUnattributed(start, end),
+    fetchLinesOfCode(qStart, qEnd),
+    fetchUnattributed(qStart, qEnd),
   ]);
 
   return (
@@ -222,6 +253,8 @@ export default async function LinesOfCodePage({
           </div>
 
           <FilterBar quarters={quarters} start={start} end={end} />
+
+          <CoveredBanner {...span} />
 
           <div className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
             <table className="w-full text-sm">

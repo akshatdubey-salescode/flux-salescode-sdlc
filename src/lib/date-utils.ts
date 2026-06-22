@@ -121,3 +121,76 @@ export function getRangePresets(): RangePreset[] {
     { label: "FY to date", start: `${fyStartYear}-04-01`, end: today },
   ];
 }
+
+// ---------------------------------------------------------------------------
+// Weekly helpers — GitHub's contributor-stats source is weekly, with each
+// bucket keyed to the Sunday that starts the week. These snap day-precise
+// selections onto those Sunday→Saturday weeks so the UI can't ask for a slice
+// finer than the data actually has.
+// ---------------------------------------------------------------------------
+
+const dayMs = 86_400_000;
+const parseLocal = (s: string) => new Date(`${s}T00:00:00`);
+
+/** The Sunday (YYYY-MM-DD) that starts the week containing `dateStr`. */
+export function weekStartOf(dateStr: string): string {
+  const d = parseLocal(dateStr);
+  d.setDate(d.getDate() - d.getDay()); // getDay(): 0 = Sunday
+  return localDateStr(d);
+}
+
+/** The Saturday (YYYY-MM-DD) that ends the week containing `dateStr`. */
+export function weekEndOf(dateStr: string): string {
+  const d = parseLocal(dateStr);
+  d.setDate(d.getDate() - d.getDay() + 6);
+  return localDateStr(d);
+}
+
+export type CoveredWeeks = {
+  /** First day actually shown — the Sunday of the earliest included week. */
+  firstDay: string;
+  /** Last day actually shown — the Saturday of the latest included week. */
+  lastDay: string;
+  /** Count of whole Sunday–Saturday weeks in the span. */
+  weeks: number;
+};
+
+/**
+ * Snap a selected [start, end] day range onto the whole Sunday–Saturday weeks
+ * it touches — i.e. the exact dates whose contributions the weekly query will
+ * include. Use this for both the DB window and the "showing …" disclosure so
+ * the displayed span and the counted data can never disagree.
+ */
+export function coveredWeekSpan(start: string, end: string): CoveredWeeks {
+  const firstDay = weekStartOf(start);
+  const lastDay = weekEndOf(end);
+  const days = Math.round((parseLocal(lastDay).getTime() - parseLocal(firstDay).getTime()) / dayMs);
+  return { firstDay, lastDay, weeks: Math.max(0, Math.round((days + 1) / 7)) };
+}
+
+/**
+ * Weekly quick-ranges (Sunday–Saturday aligned) for the Lines of Code view.
+ * Day-based presets like "Last 7 days" are intentionally omitted here: the LOC
+ * data is weekly, so a sub-week window would silently under- or over-count.
+ */
+export function getWeekRangePresets(): RangePreset[] {
+  const now = localDateStr(new Date());
+  const thisSun = weekStartOf(now);
+  const thisSat = weekEndOf(now);
+
+  const sundaysAgo = (n: number) => {
+    const d = parseLocal(thisSun);
+    d.setDate(d.getDate() - 7 * n);
+    return localDateStr(d);
+  };
+
+  const fyStartYear = currentFyStartYear();
+
+  return [
+    { label: "This week", start: thisSun, end: thisSat },
+    { label: "Last 4 weeks", start: sundaysAgo(3), end: thisSat },
+    { label: "Last 12 weeks", start: sundaysAgo(11), end: thisSat },
+    { label: "Last 26 weeks", start: sundaysAgo(25), end: thisSat },
+    { label: "FY to date", start: weekStartOf(`${fyStartYear}-04-01`), end: thisSat },
+  ];
+}
