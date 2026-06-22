@@ -111,8 +111,17 @@ export function normalizeEnvironment(raw: unknown): string {
   if (/\bprod|production|\bprd\b|\blive\b/.test(lower)) return "Prod";
   if (/\buat\b/.test(lower)) return "UAT";
   if (/\bdemo\b/.test(lower)) return "Demo";
+
+  // Jira's Environment is free text, so it sometimes holds a whole pasted
+  // description (or wiki markup) rather than a label. Anything multi-line or
+  // longer than a real environment name isn't a label — treat it as unset so
+  // it can't pollute the Env filter chips with a paragraph of text.
+  if (trimmed.length > ENV_LABEL_MAX_LEN || /[\r\n]/.test(trimmed)) return ENV_UNSET;
   return trimmed;
 }
+
+/** Longest free-text value still treated as an environment label, not prose. */
+const ENV_LABEL_MAX_LEN = 30;
 
 /**
  * Resolve an issue's environment label from its synced custom_fields. Prefers
