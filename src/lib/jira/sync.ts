@@ -162,6 +162,34 @@ type DiscoveredFields = {
   environmentFieldIds: string[];
 };
 
+/**
+ * Disambiguate same-named "Issue Owner" candidate fields down to the one this
+ * project actually uses: the candidate populated (as a user object) on the most
+ * of the project's already-synced issues. Returns a single-element list, or the
+ * candidates unchanged when there's nothing to decide on yet (≤1 candidate, or
+ * no populated values — e.g. a project's first sync, before issues exist).
+ */
+async function primaryOwnerFieldIds(
+  projectId: string,
+  candidates: string[]
+): Promise<string[]> {
+  if (candidates.length <= 1) return candidates;
+  const res = await db.execute(sql`
+    SELECT f.fid AS fid,
+           COUNT(*) FILTER (
+             WHERE ji.custom_fields ? f.fid
+               AND jsonb_typeof(ji.custom_fields->f.fid) = 'object'
+           )::int AS populated
+    FROM unnest(${candidates}::text[]) AS f(fid)
+    LEFT JOIN jira_issues ji ON ji.project_id = ${projectId}
+    GROUP BY f.fid
+    ORDER BY populated DESC
+    LIMIT 1
+  `);
+  const top = res.rows[0] as { fid: string; populated: number } | undefined;
+  return top && Number(top.populated) > 0 ? [top.fid] : candidates;
+}
+
 async function discoverProjectFields(
   client: JiraClient,
   projectId: string
@@ -206,9 +234,14 @@ async function discoverProjectFields(
     .filter((f) => f.custom && normName(f.name) === "complexity")
     .map((f) => f.id);
 
-  const issueOwnerFieldIds = fields
+  // The site has several distinct custom fields all named "Issue Owner", so a
+  // name match alone returns many candidates. Narrow to the single field this
+  // project actually uses — the one populated on the most of its synced issues
+  // — so owner attribution is deterministic instead of "first by array order".
+  const issueOwnerCandidates = fields
     .filter((f) => f.custom && normName(f.name) === "issue owner")
     .map((f) => f.id);
+  const issueOwnerFieldIds = await primaryOwnerFieldIds(projectId, issueOwnerCandidates);
 
   // The "Environment" dropdown (Prod/Demo/UAT) that feeds the bug summary.
   // Exact normalized-name match keeps unrelated fields ("Test Environment

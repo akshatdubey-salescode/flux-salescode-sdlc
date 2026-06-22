@@ -8,7 +8,7 @@
  */
 
 import type { BugCell, BugProject } from "@/app/api/bugs/route";
-import { ENV_UNSET } from "@/lib/bug-summary";
+import { ENV_UNSET, MISSING_ISSUE_OWNER } from "@/lib/bug-summary";
 
 export const PRIORITIES = ["p1", "p2", "p3", "p4"] as const;
 export type PriorityKey = (typeof PRIORITIES)[number];
@@ -97,7 +97,7 @@ export function buildOwnerRows(
       row = {
         ...ZERO,
         key,
-        name: c.ownerName ?? c.ownerEmail ?? "Unassigned",
+        name: c.ownerName ?? c.ownerEmail ?? MISSING_ISSUE_OWNER,
         email: c.ownerEmail,
         account: c.ownerAccount,
         isUnassigned: c.ownerKey == null,
@@ -107,7 +107,7 @@ export function buildOwnerRows(
       projByOwner.set(key, new Map());
     }
     // Carry the first non-null display name / account we encounter.
-    if (row.name === "Unassigned" && c.ownerName) row.name = c.ownerName;
+    if (row.name === MISSING_ISSUE_OWNER && c.ownerName) row.name = c.ownerName;
     if (!row.account && c.ownerAccount) row.account = c.ownerAccount;
 
     addInto(row, c);

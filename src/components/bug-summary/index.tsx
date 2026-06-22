@@ -30,7 +30,7 @@ import {
 } from "@/components/project-tracking/helpers";
 import {
   ENV_UNSET,
-  UNASSIGNED_OWNER,
+  MISSING_ISSUE_OWNER,
   buildOwnerSummaries,
   type BugRow,
   type BugPriorityBucket,
@@ -588,12 +588,12 @@ export function BugTracker({
                               <span
                                 className={cn(
                                   "flex size-6 items-center justify-center rounded-full text-[9px] font-bold",
-                                  s.ownerName === UNASSIGNED_OWNER
+                                  s.ownerName === MISSING_ISSUE_OWNER
                                     ? "bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500"
                                     : "bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"
                                 )}
                               >
-                                {s.ownerName === UNASSIGNED_OWNER ? "–" : initials(s.ownerName)}
+                                {s.ownerName === MISSING_ISSUE_OWNER ? "–" : initials(s.ownerName)}
                               </span>
                               <span className="font-medium text-zinc-800 dark:text-zinc-200">
                                 {s.ownerName}
@@ -774,12 +774,12 @@ export function BugTracker({
                                 <span
                                   className={cn(
                                     "flex size-5 items-center justify-center rounded-full text-[8px] font-bold",
-                                    b.ownerName === UNASSIGNED_OWNER
+                                    b.ownerName === MISSING_ISSUE_OWNER
                                       ? "bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500"
                                       : "bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"
                                   )}
                                 >
-                                  {b.ownerName === UNASSIGNED_OWNER ? "–" : initials(b.ownerName)}
+                                  {b.ownerName === MISSING_ISSUE_OWNER ? "–" : initials(b.ownerName)}
                                 </span>
                                 <span className="truncate text-zinc-700 dark:text-zinc-300">{b.ownerName}</span>
                               </span>
