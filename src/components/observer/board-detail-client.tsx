@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   RiAddLine,
@@ -12,6 +12,8 @@ import {
   RiSettings3Line,
 } from "@remixicon/react";
 import { TeamTimelineClient } from "@/components/observer/team-timeline-client";
+import { BugTracker } from "@/components/bug-summary";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -59,6 +61,16 @@ type Props = {
 
 export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Persist the active view (Timeline / Bugs) in the URL so it survives reloads
+  // and is shareable.
+  const boardTab = searchParams.get("tab") === "bugs" ? "bugs" : "timeline";
+  function handleTabChange(value: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value === "timeline") params.delete("tab");
+    else params.set("tab", value);
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }
   const [members, setMembers] = useState<Member[]>(initialMembers);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -212,14 +224,29 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
             }}
           />
         ) : (
-          <TeamTimelineClient
-            boardId={board.id}
-            name={board.name}
-            onRemoveMember={isOwner
-              ? (email) => setRemoveMember(members.find((m) => m.email === email) ?? null)
-              : undefined
-            }
-          />
+          <Tabs value={boardTab} onValueChange={handleTabChange} className="w-full space-y-4">
+            <TabsList>
+              <TabsTrigger value="timeline">Timeline</TabsTrigger>
+              <TabsTrigger value="bugs">Bugs</TabsTrigger>
+            </TabsList>
+            <TabsContent value="timeline" className="outline-none">
+              <TeamTimelineClient
+                boardId={board.id}
+                name={board.name}
+                onRemoveMember={isOwner
+                  ? (email) => setRemoveMember(members.find((m) => m.email === email) ?? null)
+                  : undefined
+                }
+              />
+            </TabsContent>
+            <TabsContent value="bugs" className="outline-none">
+              <BugTracker
+                dataUrl={`/api/observer/boards/${board.id}/bugs`}
+                exportTitle={board.name}
+                showProject
+              />
+            </TabsContent>
+          </Tabs>
         )}
       </div>
 

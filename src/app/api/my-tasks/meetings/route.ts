@@ -23,8 +23,13 @@ export async function GET(req: Request) {
     const filterStart = url.searchParams.get("start") ?? todayIso;
     const filterEnd = url.searchParams.get("end") ?? filterStart;
 
+    // calendar_events.user_id is the user's email, so observing another
+    // person's meetings is just a matter of which email we key on.
+    const forEmail = url.searchParams.get("forEmail")?.trim();
+    const calendarUserId = forEmail ? forEmail.toLowerCase() : user.id;
+
     const tz = url.searchParams.get("tz") ?? null;
-    const data = await fetchMyMeetings(user.id, filterStart, filterEnd, tz);
+    const data = await fetchMyMeetings(calendarUserId, filterStart, filterEnd, tz);
     return NextResponse.json(data);
   } catch (err) {
     console.error("[my-tasks/meetings] error:", err);

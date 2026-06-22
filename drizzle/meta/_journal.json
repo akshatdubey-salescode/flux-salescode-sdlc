@@ -274,6 +274,20 @@
       "when": 1781607128040,
       "tag": "0039_military_loa",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1781980463335,
+      "tag": "0040_shocking_ricochet",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1782030158049,
+      "tag": "0041_panoramic_bloodaxe",
+      "breakpoints": true
     }
   ]
 }

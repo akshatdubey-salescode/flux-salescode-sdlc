@@ -26,6 +26,10 @@ export type JiraIssueRaw = {
     labels: string[];
     created: string;
     updated: string;
+    // Jira's free-text system "environment" field (e.g. "prod" / "demo" /
+    // "uat"). Captured into custom_fields at sync time and normalized for the
+    // bug summary. Absent on issues where it was never set.
+    environment?: string | null;
     comment: {
       comments: JiraCommentRaw[];
     };
@@ -108,6 +112,9 @@ const ISSUE_FIELDS = [
   "created",
   "updated",
   "comment",
+  // Jira system "environment" field — free text, drives the bug-summary env
+  // column. Not in KNOWN_ISSUE_FIELDS (sync.ts), so it lands in custom_fields.
+  "environment",
   // Date fields — duedate is standard; the customfields cover sprint start,
   // epic start, and the Applicate-specific end-date field.
   "duedate",
@@ -116,6 +123,7 @@ const ISSUE_FIELDS = [
   "customfield_10021", // due date (alternate)
   "customfield_11449", // end date (Applicate)
   "customfield_11699", // Freshdesk Ticket ID
+  "timeoriginalestimate", // original estimate (seconds) — performance-review AI-tasks metric
 ].join(",");
 
 export class JiraClient {

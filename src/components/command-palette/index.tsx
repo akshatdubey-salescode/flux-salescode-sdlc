@@ -21,6 +21,7 @@ import {
   RiExternalLinkLine,
   RiFlag2Line,
   RiTeamLine,
+  RiMedalLine,
 } from "@remixicon/react";
 import type { JiraProject, ObserverBoard } from "@/lib/db/schema";
 

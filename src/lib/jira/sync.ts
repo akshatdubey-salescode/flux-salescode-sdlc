@@ -157,6 +157,9 @@ type DiscoveredFields = {
   multiAssigneeFieldIds: string[];
   endDateFieldIds: string[];
   startDateFieldIds: string[];
+  complexityFieldIds: string[];
+  issueOwnerFieldIds: string[];
+  environmentFieldIds: string[];
 };
 
 async function discoverProjectFields(
@@ -191,12 +194,49 @@ async function discoverProjectFields(
     .filter((f) => f.custom && /^start\s*date$/i.test(f.name.trim()))
     .map((f) => f.id);
 
+  // Task complexity (1–5) and the "Issue Owner" user-picker — both feed the
+  // performance-review rating engine. Field names vary across the site
+  // (underscores, trailing "*", spacing), so normalize to letters-only before
+  // an exact match — e.g. "Issue_Owner*" / "Issue Owner" / "Issue_owner" all
+  // normalize to "issue owner", while "Dev Owner" / "Complexity Notes" don't.
+  const normName = (name: string) =>
+    name.toLowerCase().replace(/[^a-z]+/g, " ").trim();
+
+  const complexityFieldIds = fields
+    .filter((f) => f.custom && normName(f.name) === "complexity")
+    .map((f) => f.id);
+
+  const issueOwnerFieldIds = fields
+    .filter((f) => f.custom && normName(f.name) === "issue owner")
+    .map((f) => f.id);
+
+  // The "Environment" dropdown (Prod/Demo/UAT) that feeds the bug summary.
+  // Exact normalized-name match keeps unrelated fields ("Test Environment
+  // Notes" etc.) out.
+  const environmentFieldIds = fields
+    .filter((f) => f.custom && normName(f.name) === "environment")
+    .map((f) => f.id);
+
   await db
     .update(jiraProjects)
-    .set({ multiAssigneeFieldIds, endDateFieldIds, startDateFieldIds })
+    .set({
+      multiAssigneeFieldIds,
+      endDateFieldIds,
+      startDateFieldIds,
+      complexityFieldIds,
+      issueOwnerFieldIds,
+      environmentFieldIds,
+    })
     .where(eq(jiraProjects.id, projectId));
 
-  return { multiAssigneeFieldIds, endDateFieldIds, startDateFieldIds };
+  return {
+    multiAssigneeFieldIds,
+    endDateFieldIds,
+    startDateFieldIds,
+    complexityFieldIds,
+    issueOwnerFieldIds,
+    environmentFieldIds,
+  };
 }
 
 /**
@@ -211,17 +251,30 @@ export async function resolveProjectFieldConfig(
     multiAssigneeFieldIds: string[] | null;
     endDateFieldIds: string[] | null;
     startDateFieldIds: string[] | null;
+    complexityFieldIds: string[] | null;
+    issueOwnerFieldIds: string[] | null;
+    environmentFieldIds: string[] | null;
   }
-): Promise<{ multiAssigneeFieldIds: string[]; extraFields: string[] }> {
+): Promise<{
+  multiAssigneeFieldIds: string[];
+  issueOwnerFieldIds: string[];
+  extraFields: string[];
+}> {
   let multiAssigneeFieldIds: string[] | null = project.multiAssigneeFieldIds;
   let endDateFieldIds: string[] | null = project.endDateFieldIds;
   let startDateFieldIds: string[] | null = project.startDateFieldIds;
+  let complexityFieldIds: string[] | null = project.complexityFieldIds;
+  let issueOwnerFieldIds: string[] | null = project.issueOwnerFieldIds;
+  let environmentFieldIds: string[] | null = project.environmentFieldIds;
 
   try {
     const discovered = await discoverProjectFields(client, project.id);
     multiAssigneeFieldIds = discovered.multiAssigneeFieldIds;
     endDateFieldIds = discovered.endDateFieldIds;
     startDateFieldIds = discovered.startDateFieldIds;
+    complexityFieldIds = discovered.complexityFieldIds;
+    issueOwnerFieldIds = discovered.issueOwnerFieldIds;
+    environmentFieldIds = discovered.environmentFieldIds;
   } catch (err) {
     // Transient API failure — keep the previously-cached values for this sync.
     console.warn(`[sync] field discovery failed for project ${project.id}:`, err);
@@ -231,8 +284,15 @@ export async function resolveProjectFieldConfig(
   if (multiAssigneeFieldIds?.length) extraFields.push(...multiAssigneeFieldIds);
   if (endDateFieldIds?.length) extraFields.push(...endDateFieldIds);
   if (startDateFieldIds?.length) extraFields.push(...startDateFieldIds);
+  if (complexityFieldIds?.length) extraFields.push(...complexityFieldIds);
+  if (issueOwnerFieldIds?.length) extraFields.push(...issueOwnerFieldIds);
+  if (environmentFieldIds?.length) extraFields.push(...environmentFieldIds);
 
-  return { multiAssigneeFieldIds: multiAssigneeFieldIds ?? [], extraFields };
+  return {
+    multiAssigneeFieldIds: multiAssigneeFieldIds ?? [],
+    issueOwnerFieldIds: issueOwnerFieldIds ?? [],
+    extraFields,
+  };
 }
 
 export async function syncProject(projectId: string): Promise<SyncResult> {

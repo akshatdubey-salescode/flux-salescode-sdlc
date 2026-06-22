@@ -17,6 +17,7 @@ import {
 import { RiDownload2Line, RiLayoutColumnLine } from "@remixicon/react";
 import { UserInsightsDashboard } from "./user-insights-dashboard";
 import { MyMeetings } from "./my-meetings";
+import { BugTracker } from "@/components/bug-summary";
 import { usePinnedTasks } from "./use-pinned-tasks";
 import {
   useColumnVisibility,
@@ -126,8 +127,13 @@ export function MyTasksView({
   const searchParams = useSearchParams();
   const filters = readFilters(searchParams);
   const tabParam = searchParams.get("tab");
+  // Insights is self-only; when observing someone, fall back to the list.
   const activeTab =
-    tabParam === "insights" || tabParam === "meetings" ? tabParam : "list";
+    tabParam === "meetings" || tabParam === "bugs"
+      ? tabParam
+      : tabParam === "insights" && !targetEmail
+        ? "insights"
+        : "list";
 
   const { pinnedKeys, togglePin } = usePinnedTasks();
   const { visibleColumns, toggleColumn, resetColumns } = useColumnVisibility();
@@ -291,7 +297,9 @@ export function MyTasksView({
     ? 0
     : sortedIssues.filter((i) => pinnedKeys.has(i.jiraKey)).length;
 
-  const showTabs = !isObserving && !hideTabs;
+  // Tabs show for self and when observing someone (so their bugs/meetings are
+  // reachable too); only hideTabs (embedded use) suppresses them.
+  const showTabs = !hideTabs;
   const showExport = activeTab === "list";
 
   return (
@@ -300,9 +308,10 @@ export function MyTasksView({
         <div className="flex items-center justify-between gap-2">
           {showTabs ? (
             <TabsList>
-              <TabsTrigger value="list">Tasks List</TabsTrigger>
-              <TabsTrigger value="insights">My Insights</TabsTrigger>
-              <TabsTrigger value="meetings">My Meetings</TabsTrigger>
+              <TabsTrigger value="list">{isObserving ? "Tasks" : "Tasks List"}</TabsTrigger>
+              <TabsTrigger value="bugs">{isObserving ? "Bugs" : "My Bugs"}</TabsTrigger>
+              {!isObserving && <TabsTrigger value="insights">My Insights</TabsTrigger>}
+              <TabsTrigger value="meetings">{isObserving ? "Meetings" : "My Meetings"}</TabsTrigger>
             </TabsList>
           ) : (
             <div />
@@ -390,17 +399,25 @@ export function MyTasksView({
         />
       </TabsContent>
 
+      <TabsContent value="bugs" className="outline-none">
+        <BugTracker
+          dataUrl="/api/my-bugs"
+          exportTitle={targetEmail ? `${targetEmail.split("@")[0]}'s Bugs` : "My Bugs"}
+          showProject
+          showDeveloperTable={false}
+          {...(targetEmail ? { extraParams: { forEmail: targetEmail } } : {})}
+        />
+      </TabsContent>
+
       {!isObserving && (
         <TabsContent value="insights" className="outline-none">
           <UserInsightsDashboard />
         </TabsContent>
       )}
 
-      {!isObserving && (
-        <TabsContent value="meetings" className="outline-none">
-          <MyMeetings />
-        </TabsContent>
-      )}
+      <TabsContent value="meetings" className="outline-none">
+        <MyMeetings {...(targetEmail ? { forEmail: targetEmail } : {})} />
+      </TabsContent>
     </Tabs>
   );
 }
