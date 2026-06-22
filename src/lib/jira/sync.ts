@@ -174,13 +174,19 @@ async function primaryOwnerFieldIds(
   candidates: string[]
 ): Promise<string[]> {
   if (candidates.length <= 1) return candidates;
+  // Build ARRAY['cf1','cf2',…]::text[] explicitly — interpolating a JS array
+  // directly expands to a tuple ($1,$2,…), which can't cast to text[].
+  const fidArray = sql`ARRAY[${sql.join(
+    candidates.map((c) => sql`${c}`),
+    sql`, `
+  )}]::text[]`;
   const res = await db.execute(sql`
     SELECT f.fid AS fid,
            COUNT(*) FILTER (
              WHERE ji.custom_fields ? f.fid
                AND jsonb_typeof(ji.custom_fields->f.fid) = 'object'
            )::int AS populated
-    FROM unnest(${candidates}::text[]) AS f(fid)
+    FROM unnest(${fidArray}) AS f(fid)
     LEFT JOIN jira_issues ji ON ji.project_id = ${projectId}
     GROUP BY f.fid
     ORDER BY populated DESC
