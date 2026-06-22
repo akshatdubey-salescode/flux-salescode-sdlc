@@ -137,8 +137,10 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
 
   const accountIdEmailMap = await loadAccountIdEmailMap();
 
-  // Issues completed within the quarter, with their project's discovered
-  // custom-field IDs (for complexity / issue-owner / due-date extraction).
+  // Issues both raised and completed within the quarter, with their project's
+  // discovered custom-field IDs (for complexity / issue-owner / due-date
+  // extraction). Requiring created-in-quarter keeps the scorecard's counts in
+  // step with the Bug Board, which scopes by created date.
   const rows = await db
     .select({
       jiraKey: jiraIssues.jiraKey,
@@ -161,7 +163,13 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
       and(
         sql`${jiraIssues.completedAt} is not null`,
         sql`${jiraIssues.completedAt}::date >= ${quarter.start}::date`,
-        sql`${jiraIssues.completedAt}::date <= ${quarter.end}::date`
+        sql`${jiraIssues.completedAt}::date <= ${quarter.end}::date`,
+        // Only count work that was also raised within the quarter, so the
+        // scorecard's bug/task counts line up with the Bug Board (which scopes
+        // by created date). Drops cross-quarter carryover finished this quarter.
+        sql`${jiraIssues.jiraCreatedAt} is not null`,
+        sql`${jiraIssues.jiraCreatedAt}::date >= ${quarter.start}::date`,
+        sql`${jiraIssues.jiraCreatedAt}::date <= ${quarter.end}::date`
       )
     );
 
