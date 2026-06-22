@@ -99,6 +99,7 @@ export function BugBoardClient() {
   const [selProjects,   setSelProjects]   = useState<string[]>([]);
   const [selOwners,     setSelOwners]     = useState<string[]>([]);
   const [selPriorities, setSelPriorities] = useState<PriorityKey[]>([...PRIORITIES]);
+  const [cfOnly,        setCfOnly]        = useState(false);
   const [dateRange,     setDateRange]     = useState<DateRangeKey>("all");
   const [customFrom,    setCustomFrom]    = useState("");
   const [customTo,      setCustomTo]      = useState("");
@@ -153,18 +154,25 @@ export function BugBoardClient() {
     [data, projectIdSet],
   );
 
-  const effectiveRows: OwnerRow[] = useMemo(
-    () =>
-      ownerRows.map((row) => ({
-        ...row,
-        ...(allPrioritiesSelected ? {} : effectiveCounts(row, prioritySet)),
-        projects: row.projects.map((p) => ({
-          ...p,
-          ...(allPrioritiesSelected ? {} : effectiveCounts(p, prioritySet)),
-        })),
-      })),
-    [ownerRows, allPrioritiesSelected, prioritySet],
-  );
+  const effectiveRows: OwnerRow[] = useMemo(() => {
+    const applyFilters = (c: Counts): Partial<Counts> => {
+      const afterPriority = allPrioritiesSelected ? c : effectiveCounts(c, prioritySet);
+      if (!cfOnly) return afterPriority;
+      return {
+        ...afterPriority,
+        total: afterPriority.cfTotal,
+        p1: afterPriority.cf1, p2: afterPriority.cf2,
+        p3: afterPriority.cf3, p4: afterPriority.cf4,
+        // open breakdown not available per source — zero it so cells show "—"
+        open: 0, open1: 0, open2: 0, open3: 0, open4: 0,
+      };
+    };
+    return ownerRows.map((row) => ({
+      ...row,
+      ...applyFilters(row),
+      projects: row.projects.map((p) => ({ ...p, ...applyFilters(p) })),
+    }));
+  }, [ownerRows, allPrioritiesSelected, prioritySet, cfOnly]);
 
   const teamStats = useMemo(() => computeTeamStats(effectiveRows), [effectiveRows]);
 
@@ -273,8 +281,8 @@ export function BugBoardClient() {
           {!loading && !error && (
             <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <StatChip label="users" value={teamStats.numOwners} />
-              <StatChip label="bugs shown" value={displayRows.reduce((s, r) => s + r.total, 0)} />
-              <StatChip label="avg / user" value={Math.round(teamStats.avg.total)} />
+              <StatChip label={cfOnly ? "customer bugs shown" : "bugs shown"} value={displayRows.reduce((s, r) => s + r.total, 0)} />
+              <StatChip label={cfOnly ? "avg CF / user" : "avg / user"} value={Math.round(teamStats.avg.total)} />
               <span className="text-muted-foreground/50">·</span>
               <span className="inline-flex items-center gap-2">
                 <span className="inline-flex items-center gap-1">
@@ -313,6 +321,19 @@ export function BugBoardClient() {
             </button>
           );
         })}
+
+        <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-700" />
+
+        <button
+          onClick={() => setCfOnly((v) => !v)}
+          className={`h-6 rounded border px-2 text-[11px] font-semibold transition-colors ${
+            cfOnly
+              ? "border-amber-400/60 bg-amber-50 text-amber-700 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-400"
+              : "border-input bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
+          }`}
+        >
+          Customer-found only
+        </button>
 
         <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-700" />
 
