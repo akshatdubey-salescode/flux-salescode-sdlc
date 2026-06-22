@@ -12,11 +12,15 @@ type ExportBody = {
   rows: BugRow[];
   title?: string;
   showProject?: boolean;
+  /** "developer" exports only the developer-wise rollup sheet. */
+  scope?: ExportScope;
   start?: string;
   end?: string;
   excludeInvalid?: boolean;
   environment?: string | null;
 };
+
+type ExportScope = "all" | "developer";
 
 export async function POST(req: NextRequest) {
   await requireAuth();
@@ -32,6 +36,7 @@ export async function POST(req: NextRequest) {
   const opts: Opts = {
     title: body.title?.trim() || "Bugs",
     showProject: body.showProject === true,
+    scope: body.scope === "developer" ? "developer" : "all",
     start: body.start ?? "",
     end: body.end ?? "",
     excludeInvalid: body.excludeInvalid !== false,
@@ -40,11 +45,12 @@ export async function POST(req: NextRequest) {
   const buffer = await buildWorkbook(rows, opts);
 
   const safeName = opts.title.replace(/[^\w-]+/g, "_");
+  const tag = opts.scope === "developer" ? "developer-bugs" : "bugs";
   return new Response(buffer as ArrayBuffer, {
     headers: {
       "Content-Type":
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="${safeName}-bugs-${opts.end}.xlsx"`,
+      "Content-Disposition": `attachment; filename="${safeName}-${tag}-${opts.end}.xlsx"`,
       "Cache-Control": "no-store",
     },
   });
@@ -79,6 +85,7 @@ function fmtDate(iso: string | null): string {
 type Opts = {
   title: string;
   showProject: boolean;
+  scope: ExportScope;
   start: string;
   end: string;
   excludeInvalid: boolean;
@@ -90,7 +97,9 @@ async function buildWorkbook(rows: BugRow[], opts: Opts): Promise<ArrayBuffer> {
   wb.creator = "Flux";
   wb.created = new Date();
 
-  addBugsSheet(wb, rows, opts);
+  // "developer" scope = the Developer-wise Bug Count table only; "all" also
+  // includes the detailed bug list sheet.
+  if (opts.scope !== "developer") addBugsSheet(wb, rows, opts);
   addDeveloperSheet(wb, buildOwnerSummaries(rows), opts);
 
   const buffer = await wb.xlsx.writeBuffer();

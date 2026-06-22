@@ -177,7 +177,9 @@ export function BugTracker({
   const [summaryPage, setSummaryPage] = useState(1);
   const [detailPage, setDetailPage] = useState(1);
 
-  const [exporting, setExporting] = useState(false);
+  // Which export (if any) is in flight, so the two download buttons show their
+  // own loading state independently.
+  const [exporting, setExporting] = useState<null | "all" | "developer">(null);
 
   function updateParams(updates: Record<string, string | null>) {
     const params = new URLSearchParams(searchParams.toString());
@@ -362,18 +364,23 @@ export function BugTracker({
     return `${bug.jiraBaseUrl.replace(/\/$/, "")}/browse/${bug.jiraKey}`;
   }
 
-  async function handleExport() {
-    if (exporting || detailSorted.length === 0) return;
-    setExporting(true);
+  async function handleExport(scope: "all" | "developer") {
+    // "all" exports the detailed bug list (narrowed by search/owner filter);
+    // "developer" exports the Developer-wise Bug Count table, which is built
+    // from filteredBugs (date + env + invalid filters) regardless of the
+    // search box or the clicked owner row, so the sheet matches the table.
+    const rows = scope === "developer" ? filteredBugs : detailSorted;
+    if (exporting || rows.length === 0) return;
+    setExporting(scope);
     try {
-      // Send the exact filtered + sorted set on screen so the sheet matches.
       const res = await fetch(`/api/bugs/export`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          rows: detailSorted,
+          rows,
           title: exportTitle,
           showProject,
+          scope,
           start,
           end,
           excludeInvalid,
@@ -385,7 +392,8 @@ export function BugTracker({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${exportTitle.replace(/[^\w-]+/g, "_")}-bugs-${end}.xlsx`;
+      const tag = scope === "developer" ? "developer-bugs" : "bugs";
+      a.download = `${exportTitle.replace(/[^\w-]+/g, "_")}-${tag}-${end}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -393,7 +401,7 @@ export function BugTracker({
     } catch {
       // silently ignore — user can retry
     } finally {
-      setExporting(false);
+      setExporting(null);
     }
   }
 
@@ -476,16 +484,27 @@ export function BugTracker({
           {/* ------------------------------------------------------------- */}
           {showDeveloperTable && (
           <section className="space-y-3">
-            <div className="flex items-baseline justify-between gap-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-3">
               <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
                 Developer-wise Bug Count
                 <span className="ml-2 text-xs font-normal text-zinc-400">
                   {summaries.length} {summaries.length === 1 ? "developer" : "developers"}
                 </span>
               </h2>
-              <span className="text-xs text-zinc-400">
-                Owner = Issue Owner, falling back to Assignee
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-zinc-400">
+                  Owner = Issue Owner, falling back to Assignee
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleExport("developer")}
+                  disabled={exporting !== null || summaries.length === 0}
+                >
+                  <RiDownload2Line className="size-3.5" />
+                  {exporting === "developer" ? "Exporting…" : "Download in Excel"}
+                </Button>
+              </div>
             </div>
 
             <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
@@ -603,11 +622,11 @@ export function BugTracker({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={handleExport}
-                  disabled={exporting || detailSorted.length === 0}
+                  onClick={() => handleExport("all")}
+                  disabled={exporting !== null || detailSorted.length === 0}
                 >
                   <RiDownload2Line className="size-3.5" />
-                  {exporting ? "Exporting…" : "Download in Excel"}
+                  {exporting === "all" ? "Exporting…" : "Download in Excel"}
                 </Button>
               </div>
             </div>
