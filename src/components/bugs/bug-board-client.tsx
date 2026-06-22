@@ -68,7 +68,13 @@ const ALL_PRIORITY_COLS: PriorityCol[] = [
  * window. `bs_*` drives the BugTracker range; `qstart/qend` keep the Tasks
  * header range in sync.
  */
-function myBugsHref(email: string, from?: string, to?: string, env?: string | null): string {
+function myBugsHref(
+  email: string,
+  from?: string,
+  to?: string,
+  env?: string | null,
+  projectKeys?: string[],
+): string {
   const params = new URLSearchParams({ tab: "bugs" });
   if (from && to) {
     params.set("qstart", from);
@@ -77,6 +83,7 @@ function myBugsHref(email: string, from?: string, to?: string, env?: string | nu
     params.set("bs_end", to);
   }
   if (env) params.set("bs_env", env); // BugTracker matches on the normalized label
+  if (projectKeys && projectKeys.length) params.set("bs_proj", projectKeys.join(","));
   return `/tasks/${encodeURIComponent(email)}?${params}`;
 }
 
@@ -141,6 +148,12 @@ export function BugBoardClient() {
   const freshdeskFieldId = data?.freshdeskFieldId ?? null;
 
   const projectIdSet = useMemo(() => new Set(selProjects), [selProjects]);
+  // Selected projects as Jira keys, for persisting into the My Bugs deep-link
+  // (the BugTracker there filters by project key, not our internal project id).
+  const selProjectKeys = useMemo(
+    () => selProjects.map((id) => projectById.get(id)?.jiraProjectKey).filter((k): k is string => !!k),
+    [selProjects, projectById],
+  );
   const prioritySet  = useMemo(
     () => new Set(selPriorities) as Set<PriorityKey>,
     [selPriorities],
@@ -463,6 +476,7 @@ export function BugBoardClient() {
                     dateFrom={resolvedFrom}
                     dateTo={resolvedTo}
                     env={selEnv}
+                    projectKeys={selProjectKeys}
                     cfOnly={cfOnly}
                     freshdeskFieldId={freshdeskFieldId}
                   />
@@ -550,6 +564,7 @@ function OwnerRowView({
   dateFrom,
   dateTo,
   env,
+  projectKeys,
   cfOnly,
   freshdeskFieldId,
 }: {
@@ -566,6 +581,7 @@ function OwnerRowView({
   dateFrom?: string;
   dateTo?: string;
   env?: string | null;
+  projectKeys?: string[];
   cfOnly?: boolean;
   freshdeskFieldId?: number | null;
 }) {
@@ -582,7 +598,7 @@ function OwnerRowView({
             </span>
             {!neutral && row.email && (
               <Link
-                href={myBugsHref(row.email, dateFrom, dateTo, env)}
+                href={myBugsHref(row.email, dateFrom, dateTo, env, projectKeys)}
                 title={`Open ${row.name}'s bugs`}
                 onClick={(e) => e.stopPropagation()}
                 className="text-muted-foreground/40 opacity-0 transition-opacity hover:text-primary group-hover:opacity-100 focus:opacity-100"

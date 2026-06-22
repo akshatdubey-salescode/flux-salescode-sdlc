@@ -17,6 +17,11 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { getRangePresets } from "@/lib/date-utils";
 import {
   initials,
@@ -82,6 +87,7 @@ const QP = {
   sort: "bs_sort",
   dir: "bs_dir",
   inv: "bs_inv", // "0" = include invalid statuses; absent = exclude (default)
+  proj: "bs_proj", // comma-separated project keys; absent = all projects
 } as const;
 
 // Severity ordering so the Priority column sorts P1 → P2 → P3 → Other.
@@ -158,12 +164,22 @@ export function BugTracker({
   const sortDir: "asc" | "desc" = searchParams.get(QP.dir) === "desc" ? "desc" : "asc";
   // Exclude "Not a bug" / "Can't Reproduce" by default; bs_inv=0 includes them.
   const excludeInvalid = searchParams.get(QP.inv) !== "0";
+  // Project filter — comma-separated project keys; absent/empty = all projects.
+  const projectFilterParam = searchParams.get(QP.proj);
+  const projectFilter = useMemo(
+    () =>
+      projectFilterParam
+        ? new Set(projectFilterParam.split(",").map((k) => k.trim()).filter(Boolean))
+        : null,
+    [projectFilterParam]
+  );
 
   const rangeChanged = start !== def.start || end !== def.end;
   const hasActiveFilters =
     rangeChanged ||
     envFilter !== null ||
     ownerFilter !== null ||
+    projectFilter !== null ||
     q !== "" ||
     !excludeInvalid ||
     sortKey !== DEFAULT_SORT ||
@@ -209,6 +225,7 @@ export function BugTracker({
       [QP.sort]: null,
       [QP.dir]: null,
       [QP.inv]: null,
+      [QP.proj]: null,
     });
   }
 
@@ -236,16 +253,17 @@ export function BugTracker({
       .finally(() => setLoading(false));
   }, [dataUrl, start, end, extraKey]);
 
-  // Global filters (environment + invalid-status exclusion) feed BOTH tables,
-  // so the developer-wise counts re-aggregate too.
+  // Global filters (project + environment + invalid-status exclusion) feed BOTH
+  // tables, so the developer-wise counts re-aggregate too.
   const filteredBugs = useMemo(
     () =>
       bugs.filter(
         (b) =>
+          (!projectFilter || projectFilter.has(b.projectKey)) &&
           (!envFilter || b.environment === envFilter) &&
           (!excludeInvalid || !b.isInvalid)
       ),
-    [bugs, envFilter, excludeInvalid]
+    [bugs, projectFilter, envFilter, excludeInvalid]
   );
 
   const summaries = useMemo(() => buildOwnerSummaries(filteredBugs), [filteredBugs]);
@@ -270,6 +288,18 @@ export function BugTracker({
       ),
     [summaries]
   );
+
+  // Distinct projects present (key + name), derived from the full date-scoped
+  // set so selecting one doesn't drop the others. Cross-project views only.
+  const projectOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const b of bugs) {
+      if (!map.has(b.projectKey)) map.set(b.projectKey, b.projectName || b.projectKey);
+    }
+    return [...map.entries()]
+      .map(([key, name]) => ({ key, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [bugs]);
 
   // Distinct environment labels present, in a stable preferred order. Derived
   // from the full (date-scoped) set so selecting one doesn't drop the others.
@@ -339,10 +369,10 @@ export function BugTracker({
   }, [filteredBugs, q, ownerFilter, sortKey, sortDir]);
 
   // Reset pagination when the underlying filtered set changes.
-  useEffect(() => setSummaryPage(1), [envFilter, excludeInvalid, bugs]);
+  useEffect(() => setSummaryPage(1), [projectFilterParam, envFilter, excludeInvalid, bugs]);
   useEffect(
     () => setDetailPage(1),
-    [envFilter, excludeInvalid, q, ownerFilter, sortKey, sortDir, bugs]
+    [projectFilterParam, envFilter, excludeInvalid, q, ownerFilter, sortKey, sortDir, bugs]
   );
 
   const summaryTotalPages = Math.max(1, Math.ceil(summaries.length / SUMMARY_PAGE_SIZE));
@@ -429,7 +459,22 @@ export function BugTracker({
           )}
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          {environments.length > 1 ? (
+          <div className="flex flex-wrap items-center gap-3">
+            {showProject && projectOptions.length > 1 && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">
+                  Project
+                </span>
+                <ProjectFilterMenu
+                  options={projectOptions}
+                  selected={projectFilter}
+                  onChange={(keys) =>
+                    updateParams({ [QP.proj]: keys.length ? keys.join(",") : null })
+                  }
+                />
+              </div>
+            )}
+            {environments.length > 1 && (
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="mr-0.5 text-[10px] font-bold uppercase tracking-widest text-zinc-400">
                 Env
@@ -448,9 +493,8 @@ export function BugTracker({
                 />
               ))}
             </div>
-          ) : (
-            <span />
-          )}
+            )}
+          </div>
 
           <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
             <Checkbox
@@ -882,6 +926,102 @@ function FilterChip({
     >
       {label}
     </button>
+  );
+}
+
+/**
+ * Searchable multi-select for the project filter. Keyed by project key; an
+ * empty selection means "all projects" (the param is dropped). Used only in
+ * cross-project views, where the project list can be long.
+ */
+function ProjectFilterMenu({
+  options,
+  selected,
+  onChange,
+}: {
+  options: { key: string; name: string }[];
+  selected: Set<string> | null;
+  onChange: (keys: string[]) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const selectedKeys = selected ?? new Set<string>();
+  const activeCount = selectedKeys.size;
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return needle
+      ? options.filter(
+          (o) =>
+            o.name.toLowerCase().includes(needle) ||
+            o.key.toLowerCase().includes(needle)
+        )
+      : options;
+  }, [options, query]);
+
+  function toggle(key: string) {
+    const next = new Set(selectedKeys);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    onChange([...next]);
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          className={cn(
+            "inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-xs font-medium transition-colors",
+            activeCount > 0
+              ? "border-primary bg-primary/10 text-primary dark:bg-primary/15"
+              : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900"
+          )}
+        >
+          {activeCount > 0 ? `${activeCount} selected` : "All projects"}
+          <RiArrowDownSLine className="size-3.5 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-60 p-0">
+        <div className="border-b border-border p-2">
+          <div className="relative">
+            <RiSearchLine className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-zinc-400" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search projects…"
+              className="h-7 pl-7 text-xs"
+            />
+          </div>
+        </div>
+        {filtered.length === 0 ? (
+          <p className="px-3 py-3 text-center text-xs text-zinc-400">No matches</p>
+        ) : (
+          <div className="max-h-60 overflow-y-auto py-1">
+            {filtered.map((opt) => (
+              <div
+                key={opt.key}
+                onClick={() => toggle(opt.key)}
+                className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted"
+              >
+                <Checkbox checked={selectedKeys.has(opt.key)} className="pointer-events-none" />
+                <span className="truncate text-zinc-700 dark:text-zinc-300" title={opt.name}>
+                  {opt.name}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        {activeCount > 0 && (
+          <div className="border-t border-border px-3 py-1.5">
+            <button
+              onClick={() => onChange([])}
+              className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+            >
+              Clear
+            </button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
