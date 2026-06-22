@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 const STORAGE_KEY = "my-tasks-pinned";
@@ -17,7 +17,15 @@ function readFromStorage(): Set<string> {
 }
 
 export function usePinnedTasks() {
-  const [pinnedKeys, setPinnedKeys] = useState<Set<string>>(readFromStorage);
+  // Start empty (the SSR-safe default) so the first client render matches the
+  // server HTML, then load the persisted pins after mount. Reading localStorage
+  // during the initial render would reorder pinned rows and cause a hydration
+  // mismatch.
+  const [pinnedKeys, setPinnedKeys] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    setPinnedKeys(readFromStorage());
+  }, []);
 
   function togglePin(jiraKey: string) {
     setPinnedKeys((prev) => {

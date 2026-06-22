@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const STORAGE_KEY = "myTasks.visibleColumns";
 
@@ -47,8 +47,17 @@ function saveToStorage(keys: Set<ColumnKey>) {
 }
 
 export function useColumnVisibility() {
-  const [visibleColumns, setVisibleColumns] =
-    useState<Set<ColumnKey>>(readFromStorage);
+  // Start from the SSR-safe default (all columns) so the first client render
+  // matches the server HTML. The persisted selection is loaded after mount in
+  // the effect below; reading localStorage during the initial render would
+  // cause a hydration mismatch when the user has hidden/shown columns.
+  const [visibleColumns, setVisibleColumns] = useState<Set<ColumnKey>>(
+    () => new Set(ALL_KEYS)
+  );
+
+  useEffect(() => {
+    setVisibleColumns(readFromStorage());
+  }, []);
 
   function toggleColumn(key: ColumnKey) {
     setVisibleColumns((prev) => {
