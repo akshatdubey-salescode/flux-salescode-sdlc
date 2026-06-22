@@ -236,6 +236,8 @@ export function jiraOwnerBugLink(
   priority?: string,
   from?: string,
   to?: string,
+  cfOnly?: boolean,
+  freshdeskFieldId?: number | null,
 ): string {
   const parts = [`project = "${project.jiraProjectKey}"`, `issuetype = Bug`];
 
@@ -243,9 +245,10 @@ export function jiraOwnerBugLink(
     const ors = project.ownerFieldNumIds.map((id) => `cf[${id}] = "${account}"`);
     parts.push(`(${ors.join(" OR ")})`);
   }
-  if (priority) parts.push(`priority = "${priority}"`);
-  if (from)     parts.push(`created >= "${from}"`);
-  if (to)       parts.push(`created <= "${to}"`);
+  if (priority)                    parts.push(`priority = "${priority}"`);
+  if (from)                        parts.push(`created >= "${from}"`);
+  if (to)                          parts.push(`created <= "${to}"`);
+  if (cfOnly && freshdeskFieldId)  parts.push(`cf[${freshdeskFieldId}] is not EMPTY`);
 
   const jql = parts.join(" AND ") + " ORDER BY priority ASC";
   const base = project.jiraBaseUrl.replace(/\/$/, "");

@@ -142,6 +142,8 @@ export function BugBoardClient() {
     return m;
   }, [data]);
 
+  const freshdeskFieldId = data?.freshdeskFieldId ?? null;
+
   const projectIdSet = useMemo(() => new Set(selProjects), [selProjects]);
   const prioritySet  = useMemo(
     () => new Set(selPriorities) as Set<PriorityKey>,
@@ -424,6 +426,8 @@ export function BugBoardClient() {
                     colSpan={colSpan}
                     dateFrom={resolvedFrom}
                     dateTo={resolvedTo}
+                    cfOnly={cfOnly}
+                    freshdeskFieldId={freshdeskFieldId}
                   />
                 ))
               )}
@@ -465,7 +469,7 @@ export function BugBoardClient() {
                 {expandedProjects.has("__total__") && (
                   <tr>
                     <td colSpan={colSpan} className="bg-zinc-50/50 px-5 py-3 dark:bg-zinc-800/20">
-                      <ProjectSplit row={totalOwnerRow} projectById={projectById} visiblePriorityCols={visiblePriorityCols} prioritySet={prioritySet} dateFrom={resolvedFrom} dateTo={resolvedTo} />
+                      <ProjectSplit row={totalOwnerRow} projectById={projectById} visiblePriorityCols={visiblePriorityCols} prioritySet={prioritySet} dateFrom={resolvedFrom} dateTo={resolvedTo} cfOnly={cfOnly} freshdeskFieldId={freshdeskFieldId} />
                     </td>
                   </tr>
                 )}
@@ -508,6 +512,8 @@ function OwnerRowView({
   colSpan,
   dateFrom,
   dateTo,
+  cfOnly,
+  freshdeskFieldId,
 }: {
   row: OwnerRow;
   team: TeamStats;
@@ -521,6 +527,8 @@ function OwnerRowView({
   colSpan: number;
   dateFrom?: string;
   dateTo?: string;
+  cfOnly?: boolean;
+  freshdeskFieldId?: number | null;
 }) {
   const contrib = team.grandTotal > 0 ? (row.total / team.grandTotal) * 100 : 0;
   const neutral = row.isUnassigned;
@@ -558,7 +566,7 @@ function OwnerRowView({
       {projectsOpen && (
         <tr className="border-b border-zinc-100 dark:border-zinc-800/60">
           <td colSpan={colSpan} className="bg-zinc-50/50 px-5 py-3 dark:bg-zinc-800/20">
-            <ProjectSplit row={row} projectById={projectById} visiblePriorityCols={visiblePriorityCols} prioritySet={prioritySet} dateFrom={dateFrom} dateTo={dateTo} />
+            <ProjectSplit row={row} projectById={projectById} visiblePriorityCols={visiblePriorityCols} prioritySet={prioritySet} dateFrom={dateFrom} dateTo={dateTo} cfOnly={cfOnly} freshdeskFieldId={freshdeskFieldId} />
           </td>
         </tr>
       )}
@@ -688,7 +696,7 @@ function FoundBreakdown({ counts, prioritySet }: { counts: Counts; prioritySet: 
 // ---------------------------------------------------------------------------
 
 function ProjectSplit({
-  row, projectById, visiblePriorityCols, prioritySet, dateFrom, dateTo,
+  row, projectById, visiblePriorityCols, prioritySet, dateFrom, dateTo, cfOnly, freshdeskFieldId,
 }: {
   row: OwnerRow;
   projectById: Map<string, BugProject>;
@@ -696,6 +704,8 @@ function ProjectSplit({
   prioritySet: Set<PriorityKey>;
   dateFrom?: string;
   dateTo?: string;
+  cfOnly?: boolean;
+  freshdeskFieldId?: number | null;
 }) {
   const projAvgTotal = row.projects.length > 0 ? row.total / row.projects.length : 0;
 
@@ -730,6 +740,8 @@ function ProjectSplit({
                 prioritySet={prioritySet}
                 dateFrom={dateFrom}
                 dateTo={dateTo}
+                cfOnly={cfOnly}
+                freshdeskFieldId={freshdeskFieldId}
               />
             ))}
           </tbody>
@@ -740,7 +752,7 @@ function ProjectSplit({
 }
 
 function ProjectRowView({
-  p, ownerTotal, projAvgTotal, account, project, visiblePriorityCols, dateFrom, dateTo,
+  p, ownerTotal, projAvgTotal, account, project, visiblePriorityCols, dateFrom, dateTo, cfOnly, freshdeskFieldId,
 }: {
   p: ProjectBreakdown;
   ownerTotal: number;
@@ -751,15 +763,17 @@ function ProjectRowView({
   prioritySet: Set<PriorityKey>;
   dateFrom?: string;
   dateTo?: string;
+  cfOnly?: boolean;
+  freshdeskFieldId?: number | null;
 }) {
   const contrib  = ownerTotal > 0 ? (p.total / ownerTotal) * 100 : 0;
   const state    = rag(p.total, projAvgTotal);
   const badge    = RAG_BADGE[state];
-  const rowLink  = project ? jiraOwnerBugLink(project, account, undefined, dateFrom, dateTo) : null;
+  const rowLink  = project ? jiraOwnerBugLink(project, account, undefined, dateFrom, dateTo, cfOnly, freshdeskFieldId) : null;
 
   const open = (priority?: string) => {
     if (!project) return;
-    window.open(jiraOwnerBugLink(project, account, priority, dateFrom, dateTo), "_blank", "noopener,noreferrer");
+    window.open(jiraOwnerBugLink(project, account, priority, dateFrom, dateTo, cfOnly, freshdeskFieldId), "_blank", "noopener,noreferrer");
   };
 
   return (

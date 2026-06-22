@@ -44,6 +44,7 @@ export type BugBoardResponse = {
   cells: BugCell[];
   projects: BugProject[];
   generatedAt: string;
+  freshdeskFieldId: number | null;
 };
 
 export async function GET(request: NextRequest) {
@@ -193,5 +194,9 @@ async function fetchBugBoard(from?: string, to?: string): Promise<BugBoardRespon
     projects.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  return { cells, projects, generatedAt: new Date().toISOString() };
+  const freshdeskFieldId = FRESHDESK_CUSTOM_FIELD
+    ? Number(FRESHDESK_CUSTOM_FIELD.replace(/\D/g, "")) || null
+    : null;
+
+  return { cells, projects, generatedAt: new Date().toISOString(), freshdeskFieldId };
 }
