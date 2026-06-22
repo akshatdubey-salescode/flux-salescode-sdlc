@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { FRESHDESK_CUSTOM_FIELD } from "@/lib/freshdesk/sync";
-import { BUG_ISSUE_TYPES } from "@/lib/scorecard/config";
+import { BUG_ISSUE_TYPES, BUG_INVALID_STATUSES } from "@/lib/scorecard/config";
 import { currentFiscalQuarterChip } from "@/lib/date-utils";
 import { normalizeEnvironment } from "@/lib/bug-summary";
 
@@ -88,6 +88,17 @@ async function fetchBugBoard(from?: string, to?: string): Promise<BugBoardRespon
     [...BUG_ISSUE_TYPES].map((t) => sql`${t}`),
     sql`, `,
   );
+  // Exclude bugs that aren't really bugs ("Not a Bug" / "Can't Reproduce"),
+  // matching the BugTracker, which hides these by default. The SQL below mirrors
+  // normalizeStatus() (lower-case, strip apostrophes/backtick, collapse spaces,
+  // trim) so curly vs straight apostrophes and spacing don't matter. The regex
+  // character class is passed as a bound param because it contains a backtick,
+  // which can't appear literally inside a sql`` template.
+  const invalidStatuses = sql.join(
+    [...BUG_INVALID_STATUSES].map((s) => sql`${s}`),
+    sql`, `,
+  );
+  const apostropheClass = "['’`]";
 
   const res = await db.execute(sql`
     WITH base AS (
@@ -134,7 +145,11 @@ async function fetchBugBoard(from?: string, to?: string): Promise<BugBoardRespon
               ) IS NOT NULL
         ORDER BY ef.ord LIMIT 1
       ) env ON true
-      WHERE lower(trim(ji.issue_type)) IN (${bugTypes})${fromFilter}${toFilter}
+      WHERE lower(trim(ji.issue_type)) IN (${bugTypes})
+        AND btrim(lower(regexp_replace(
+              regexp_replace(ji.status, ${apostropheClass}, '', 'g'),
+              '\s+', ' ', 'g'
+            ))) NOT IN (${invalidStatuses})${fromFilter}${toFilter}
     ),
     resolved AS (
       SELECT
