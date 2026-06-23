@@ -99,6 +99,7 @@ export function BugBoardClient() {
   const [fetchResult, setFetchResult] = useState<FetchResult | null>(null);
   const [selProjects,   setSelProjects]   = useState<string[]>([]);
   const [selOwners,     setSelOwners]     = useState<string[]>([]);
+  const [nameQuery,     setNameQuery]     = useState("");
   const [selPriorities, setSelPriorities] = useState<PriorityKey[]>([...PRIORITIES]);
   const [selEnv,        setSelEnv]        = useState<string | null>(null);
   const [cfOnly,        setCfOnly]        = useState(false);
@@ -210,9 +211,12 @@ export function BugBoardClient() {
   const displayRows = useMemo(() => {
     const ownerSet  = new Set(selOwners);
     const filterOn  = ownerSet.size > 0;
-    const rows = effectiveRows.filter((r) =>
-      r.isUnassigned ? !filterOn : !filterOn || ownerSet.has(r.key),
-    );
+    const q = nameQuery.trim().toLowerCase();
+    const rows = effectiveRows.filter((r) => {
+      if (r.isUnassigned ? filterOn : filterOn && !ownerSet.has(r.key)) return false;
+      if (q && !(r.name.toLowerCase().includes(q) || (r.email ?? "").toLowerCase().includes(q))) return false;
+      return true;
+    });
     const dir = sortDir === "asc" ? 1 : -1;
     rows.sort((a, b) => {
       if (a.isUnassigned !== b.isUnassigned) return a.isUnassigned ? 1 : -1;
@@ -220,7 +224,7 @@ export function BugBoardClient() {
       return dir * ((a[sortBy] as number) - (b[sortBy] as number));
     });
     return rows;
-  }, [effectiveRows, selOwners, sortBy, sortDir]);
+  }, [effectiveRows, selOwners, nameQuery, sortBy, sortDir]);
 
   const grandTotal = useMemo<Counts>(() => {
     const acc: Counts = {
@@ -394,6 +398,19 @@ export function BugBoardClient() {
             })}
           </>
         )}
+
+        <div className="relative">
+          <RiSearchLine
+            size={13}
+            className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+          />
+          <input
+            value={nameQuery}
+            onChange={(e) => setNameQuery(e.target.value)}
+            placeholder="Search developer…"
+            className="h-6 w-44 rounded border border-input bg-background pl-7 pr-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+          />
+        </div>
 
         <SearchableMultiSelect
           label="Projects"

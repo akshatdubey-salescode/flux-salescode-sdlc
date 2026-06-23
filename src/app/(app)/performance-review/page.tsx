@@ -14,6 +14,7 @@ import { WEIGHTS } from "@/lib/scorecard/config";
 import { METRIC_INFO } from "@/lib/scorecard/metric-descriptions";
 import { fetchScorecards, fetchScorecardDetail } from "./data";
 import { ReviewControls } from "./controls";
+import { LeaderboardTable } from "./leaderboard-table";
 
 type SearchParams = Promise<{ quarter?: string; person?: string }>;
 
@@ -578,96 +579,11 @@ export default async function PerformanceReviewPage({
             canRecompute={canRecompute}
           />
 
-          <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/80">
-                  <th className="w-12 px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    #
-                  </th>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    Developer
-                  </th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    Score
-                  </th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    Bug Qual.
-                  </th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    Sprint
-                  </th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    Complex
-                  </th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    MTTR
-                  </th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    AI
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr
-                    key={row.email}
-                    className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60"
-                  >
-                    <td className="px-4 py-3 align-top tabular-nums text-xs text-zinc-400">
-                      {row.rank}
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <Link
-                        href={`/performance-review?quarter=${quarterKey}&person=${encodeURIComponent(
-                          row.email
-                        )}`}
-                        className="group/link"
-                      >
-                        <span className="block font-medium text-zinc-900 group-hover/link:underline dark:text-zinc-100">
-                          {row.name}
-                        </span>
-                        <span className="block font-mono text-xs text-zinc-500 dark:text-zinc-400">
-                          {row.email}
-                        </span>
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-right align-top text-base font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
-                      {row.finalScore.toFixed(2)}
-                    </td>
-                    <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                      {fmtPoints(row.bugQualityPoints)}
-                    </td>
-                    <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                      {fmtPoints(row.sprintCommitmentPoints)}
-                    </td>
-                    <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                      {fmtPoints(row.complexTasksPoints)}
-                    </td>
-                    <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                      {fmtPoints(row.mttrPoints)}
-                    </td>
-                    <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                      {fmtPoints(row.underestimatedTasksPoints)}
-                    </td>
-                  </tr>
-                ))}
-
-                {rows.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={8}
-                      className="px-4 py-8 text-center text-sm text-zinc-400"
-                    >
-                      No scorecards for {quarterLabel} yet. Click{" "}
-                      <strong>Recompute</strong> to generate ratings from the latest
-                      synced Jira data.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <LeaderboardTable
+            rows={rows}
+            quarterKey={quarterKey}
+            quarterLabel={quarterLabel}
+          />
         </div>
       </main>
     </div>
