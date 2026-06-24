@@ -934,6 +934,66 @@ export const githubSyncJobs = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Keka Employees — synced mirror of the Keka HR employee directory. One row per
+// employee (keyed by Keka's stable GUID). `userId` bridges to an app user by
+// work email (resolved_via='email_auto'), mirroring github_accounts. The
+// reporting manager is captured by Keka id + email (`manager_keka_id` /
+// `manager_email`) so the chain resolves even before the manager's own row is
+// processed. `raw` keeps the full Keka payload so new columns can be backfilled
+// without re-fetching (Keka's token endpoint is heavily rate-limited).
+// ---------------------------------------------------------------------------
+
+export const kekaEmployees = pgTable(
+  "keka_employees",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Keka's stable employee GUID — the natural upsert key.
+    kekaEmployeeId: text("keka_employee_id").notNull(),
+    employeeNumber: text("employee_number"),
+    displayName: text("display_name"),
+    firstName: text("first_name"),
+    lastName: text("last_name"),
+    // Work email, lowercased — the bridge to app users and the manager link.
+    email: text("email"),
+    jobTitle: text("job_title"),
+    // Keka has no first-class department field (it lives under `groups`);
+    // kept nullable for later backfill from `raw`.
+    department: text("department"),
+    // Keka enum: 0 = Working, 1 = Relieved.
+    employmentStatus: integer("employment_status"),
+    employmentStatusLabel: text("employment_status_label"),
+    joiningDate: timestamp("joining_date", { withTimezone: true }),
+    exitDate: timestamp("exit_date", { withTimezone: true }),
+    // Reporting manager — Keka's `reportsTo`. Captured by id + email so the
+    // hierarchy resolves regardless of sync order.
+    managerKekaId: text("manager_keka_id"),
+    managerEmail: text("manager_email"),
+    managerName: text("manager_name"),
+    // Identity bridge to an app user. null = unresolved.
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    // How userId was set: 'email_auto' | 'manual'. null while unresolved.
+    resolvedVia: text("resolved_via"),
+    // Full Keka EmployeeProfile payload — safety net for backfills.
+    raw: jsonb("raw"),
+    syncedAt: timestamp("synced_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("keka_employees_keka_id_idx").on(t.kekaEmployeeId),
+    index("keka_employees_email_idx").on(t.email),
+    index("keka_employees_user_idx").on(t.userId),
+    index("keka_employees_manager_idx").on(t.managerKekaId),
+  ]
+);
+
+// ---------------------------------------------------------------------------
 // Type exports
 // ---------------------------------------------------------------------------
 
@@ -975,6 +1035,8 @@ export type NewGithubAccount = typeof githubAccounts.$inferInsert;
 export type GithubContributorStat = typeof githubContributorStats.$inferSelect;
 export type NewGithubContributorStat = typeof githubContributorStats.$inferInsert;
 export type GithubSyncJob = typeof githubSyncJobs.$inferSelect;
+export type KekaEmployee = typeof kekaEmployees.$inferSelect;
+export type NewKekaEmployee = typeof kekaEmployees.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // Release Notes — admin-authored "What's New" entries surfaced via the bell

@@ -7,7 +7,7 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
-import { RiFlag2Line, RiRefreshLine, RiLightbulbLine, RiDeleteBin2Line, RiCalendarLine, RiCustomerService2Line, RiArrowLeftRightLine, RiGithubLine, RiGitMergeLine, RiBuilding2Line, RiMegaphoneLine } from "@remixicon/react";
+import { RiFlag2Line, RiRefreshLine, RiLightbulbLine, RiDeleteBin2Line, RiCalendarLine, RiCustomerService2Line, RiArrowLeftRightLine, RiGithubLine, RiGitMergeLine, RiBuilding2Line, RiMegaphoneLine, RiTeamLine } from "@remixicon/react";
 
 const TOOLS = [
   {
@@ -63,6 +63,12 @@ const TOOLS = [
     icon: RiCustomerService2Line,
     title: "Freshdesk Integration",
     description: "Enable Client Issue Tracking for any project by mapping it to a Freshdesk company.",
+  },
+  {
+    href: "/superuser/keka",
+    icon: RiTeamLine,
+    title: "Keka HR",
+    description: "Sync the Keka employee directory and map employees that couldn't be auto-linked to a user by email.",
   },
   {
     href: "/superuser/unmapped-projects",
