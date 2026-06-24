@@ -20,6 +20,7 @@ import {
   formatRelativeTime,
 } from "./helpers";
 import { SORT_OPTIONS } from "./helpers";
+import { localDateStr } from "@/lib/date-utils";
 
 type Props = {
   issues: TrackingIssue[];
@@ -71,6 +72,23 @@ function formatShort(dateStr: string | null | undefined): string {
   const d = new Date(dateStr + "T00:00:00");
   if (Number.isNaN(d.getTime())) return dateStr;
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+/**
+ * Whether today falls inside an issue's planned window — the "focus today"
+ * signal. True when today is on/after the start date (if set) and on/before the
+ * due date (if set); at least one bound must exist. Date strings are
+ * zero-padded YYYY-MM-DD, so lexicographic comparison is date comparison.
+ */
+function isActiveToday(
+  startDate: string | null | undefined,
+  dueDate: string | null | undefined
+): boolean {
+  if (!startDate && !dueDate) return false;
+  const today = localDateStr(new Date());
+  if (startDate && today < startDate) return false; // hasn't started yet
+  if (dueDate && today > dueDate) return false; // already past due
+  return true;
 }
 
 export function ListView({
@@ -333,14 +351,23 @@ function IssueRow({
   const pStyles = priorityStyles(issue.priority);
   const tStyles = issueTypeStyles(issue.issueType);
   const sStyles = statusCategoryStyles(issue.statusCategory);
+  // Tasks whose planned window contains today — the ones to focus on now.
+  // startDate/dueDate are only populated in My Tasks, so this is a no-op
+  // elsewhere even though the highlight isn't gated on the Plan column.
+  const activeToday = isActiveToday(issue.startDate, issue.dueDate);
 
   return (
     <tr
       className={cn(
         "transition-colors",
+        // Pinned keeps its amber background; an active-today row that isn't
+        // pinned gets a sky tint. Either way, active-today adds a left accent.
         pinned
           ? "bg-amber-50/70 hover:bg-amber-50 dark:bg-amber-950/20 dark:hover:bg-amber-950/30"
-          : "bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900/60"
+          : activeToday
+            ? "bg-sky-50/70 hover:bg-sky-50 dark:bg-sky-950/25 dark:hover:bg-sky-950/40"
+            : "bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900/60",
+        activeToday && "border-l-2 border-l-sky-500 dark:border-l-sky-400"
       )}
     >
       {/* Pin button */}
@@ -495,19 +522,36 @@ function IssueRow({
         <td className="px-3 py-2">
           <div
             className="flex flex-col items-start gap-1"
-            title={`Start: ${formatDateOrDash(issue.startDate)} · Due: ${formatDateOrDash(issue.dueDate)}`}
+            title={
+              (activeToday ? "Active today · " : "") +
+              `Start: ${formatDateOrDash(issue.startDate)} · Due: ${formatDateOrDash(issue.dueDate)}`
+            }
           >
+            <span className="inline-flex items-center gap-1">
+              <span
+                className={cn(
+                  "inline-block cursor-default rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                  issue.isPlanned
+                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                    : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                )}
+              >
+                {issue.isPlanned ? "Planned" : "Unplanned"}
+              </span>
+              {activeToday && (
+                <span className="inline-block rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">
+                  Today
+                </span>
+              )}
+            </span>
             <span
               className={cn(
-                "inline-block cursor-default rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                issue.isPlanned
-                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                  : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                "whitespace-nowrap text-[10px] tabular-nums",
+                activeToday
+                  ? "font-semibold text-sky-600 dark:text-sky-400"
+                  : "text-zinc-400 dark:text-zinc-500"
               )}
             >
-              {issue.isPlanned ? "Planned" : "Unplanned"}
-            </span>
-            <span className="whitespace-nowrap text-[10px] tabular-nums text-zinc-400 dark:text-zinc-500">
               {formatShort(issue.startDate)} – {formatShort(issue.dueDate)}
             </span>
           </div>
