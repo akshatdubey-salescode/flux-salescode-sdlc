@@ -49,8 +49,14 @@ export type KekaEmployeeRaw = {
     lastName?: string;
     email?: string;
   } | null;
+  // Org groupings. The department lives here as the entry with groupType 2
+  // (others: 1/9 = legal entity, 3 = city, 4 = work location, 5 = pay group).
+  groups?: { id?: string; title?: string; groupType?: number }[] | null;
   [key: string]: unknown;
 };
+
+// groupType of the "department" group within KekaEmployeeRaw.groups.
+export const KEKA_DEPARTMENT_GROUP_TYPE = 2;
 
 type KekaListEnvelope<T> = {
   succeeded?: boolean;

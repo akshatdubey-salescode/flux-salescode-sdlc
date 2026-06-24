@@ -12,6 +12,14 @@ export type LocRow = {
   deletions: number;
   commits: number;
   repos: number;
+  // From the Keka HR directory (joined by app-user id). null when the person
+  // isn't mapped to a Keka employee, or the field isn't set.
+  department: string | null;
+  managerName: string | null;
+  // Reporting line from the direct manager up to the top, resolved by walking
+  // Keka's reportsTo chain. [0] is the direct manager (== managerName); the rest
+  // are each successive manager above. Empty when there's no manager.
+  managerChain: string[];
 };
 
 export type UnattributedSummary = {
@@ -22,7 +30,36 @@ export type UnattributedSummary = {
   accounts: number;
 };
 
-type LocAggRow = Omit<LocRow, "rank">;
+// Raw shape returned by the LOC query before the manager chain is resolved.
+type LocSqlRow = Omit<LocRow, "managerChain"> & { managerKekaId: string | null };
+
+/**
+ * Walk Keka's reportsTo chain from a person's direct manager up to the top,
+ * returning [directManager, theirManager, …]. `graph` maps a Keka employee id
+ * to that employee's own manager (id + name). Guards against self-reports and
+ * cycles (Keka's top person reports to themselves) via a visited set.
+ */
+function buildManagerChain(
+  directName: string | null,
+  directManagerId: string | null,
+  graph: Map<string, { managerId: string | null; managerName: string | null }>
+): string[] {
+  if (!directName) return [];
+  const chain = [directName];
+  if (!directManagerId) return chain;
+
+  const visited = new Set<string>([directManagerId]);
+  let curId: string | null = directManagerId;
+  for (let depth = 0; curId && depth < 15; depth++) {
+    const node = graph.get(curId);
+    if (!node?.managerId || !node.managerName) break;
+    if (visited.has(node.managerId)) break; // self-report / cycle → stop
+    chain.push(node.managerName);
+    visited.add(node.managerId);
+    curId = node.managerId;
+  }
+  return chain;
+}
 
 /**
  * Per-person net lines of code (additions − deletions) over a date window,
@@ -57,16 +94,52 @@ export async function fetchLinesOfCode(
         AND gcs.week_start::date >= ${start}::date
         AND gcs.week_start::date <= ${end}::date
       GROUP BY u.id
+    ),
+    -- Pre-aggregate Keka to one row per user so the join can't multiply the
+    -- per-person stats (and is robust if a user ever maps to >1 Keka row).
+    -- Keka holds only ACTIVE employees (the sync prunes anyone relieved), so an
+    -- inner join below restricts the board to people currently at the company.
+    keka AS (
+      SELECT user_id,
+             MAX(department) AS department,
+             MAX(manager_name) AS manager_name,
+             MAX(manager_keka_id) AS manager_keka_id
+      FROM keka_employees
+      WHERE user_id IS NOT NULL
+      GROUP BY user_id
     )
     SELECT
-      ROW_NUMBER() OVER (ORDER BY net DESC, commits DESC)::int AS rank,
-      email, name, net, additions, deletions, commits, repos
-    FROM person_stats
-    ORDER BY net DESC, commits DESC
+      ROW_NUMBER() OVER (ORDER BY ps.net DESC, ps.commits DESC)::int AS rank,
+      ps.email, ps.name, ps.net, ps.additions, ps.deletions, ps.commits, ps.repos,
+      k.department AS department,
+      k.manager_name AS "managerName",
+      k.manager_keka_id AS "managerKekaId"
+    FROM person_stats ps
+    -- Inner join: only contributors who are current (active) Keka employees.
+    -- Former employees, pruned from keka_employees, drop off the board.
+    JOIN keka k ON k.user_id = ps.email
+    ORDER BY ps.net DESC, ps.commits DESC
     LIMIT 200
   `);
 
-  return (res.rows as (LocAggRow & { rank: number })[]).map((r) => ({
+  // Manager graph: Keka employee id → that employee's own manager (id + name),
+  // used to walk each person's reporting line up the tree.
+  const graphRes = await db.execute(sql`
+    SELECT keka_employee_id AS id,
+           manager_keka_id AS "managerId",
+           manager_name AS "managerName"
+    FROM keka_employees
+  `);
+  const graph = new Map<string, { managerId: string | null; managerName: string | null }>();
+  for (const g of graphRes.rows as {
+    id: string;
+    managerId: string | null;
+    managerName: string | null;
+  }[]) {
+    graph.set(g.id, { managerId: g.managerId, managerName: g.managerName });
+  }
+
+  return (res.rows as LocSqlRow[]).map((r) => ({
     rank: r.rank,
     email: r.email,
     name: r.name,
@@ -75,6 +148,9 @@ export async function fetchLinesOfCode(
     deletions: r.deletions,
     commits: r.commits,
     repos: r.repos,
+    department: r.department,
+    managerName: r.managerName,
+    managerChain: buildManagerChain(r.managerName, r.managerKekaId, graph),
   }));
 }
 

@@ -1,7 +1,7 @@
 import { notInArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { kekaEmployees } from "@/lib/db/schema";
-import { getKekaClient, type KekaEmployeeRaw } from "./client";
+import { getKekaClient, KEKA_DEPARTMENT_GROUP_TYPE, type KekaEmployeeRaw } from "./client";
 
 // Keka employmentStatus is a numeric enum.
 const EMPLOYMENT_STATUS_LABELS: Record<number, string> = {
@@ -25,6 +25,13 @@ function toDate(v: unknown): Date | null {
 
 function lower(v: string | null | undefined): string | null {
   return v ? v.toLowerCase() : null;
+}
+
+/** Keka has no flat department field; it's the `groups` entry with groupType 2. */
+function departmentFromGroups(e: KekaEmployeeRaw): string | null {
+  const g = e.groups?.find((x) => x.groupType === KEKA_DEPARTMENT_GROUP_TYPE);
+  const title = g?.title?.trim();
+  return title || null;
 }
 
 /**
@@ -69,9 +76,9 @@ export async function syncKekaEmployees(): Promise<{
           lastName: e.lastName ?? null,
           email: lower(e.email),
           jobTitle: lookupTitle(e.jobTitle),
-          // Keka exposes no first-class department field; it lives under
-          // `groups`, preserved in `raw` for later extraction.
-          department: null,
+          // Keka exposes no first-class department field; it's the `groups`
+          // entry with groupType 2 (full payload still preserved in `raw`).
+          department: departmentFromGroups(e),
           employmentStatus: status,
           employmentStatusLabel:
             status !== null ? EMPLOYMENT_STATUS_LABELS[status] ?? null : null,

@@ -21,6 +21,7 @@ import {
 } from "@/lib/date-utils";
 import { fetchLinesOfCode, fetchUnattributed, fetchPersonBreakdown } from "./data";
 import { FilterBar } from "./filter-bar";
+import { LocTable } from "./loc-table";
 
 type SearchParams = Promise<{ start?: string; end?: string; person?: string }>;
 
@@ -238,17 +239,19 @@ export default async function LinesOfCodePage({
       </PageHeader>
 
       <main className="flex-1 p-6">
-        <div className="max-w-4xl mx-auto space-y-6">
+        <div className="max-w-6xl mx-auto space-y-6">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">
               Lines of Code Delivered
             </h1>
             <p className="text-sm text-zinc-500 mt-1">
               Net lines (additions − deletions) merged to each repo&apos;s default
-              branch, attributed by commit author and rolled up per person. Sourced
-              from GitHub&apos;s weekly contributor stats, so figures are
-              week-granular and count every changed line — including generated files
-              and lock files. Read it as a delivery signal, not a productivity score.
+              branch, attributed by commit author and rolled up per person. Limited
+              to people currently in the company (per the active Keka directory), so
+              former employees drop off. Sourced from GitHub&apos;s weekly contributor
+              stats, so figures are week-granular and count every changed line —
+              including generated files and lock files. Read it as a delivery signal,
+              not a productivity score.
             </p>
           </div>
 
@@ -256,94 +259,7 @@ export default async function LinesOfCodePage({
 
           <CoveredBanner {...span} />
 
-          <div className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/80">
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide w-12">
-                    #
-                  </th>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-                    Person
-                  </th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-                    Net LOC
-                  </th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-                    Added
-                  </th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-                    Deleted
-                  </th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-                    Commits
-                  </th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-                    Repos
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr
-                    key={row.email}
-                    className="border-b border-zinc-100 dark:border-zinc-800/60 last:border-0"
-                  >
-                    <td className="px-4 py-3 text-xs text-zinc-400 tabular-nums align-top">
-                      {row.rank}
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <Link
-                        href={`/views/lines-of-code?${rangeQuery}&person=${encodeURIComponent(row.email)}`}
-                        className="group/link"
-                      >
-                        <span className="block font-medium text-zinc-900 group-hover/link:underline dark:text-zinc-100">
-                          {row.name}
-                        </span>
-                        <span className="block font-mono text-xs text-zinc-500 dark:text-zinc-400">
-                          {row.email}
-                        </span>
-                      </Link>
-                    </td>
-                    <td
-                      className={
-                        "px-4 py-3 text-right font-semibold tabular-nums align-top " +
-                        (row.net < 0
-                          ? "text-red-600 dark:text-red-400"
-                          : "text-zinc-900 dark:text-zinc-100")
-                      }
-                    >
-                      {row.net.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-emerald-600 dark:text-emerald-400 align-top">
-                      {signed(row.additions)}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-red-500 dark:text-red-400 align-top">
-                      −{row.deletions.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-zinc-600 dark:text-zinc-400 align-top">
-                      {row.commits.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-zinc-600 dark:text-zinc-400 align-top">
-                      {row.repos.toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
-
-                {rows.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={7}
-                      className="px-4 py-8 text-center text-sm text-zinc-400"
-                    >
-                      No attributed contributions in this period. Run a GitHub sync
-                      and map accounts under Superuser → GitHub Accounts.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <LocTable rows={rows} rangeQuery={rangeQuery} />
 
           {unattributed && unattributed.accounts > 0 && (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
