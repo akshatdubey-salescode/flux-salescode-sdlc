@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
-import { RiAddLine, RiDeleteBin2Line, RiGithubLine } from "@remixicon/react";
+import { RiAddLine, RiDeleteBin2Line, RiGithubLine, RiKey2Line } from "@remixicon/react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,11 +15,25 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { addGithubOrg, deleteGithubOrg, setGithubOrgActive } from "./actions";
+import {
+  addGithubOrg,
+  deleteGithubOrg,
+  setGithubOrgActive,
+  updateGithubOrgToken,
+} from "./actions";
 
 export type OrgRow = {
   id: string;
@@ -107,9 +121,28 @@ function OrgRowItem({ org, pending }: { org: OrgRow; pending: boolean }) {
   const [isPending, startTransition] = useTransition();
   const busy = pending || isPending;
 
+  // Edit-token dialog state.
+  const [tokenOpen, setTokenOpen] = useState(false);
+  const [newToken, setNewToken] = useState("");
+  const [tokenError, setTokenError] = useState<string | null>(null);
+
   function toggle() {
     startTransition(async () => {
       await setGithubOrgActive(org.id, !org.isActive);
+      router.refresh();
+    });
+  }
+
+  function saveToken() {
+    setTokenError(null);
+    startTransition(async () => {
+      const res = await updateGithubOrgToken(org.id, newToken);
+      if (res.error) {
+        setTokenError(res.error);
+        return;
+      }
+      setNewToken("");
+      setTokenOpen(false);
       router.refresh();
     });
   }
@@ -151,6 +184,54 @@ function OrgRowItem({ org, pending }: { org: OrgRow; pending: boolean }) {
       <Button variant="outline" size="sm" onClick={toggle} disabled={busy} className="shrink-0">
         {org.isActive ? "Pause" : "Resume"}
       </Button>
+
+      <Dialog
+        open={tokenOpen}
+        onOpenChange={(o) => {
+          setTokenOpen(o);
+          if (!o) {
+            setNewToken("");
+            setTokenError(null);
+          }
+        }}
+      >
+        <DialogTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            className="shrink-0 gap-1.5"
+            title="Update token"
+          >
+            <RiKey2Line className="size-4" />
+          </Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Update token for {org.login}</DialogTitle>
+            <DialogDescription>
+              Paste a new fine-grained PAT for <span className="font-medium">{org.login}</span>.
+              It needs <span className="font-medium">Contents: read</span> and{" "}
+              <span className="font-medium">Metadata: read</span>, is validated against GitHub,
+              and replaces the stored token for every repo in this org.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            type="password"
+            placeholder="fine-grained PAT (github_pat_…)"
+            value={newToken}
+            onChange={(e) => setNewToken(e.target.value)}
+            disabled={busy}
+            className="font-mono"
+          />
+          {tokenError && <p className="text-xs text-red-600 dark:text-red-400">{tokenError}</p>}
+          <DialogFooter>
+            <Button onClick={saveToken} disabled={busy || !newToken}>
+              Update token
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog>
         <AlertDialogTrigger asChild>

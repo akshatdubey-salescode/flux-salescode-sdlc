@@ -807,6 +807,16 @@ export const githubRepos = pgTable(
     fullName: text("full_name").notNull(), // e.g. "salescode-ai/schemes-service"
     // The branch contributor-stats aggregates over. Informational here.
     defaultBranch: text("default_branch"),
+    // Extra branches (beyond the default) to fold into this repo's LOC, set
+    // per-repo by a superuser. GitHub's contributor-stats API only ever reports
+    // the default branch, so any repo with a non-empty list is forced onto the
+    // git collector (stats_mode='git'), which runs `git log` over the union of
+    // {default, ...extraBranches} — commits shared across branches are deduped
+    // by SHA, so nothing is double-counted. Empty = default branch only.
+    extraBranches: text("extra_branches")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
     isPrivate: boolean("is_private").notNull().default(false),
     language: text("language"),
     // false = excluded from stats sync and the dashboard.

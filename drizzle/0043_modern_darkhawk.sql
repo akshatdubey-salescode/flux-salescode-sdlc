@@ -1,0 +1,1 @@
+ALTER TABLE "github_repos" ADD COLUMN "extra_branches" text[] DEFAULT '{}'::text[] NOT NULL;

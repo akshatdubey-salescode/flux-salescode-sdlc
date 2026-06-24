@@ -7,7 +7,7 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
-import { RiFlag2Line, RiRefreshLine, RiLightbulbLine, RiDeleteBin2Line, RiCalendarLine, RiCustomerService2Line, RiArrowLeftRightLine, RiGithubLine, RiGitMergeLine, RiBuilding2Line, RiMegaphoneLine, RiTeamLine } from "@remixicon/react";
+import { RiFlag2Line, RiRefreshLine, RiLightbulbLine, RiDeleteBin2Line, RiCalendarLine, RiCustomerService2Line, RiArrowLeftRightLine, RiGithubLine, RiGitMergeLine, RiGitBranchLine, RiBuilding2Line, RiMegaphoneLine, RiTeamLine } from "@remixicon/react";
 
 const TOOLS = [
   {
@@ -33,6 +33,12 @@ const TOOLS = [
     icon: RiGitMergeLine,
     title: "GitHub Accounts",
     description: "Map GitHub accounts that couldn't be auto-matched by email to their person, so their lines of code are attributed.",
+  },
+  {
+    href: "/superuser/github-repos",
+    icon: RiGitBranchLine,
+    title: "Repo Branches",
+    description: "Count extra branches (beyond the default) in a repo's Lines of Code. Shared commits are deduped, so nothing is double-counted.",
   },
   {
     href: "/superuser/feature-flags",

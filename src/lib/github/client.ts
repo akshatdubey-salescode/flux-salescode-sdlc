@@ -147,6 +147,41 @@ export class GitHubClient {
   }
 
   /**
+   * Branch names for the superuser branch picker. With a query, prefix-searches
+   * server-side via git/matching-refs (one call, returns only matches — works
+   * even on repos with thousands of branches). Without one, returns the first
+   * page (100) of branches just to populate the picker before the user types.
+   */
+  async searchBranches(repoFullName: string, query?: string): Promise<string[]> {
+    const q = query?.trim();
+
+    if (q) {
+      // Prefix match: refs/heads/<q>… . Keep slashes (release/x) but encode the
+      // rest of each segment so odd characters can't break the path.
+      const prefix = q.split("/").map(encodeURIComponent).join("/");
+      const res = await this.get(
+        `${GITHUB_API_BASE}/repos/${repoFullName}/git/matching-refs/heads/${prefix}`
+      );
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(
+          `GitHub branch search failed for ${repoFullName} (${res.status}): ${body}`
+        );
+      }
+      const refs = (await res.json()) as { ref: string }[];
+      return refs.map((r) => r.ref.replace(/^refs\/heads\//, ""));
+    }
+
+    const res = await this.get(`${GITHUB_API_BASE}/repos/${repoFullName}/branches?per_page=100`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`GitHub branches list failed for ${repoFullName} (${res.status}): ${body}`);
+    }
+    const page = (await res.json()) as { name: string }[];
+    return page.map((b) => b.name);
+  }
+
+  /**
    * Per-author weekly additions/deletions/commits on a repo's default branch.
    *
    * GitHub computes this statistic asynchronously: the first request for a cold

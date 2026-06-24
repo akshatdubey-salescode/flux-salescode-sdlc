@@ -51,6 +51,44 @@ export async function addGithubOrg(
   return {};
 }
 
+/**
+ * Rotate an existing org's PAT without re-typing its login. Validates the new
+ * token can read the org before persisting it (encrypted). This is the token
+ * every repo in the org is fetched/cloned with, so updating it here updates
+ * access for all of them. Leaves isActive untouched.
+ */
+export async function updateGithubOrgToken(
+  id: string,
+  token: string
+): Promise<{ error?: string }> {
+  await requireRole("SUPERUSER");
+
+  const cleanToken = token.trim();
+  if (!cleanToken) return { error: "A token is required." };
+
+  const [org] = await db
+    .select({ login: githubOrgs.login })
+    .from(githubOrgs)
+    .where(eq(githubOrgs.id, id))
+    .limit(1);
+  if (!org) return { error: "Org not found." };
+
+  const accessError = await new GitHubClient({
+    token: cleanToken,
+    org: org.login,
+  }).testOrgAccess();
+  if (accessError) return { error: accessError };
+
+  await db
+    .update(githubOrgs)
+    .set({ apiToken: encrypt(cleanToken), updatedAt: new Date() })
+    .where(eq(githubOrgs.id, id));
+
+  revalidateTag(GITHUB_STATS_TAG, "max");
+  revalidatePath(ORG_PATH);
+  return {};
+}
+
 export async function setGithubOrgActive(
   id: string,
   isActive: boolean

@@ -132,15 +132,25 @@ async function pruneReposForOrg(
   return stale.length;
 }
 
-/** Tracked repos with their org binding — stats pull picks the org's client. */
+/** Tracked repos with their org binding — stats pull picks the org's client.
+ * defaultBranch/extraBranches feed the git collector for repos a superuser has
+ * pointed at extra branches; the API stats path ignores them. */
 export async function getTrackedRepos(): Promise<
-  { id: string; fullName: string; orgId: string | null }[]
+  {
+    id: string;
+    fullName: string;
+    orgId: string | null;
+    defaultBranch: string | null;
+    extraBranches: string[];
+  }[]
 > {
   return db
     .select({
       id: githubRepos.id,
       fullName: githubRepos.fullName,
       orgId: githubRepos.orgId,
+      defaultBranch: githubRepos.defaultBranch,
+      extraBranches: githubRepos.extraBranches,
     })
     .from(githubRepos)
     .where(eq(githubRepos.isTracked, true))
