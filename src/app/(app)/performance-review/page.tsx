@@ -10,7 +10,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { selectableQuarters, currentQuarter } from "@/lib/scorecard/quarter";
-import { WEIGHTS } from "@/lib/scorecard/config";
+import { WEIGHTS, SCORE_SCALE } from "@/lib/scorecard/config";
 import { METRIC_INFO, DATE_CAPTURE_NOTE } from "@/lib/scorecard/metric-descriptions";
 import { fetchScorecards, fetchScorecardDetail } from "./data";
 import { ReviewControls } from "./controls";
@@ -162,7 +162,17 @@ export default async function PerformanceReviewPage({
                             {m.weight.toFixed(2)}
                           </td>
                           <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">
-                            {m.available ? m.contribution.toFixed(2) : "—"}
+                            {m.available ? (
+                              <>
+                                {m.contribution.toFixed(2)}
+                                <span className="font-normal text-zinc-400">
+                                  {" "}
+                                  / {(m.weight * 5 * SCORE_SCALE).toFixed(2)}
+                                </span>
+                              </>
+                            ) : (
+                              "—"
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -175,6 +185,13 @@ export default async function PerformanceReviewPage({
                         </td>
                         <td className="px-4 py-3 text-right text-sm font-bold tabular-nums">
                           {detail.finalScore.toFixed(1)}
+                          <span className="font-normal text-zinc-400">
+                            {" "}
+                            /{" "}
+                            {detail.breakdown.metrics
+                              .reduce((s, m) => s + m.weight * 5 * SCORE_SCALE, 0)
+                              .toFixed(0)}
+                          </span>
                         </td>
                       </tr>
                     </tbody>
