@@ -3,10 +3,37 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { RiSearchLine } from "@remixicon/react";
+import { WEIGHTS, SCORE_SCALE } from "@/lib/scorecard/config";
 import type { ScorecardRow } from "./data";
 
-function fmtPoints(p: number | null | undefined): string {
-  return p == null ? "—" : p.toFixed(2);
+/** Max points any metric can score; the final score scales this by weight. */
+const MAX_POINTS = 5;
+
+/** Total achievable final score (active weights sum to 1 → 100). */
+const MAX_SCORE =
+  Object.values(WEIGHTS).reduce((s, w) => s + w, 0) * MAX_POINTS * SCORE_SCALE;
+
+/**
+ * A metric's contribution to the 0–100 final score (points × weight × scale)
+ * rendered as `value / max`, so the per-metric columns are on the same scale as
+ * the Score (and sum to it) rather than raw 0–5 points.
+ */
+function Contribution({
+  points,
+  weight,
+}: {
+  points: number | null | undefined;
+  weight: number;
+}) {
+  if (points == null) return <>—</>;
+  const value = points * weight * SCORE_SCALE;
+  const max = weight * MAX_POINTS * SCORE_SCALE;
+  return (
+    <>
+      {value.toFixed(1)}
+      <span className="font-normal text-zinc-400"> / {max.toFixed(1)}</span>
+    </>
+  );
 }
 
 export function LeaderboardTable({
@@ -98,18 +125,31 @@ export function LeaderboardTable({
                 </td>
                 <td className="px-4 py-3 text-right align-top text-base font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
                   {row.finalScore.toFixed(1)}
+                  <span className="text-xs font-normal text-zinc-400">
+                    {" "}
+                    / {MAX_SCORE.toFixed(0)}
+                  </span>
                 </td>
                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  {fmtPoints(row.bugQualityPoints)}
+                  <Contribution
+                    points={row.bugQualityPoints}
+                    weight={WEIGHTS.bugQuality}
+                  />
                 </td>
                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  {fmtPoints(row.sprintCommitmentPoints)}
+                  <Contribution
+                    points={row.sprintCommitmentPoints}
+                    weight={WEIGHTS.sprintCommitment}
+                  />
                 </td>
                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  {fmtPoints(row.complexTasksPoints)}
+                  <Contribution
+                    points={row.complexTasksPoints}
+                    weight={WEIGHTS.complexTasks}
+                  />
                 </td>
                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  {fmtPoints(row.mttrPoints)}
+                  <Contribution points={row.mttrPoints} weight={WEIGHTS.mttr} />
                 </td>
               </tr>
             ))}
