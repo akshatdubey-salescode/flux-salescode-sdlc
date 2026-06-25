@@ -6,7 +6,11 @@ import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { jiraIssues, jiraProjects, performanceScorecards } from "@/lib/db/schema";
 import { loadAccountIdEmailMap } from "@/lib/jira/identity";
-import { extractDueDate } from "@/lib/jira/dates";
+import {
+  extractDueDate,
+  extractActualStart,
+  extractActualEnd,
+} from "@/lib/jira/dates";
 import {
   extractComplexity,
   extractIssueOwnerEmail,
@@ -50,6 +54,15 @@ type ComplexityBucket = {
   weightEach: number;
   totalWeight: number;
 };
+// Scored issues lacking the "Actual start" / "Actual end" fields, so reviewers
+// can see which issues fell back to status-history (or created/completed) dates
+// for the time-based metrics rather than using team-set actuals.
+type MissingActualDateItem = {
+  key: string;
+  summary: string;
+  missingStart: boolean;
+  missingEnd: boolean;
+};
 
 type Acc = {
   features: number;
@@ -65,6 +78,7 @@ type Acc = {
   bugItems: BugItem[];
   featureItems: FeatureItem[];
   mttrItems: MttrItem[];
+  missingActualItems: MissingActualDateItem[];
   // Count of tasks per complexity bucket ("1".."5" or "unset"), for the
   // Complex-tasks distribution table.
   complexityCounts: Map<string, number>;
@@ -85,8 +99,28 @@ function emptyAcc(): Acc {
     bugItems: [],
     featureItems: [],
     mttrItems: [],
+    missingActualItems: [],
     complexityCounts: new Map(),
   };
+}
+
+// Records an issue on the developer's "missing actual dates" list when either
+// the Actual start or Actual end field is empty. cf is the issue's customFields;
+// startIds / endIds are the project's discovered actual-date field IDs.
+function recordMissingActual(
+  a: Acc,
+  jiraKey: string,
+  summary: string,
+  cf: Record<string, unknown> | null,
+  startIds: string[] | null,
+  endIds: string[] | null
+): void {
+  const fields = cf ?? {};
+  const missingStart = extractActualStart(fields, startIds) == null;
+  const missingEnd = extractActualEnd(fields, endIds) == null;
+  if (missingStart || missingEnd) {
+    a.missingActualItems.push({ key: jiraKey, summary, missingStart, missingEnd });
+  }
 }
 
 function buildComplexityBuckets(counts: Map<string, number>): ComplexityBucket[] {
@@ -125,6 +159,40 @@ function complexityWeight(rawComplexity: number | null): number {
   return COMPLEXITY_WEIGHTS[capped] ?? DEFAULT_COMPLEXITY_WEIGHT;
 }
 
+// The developer work-window for an issue — the span the engine treats as "time
+// the developer was actually responsible for the work". MTTR and sprint
+// commitment use this instead of raw created→completed so neither penalizes the
+// developer for time outside active development: days a ticket sits unassigned
+// in the backlog before work starts, or sits in QA after the dev hands it off.
+//
+// Resolved in priority order:
+//   1. The team-set "Actual start" / "Actual end" datetime fields, when present.
+//   2. The changelog-derived dev window: dev_started_at (first entry into an
+//      In Progress status) → dev_completed_at (first handoff into In QA / Done).
+//   3. Raw Jira created_at → completed_at, as a last resort, so an issue whose
+//      workflow never used an In Progress status is still scored rather than
+//      silently dropped.
+function devWindow(row: {
+  customFields: Record<string, unknown> | null;
+  actualStartFieldIds: string[] | null;
+  actualEndFieldIds: string[] | null;
+  devStartedAt: Date | null;
+  devCompletedAt: Date | null;
+  createdAt: Date | null;
+  completedAt: Date | null;
+}): { start: Date | null; end: Date | null } {
+  const cf = row.customFields ?? {};
+  const start =
+    extractActualStart(cf, row.actualStartFieldIds) ??
+    row.devStartedAt ??
+    row.createdAt;
+  const end =
+    extractActualEnd(cf, row.actualEndFieldIds) ??
+    row.devCompletedAt ??
+    row.completedAt;
+  return { start, end };
+}
+
 export type BuildResult = { quarterKey: string; developersScored: number };
 
 /**
@@ -153,9 +221,13 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
       customFields: jiraIssues.customFields,
       createdAt: jiraIssues.jiraCreatedAt,
       completedAt: jiraIssues.completedAt,
+      devStartedAt: jiraIssues.devStartedAt,
+      devCompletedAt: jiraIssues.devCompletedAt,
       complexityFieldIds: jiraProjects.complexityFieldIds,
       issueOwnerFieldIds: jiraProjects.issueOwnerFieldIds,
       endDateFieldIds: jiraProjects.endDateFieldIds,
+      actualStartFieldIds: jiraProjects.actualStartFieldIds,
+      actualEndFieldIds: jiraProjects.actualEndFieldIds,
     })
     .from(jiraIssues)
     .innerJoin(jiraProjects, eq(jiraIssues.projectId, jiraProjects.id))
@@ -215,22 +287,34 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
         priority: b.priority,
         weight,
       });
+      recordMissingActual(
+        a,
+        b.jiraKey,
+        b.summary,
+        b.customFields,
+        b.actualStartFieldIds,
+        b.actualEndFieldIds
+      );
     }
 
     // MTTR follows the same owner attribution as weighted bugs, so a bug is
-    // wholly the Issue Owner's — not split.
-    if (owner && isP1OrP2(b.priority) && b.completedAt && b.createdAt) {
-      const minutes =
-        (b.completedAt.getTime() - b.createdAt.getTime()) / 60_000;
-      if (minutes >= 0) {
-        const a = getAcc(owner);
-        a.mttrSamples.push(minutes);
-        a.mttrItems.push({
-          key: b.jiraKey,
-          summary: b.summary,
-          priority: b.priority,
-          minutes,
-        });
+    // wholly the Issue Owner's — not split. Resolution time is measured over the
+    // developer work-window (see devWindow), not raw created→completed, so the
+    // owner isn't charged for backlog/QA time outside active development.
+    if (owner && isP1OrP2(b.priority)) {
+      const { start, end } = devWindow(b);
+      if (start && end) {
+        const minutes = (end.getTime() - start.getTime()) / 60_000;
+        if (minutes >= 0) {
+          const a = getAcc(owner);
+          a.mttrSamples.push(minutes);
+          a.mttrItems.push({
+            key: b.jiraKey,
+            summary: b.summary,
+            priority: b.priority,
+            minutes,
+          });
+        }
       }
     }
   }
@@ -240,6 +324,15 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
     const assignee = normalizeEmail(t.assigneeEmail);
     if (!assignee) continue; // tasks with no assignee are dropped (§5.1)
     const a = getAcc(assignee);
+
+    recordMissingActual(
+      a,
+      t.jiraKey,
+      t.summary,
+      t.customFields,
+      t.actualStartFieldIds,
+      t.actualEndFieldIds
+    );
 
     const rawComplexity = extractComplexity(t.customFields, t.complexityFieldIds);
 
@@ -270,11 +363,14 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
       if (estHours > 0 && estHours < AI_TASK_MAX_ESTIMATE_HOURS) a.aiTaskCount += 1;
     }
 
-    // Sprint commitment — needs a due date; actual-end falls back to completedAt.
+    // Sprint commitment — needs a due date; the delivery date is the end of the
+    // developer work-window (Actual end → dev handoff → completedAt fallback),
+    // so a ticket isn't marked late for QA time the developer doesn't control.
     const due = extractDueDate(t.customFields ?? {}, t.endDateFieldIds);
-    if (due && t.completedAt) {
+    const { end } = devWindow(t);
+    if (due && end) {
       a.sprintTotal += 1;
-      const completedDate = t.completedAt.toISOString().slice(0, 10);
+      const completedDate = end.toISOString().slice(0, 10);
       if (completedDate <= due) a.sprintNotDelayed += 1;
     }
   }
@@ -305,6 +401,12 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
     );
     const mttrItems = a.mttrItems.sort((x, y) => y.minutes - x.minutes);
     const complexity = buildComplexityBuckets(a.complexityCounts);
+    // Missing both fields first (fully fallen back), then by key.
+    const missingActualDates = a.missingActualItems.sort(
+      (x, y) =>
+        Number(y.missingStart && y.missingEnd) -
+          Number(x.missingStart && x.missingEnd) || x.key.localeCompare(y.key)
+    );
     const breakdown = {
       ...r.breakdown,
       items: {
@@ -312,6 +414,7 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
         features: featureItems,
         mttr: mttrItems,
         complexity,
+        missingActualDates,
       },
     };
     return {

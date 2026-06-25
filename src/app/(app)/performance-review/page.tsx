@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { selectableQuarters, currentQuarter } from "@/lib/scorecard/quarter";
 import { WEIGHTS } from "@/lib/scorecard/config";
-import { METRIC_INFO } from "@/lib/scorecard/metric-descriptions";
+import { METRIC_INFO, DATE_CAPTURE_NOTE } from "@/lib/scorecard/metric-descriptions";
 import { fetchScorecards, fetchScorecardDetail } from "./data";
 import { ReviewControls } from "./controls";
 import { LeaderboardTable } from "./leaderboard-table";
@@ -113,9 +113,9 @@ export default async function PerformanceReviewPage({
                   <p className="mt-3 text-sm text-zinc-500">
                     Suggested rating for <strong>{quarterLabel}</strong>:{" "}
                     <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-                      {detail.finalScore.toFixed(2)}
+                      {detail.finalScore.toFixed(1)}
                     </span>{" "}
-                    / 5.00
+                    / 100
                   </p>
                 </div>
 
@@ -162,7 +162,7 @@ export default async function PerformanceReviewPage({
                             {m.weight.toFixed(2)}
                           </td>
                           <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">
-                            {m.available ? m.contribution.toFixed(3) : "—"}
+                            {m.available ? m.contribution.toFixed(2) : "—"}
                           </td>
                         </tr>
                       ))}
@@ -174,7 +174,7 @@ export default async function PerformanceReviewPage({
                           Final score
                         </td>
                         <td className="px-4 py-3 text-right text-sm font-bold tabular-nums">
-                          {detail.finalScore.toFixed(3)}
+                          {detail.finalScore.toFixed(1)}
                         </td>
                       </tr>
                     </tbody>
@@ -182,10 +182,11 @@ export default async function PerformanceReviewPage({
                 </div>
 
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Final score = Σ (weight × points), on a 0–5 scale. A missing
-                  sub-score counts as 0 but its weight still occupies the scale.
-                  Code Churn and Effort are not tracked on this platform (weight 0),
-                  so they don&apos;t affect the score.
+                  Final score = Σ (weight × points) × 20, on a 0–100 scale. A
+                  missing sub-score counts as 0 but its weight still occupies the
+                  scale. Code Churn and Effort are not tracked on this platform,
+                  and AI Tasks is currently excluded from the rating — all three
+                  carry weight 0, so they don&apos;t affect the score.
                 </p>
 
                 <section className="space-y-3">
@@ -326,9 +327,10 @@ export default async function PerformanceReviewPage({
                   </h2>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
                     P1/P2 bugs owned by this developer (Issue Owner, assignee
-                    fallback), with time from creation to completion. Their average
-                    drives the MTTR score; with no samples the metric defaults to a
-                    full 5.
+                    fallback). Resolution time spans the developer work-window — see
+                    “How dates are captured” below — not the full ticket lifetime.
+                    Their average drives the MTTR score; with no samples the metric
+                    defaults to a full 5.
                   </p>
                   <div className="max-h-96 overflow-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
                     <table className="w-full text-sm">
@@ -478,6 +480,19 @@ export default async function PerformanceReviewPage({
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     What each metric means
                   </h2>
+                  <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-4 dark:border-blue-900/60 dark:bg-blue-950/30">
+                    <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                      {DATE_CAPTURE_NOTE.title}
+                    </p>
+                    <p className="mt-1.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                      {DATE_CAPTURE_NOTE.intro}
+                    </p>
+                    <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                      {DATE_CAPTURE_NOTE.steps.map((step, i) => (
+                        <li key={i}>{step}</li>
+                      ))}
+                    </ol>
+                  </div>
                   <dl className="space-y-3">
                     {detail.breakdown.metrics.map((m) => {
                       const info = METRIC_INFO[m.key];
@@ -522,7 +537,7 @@ export default async function PerformanceReviewPage({
                             {m.available && m.weight > 0 && (
                               <>
                                 {" "}
-                                (contributes {m.contribution.toFixed(3)} to the
+                                (contributes {m.contribution.toFixed(2)} to the
                                 final score)
                               </>
                             )}
@@ -531,6 +546,94 @@ export default async function PerformanceReviewPage({
                       );
                     })}
                   </dl>
+                </section>
+
+                <section className="space-y-3">
+                  <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+                    Issues missing Actual start / end ({detail.missingActualDateItems.length})
+                  </h2>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Scored issues this quarter without a team-set{" "}
+                    <span className="font-medium text-zinc-600 dark:text-zinc-300">
+                      Actual start
+                    </span>{" "}
+                    and/or{" "}
+                    <span className="font-medium text-zinc-600 dark:text-zinc-300">
+                      Actual end
+                    </span>{" "}
+                    date. For these, the time-based metrics fell back to the
+                    status-history dev-window (or Jira created/completed) — see
+                    “How dates are captured” above. Filling these fields in Jira
+                    makes MTTR and Sprint Commitment more accurate.
+                  </p>
+                  <div className="max-h-96 overflow-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0">
+                        <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/95">
+                          <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            Key
+                          </th>
+                          <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            Summary
+                          </th>
+                          <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            Actual start
+                          </th>
+                          <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            Actual end
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.missingActualDateItems.map((m) => (
+                          <tr
+                            key={m.key}
+                            className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60"
+                          >
+                            <td className="whitespace-nowrap px-4 py-2.5 align-top font-mono text-xs text-zinc-600 dark:text-zinc-300">
+                              <JiraKeyLink item={m} />
+                            </td>
+                            <td className="px-4 py-2.5 align-top text-zinc-700 dark:text-zinc-300">
+                              {m.summary}
+                            </td>
+                            <td className="px-4 py-2.5 align-top">
+                              {m.missingStart ? (
+                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-400">
+                                  Missing
+                                </span>
+                              ) : (
+                                <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                                  Set
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2.5 align-top">
+                              {m.missingEnd ? (
+                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-400">
+                                  Missing
+                                </span>
+                              ) : (
+                                <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                                  Set
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                        {detail.missingActualDateItems.length === 0 && (
+                          <tr>
+                            <td
+                              colSpan={4}
+                              className="px-4 py-8 text-center text-sm text-zinc-400"
+                            >
+                              Every scored issue this quarter has both Actual start
+                              and Actual end set.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </section>
               </>
             )}
@@ -563,12 +666,12 @@ export default async function PerformanceReviewPage({
               Performance Review
             </h1>
             <p className="mt-1 max-w-3xl text-sm text-zinc-500">
-              Suggested quarterly ratings for developers, derived from synced Jira
-              data across five weighted metrics — Bug Quality ({WEIGHTS.bugQuality}),
-              Sprint Commitment ({WEIGHTS.sprintCommitment}), Complex Tasks (
-              {WEIGHTS.complexTasks}), MTTR ({WEIGHTS.mttr}), and AI Tasks (
-              {WEIGHTS.aiTasks}). Scores are a decision aid, not a verdict. Click a
-              name for the full breakdown.
+              Suggested quarterly ratings for developers, scored out of 100 and
+              derived from synced Jira data across four weighted metrics — Bug
+              Quality ({WEIGHTS.bugQuality}), Complex Tasks ({WEIGHTS.complexTasks}),
+              Sprint Commitment ({WEIGHTS.sprintCommitment}), and MTTR ({WEIGHTS.mttr}).
+              Scores are a decision aid, not a verdict. Click a name for the full
+              breakdown.
             </p>
           </div>
 

@@ -12,25 +12,40 @@ import {
   applyTransition,
   extractAssigneeChanges,
   deriveAssigneeSince,
+  type StatusRawSets,
 } from "./changelog";
 import { decrypt } from "@/lib/crypto";
 import { loadAccountIdEmailMap } from "./identity";
 
 /**
- * Raw status names for a project that map to the DONE canonical status.
- * Used to detect completion transitions when building the per-issue rollup.
+ * The project's raw Jira status names grouped by the canonical buckets the
+ * changelog rollup needs (DONE for completion, IN_PROGRESS for the dev-start,
+ * and IN_QA ∪ DONE for the dev-handoff). One query feeds completed_at and the
+ * dev work-window (dev_started_at / dev_completed_at).
  */
-export async function getDoneRawStatuses(projectId: string): Promise<Set<string>> {
+export async function getStatusRawSets(projectId: string): Promise<StatusRawSets> {
   const rows = await db
-    .select({ rawStatus: projectStatusMappings.rawStatus })
+    .select({
+      rawStatus: projectStatusMappings.rawStatus,
+      canonicalStatus: projectStatusMappings.canonicalStatus,
+    })
     .from(projectStatusMappings)
-    .where(
-      and(
-        eq(projectStatusMappings.projectId, projectId),
-        eq(projectStatusMappings.canonicalStatus, "DONE")
-      )
-    );
-  return new Set(rows.map((r) => r.rawStatus));
+    .where(eq(projectStatusMappings.projectId, projectId));
+
+  const done = new Set<string>();
+  const inProgress = new Set<string>();
+  const endOfDev = new Set<string>();
+  for (const r of rows) {
+    if (r.canonicalStatus === "DONE") {
+      done.add(r.rawStatus);
+      endOfDev.add(r.rawStatus);
+    } else if (r.canonicalStatus === "IN_PROGRESS") {
+      inProgress.add(r.rawStatus);
+    } else if (r.canonicalStatus === "IN_QA") {
+      endOfDev.add(r.rawStatus);
+    }
+  }
+  return { done, inProgress, endOfDev };
 }
 
 const SYNC_CONCURRENCY = 5;
@@ -157,6 +172,8 @@ type DiscoveredFields = {
   multiAssigneeFieldIds: string[];
   endDateFieldIds: string[];
   startDateFieldIds: string[];
+  actualStartFieldIds: string[];
+  actualEndFieldIds: string[];
   complexityFieldIds: string[];
   issueOwnerFieldIds: string[];
   environmentFieldIds: string[];
@@ -228,6 +245,19 @@ async function discoverProjectFields(
     .filter((f) => f.custom && /^start\s*date$/i.test(f.name.trim()))
     .map((f) => f.id);
 
+  // "Actual start" / "Actual end" datetime fields — the preferred source for
+  // the performance-review dev work-window (these record when work genuinely
+  // began/ended, set by the team). Kept distinct from the planned start/due
+  // date fields above. Exact match (ignoring spacing/underscores) so e.g.
+  // "Actual Start Notes" doesn't get picked up.
+  const actualStartFieldIds = fields
+    .filter((f) => f.custom && /^actual\s*start$/i.test(f.name.trim()))
+    .map((f) => f.id);
+
+  const actualEndFieldIds = fields
+    .filter((f) => f.custom && /^actual\s*end$/i.test(f.name.trim()))
+    .map((f) => f.id);
+
   // Task complexity (1–5) and the "Issue Owner" user-picker — both feed the
   // performance-review rating engine. Field names vary across the site
   // (underscores, trailing "*", spacing), so normalize to letters-only before
@@ -262,6 +292,8 @@ async function discoverProjectFields(
       multiAssigneeFieldIds,
       endDateFieldIds,
       startDateFieldIds,
+      actualStartFieldIds,
+      actualEndFieldIds,
       complexityFieldIds,
       issueOwnerFieldIds,
       environmentFieldIds,
@@ -272,6 +304,8 @@ async function discoverProjectFields(
     multiAssigneeFieldIds,
     endDateFieldIds,
     startDateFieldIds,
+    actualStartFieldIds,
+    actualEndFieldIds,
     complexityFieldIds,
     issueOwnerFieldIds,
     environmentFieldIds,
@@ -290,6 +324,8 @@ export async function resolveProjectFieldConfig(
     multiAssigneeFieldIds: string[] | null;
     endDateFieldIds: string[] | null;
     startDateFieldIds: string[] | null;
+    actualStartFieldIds: string[] | null;
+    actualEndFieldIds: string[] | null;
     complexityFieldIds: string[] | null;
     issueOwnerFieldIds: string[] | null;
     environmentFieldIds: string[] | null;
@@ -302,6 +338,8 @@ export async function resolveProjectFieldConfig(
   let multiAssigneeFieldIds: string[] | null = project.multiAssigneeFieldIds;
   let endDateFieldIds: string[] | null = project.endDateFieldIds;
   let startDateFieldIds: string[] | null = project.startDateFieldIds;
+  let actualStartFieldIds: string[] | null = project.actualStartFieldIds;
+  let actualEndFieldIds: string[] | null = project.actualEndFieldIds;
   let complexityFieldIds: string[] | null = project.complexityFieldIds;
   let issueOwnerFieldIds: string[] | null = project.issueOwnerFieldIds;
   let environmentFieldIds: string[] | null = project.environmentFieldIds;
@@ -311,6 +349,8 @@ export async function resolveProjectFieldConfig(
     multiAssigneeFieldIds = discovered.multiAssigneeFieldIds;
     endDateFieldIds = discovered.endDateFieldIds;
     startDateFieldIds = discovered.startDateFieldIds;
+    actualStartFieldIds = discovered.actualStartFieldIds;
+    actualEndFieldIds = discovered.actualEndFieldIds;
     complexityFieldIds = discovered.complexityFieldIds;
     issueOwnerFieldIds = discovered.issueOwnerFieldIds;
     environmentFieldIds = discovered.environmentFieldIds;
@@ -323,6 +363,8 @@ export async function resolveProjectFieldConfig(
   if (multiAssigneeFieldIds?.length) extraFields.push(...multiAssigneeFieldIds);
   if (endDateFieldIds?.length) extraFields.push(...endDateFieldIds);
   if (startDateFieldIds?.length) extraFields.push(...startDateFieldIds);
+  if (actualStartFieldIds?.length) extraFields.push(...actualStartFieldIds);
+  if (actualEndFieldIds?.length) extraFields.push(...actualEndFieldIds);
   if (complexityFieldIds?.length) extraFields.push(...complexityFieldIds);
   if (issueOwnerFieldIds?.length) extraFields.push(...issueOwnerFieldIds);
   if (environmentFieldIds?.length) extraFields.push(...environmentFieldIds);
@@ -354,7 +396,7 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
     project
   );
 
-  const doneRawStatuses = await getDoneRawStatuses(projectId);
+  const statusSets = await getStatusRawSets(projectId);
   const accountIdEmailMap = await loadAccountIdEmailMap();
 
   let synced = 0;
@@ -382,7 +424,7 @@ export async function syncProject(projectId: string): Promise<SyncResult> {
             projectId,
             issue,
             multiAssigneeFieldIds,
-            doneRawStatuses,
+            statusSets,
             accountIdEmailMap
           )
         )
@@ -436,7 +478,7 @@ export async function upsertIssue(
   projectId: string,
   raw: JiraIssueRaw,
   multiAssigneeFieldIds?: string[] | null,
-  doneRawStatuses?: Set<string>,
+  statusSets?: StatusRawSets,
   accountIdEmailMap?: Map<string, string>
 ): Promise<UpsertedIssue> {
   const f = raw.fields;
@@ -486,10 +528,10 @@ export async function upsertIssue(
   // the rollup is maintained incrementally by recordStatusTransition and we
   // must not overwrite it here.
   const hasChangelog = !!raw.changelog?.histories?.length;
-  const doneSet = hasChangelog
-    ? doneRawStatuses ?? (await getDoneRawStatuses(projectId))
+  const sets = hasChangelog
+    ? statusSets ?? (await getStatusRawSets(projectId))
     : null;
-  const rollup = doneSet ? computeRollup(raw, doneSet) : null;
+  const rollup = sets ? computeRollup(raw, sets) : null;
   const createdAt = f.created ? new Date(f.created) : new Date();
 
   // Assignee history is only derivable from the full changelog (bulk sync).
@@ -528,6 +570,8 @@ export async function upsertIssue(
     jiraCreatedAt: f.created ? new Date(f.created) : null,
     jiraUpdatedAt: f.updated ? new Date(f.updated) : null,
     completedAt: rollup?.completedAt ?? null,
+    devStartedAt: rollup?.devStartedAt ?? null,
+    devCompletedAt: rollup?.devCompletedAt ?? null,
     currentStatusSince: rollup?.currentStatusSince ?? createdAt,
     assigneeSince,
     timeInStatus: rollup?.timeInStatus ?? {},
@@ -558,6 +602,8 @@ export async function upsertIssue(
   // we computed it from a full changelog.
   if (rollup) {
     updateSet.completedAt = issueValues.completedAt;
+    updateSet.devStartedAt = issueValues.devStartedAt;
+    updateSet.devCompletedAt = issueValues.devCompletedAt;
     updateSet.currentStatusSince = issueValues.currentStatusSince;
     updateSet.assigneeSince = issueValues.assigneeSince;
     updateSet.timeInStatus = issueValues.timeInStatus;
@@ -667,13 +713,15 @@ export async function recordStatusTransition(
   fromStatus: string,
   toStatus: string,
   changedAt: Date,
-  doneRawStatuses: Set<string>
+  statusSets: StatusRawSets
 ): Promise<void> {
   const [issue] = await db
     .select({
       currentStatusSince: jiraIssues.currentStatusSince,
       timeInStatus: jiraIssues.timeInStatus,
       completedAt: jiraIssues.completedAt,
+      devStartedAt: jiraIssues.devStartedAt,
+      devCompletedAt: jiraIssues.devCompletedAt,
     })
     .from(jiraIssues)
     .where(eq(jiraIssues.id, issueId))
@@ -695,13 +743,17 @@ export async function recordStatusTransition(
     prevStatusSince: issue.currentStatusSince,
     prevTimeInStatus: issue.timeInStatus ?? {},
     prevCompletedAt: issue.completedAt,
-    doneRawStatuses,
+    prevDevStartedAt: issue.devStartedAt,
+    prevDevCompletedAt: issue.devCompletedAt,
+    sets: statusSets,
   });
 
   await db
     .update(jiraIssues)
     .set({
       completedAt: rollup.completedAt,
+      devStartedAt: rollup.devStartedAt,
+      devCompletedAt: rollup.devCompletedAt,
       currentStatusSince: rollup.currentStatusSince,
       timeInStatus: rollup.timeInStatus,
     })

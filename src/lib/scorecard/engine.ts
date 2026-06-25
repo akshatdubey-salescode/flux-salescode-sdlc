@@ -8,6 +8,7 @@ import {
   WEIGHTS,
   THRESHOLDS,
   EFFORT_EXPECTED_HOURS,
+  SCORE_SCALE,
   type MetricKey,
 } from "./config";
 
@@ -140,7 +141,7 @@ export type MetricBreakdown = {
   label: string;
   weight: number;
   points: number | null;
-  /** weight × (points ?? 0) — the metric's contribution to final_score. */
+  /** weight × (points ?? 0) × SCORE_SCALE — contribution to the 0–100 final_score. */
   contribution: number;
   /** Human-readable summary of the raw inputs for the drill-down. */
   raw: string;
@@ -201,7 +202,7 @@ export function computeScorecard(inputs: ScorecardInputs): ScorecardResult {
     : null;
 
   const contribution = (key: MetricKey, points: number | null) =>
-    WEIGHTS[key] * (points ?? 0);
+    WEIGHTS[key] * (points ?? 0) * SCORE_SCALE;
 
   const metrics: MetricBreakdown[] = [
     {
@@ -272,7 +273,9 @@ export function computeScorecard(inputs: ScorecardInputs): ScorecardResult {
         inputs.totalComplex === 0
           ? "No complex tasks"
           : `${inputs.aiTaskCount}/${inputs.totalComplex} complex tasks under estimate`,
-      available: true,
+      // Excluded from the rating (weight 0) — rendered greyed as "N/A — not
+      // tracked", like Effort and Code Churn.
+      available: false,
     },
     {
       key: "effort",

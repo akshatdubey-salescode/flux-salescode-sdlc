@@ -8,7 +8,7 @@ import {
   upsertIssue,
   deleteIssue,
   recordStatusTransition,
-  getDoneRawStatuses,
+  getStatusRawSets,
 } from "@/lib/jira/sync";
 import { loadAccountIdEmailMap } from "@/lib/jira/identity";
 import {
@@ -211,9 +211,9 @@ export async function POST(
             const hasStatusChange = changelog.items.some(
               (item) => item.field === "status" && item.fromString && item.toString
             );
-            const doneRawStatuses = hasStatusChange
-              ? await getDoneRawStatuses(projectId)
-              : new Set<string>();
+            const statusSets = hasStatusChange
+              ? await getStatusRawSets(projectId)
+              : { done: new Set<string>(), inProgress: new Set<string>(), endOfDev: new Set<string>() };
             for (const item of changelog.items) {
               // Assignee change → maintain the assignee_since rollup live so
               // the "assigned ≥24h ago" unplanned filter stays accurate. The
@@ -237,7 +237,7 @@ export async function POST(
                   item.fromString,
                   item.toString,
                   new Date(payload.timestamp),
-                  doneRawStatuses
+                  statusSets
                 );
                 // Keep the linked Freshdesk ticket's Jira status in sync
                 await updateLinkedJiraStatus(existingIssue.id, item.toString);

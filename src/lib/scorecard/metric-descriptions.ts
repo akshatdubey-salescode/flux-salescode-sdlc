@@ -14,6 +14,20 @@ export type MetricInfo = {
   detail: string;
 };
 
+// How the time-based metrics (MTTR, Sprint Commitment) decide the start and end
+// dates they measure against. Surfaced on the breakdown page so reviewers
+// understand why a number isn't simply "created → done".
+export const DATE_CAPTURE_NOTE = {
+  title: "How dates are captured",
+  intro:
+    "MTTR and Sprint Commitment measure the developer work-window — the time a ticket was actually being worked — not its whole life in Jira. A ticket is often raised by an analyst days before it's assigned, and can sit in QA for days after the developer is done; neither gap is the developer's to own. The window's start and end are resolved in this order:",
+  steps: [
+    "Actual start / Actual end — when the project has these Jira fields filled in, they are used directly.",
+    "Otherwise, from the status history: the window starts when the ticket first moved into an In Progress status, and ends when it first left development for In QA or Done.",
+    "If a ticket never passed through an In Progress status, we fall back to Jira's created and completed timestamps so it is still scored rather than dropped.",
+  ],
+} as const;
+
 export const METRIC_INFO: Record<MetricKey, MetricInfo> = {
   bugQuality: {
     range: "0–5",
@@ -31,13 +45,13 @@ export const METRIC_INFO: Record<MetricKey, MetricInfo> = {
     range: "0–5",
     summary: "Average time to resolve the developer's high-priority bugs.",
     detail:
-      "Mean Time To Resolve — the average time from creation to completion across the developer's P1/P2 (high-priority) bugs, in minutes. Under 90 min → 5, under 180 min → 4, otherwise 0. (Thresholds are configurable.) Only P1/P2 bugs owned by the developer (Issue Owner, assignee fallback) count; a developer with no such bugs scores a full 5.",
+      "Mean Time To Resolve — the average resolution time across the developer's P1/P2 (high-priority) bugs, in minutes. Under 90 min → 5, under 180 min → 4, otherwise 0. (Thresholds are configurable.) Resolution time is measured over the developer work-window (see “How dates are captured” above), not the full ticket lifetime, so time a bug sits unassigned before work begins — or waits in QA after hand-off — isn't charged to the developer. Only P1/P2 bugs owned by the developer (Issue Owner, assignee fallback) count; a developer with no such bugs scores a full 5.",
   },
   sprintCommitment: {
     range: "1–5",
     summary: "Share of due-dated tasks delivered on or before their due date.",
     detail:
-      "The percentage of the developer's due-dated tasks completed on or before the due date (time of day ignored): ≥95% → 5, ≥90% → 4, ≥80% → 3, ≥70% → 2, below 70% → 1. Completion is taken from when the task moved to a Done status. Tasks without a due date are excluded, and a developer with no due-dated tasks receives no Sprint Commitment score.",
+      "The percentage of the developer's due-dated tasks delivered on or before the due date (time of day ignored): ≥95% → 5, ≥90% → 4, ≥80% → 3, ≥70% → 2, below 70% → 1. The delivery date is the end of the developer work-window (see “How dates are captured” above) — when the developer handed the task off to QA or marked it done — not when it later cleared QA. Tasks without a due date are excluded, and a developer with no due-dated tasks receives no Sprint Commitment score.",
   },
   complexTasks: {
     range: "0–5",
@@ -46,10 +60,10 @@ export const METRIC_INFO: Record<MetricKey, MetricInfo> = {
       "Rewards both how hard and how much work was completed. Each task's complexity (1–5) maps to a weight (1 / 3 / 5 / 7 / 10); the score multiplies the average weight by a volume factor that grows with task count (≈0.63 at 60 tasks, ≈0.86 at 120). Reaching 5 requires consistently high-complexity work at high volume. Needs the Jira Complexity field — a resync is required for this to be meaningful.",
   },
   aiTasks: {
-    range: "0–5",
+    range: "N/A",
     summary: "Share of complex tasks delivered with a small original estimate.",
     detail:
-      "Of the developer's complex tasks (complexity ≥ 3), the percentage delivered with a small original estimate (under 5 hours): ≥90% → 5, ≥80% → 4, ≥70% → 3, ≥60% → 2, below 60% → 1. A developer with no complex tasks scores 0. Needs the Jira Complexity field and original estimate — a resync is required.",
+      "Of the developer's complex tasks (complexity ≥ 3), the percentage delivered with a small original estimate (under 5 hours). Currently excluded from the rating — it carries weight 0, so it does not affect the final score.",
   },
   effort: {
     range: "N/A",

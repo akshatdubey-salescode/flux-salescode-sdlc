@@ -46,6 +46,13 @@ export type ScorecardComplexityBucket = {
   weightEach: number;
   totalWeight: number;
 };
+export type ScorecardMissingActualDateItem = {
+  key: string;
+  summary: string;
+  missingStart: boolean;
+  missingEnd: boolean;
+  url?: string;
+};
 
 export type ScorecardBreakdown = {
   metrics: MetricBreakdown[];
@@ -55,6 +62,7 @@ export type ScorecardBreakdown = {
     features: ScorecardFeatureItem[];
     mttr?: ScorecardMttrItem[];
     complexity?: ScorecardComplexityBucket[];
+    missingActualDates?: ScorecardMissingActualDateItem[];
   };
 };
 
@@ -75,6 +83,7 @@ export type ScorecardDetail = {
   featureItems: ScorecardFeatureItem[];
   mttrItems: ScorecardMttrItem[];
   complexityBuckets: ScorecardComplexityBucket[];
+  missingActualDateItems: ScorecardMissingActualDateItem[];
 };
 
 /**
@@ -208,5 +217,6 @@ export async function fetchScorecardDetail(
     featureItems: withUrl(breakdown.items?.features ?? []),
     mttrItems: withUrl(breakdown.items?.mttr ?? []),
     complexityBuckets: breakdown.items?.complexity ?? [],
+    missingActualDateItems: withUrl(breakdown.items?.missingActualDates ?? []),
   };
 }

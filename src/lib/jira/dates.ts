@@ -65,3 +65,39 @@ export function extractDueDate(
     : DEFAULT_DUE_DATE_KEYS;
   return pickDate(cf, keys);
 }
+
+// "Actual start" / "Actual end" are datetime fields (not just calendar dates),
+// so unlike the planned-date extractors above they return a full Date. They
+// are the preferred source for the performance-review developer work-window;
+// the changelog-derived dev_started_at / dev_completed_at are the fallback.
+function toDateTime(val: unknown): Date | null {
+  if (typeof val !== "string" || !val) return null;
+  const d = new Date(val);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function pickDateTime(
+  cf: Record<string, unknown>,
+  discovered: string[] | null
+): Date | null {
+  if (!discovered?.length) return null;
+  for (const key of discovered) {
+    const d = toDateTime(cf[key]);
+    if (d) return d;
+  }
+  return null;
+}
+
+export function extractActualStart(
+  cf: Record<string, unknown>,
+  discovered: string[] | null = null
+): Date | null {
+  return pickDateTime(cf, discovered);
+}
+
+export function extractActualEnd(
+  cf: Record<string, unknown>,
+  discovered: string[] | null = null
+): Date | null {
+  return pickDateTime(cf, discovered);
+}

@@ -93,6 +93,14 @@ export const jiraProjects = pgTable(
     // null = not yet attempted, [] = attempted and not found, [...] = found.
     endDateFieldIds: text("end_date_field_ids").array(),
     startDateFieldIds: text("start_date_field_ids").array(),
+    // Auto-discovered Jira custom field IDs for the "Actual start" / "Actual
+    // end" datetime fields (distinct from the planned start/due date fields
+    // above). When populated these are the preferred source for the developer
+    // work-window used by the performance-review MTTR / sprint-commitment
+    // metrics; the changelog-derived dev_started_at / dev_completed_at on the
+    // issue are the fallback. Same null/[]/[...] semantics as above.
+    actualStartFieldIds: text("actual_start_field_ids").array(),
+    actualEndFieldIds: text("actual_end_field_ids").array(),
     // Auto-discovered Jira custom field IDs for task complexity (1–5 scale) and
     // the "Issue Owner" user-picker field. Both feed the performance-review
     // rating engine. Same null/[]/[...] semantics as above.
@@ -195,6 +203,17 @@ export const jiraIssues = pgTable(
     // until the issue is first completed; survives reopen, only advances on a
     // fresh non-DONE→DONE transition.
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    // Developer work-window endpoints, changelog-derived (PDF §5). These bound
+    // the time the issue was actively being worked, so the performance-review
+    // MTTR / sprint-commitment metrics don't blame the developer for the days a
+    // ticket sits unassigned in the backlog or waiting in QA after handoff.
+    //   dev_started_at  — first transition INTO a canonical IN_PROGRESS status.
+    //   dev_completed_at — first transition INTO a canonical IN_QA or DONE
+    //                      status at/after dev_started_at (i.e. dev hands the
+    //                      ticket off). Distinct from completed_at, which is the
+    //                      DONE transition only. Both NULL until they occur.
+    devStartedAt: timestamp("dev_started_at", { withTimezone: true }),
+    devCompletedAt: timestamp("dev_completed_at", { withTimezone: true }),
     // When the issue entered its current status. Drives SLA time-in-condition.
     currentStatusSince: timestamp("current_status_since", { withTimezone: true }),
     // When the current assignee took ownership — most recent assignee change

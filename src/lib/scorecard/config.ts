@@ -14,19 +14,26 @@ export type MetricKey =
   | "effort";
 
 /**
- * Default metric weights. The five data-backed metrics sum to exactly 1.00;
- * Code Churn and Effort default to 0 (no PR/dev-hours data on this platform),
- * so they don't affect final_score. final_score = Σ (weight × points).
+ * Default metric weights. The four data-backed metrics sum to exactly 1.00;
+ * Code Churn, AI Tasks, and Effort default to 0, so they don't affect
+ * final_score. final_score = Σ (weight × points) × SCORE_SCALE.
  */
 export const WEIGHTS: Record<MetricKey, number> = {
   bugQuality: 0.3,
   codeChurn: 0.0,
   mttr: 0.15,
   sprintCommitment: 0.25,
-  complexTasks: 0.23,
-  aiTasks: 0.07,
+  complexTasks: 0.3,
+  aiTasks: 0.0,
   effort: 0.0,
 };
+
+/**
+ * Final scores are scaled to 0–100. Each metric yields 0–5 points and the
+ * active weights sum to 1.00, so Σ (weight × points) lands in 0–5; multiplying
+ * by 20 puts every developer on a 0–100 scale.
+ */
+export const SCORE_SCALE = 20;
 
 /** Rubric thresholds. Each is exactly four numbers; MTTR uses only [0],[1]. */
 export const THRESHOLDS = {

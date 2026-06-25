@@ -95,8 +95,25 @@ export function buildStatusSegments(raw: JiraIssueRaw): StatusSegment[] {
 
 export type IssueRollup = {
   completedAt: Date | null;
+  // Developer work-window endpoints — see jira_issues.dev_started_at /
+  // dev_completed_at in the schema. devStartedAt is the first entry into an
+  // IN_PROGRESS raw status; devCompletedAt is the first entry into an IN_QA or
+  // DONE raw status at/after dev work started (the dev handoff point).
+  devStartedAt: Date | null;
+  devCompletedAt: Date | null;
   currentStatusSince: Date | null;
   timeInStatus: Record<string, number>;
+};
+
+/**
+ * The project's raw Jira status names grouped by the canonical buckets the
+ * rollup needs: `done` detects completion (completed_at), `inProgress` the
+ * start of the dev work-window, and `endOfDev` (IN_QA ∪ DONE) the end of it.
+ */
+export type StatusRawSets = {
+  done: Set<string>;
+  inProgress: Set<string>;
+  endOfDev: Set<string>;
 };
 
 // ---------------------------------------------------------------------------
@@ -206,26 +223,32 @@ export function deriveAssigneeSince(raw: JiraIssueRaw): Date | null {
 }
 
 /**
- * Derives the persisted rollup from the changelog. `doneRawStatuses` is the set
- * of this project's raw status names that map to the DONE canonical status, used
- * to detect completion transitions.
+ * Derives the persisted rollup from the changelog. `sets` groups the project's
+ * raw status names by canonical bucket: `done` detects completion transitions,
+ * `inProgress` the start of the dev work-window, and `endOfDev` (IN_QA ∪ DONE)
+ * its end.
  */
 export function computeRollup(
   raw: JiraIssueRaw,
-  doneRawStatuses: Set<string>
+  sets: StatusRawSets
 ): IssueRollup {
   const segments = buildStatusSegments(raw);
   const createdAt = raw.fields.created ? new Date(raw.fields.created) : new Date();
 
   const timeInStatus: Record<string, number> = {};
   let completedAt: Date | null = null;
+  let devStartedAt: Date | null = null;
+  let devCompletedAt: Date | null = null;
 
   if (segments.length === 0) {
     // No recorded transitions — issue has sat in its current status since
-    // creation. Treat creation as completion only if created directly in DONE.
-    const currentDone = doneRawStatuses.has(raw.fields.status.name);
+    // creation. Treat creation as completion only if created directly in DONE,
+    // and as the dev-start only if created directly in IN_PROGRESS.
+    const currentDone = sets.done.has(raw.fields.status.name);
     return {
       completedAt: currentDone ? createdAt : null,
+      devStartedAt: sets.inProgress.has(raw.fields.status.name) ? createdAt : null,
+      devCompletedAt: null,
       currentStatusSince: createdAt,
       timeInStatus,
     };
@@ -236,15 +259,25 @@ export function computeRollup(
       timeInStatus[seg.toStatus] = (timeInStatus[seg.toStatus] ?? 0) + seg.durationSeconds;
     }
     const enteredDone =
-      doneRawStatuses.has(seg.toStatus) &&
-      !(seg.fromStatus != null && doneRawStatuses.has(seg.fromStatus));
+      sets.done.has(seg.toStatus) &&
+      !(seg.fromStatus != null && sets.done.has(seg.fromStatus));
     if (enteredDone) {
       completedAt = seg.changedAt;
+    }
+    // First time the issue entered active development.
+    if (devStartedAt == null && sets.inProgress.has(seg.toStatus)) {
+      devStartedAt = seg.changedAt;
+    }
+    // First handoff out of development (into QA or Done) once work has begun.
+    if (devStartedAt != null && devCompletedAt == null && sets.endOfDev.has(seg.toStatus)) {
+      devCompletedAt = seg.changedAt;
     }
   }
 
   return {
     completedAt,
+    devStartedAt,
+    devCompletedAt,
     currentStatusSince: segments[segments.length - 1].changedAt,
     timeInStatus,
   };
@@ -262,7 +295,9 @@ export function applyTransition(args: {
   prevStatusSince: Date | null;
   prevTimeInStatus: Record<string, number>;
   prevCompletedAt: Date | null;
-  doneRawStatuses: Set<string>;
+  prevDevStartedAt: Date | null;
+  prevDevCompletedAt: Date | null;
+  sets: StatusRawSets;
 }): IssueRollup {
   const timeInStatus = { ...args.prevTimeInStatus };
 
@@ -278,11 +313,22 @@ export function applyTransition(args: {
   }
 
   const enteredDone =
-    args.doneRawStatuses.has(args.toStatus) &&
-    !args.doneRawStatuses.has(args.fromStatus);
+    args.sets.done.has(args.toStatus) && !args.sets.done.has(args.fromStatus);
+
+  // Dev work-window endpoints latch on the first occurrence and never move.
+  const devStartedAt =
+    args.prevDevStartedAt ??
+    (args.sets.inProgress.has(args.toStatus) ? args.changedAt : null);
+  const devCompletedAt =
+    args.prevDevCompletedAt ??
+    (devStartedAt != null && args.sets.endOfDev.has(args.toStatus)
+      ? args.changedAt
+      : null);
 
   return {
     completedAt: enteredDone ? args.changedAt : args.prevCompletedAt,
+    devStartedAt,
+    devCompletedAt,
     currentStatusSince: args.changedAt,
     timeInStatus,
   };

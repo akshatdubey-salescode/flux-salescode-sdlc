@@ -7,7 +7,7 @@ import { decrypt } from "@/lib/crypto";
 import {
   upsertIssue,
   resolveProjectFieldConfig,
-  getDoneRawStatuses,
+  getStatusRawSets,
   pruneIssuesMissingFromJira,
 } from "./sync";
 import { loadAccountIdEmailMap, reconcileHiddenAssigneeEmails } from "./identity";
@@ -110,7 +110,7 @@ export async function runSyncJob(jobId: string): Promise<void> {
     project
   );
 
-  const doneRawStatuses = await getDoneRawStatuses(job.projectId);
+  const statusSets = await getStatusRawSets(job.projectId);
   const accountIdEmailMap = await loadAccountIdEmailMap();
 
   let synced = 0;
@@ -139,7 +139,7 @@ export async function runSyncJob(jobId: string): Promise<void> {
               job.projectId,
               issue,
               multiAssigneeFieldIds,
-              doneRawStatuses,
+              statusSets,
               accountIdEmailMap
             )
           )
