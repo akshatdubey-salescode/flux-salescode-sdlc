@@ -22,6 +22,7 @@ export type UnplannedIssueItem = {
   missingStart: boolean;
   missingDue: boolean;
   createdAt: string | null;
+  assignedAt: string | null;
 };
 
 export type UnplannedPersonGroup = {
@@ -51,6 +52,7 @@ type IssueRow = {
   project_name: string;
   jira_base_url: string;
   jira_created_at: string | null;
+  assignee_since: string | null;
   end_date_field_ids: string[] | null;
   start_date_field_ids: string[] | null;
 };
@@ -137,6 +139,7 @@ async function fetchBoardUnplanned(boardId: string, start: string, end: string) 
       mie.effective_email AS assignee_email,
       ji.custom_fields,
       ji.jira_created_at,
+      ji.assignee_since,
       jp.name          AS project_name,
       jp.jira_base_url AS jira_base_url,
       jp.end_date_field_ids,
@@ -174,6 +177,7 @@ async function fetchBoardUnplanned(boardId: string, start: string, end: string) 
       missingStart: !startDate,
       missingDue: !dueDate,
       createdAt: raw.jira_created_at ? raw.jira_created_at.slice(0, 10) : null,
+      assignedAt: raw.assignee_since ?? null,
     });
     byEmail.set(email, list);
   }

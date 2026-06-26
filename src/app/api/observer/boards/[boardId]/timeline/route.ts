@@ -53,6 +53,7 @@ export type UnplannedIssue = {
   missingStart: boolean;
   missingDue: boolean;
   createdAt: string | null;
+  assignedAt: string | null;
 };
 
 export type TimelineMember = {
@@ -109,6 +110,7 @@ type IssueRow = {
   project_name: string;
   jira_base_url: string;
   jira_created_at: string | null;
+  assignee_since: string | null;
   end_date_field_ids: string[] | null;
   start_date_field_ids: string[] | null;
 };
@@ -202,6 +204,7 @@ async function fetchBoardTimeline(
       jp.name          AS project_name,
       jp.jira_base_url AS jira_base_url,
       ji.jira_created_at,
+      ji.assignee_since,
       jp.end_date_field_ids,
       jp.start_date_field_ids
     FROM member_issue_emails mie
@@ -242,6 +245,7 @@ async function fetchBoardTimeline(
         missingStart: !startDate,
         missingDue: !dueDate,
         createdAt: raw.jira_created_at ?? null,
+        assignedAt: raw.assignee_since ?? null,
       });
       unplannedByEmail.set(email, list);
       continue;

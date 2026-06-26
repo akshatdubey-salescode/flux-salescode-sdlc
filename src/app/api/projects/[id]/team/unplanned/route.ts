@@ -21,6 +21,7 @@ type IssueRow = {
   status_category: string | null; priority: string | null; issue_type: string;
   assignee_email: string; custom_fields: Record<string, unknown>;
   project_name: string; jira_base_url: string; jira_created_at: string | null;
+  assignee_since: string | null;
   end_date_field_ids: string[] | null; start_date_field_ids: string[] | null;
 };
 
@@ -73,7 +74,7 @@ async function fetchProjectUnplanned(projectId: string, start: string, end: stri
       WHERE lower(ae) IN (${emailsIn}) AND ji.project_id = ${projectId}
     )
     SELECT ji.id, ji.jira_key, ji.summary, ji.status, ji.status_category, ji.priority, ji.issue_type,
-      mie.effective_email AS assignee_email, ji.custom_fields, ji.jira_created_at,
+      mie.effective_email AS assignee_email, ji.custom_fields, ji.jira_created_at, ji.assignee_since,
       jp.name AS project_name, jp.jira_base_url, jp.end_date_field_ids, jp.start_date_field_ids
     FROM mie JOIN jira_issues ji ON ji.id = mie.id JOIN jira_projects jp ON jp.id = ji.project_id
     WHERE ji.jira_created_at IS NOT NULL
@@ -94,6 +95,7 @@ async function fetchProjectUnplanned(projectId: string, start: string, end: stri
       statusCategory: raw.status_category, priority: raw.priority, issueType: raw.issue_type,
       projectName: raw.project_name, jiraBaseUrl: raw.jira_base_url,
       missingStart: !startDate, missingDue: !dueDate, createdAt: raw.jira_created_at ?? null,
+      assignedAt: raw.assignee_since ?? null,
     });
     byEmail.set(raw.assignee_email, list);
   }

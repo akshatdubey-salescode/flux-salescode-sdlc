@@ -109,6 +109,17 @@ function formatDisplayDate(dateStr: string): string {
   });
 }
 
+// "Assigned" cell for unplanned tasks: the date the current assignee took
+// ownership, plus how long ago — so a task assigned long ago that is still
+// unplanned stands out at a glance.
+function formatAssignedAt(ts: string | null): { date: string; ago: string | null } {
+  if (!ts) return { date: "—", ago: null };
+  const day = ts.slice(0, 10);
+  const days = Math.floor((Date.now() - new Date(day + "T12:00:00").getTime()) / 86400000);
+  const ago = days >= 1 ? `${days}d ago` : days === 0 ? "today" : null;
+  return { date: formatDisplayDate(day), ago };
+}
+
 function formatDateRange(startDate: string, dueDate: string): string {
   const fmt = (d: string) =>
     new Date(d + "T12:00:00").toLocaleDateString("en-US", {
@@ -1121,6 +1132,18 @@ function UnplannedTableRow({ issue, preview }: { issue: UnplannedIssue; preview?
               <span className="text-muted-foreground/30">—</span>
             )}
           </td>
+          <td className="px-3 py-2 whitespace-nowrap">
+            {(() => {
+              const { date, ago } = formatAssignedAt(issue.assignedAt);
+              if (!issue.assignedAt) return <span className="text-muted-foreground/30">—</span>;
+              return (
+                <span className="inline-flex flex-col leading-tight">
+                  <span className="text-foreground">{date}</span>
+                  {ago && <span className="text-[10px] text-muted-foreground">{ago}</span>}
+                </span>
+              );
+            })()}
+          </td>
         </>
       )}
     </tr>
@@ -1256,7 +1279,7 @@ type TableLocalFilter = {
   issueType: string[];
   priority: string[];
   status: string[];
-  sortBy: "createdAt" | "jiraKey" | "summary" | "status" | "priority";
+  sortBy: "createdAt" | "assignedAt" | "jiraKey" | "summary" | "status" | "priority";
   sortDir: "asc" | "desc";
 };
 
@@ -1270,6 +1293,7 @@ const DEFAULT_TABLE_FILTER: TableLocalFilter = {
 
 const TABLE_SORT_OPTS = [
   { value: "createdAt", label: "Created" },
+  { value: "assignedAt", label: "Assigned" },
   { value: "jiraKey", label: "Key" },
   { value: "summary", label: "Summary" },
   { value: "status", label: "Status" },
@@ -1313,6 +1337,7 @@ function UnplannedPersonTable({
     let cmp = 0;
     switch (localFilter.sortBy) {
       case "createdAt": cmp = (a.createdAt ?? "").localeCompare(b.createdAt ?? ""); break;
+      case "assignedAt": cmp = (a.assignedAt ?? "").localeCompare(b.assignedAt ?? ""); break;
       case "summary": cmp = a.summary.localeCompare(b.summary); break;
       case "status":  cmp = a.status.localeCompare(b.status); break;
       case "priority": cmp = (a.priority ?? "zzz").localeCompare(b.priority ?? "zzz"); break;
@@ -1445,12 +1470,13 @@ function UnplannedPersonTable({
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-28">Priority</th>
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-24">Start</th>
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-24">Due</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-28">Assigned</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {pageItems.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-6 text-center text-xs text-muted-foreground">
+                    <td colSpan={8} className="px-4 py-6 text-center text-xs text-muted-foreground">
                       No issues match your search.
                     </td>
                   </tr>

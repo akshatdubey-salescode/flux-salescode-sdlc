@@ -46,6 +46,7 @@ type IssueRow = {
   project_name: string;
   jira_base_url: string;
   jira_created_at: string | null;
+  assignee_since: string | null;
   end_date_field_ids: string[] | null;
   start_date_field_ids: string[] | null;
 };
@@ -134,7 +135,7 @@ async function fetchProjectTeamTimeline(
       ji.id, ji.jira_key, ji.summary, ji.status, ji.status_category,
       ji.priority, ji.issue_type, mie.effective_email AS assignee_email,
       ji.custom_fields, jp.name AS project_name, jp.jira_base_url,
-      ji.jira_created_at, jp.end_date_field_ids, jp.start_date_field_ids
+      ji.jira_created_at, ji.assignee_since, jp.end_date_field_ids, jp.start_date_field_ids
     FROM member_issue_emails mie
     JOIN jira_issues ji ON ji.id = mie.id
     JOIN jira_projects jp ON jp.id = ji.project_id
@@ -167,6 +168,7 @@ async function fetchProjectTeamTimeline(
         projectName: raw.project_name, jiraBaseUrl: raw.jira_base_url,
         missingStart: !startDate, missingDue: !dueDate,
         createdAt: raw.jira_created_at ?? null,
+        assignedAt: raw.assignee_since ?? null,
       });
       unplannedByEmail.set(email, list);
       continue;
