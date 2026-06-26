@@ -1,0 +1,1 @@
+ALTER TABLE "github_orgs" ADD COLUMN "discovery_mode" text DEFAULT 'auto' NOT NULL;

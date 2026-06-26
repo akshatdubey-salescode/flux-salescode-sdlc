@@ -4,7 +4,14 @@ import { githubOrgs } from "@/lib/db/schema";
 import { decrypt } from "@/lib/crypto";
 import { GitHubClient } from "./client";
 
-export type ActiveOrg = { id: string; login: string; token: string };
+export type ActiveOrg = {
+  id: string;
+  login: string;
+  token: string;
+  // 'auto' = discover repos by listing the org; 'manual' = only the repos a
+  // superuser registered by full name (partial-access PAT). See schema.
+  discoveryMode: string;
+};
 
 /** Active orgs with their PATs decrypted, ready to drive a client. */
 export async function loadActiveOrgs(): Promise<ActiveOrg[]> {
@@ -13,11 +20,17 @@ export async function loadActiveOrgs(): Promise<ActiveOrg[]> {
       id: githubOrgs.id,
       login: githubOrgs.login,
       apiToken: githubOrgs.apiToken,
+      discoveryMode: githubOrgs.discoveryMode,
     })
     .from(githubOrgs)
     .where(eq(githubOrgs.isActive, true));
 
-  return rows.map((r) => ({ id: r.id, login: r.login, token: decrypt(r.apiToken) }));
+  return rows.map((r) => ({
+    id: r.id,
+    login: r.login,
+    token: decrypt(r.apiToken),
+    discoveryMode: r.discoveryMode,
+  }));
 }
 
 export type OrgClient = { login: string; client: GitHubClient };

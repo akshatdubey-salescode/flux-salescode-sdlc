@@ -123,6 +123,24 @@ export class GitHubClient {
   }
 
   /**
+   * Fetch one repo's metadata via GET /repos/{owner}/{repo}. Works with any
+   * token that can read the repo — including a personal/fine-grained PAT scoped
+   * to specific repos in an org we have no org-wide token for. Returns null when
+   * the token can't see the repo (404, which GitHub also returns for a private
+   * repo outside the token's grant), so callers can surface "no access".
+   */
+  async getRepo(fullName: string): Promise<GitHubRepoRaw | null> {
+    const path = fullName.split("/").map(encodeURIComponent).join("/");
+    const res = await this.get(`${GITHUB_API_BASE}/repos/${path}`);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`GitHub repo fetch failed for ${fullName} (${res.status}): ${body}`);
+    }
+    return (await res.json()) as GitHubRepoRaw;
+  }
+
+  /**
    * List every repo in the org, following Link-header pagination.
    * type=all includes private repos; archived/forked repos are returned too
    * and filtered downstream (callers decide what to track).

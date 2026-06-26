@@ -30,17 +30,23 @@ export async function syncRepos(): Promise<SyncReposResult> {
 
   for (const org of orgs) {
     const client = new GitHubClient({ token: org.token, org: org.login });
-    const syncStartedAt = new Date();
-    const seenIds = new Set<number>();
 
     try {
-      const repos = await client.listOrgRepos();
-      for (const r of repos) {
-        seenIds.add(r.id);
-        await upsertRepo(r, org.id);
-        upserted++;
+      if (org.discoveryMode === "manual") {
+        // Partial-access PAT: can't list the org, so don't — and never prune.
+        // Just refresh the repos a superuser registered by full name.
+        upserted += await refreshManualOrgRepos(org.id, client);
+      } else {
+        const syncStartedAt = new Date();
+        const seenIds = new Set<number>();
+        const repos = await client.listOrgRepos();
+        for (const r of repos) {
+          seenIds.add(r.id);
+          await upsertRepo(r, org.id);
+          upserted++;
+        }
+        pruned += await pruneReposForOrg(org.id, seenIds, syncStartedAt);
       }
-      pruned += await pruneReposForOrg(org.id, seenIds, syncStartedAt);
       await db
         .update(githubOrgs)
         .set({ lastSyncedAt: new Date() })
@@ -53,6 +59,32 @@ export async function syncRepos(): Promise<SyncReposResult> {
   }
 
   return { upserted, pruned, orgsSynced, orgErrors };
+}
+
+/**
+ * Refresh metadata for a manual-discovery org's registered repos. The PAT can't
+ * list the org, so we never call listOrgRepos or prune here — we re-fetch each
+ * already-tracked repo individually to keep default_branch / pushed_at / name
+ * current. A repo the token can no longer read (getRepo → null) is left in
+ * place — removal is an explicit superuser action, not a transient-404 guess.
+ */
+async function refreshManualOrgRepos(orgId: string, client: GitHubClient): Promise<number> {
+  const tracked = await db
+    .select({ fullName: githubRepos.fullName })
+    .from(githubRepos)
+    .where(eq(githubRepos.orgId, orgId));
+
+  let refreshed = 0;
+  for (const { fullName } of tracked) {
+    const r = await client.getRepo(fullName);
+    if (!r) {
+      console.warn(`[github] manual repo ${fullName}: token can no longer read it — left as-is`);
+      continue;
+    }
+    await upsertRepo(r, orgId);
+    refreshed++;
+  }
+  return refreshed;
 }
 
 async function upsertRepo(r: GitHubRepoRaw, orgId: string): Promise<void> {

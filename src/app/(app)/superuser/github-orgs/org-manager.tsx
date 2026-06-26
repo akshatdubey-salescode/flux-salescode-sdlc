@@ -3,7 +3,14 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
-import { RiAddLine, RiDeleteBin2Line, RiGithubLine, RiKey2Line } from "@remixicon/react";
+import {
+  RiAddLine,
+  RiCloseLine,
+  RiDeleteBin2Line,
+  RiGitRepositoryLine,
+  RiGithubLine,
+  RiKey2Line,
+} from "@remixicon/react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,30 +37,37 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
   addGithubOrg,
+  addManualRepo,
   deleteGithubOrg,
+  removeManualRepo,
   setGithubOrgActive,
   updateGithubOrgToken,
+  type DiscoveryMode,
 } from "./actions";
 
 export type OrgRow = {
   id: string;
   login: string;
   isActive: boolean;
+  discoveryMode: string;
   lastSyncedAt: Date | null;
   repoCount: number;
+  // Populated for manual orgs only (auto orgs have hundreds — not listed here).
+  repos: { id: string; fullName: string }[];
 };
 
 export function OrgManager({ orgs }: { orgs: OrgRow[] }) {
   const router = useRouter();
   const [login, setLogin] = useState("");
   const [token, setToken] = useState("");
+  const [mode, setMode] = useState<DiscoveryMode>("auto");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   function handleAdd() {
     setError(null);
     startTransition(async () => {
-      const res = await addGithubOrg(login, token);
+      const res = await addGithubOrg(login, token, mode);
       if (res.error) {
         setError(res.error);
         return;
@@ -71,6 +85,17 @@ export function OrgManager({ orgs }: { orgs: OrgRow[] }) {
         <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
           Add an organisation
         </h2>
+
+        {/* Discovery mode */}
+        <div className="inline-flex rounded-lg border border-zinc-200 p-0.5 dark:border-zinc-800">
+          <ModeTab active={mode === "auto"} onClick={() => setMode("auto")} disabled={isPending}>
+            Whole org
+          </ModeTab>
+          <ModeTab active={mode === "manual"} onClick={() => setMode("manual")} disabled={isPending}>
+            Specific repos
+          </ModeTab>
+        </div>
+
         <div className="flex flex-col gap-2 sm:flex-row">
           <Input
             placeholder="org login (e.g. salescode-ai)"
@@ -81,7 +106,7 @@ export function OrgManager({ orgs }: { orgs: OrgRow[] }) {
           />
           <Input
             type="password"
-            placeholder="fine-grained PAT (github_pat_…)"
+            placeholder={mode === "manual" ? "personal PAT (github_pat_…)" : "fine-grained PAT (github_pat_…)"}
             value={token}
             onChange={(e) => setToken(e.target.value)}
             disabled={isPending}
@@ -92,11 +117,23 @@ export function OrgManager({ orgs }: { orgs: OrgRow[] }) {
             Add
           </Button>
         </div>
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          The PAT must have <span className="font-medium">Contents: read</span> and{" "}
-          <span className="font-medium">Metadata: read</span> on the org&apos;s repos. It&apos;s
-          validated against GitHub and stored encrypted. Re-adding an existing org rotates its token.
-        </p>
+
+        {mode === "auto" ? (
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            The PAT must have <span className="font-medium">Contents: read</span> and{" "}
+            <span className="font-medium">Metadata: read</span> on the org&apos;s repos, and be able
+            to list the org. It&apos;s validated against GitHub and stored encrypted. Re-adding an
+            existing org rotates its token.
+          </p>
+        ) : (
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            For an org you have <span className="font-medium">no org-wide PAT</span> for. Paste a
+            personal PAT with <span className="font-medium">Contents + Metadata: read</span> on the
+            specific repos you can access. We only check the token is valid here; after adding, use{" "}
+            <span className="font-medium">Manage repos</span> to register each{" "}
+            <span className="font-mono">owner/repo</span> by name.
+          </p>
+        )}
         {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
       </div>
 
@@ -107,12 +144,38 @@ export function OrgManager({ orgs }: { orgs: OrgRow[] }) {
             No organisations yet. Add one above to start syncing.
           </div>
         ) : (
-          orgs.map((org) => (
-            <OrgRowItem key={org.id} org={org} pending={isPending} />
-          ))
+          orgs.map((org) => <OrgRowItem key={org.id} org={org} pending={isPending} />)
         )}
       </div>
     </div>
+  );
+}
+
+function ModeTab({
+  active,
+  onClick,
+  disabled,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "rounded-md px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50",
+        active
+          ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+          : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -120,6 +183,7 @@ function OrgRowItem({ org, pending }: { org: OrgRow; pending: boolean }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const busy = pending || isPending;
+  const isManual = org.discoveryMode === "manual";
 
   // Edit-token dialog state.
   const [tokenOpen, setTokenOpen] = useState(false);
@@ -158,8 +222,19 @@ function OrgRowItem({ org, pending }: { org: OrgRow; pending: boolean }) {
     <div className={cn("flex items-center gap-3 px-5 py-3", busy && "opacity-60")}>
       <RiGithubLine className="size-5 shrink-0 text-zinc-400" />
       <div className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
-          {org.login}
+        <span className="flex items-center gap-2 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+          <span className="truncate">{org.login}</span>
+          <Badge
+            variant="secondary"
+            className={cn(
+              "shrink-0",
+              isManual
+                ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                : "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400"
+            )}
+          >
+            {isManual ? "Manual" : "Auto"}
+          </Badge>
         </span>
         <span className="block text-xs text-zinc-500 dark:text-zinc-400">
           {org.repoCount.toLocaleString()} repos
@@ -180,6 +255,8 @@ function OrgRowItem({ org, pending }: { org: OrgRow; pending: boolean }) {
       >
         {org.isActive ? "Active" : "Paused"}
       </Badge>
+
+      {isManual && <ManageReposDialog org={org} disabled={busy} />}
 
       <Button variant="outline" size="sm" onClick={toggle} disabled={busy} className="shrink-0">
         {org.isActive ? "Pause" : "Resume"}
@@ -210,15 +287,18 @@ function OrgRowItem({ org, pending }: { org: OrgRow; pending: boolean }) {
           <DialogHeader>
             <DialogTitle>Update token for {org.login}</DialogTitle>
             <DialogDescription>
-              Paste a new fine-grained PAT for <span className="font-medium">{org.login}</span>.
-              It needs <span className="font-medium">Contents: read</span> and{" "}
-              <span className="font-medium">Metadata: read</span>, is validated against GitHub,
-              and replaces the stored token for every repo in this org.
+              Paste a new {isManual ? "personal" : "fine-grained"} PAT for{" "}
+              <span className="font-medium">{org.login}</span>. It needs{" "}
+              <span className="font-medium">Contents: read</span> and{" "}
+              <span className="font-medium">Metadata: read</span>
+              {isManual
+                ? " on the repos you track, and replaces the stored token for all of them."
+                : ", is validated against GitHub, and replaces the stored token for every repo in this org."}
             </DialogDescription>
           </DialogHeader>
           <Input
             type="password"
-            placeholder="fine-grained PAT (github_pat_…)"
+            placeholder="PAT (github_pat_…)"
             value={newToken}
             onChange={(e) => setNewToken(e.target.value)}
             disabled={busy}
@@ -260,5 +340,105 @@ function OrgRowItem({ org, pending }: { org: OrgRow; pending: boolean }) {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+/** Add/list/remove the repos tracked under a manual-discovery org. */
+function ManageReposDialog({ org, disabled }: { org: OrgRow; disabled: boolean }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [fullName, setFullName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function add() {
+    setError(null);
+    startTransition(async () => {
+      const res = await addManualRepo(org.id, fullName);
+      if (res.error) {
+        setError(res.error);
+        return;
+      }
+      setFullName("");
+      router.refresh();
+    });
+  }
+
+  function remove(repoId: string) {
+    setError(null);
+    startTransition(async () => {
+      const res = await removeManualRepo(repoId);
+      if (res.error) {
+        setError(res.error);
+        return;
+      }
+      router.refresh();
+    });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { setFullName(""); setError(null); } }}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" disabled={disabled} className="shrink-0 gap-1.5">
+          <RiGitRepositoryLine className="size-4" />
+          Repos
+          <span className="text-zinc-400">({org.repos.length})</span>
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Repos for {org.login}</DialogTitle>
+          <DialogDescription>
+            Register repos by <span className="font-mono">owner/repo</span>. Each is verified
+            against this org&apos;s token, then synced like any tracked repo. Removing one deletes
+            its stored stats.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex gap-2">
+          <Input
+            placeholder="owner/repo"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && fullName.trim() && !isPending) add();
+            }}
+            disabled={isPending}
+            className="font-mono"
+          />
+          <Button onClick={add} disabled={isPending || !fullName.trim()} className="shrink-0 gap-1.5">
+            <RiAddLine className="size-4" />
+            Add
+          </Button>
+        </div>
+        {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+
+        <div className="max-h-64 overflow-y-auto rounded-lg border border-zinc-200 divide-y divide-zinc-100 dark:border-zinc-800 dark:divide-zinc-800">
+          {org.repos.length === 0 ? (
+            <div className="p-4 text-sm text-zinc-500 dark:text-zinc-400">
+              No repos registered yet. Add one above.
+            </div>
+          ) : (
+            org.repos.map((repo) => (
+              <div key={repo.id} className="flex items-center gap-2 px-3 py-2">
+                <RiGitRepositoryLine className="size-4 shrink-0 text-zinc-400" />
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-700 dark:text-zinc-300">
+                  {repo.fullName}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => remove(repo.id)}
+                  disabled={isPending}
+                  aria-label={`Remove ${repo.fullName}`}
+                  className="rounded-sm text-zinc-400 hover:text-red-600 disabled:opacity-50 dark:hover:text-red-400"
+                >
+                  <RiCloseLine className="size-4" />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -4,47 +4,167 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { eq } from "drizzle-orm";
 import { requireRole } from "@/lib/auth/server";
 import { db } from "@/lib/db";
-import { githubOrgs } from "@/lib/db/schema";
-import { encrypt } from "@/lib/crypto";
+import { githubOrgs, githubRepos } from "@/lib/db/schema";
+import { decrypt, encrypt } from "@/lib/crypto";
 import { GitHubClient } from "@/lib/github/client";
 import { GITHUB_STATS_TAG } from "@/lib/github/cache-tags";
 
 const ORG_PATH = "/superuser/github-orgs";
 
+export type DiscoveryMode = "auto" | "manual";
+
 /**
- * Add (or re-key) a GitHub org. Validates the PAT can read the org's repos
- * before persisting it (encrypted). Returns an error string on validation
- * failure so the form can surface it.
+ * Add (or re-key) a GitHub org.
+ *
+ * 'auto' orgs are discovered by listing the whole org, so we validate the PAT
+ * can read the org's repos. 'manual' orgs are for a partial-access PAT (e.g. a
+ * personal token with access to only some repos of an org you have no org PAT
+ * for) — the org listing endpoint would 403, so we only verify the token
+ * authenticates; per-repo access is checked when each repo is registered.
+ * Returns an error string on validation failure so the form can surface it.
  */
 export async function addGithubOrg(
   login: string,
-  token: string
+  token: string,
+  discoveryMode: DiscoveryMode = "auto"
 ): Promise<{ error?: string }> {
   const user = await requireRole("SUPERUSER");
 
   const cleanLogin = login.trim();
   const cleanToken = token.trim();
+  const mode: DiscoveryMode = discoveryMode === "manual" ? "manual" : "auto";
   if (!cleanLogin) return { error: "Org login is required." };
   if (!cleanToken) return { error: "A token is required." };
 
-  const accessError = await new GitHubClient({
-    token: cleanToken,
-    org: cleanLogin,
-  }).testOrgAccess();
-  if (accessError) return { error: accessError };
+  const client = new GitHubClient({ token: cleanToken, org: cleanLogin });
+  if (mode === "auto") {
+    const accessError = await client.testOrgAccess();
+    if (accessError) return { error: accessError };
+  } else if (!(await client.testConnection())) {
+    return { error: "Invalid or expired token." };
+  }
 
   await db
     .insert(githubOrgs)
     .values({
       login: cleanLogin,
       apiToken: encrypt(cleanToken),
+      discoveryMode: mode,
       isActive: true,
       createdBy: user.id,
     })
     .onConflictDoUpdate({
       target: githubOrgs.login,
-      set: { apiToken: encrypt(cleanToken), isActive: true, updatedAt: new Date() },
+      set: {
+        apiToken: encrypt(cleanToken),
+        discoveryMode: mode,
+        isActive: true,
+        updatedAt: new Date(),
+      },
     });
+
+  revalidateTag(GITHUB_STATS_TAG, "max");
+  revalidatePath(ORG_PATH);
+  return {};
+}
+
+/**
+ * Register a single repo (by "owner/repo") under a manual-discovery org and
+ * mark it tracked. Verifies this org's PAT can actually read the repo before
+ * persisting it; the next sync pulls its stats like any other tracked repo.
+ */
+export async function addManualRepo(
+  orgId: string,
+  fullName: string
+): Promise<{ error?: string }> {
+  await requireRole("SUPERUSER");
+
+  const clean = fullName.trim().replace(/^\/+|\/+$/g, "");
+  if (!/^[^/\s]+\/[^/\s]+$/.test(clean)) {
+    return { error: 'Use the form "owner/repo" (e.g. acme-co/billing-service).' };
+  }
+
+  const [org] = await db
+    .select({
+      login: githubOrgs.login,
+      apiToken: githubOrgs.apiToken,
+      discoveryMode: githubOrgs.discoveryMode,
+    })
+    .from(githubOrgs)
+    .where(eq(githubOrgs.id, orgId))
+    .limit(1);
+  if (!org) return { error: "Org not found." };
+  if (org.discoveryMode !== "manual") {
+    return { error: "This org auto-discovers its repos; add repos isn't needed here." };
+  }
+
+  let repo;
+  try {
+    repo = await new GitHubClient({
+      token: decrypt(org.apiToken),
+      org: org.login,
+    }).getRepo(clean);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+  if (!repo) {
+    return { error: `Repo not found, or this org's token can't read "${clean}".` };
+  }
+
+  await db
+    .insert(githubRepos)
+    .values({
+      orgId,
+      githubRepoId: repo.id,
+      name: repo.name,
+      fullName: repo.full_name,
+      defaultBranch: repo.default_branch,
+      isPrivate: repo.private,
+      language: repo.language,
+      isTracked: true,
+      pushedAt: repo.pushed_at ? new Date(repo.pushed_at) : null,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: githubRepos.githubRepoId,
+      set: {
+        orgId,
+        name: repo.name,
+        fullName: repo.full_name,
+        defaultBranch: repo.default_branch,
+        isPrivate: repo.private,
+        language: repo.language,
+        isTracked: true, // re-adding a removed repo re-tracks it
+        pushedAt: repo.pushed_at ? new Date(repo.pushed_at) : null,
+        updatedAt: new Date(),
+      },
+    });
+
+  revalidateTag(GITHUB_STATS_TAG, "max");
+  revalidatePath(ORG_PATH);
+  return {};
+}
+
+/**
+ * Remove a manually-registered repo (and, via cascade, its contributor stats).
+ * Scoped to manual orgs so it can't be used to delete an auto-discovered repo,
+ * which the next sync would just re-add anyway.
+ */
+export async function removeManualRepo(repoId: string): Promise<{ error?: string }> {
+  await requireRole("SUPERUSER");
+
+  const [row] = await db
+    .select({ mode: githubOrgs.discoveryMode })
+    .from(githubRepos)
+    .leftJoin(githubOrgs, eq(githubOrgs.id, githubRepos.orgId))
+    .where(eq(githubRepos.id, repoId))
+    .limit(1);
+  if (!row) return { error: "Repo not found." };
+  if (row.mode !== "manual") {
+    return { error: "Only manually-registered repos can be removed here." };
+  }
+
+  await db.delete(githubRepos).where(eq(githubRepos.id, repoId));
 
   revalidateTag(GITHUB_STATS_TAG, "max");
   revalidatePath(ORG_PATH);

@@ -795,6 +795,14 @@ export const githubOrgs = pgTable("github_orgs", {
   // Fine-grained PAT with Contents + Metadata read on the org's repos.
   // Encrypted at rest; decrypt() before use.
   apiToken: text("api_token").notNull(),
+  // How this org's repos are discovered:
+  //  'auto'   = list the whole org via GET /orgs/{org}/repos (needs an org-wide
+  //             PAT). Repos are mirrored and pruned automatically.
+  //  'manual' = the PAT can only read specific repos (e.g. a personal PAT with
+  //             partial access to an org you have no org PAT for). Repos aren't
+  //             auto-listed or pruned — a superuser registers them by full name
+  //             and the sync refreshes each one individually via GET /repos.
+  discoveryMode: text("discovery_mode").notNull().default("auto"),
   isActive: boolean("is_active").notNull().default(true),
   lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
   // Superuser who added the org; null for the seeded legacy org.

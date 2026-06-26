@@ -309,6 +309,13 @@
       "when": 1782367133577,
       "tag": "0044_eminent_wong",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1782456594425,
+      "tag": "0045_broken_manta",
+      "breakpoints": true
     }
   ]
 }
