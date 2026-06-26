@@ -36,7 +36,10 @@ async function ensureAccounts(stats: ContributorStatsRaw[]): Promise<void> {
       set: {
         githubUserId: sql`excluded.github_user_id`,
         avatarUrl: sql`excluded.avatar_url`,
-        isBot: sql`excluded.is_bot`,
+        // Sticky: auto-detection can promote an account to bot, but never
+        // un-flags one a superuser marked (e.g. the co-author "claude"), so the
+        // flag survives every resync instead of resetting to the heuristic.
+        isBot: sql`${githubAccounts.isBot} OR excluded.is_bot`,
         updatedAt: sql`excluded.updated_at`,
       },
     });
