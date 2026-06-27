@@ -4,6 +4,13 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { RiSearchLine } from "@remixicon/react";
 import { WEIGHTS, SCORE_SCALE } from "@/lib/scorecard/config";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { ScorecardRow } from "./data";
 
 /** Max points any metric can score; the final score scales this by weight. */
@@ -46,31 +53,58 @@ export function LeaderboardTable({
   quarterLabel: string;
 }) {
   const [query, setQuery] = useState("");
+  const [dept, setDept] = useState("all");
+
+  // Distinct departments present in the list, for the filter dropdown.
+  const departments = useMemo(
+    () =>
+      Array.from(
+        new Set(rows.map((r) => r.department).filter((d): d is string => !!d)),
+      ).sort((a, b) => a.localeCompare(b)),
+    [rows],
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(
-      (r) =>
+    return rows.filter((r) => {
+      if (dept !== "all" && r.department !== dept) return false;
+      if (!q) return true;
+      return (
         r.name.toLowerCase().includes(q) ||
         r.email.toLowerCase().includes(q) ||
-        (r.manager?.toLowerCase().includes(q) ?? false),
-    );
-  }, [rows, query]);
+        (r.manager?.toLowerCase().includes(q) ?? false)
+      );
+    });
+  }, [rows, query, dept]);
 
   return (
     <div className="space-y-3">
-      <div className="relative max-w-xs">
-        <RiSearchLine
-          size={15}
-          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
-        />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search developer by name…"
-          className="h-9 w-full rounded-md border border-zinc-200 bg-white pl-9 pr-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100/10"
-        />
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-full max-w-xs">
+          <RiSearchLine
+            size={15}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
+          />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search developer by name…"
+            className="h-9 w-full rounded-md border border-zinc-200 bg-white pl-9 pr-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100/10"
+          />
+        </div>
+        <Select value={dept} onValueChange={setDept}>
+          <SelectTrigger className="h-9 w-52">
+            <SelectValue placeholder="All departments" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All departments</SelectItem>
+            {departments.map((d) => (
+              <SelectItem key={d} value={d}>
+                {d}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -180,7 +214,7 @@ export function LeaderboardTable({
                   colSpan={8}
                   className="px-4 py-8 text-center text-sm text-zinc-400"
                 >
-                  No developers match “{query}”.
+                  No developers match the current filters.
                 </td>
               </tr>
             )}

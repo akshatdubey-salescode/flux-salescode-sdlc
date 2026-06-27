@@ -11,6 +11,8 @@ export type ScorecardRow = {
   name: string;
   /** Reporting manager's name (from Keka), or null when unmatched/unmanaged. */
   manager: string | null;
+  /** Department (from Keka), or null when unmatched. Drives the dept filter. */
+  department: string | null;
   finalScore: number;
   bugQualityPoints: number | null;
   mttrPoints: number | null;
@@ -113,26 +115,55 @@ function isBusinessTeam(department: string | null | undefined): boolean {
   return department != null && EXCLUDED_DEPARTMENTS.has(normDept(department));
 }
 
+// Ex-members who have left the org but aren't caught by Keka's exit_date — they
+// have no Keka record at all (contractors / pre-Keka leavers). Manually
+// maintained; the Keka exit_date check below handles everyone with a record.
+const FORMER_MEMBERS = new Set(
+  [
+    "abhay.garg@salescode.ai",
+    "anand.mohan@salescode.ai",
+    "arnav.sinha@salescode.ai",
+    "chetan.sethi@salescode.ai",
+    "manu.sharma@salescode.ai",
+  ].map((e) => e.toLowerCase())
+);
+
+/** True for people no longer with the org: a Keka exit date on/before now, or on
+ * the manual FORMER_MEMBERS list. People still on notice (future exit) stay. */
+function isInactive(
+  email: string,
+  keka: { exitDate: Date | null } | undefined,
+  now: Date
+): boolean {
+  if (FORMER_MEMBERS.has(email.toLowerCase())) return true;
+  return keka?.exitDate != null && keka.exitDate <= now;
+}
+
 /**
  * Per-person department + reporting manager from Keka, keyed by lower-cased
  * email. Drives the leaderboard's Manager column and the business-team filter.
  */
 async function kekaMap(): Promise<
-  Map<string, { department: string | null; manager: string | null }>
+  Map<string, { department: string | null; manager: string | null; exitDate: Date | null }>
 > {
   const rows = await db
     .select({
       email: kekaEmployees.email,
       department: kekaEmployees.department,
       managerName: kekaEmployees.managerName,
+      exitDate: kekaEmployees.exitDate,
     })
     .from(kekaEmployees);
-  const map = new Map<string, { department: string | null; manager: string | null }>();
+  const map = new Map<
+    string,
+    { department: string | null; manager: string | null; exitDate: Date | null }
+  >();
   for (const r of rows) {
     if (!r.email) continue;
     map.set(r.email.toLowerCase(), {
       department: r.department,
       manager: r.managerName?.trim() || null,
+      exitDate: r.exitDate,
     });
   }
   return map;
@@ -183,15 +214,23 @@ export async function fetchScorecards(quarterKey: string): Promise<ScorecardRow[
 
   const names = await nameMap();
   const keka = await kekaMap();
+  const now = new Date();
 
-  // Drop business-team people, then rank the remaining developers 1..N.
+  // Drop business-team people and anyone no longer with the org, then rank the
+  // remaining developers 1..N.
   return rows
-    .filter((r) => !isBusinessTeam(keka.get(r.userEmail.toLowerCase())?.department))
+    .filter((r) => {
+      const k = keka.get(r.userEmail.toLowerCase());
+      if (isBusinessTeam(k?.department)) return false;
+      if (isInactive(r.userEmail, k, now)) return false;
+      return true;
+    })
     .map((r, i) => ({
       rank: i + 1,
       email: r.userEmail,
       name: names.get(r.userEmail) ?? r.userEmail,
       manager: keka.get(r.userEmail.toLowerCase())?.manager ?? null,
+      department: keka.get(r.userEmail.toLowerCase())?.department ?? null,
       finalScore: r.finalScore,
       bugQualityPoints: r.bugQualityPoints,
       mttrPoints: r.mttrPoints,
