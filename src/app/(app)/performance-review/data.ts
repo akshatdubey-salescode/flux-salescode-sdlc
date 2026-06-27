@@ -1,7 +1,7 @@
 import { cacheLife, cacheTag } from "next/cache";
 import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { performanceScorecards, jiraProjects } from "@/lib/db/schema";
+import { performanceScorecards, jiraProjects, kekaEmployees } from "@/lib/db/schema";
 import { PERFORMANCE_SCORECARDS_TAG } from "@/lib/scorecard/cache-tags";
 import type { MetricBreakdown } from "@/lib/scorecard/engine";
 
@@ -9,6 +9,8 @@ export type ScorecardRow = {
   rank: number;
   email: string;
   name: string;
+  /** Reporting manager's name (from Keka), or null when unmatched/unmanaged. */
+  manager: string | null;
   finalScore: number;
   bugQualityPoints: number | null;
   mttrPoints: number | null;
@@ -86,6 +88,56 @@ export type ScorecardDetail = {
   missingActualDateItems: ScorecardMissingActualDateItem[];
 };
 
+// Departments treated as "business team" — excluded from the developer
+// leaderboard. Compared after normalizing (lower-cased, non-letters collapsed to
+// spaces) so apostrophes / ampersands / spacing don't matter — e.g. "Admin & IT"
+// → "admin it", "Founder's Office" → "founder s office".
+function normDept(s: string): string {
+  return s.toLowerCase().replace(/[^a-z]+/g, " ").trim();
+}
+const EXCLUDED_DEPARTMENTS = new Set(
+  [
+    "Sales & Business Development",
+    "Projects & Product",
+    "Support",
+    "Marketing",
+    "Human Resources",
+    "Finance",
+    "Admin & IT",
+    "Founder's Office",
+  ].map(normDept)
+);
+/** True for the excluded business-team departments. Unknown department → false
+ * (we can't classify them, so they stay in the list). */
+function isBusinessTeam(department: string | null | undefined): boolean {
+  return department != null && EXCLUDED_DEPARTMENTS.has(normDept(department));
+}
+
+/**
+ * Per-person department + reporting manager from Keka, keyed by lower-cased
+ * email. Drives the leaderboard's Manager column and the business-team filter.
+ */
+async function kekaMap(): Promise<
+  Map<string, { department: string | null; manager: string | null }>
+> {
+  const rows = await db
+    .select({
+      email: kekaEmployees.email,
+      department: kekaEmployees.department,
+      managerName: kekaEmployees.managerName,
+    })
+    .from(kekaEmployees);
+  const map = new Map<string, { department: string | null; manager: string | null }>();
+  for (const r of rows) {
+    if (!r.email) continue;
+    map.set(r.email.toLowerCase(), {
+      department: r.department,
+      manager: r.managerName?.trim() || null,
+    });
+  }
+  return map;
+}
+
 /**
  * Display names keyed by lower-cased email, sourced from the best-known Jira
  * assignee display name. Used so the leaderboard shows a person's name rather
@@ -130,20 +182,25 @@ export async function fetchScorecards(quarterKey: string): Promise<ScorecardRow[
     .orderBy(desc(performanceScorecards.finalScore));
 
   const names = await nameMap();
+  const keka = await kekaMap();
 
-  return rows.map((r, i) => ({
-    rank: i + 1,
-    email: r.userEmail,
-    name: names.get(r.userEmail) ?? r.userEmail,
-    finalScore: r.finalScore,
-    bugQualityPoints: r.bugQualityPoints,
-    mttrPoints: r.mttrPoints,
-    sprintCommitmentPoints: r.sprintCommitmentPoints,
-    complexTasksPoints: r.complexTasksPoints,
-    underestimatedTasksPoints: r.underestimatedTasksPoints,
-    complexTasksCount: r.complexTasksCount,
-    computedAt: r.computedAt ? r.computedAt.toISOString() : null,
-  }));
+  // Drop business-team people, then rank the remaining developers 1..N.
+  return rows
+    .filter((r) => !isBusinessTeam(keka.get(r.userEmail.toLowerCase())?.department))
+    .map((r, i) => ({
+      rank: i + 1,
+      email: r.userEmail,
+      name: names.get(r.userEmail) ?? r.userEmail,
+      manager: keka.get(r.userEmail.toLowerCase())?.manager ?? null,
+      finalScore: r.finalScore,
+      bugQualityPoints: r.bugQualityPoints,
+      mttrPoints: r.mttrPoints,
+      sprintCommitmentPoints: r.sprintCommitmentPoints,
+      complexTasksPoints: r.complexTasksPoints,
+      underestimatedTasksPoints: r.underestimatedTasksPoints,
+      complexTasksCount: r.complexTasksCount,
+      computedAt: r.computedAt ? r.computedAt.toISOString() : null,
+    }));
 }
 
 /**

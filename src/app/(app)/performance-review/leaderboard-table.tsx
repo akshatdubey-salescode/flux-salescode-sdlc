@@ -53,7 +53,8 @@ export function LeaderboardTable({
     return rows.filter(
       (r) =>
         r.name.toLowerCase().includes(q) ||
-        r.email.toLowerCase().includes(q),
+        r.email.toLowerCase().includes(q) ||
+        (r.manager?.toLowerCase().includes(q) ?? false),
     );
   }, [rows, query]);
 
@@ -81,6 +82,9 @@ export function LeaderboardTable({
               </th>
               <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 Developer
+              </th>
+              <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Manager
               </th>
               <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 Score
@@ -123,6 +127,9 @@ export function LeaderboardTable({
                     </span>
                   </Link>
                 </td>
+                <td className="px-4 py-3 align-top text-sm text-zinc-600 dark:text-zinc-400">
+                  {row.manager ?? "—"}
+                </td>
                 <td className="px-4 py-3 text-right align-top text-base font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
                   {row.finalScore.toFixed(1)}
                   <span className="text-xs font-normal text-zinc-400">
@@ -157,7 +164,7 @@ export function LeaderboardTable({
             {rows.length === 0 && (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   className="px-4 py-8 text-center text-sm text-zinc-400"
                 >
                   No scorecards for {quarterLabel} yet. Click{" "}
@@ -170,7 +177,7 @@ export function LeaderboardTable({
             {rows.length > 0 && filtered.length === 0 && (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   className="px-4 py-8 text-center text-sm text-zinc-400"
                 >
                   No developers match “{query}”.
