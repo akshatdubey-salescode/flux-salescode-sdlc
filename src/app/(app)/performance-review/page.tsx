@@ -315,7 +315,16 @@ export default async function PerformanceReviewPage({
                               {t.summary}
                             </td>
                             <td className="px-4 py-2.5 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                              {t.complexity ?? "—"}
+                              {t.complexity != null ? (
+                                t.complexity
+                              ) : (
+                                <span
+                                  title="Complexity not set in Jira — defaults to C1 (weight 1)"
+                                  className="text-zinc-400"
+                                >
+                                  1*
+                                </span>
+                              )}
                             </td>
                           </tr>
                         ))}
