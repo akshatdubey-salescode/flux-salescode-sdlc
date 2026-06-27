@@ -19,6 +19,9 @@ import {
 export type ScorecardInputs = {
   // Bug Quality
   features: number;
+  // Priority-weighted credit for bugs the developer resolved (Dev Owner →
+  // Assignee). Lifts the Bug Quality numerator alongside feature tasks.
+  bugsResolvedWeighted: number;
   weightedBugs: number;
   // MTTR — one entry per qualifying P1/P2 bug resolution (minutes, ≥ 0).
   mttrMinutesSamples: number[];
@@ -63,11 +66,22 @@ function rubricDescending(pct: number, t: readonly number[]): number {
 // Per-metric formulas (PDF §4)
 // ---------------------------------------------------------------------------
 
-/** §4.1 — ratio of feature output to priority-weighted bug load. 0–5. */
-export function bugQualityPoints(features: number, weightedBugs: number): number {
-  const denom = features + weightedBugs;
+/**
+ * §4.1 — ratio of productive output to priority-weighted bug load. 0–5.
+ * Output = feature tasks + priority-weighted bug-resolution credit (the latter
+ * attributed to the resolver, Dev Owner → Assignee). The weighted-bug load is
+ * the penalty carried by the bug's Issue Owner. So fixing bugs raises the score
+ * while owning unresolved/low-quality bugs lowers it.
+ */
+export function bugQualityPoints(
+  features: number,
+  bugsResolvedWeighted: number,
+  weightedBugs: number
+): number {
+  const output = features + bugsResolvedWeighted;
+  const denom = output + weightedBugs;
   if (denom === 0) return 5; // no data → full score
-  return (features / denom) * 5;
+  return (output / denom) * 5;
 }
 
 /** §4.2 — repeated PRs against the same Jira ID. 1–5. 5 when no qualifying PRs. */
@@ -152,6 +166,7 @@ export type MetricBreakdown = {
 export type ScorecardResult = {
   weightedBugs: number;
   featureCount: number;
+  bugsResolvedWeighted: number;
   bugQualityPoints: number | null;
   mttrMinutes: number | null;
   mttrPoints: number | null;
@@ -177,7 +192,11 @@ const LABELS: Record<MetricKey, string> = {
 };
 
 export function computeScorecard(inputs: ScorecardInputs): ScorecardResult {
-  const bugPts = bugQualityPoints(inputs.features, inputs.weightedBugs);
+  const bugPts = bugQualityPoints(
+    inputs.features,
+    inputs.bugsResolvedWeighted,
+    inputs.weightedBugs
+  );
   const { points: mttrPts, avgMinutes } = mttrPointsFromSamples(
     inputs.mttrMinutesSamples
   );
@@ -211,7 +230,7 @@ export function computeScorecard(inputs: ScorecardInputs): ScorecardResult {
       weight: WEIGHTS.bugQuality,
       points: bugPts,
       contribution: contribution("bugQuality", bugPts),
-      raw: `${inputs.features} feature task(s), ${inputs.weightedBugs} weighted bug(s)`,
+      raw: `${inputs.features} feature(s) + ${inputs.bugsResolvedWeighted} bug-resolution credit vs ${inputs.weightedBugs} weighted bug(s)`,
       available: true,
     },
     {
@@ -295,6 +314,7 @@ export function computeScorecard(inputs: ScorecardInputs): ScorecardResult {
   return {
     weightedBugs: inputs.weightedBugs,
     featureCount: inputs.features,
+    bugsResolvedWeighted: inputs.bugsResolvedWeighted,
     bugQualityPoints: bugPts,
     mttrMinutes: avgMinutes,
     mttrPoints: mttrPts,

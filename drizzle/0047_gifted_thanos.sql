@@ -1,0 +1,1 @@
+ALTER TABLE "performance_scorecards" ADD COLUMN "bugs_resolved_weighted" double precision DEFAULT 0 NOT NULL;

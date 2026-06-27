@@ -17,6 +17,7 @@ function approx(actual: number, expected: number, eps = 1e-3) {
 // (weightedTotal 240); 10 complex tasks of which 7 qualify as AI tasks.
 const result = computeScorecard({
   features: 40,
+  bugsResolvedWeighted: 0,
   weightedBugs: 10,
   mttrMinutesSamples: [75],
   sprintNotDelayed: 18,
@@ -49,6 +50,7 @@ assert.equal(effort.contribution, 0);
 // No-data defaults (§6.1).
 const empty = computeScorecard({
   features: 0,
+  bugsResolvedWeighted: 0,
   weightedBugs: 0,
   mttrMinutesSamples: [],
   sprintNotDelayed: 0,

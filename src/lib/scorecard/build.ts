@@ -68,6 +68,7 @@ type MissingActualDateItem = {
 type Acc = {
   features: number;
   weightedBugs: number;
+  bugsResolvedWeighted: number;
   ownedBugKeys: Set<string>;
   mttrSamples: number[];
   sprintNotDelayed: number;
@@ -77,6 +78,7 @@ type Acc = {
   aiTaskCount: number;
   totalComplex: number;
   bugItems: BugItem[];
+  resolvedBugItems: BugItem[];
   featureItems: FeatureItem[];
   mttrItems: MttrItem[];
   missingActualItems: MissingActualDateItem[];
@@ -89,6 +91,7 @@ function emptyAcc(): Acc {
   return {
     features: 0,
     weightedBugs: 0,
+    bugsResolvedWeighted: 0,
     ownedBugKeys: new Set(),
     mttrSamples: [],
     sprintNotDelayed: 0,
@@ -98,6 +101,7 @@ function emptyAcc(): Acc {
     aiTaskCount: 0,
     totalComplex: 0,
     bugItems: [],
+    resolvedBugItems: [],
     featureItems: [],
     mttrItems: [],
     missingActualItems: [],
@@ -270,22 +274,28 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
     else tasks.push(r);
   }
 
-  // Pass 1 — bugs: weighted bugs + MTTR → Issue Owner. Attribution is the
-  // Issue Owner field only (no assignee fallback); a bug with no Issue Owner is
-  // scored to nobody, matching the "Missing Issue Owner" bucket on the boards.
+  // Pass 1 — bugs, split two ways:
+  //   • PENALTY (weighted bugs) → Issue Owner: accountability for the defect.
+  //     Issue Owner field only; a bug with no Issue Owner is penalized to nobody,
+  //     matching the "Missing Issue Owner" bucket on the boards.
+  //   • RESOLUTION CREDIT (priority-weighted) + MTTR → Dev Owner ?? Assignee:
+  //     the developer who actually fixed it. The Issue Owner field is unreliable
+  //     as "who did the work" (often someone else resolves it), so resolution is
+  //     credited the same way tasks are. Credit feeds the Bug Quality numerator.
   for (const b of bugs) {
     // not a bug / couldn't reproduce → excluded from all scoring
     if (BUG_INVALID_STATUSES.has(normalizeStatus(b.status))) continue;
 
+    const weight = priorityWeight(b.priority);
+
+    // Penalty → Issue Owner.
     const owner = extractIssueOwnerEmail(
       b.customFields,
       b.issueOwnerFieldIds,
       accountIdEmailMap
     );
-
     if (owner) {
       const a = getAcc(owner);
-      const weight = priorityWeight(b.priority);
       a.weightedBugs += weight;
       a.ownedBugKeys.add(b.jiraKey);
       a.bugItems.push({
@@ -294,6 +304,28 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
         priority: b.priority,
         weight,
       });
+    }
+
+    // Resolution credit + MTTR → resolver (Dev Owner ?? Assignee).
+    const resolver = resolveTaskOwnerEmail(
+      b.customFields,
+      b.devOwnerFieldIds,
+      b.assigneeEmail,
+      accountIdEmailMap
+    );
+    if (resolver) {
+      const a = getAcc(resolver);
+      a.bugsResolvedWeighted += weight;
+      a.resolvedBugItems.push({
+        key: b.jiraKey,
+        summary: b.summary,
+        priority: b.priority,
+        weight,
+      });
+      // Missing-actual note follows the time-based metric (MTTR), now the
+      // resolver's. Resolution time is measured over the developer work-window
+      // (see devWindow), not raw created→completed, so the resolver isn't
+      // charged for backlog/QA time outside active development. P1/P2 only.
       recordMissingActual(
         a,
         b.jiraKey,
@@ -302,25 +334,19 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
         b.actualStartFieldIds,
         b.actualEndFieldIds
       );
-    }
-
-    // MTTR follows the same owner attribution as weighted bugs, so a bug is
-    // wholly the Issue Owner's — not split. Resolution time is measured over the
-    // developer work-window (see devWindow), not raw created→completed, so the
-    // owner isn't charged for backlog/QA time outside active development.
-    if (owner && isP1OrP2(b.priority)) {
-      const { start, end } = devWindow(b);
-      if (start && end) {
-        const minutes = (end.getTime() - start.getTime()) / 60_000;
-        if (minutes >= 0) {
-          const a = getAcc(owner);
-          a.mttrSamples.push(minutes);
-          a.mttrItems.push({
-            key: b.jiraKey,
-            summary: b.summary,
-            priority: b.priority,
-            minutes,
-          });
+      if (isP1OrP2(b.priority)) {
+        const { start, end } = devWindow(b);
+        if (start && end) {
+          const minutes = (end.getTime() - start.getTime()) / 60_000;
+          if (minutes >= 0) {
+            a.mttrSamples.push(minutes);
+            a.mttrItems.push({
+              key: b.jiraKey,
+              summary: b.summary,
+              priority: b.priority,
+              minutes,
+            });
+          }
         }
       }
     }
@@ -393,6 +419,7 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
   const records = [...accs.entries()].map(([email, a]) => {
     const inputs: ScorecardInputs = {
       features: a.features,
+      bugsResolvedWeighted: a.bugsResolvedWeighted,
       weightedBugs: a.weightedBugs,
       mttrMinutesSamples: a.mttrSamples,
       sprintNotDelayed: a.sprintNotDelayed,
@@ -410,6 +437,9 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
     const bugItems = a.bugItems.sort(
       (x, y) => y.weight - x.weight || x.key.localeCompare(y.key)
     );
+    const resolvedBugItems = a.resolvedBugItems.sort(
+      (x, y) => y.weight - x.weight || x.key.localeCompare(y.key)
+    );
     const featureItems = a.featureItems.sort(
       (x, y) => (y.complexity ?? 0) - (x.complexity ?? 0) || x.key.localeCompare(y.key)
     );
@@ -425,6 +455,7 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
       ...r.breakdown,
       items: {
         weightedBugs: bugItems,
+        bugsResolved: resolvedBugItems,
         features: featureItems,
         mttr: mttrItems,
         complexity,
@@ -437,6 +468,7 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
       computedAt,
       weightedBugs: r.weightedBugs,
       featureCount: r.featureCount,
+      bugsResolvedWeighted: r.bugsResolvedWeighted,
       bugQualityPoints: r.bugQualityPoints,
       mttrMinutes: r.mttrMinutes,
       mttrPoints: r.mttrPoints,

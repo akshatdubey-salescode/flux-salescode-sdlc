@@ -1158,6 +1158,12 @@ export const performanceScorecards = pgTable(
     // Bug Quality (§4.1)
     weightedBugs: doublePrecision("weighted_bugs").notNull().default(0),
     featureCount: integer("feature_count").notNull().default(0),
+    // Priority-weighted credit for bugs this developer RESOLVED (Dev Owner →
+    // Assignee). Added to the Bug Quality numerator so fixing bugs lifts the
+    // score; the weighted-bug penalty above stays with the Issue Owner.
+    bugsResolvedWeighted: doublePrecision("bugs_resolved_weighted")
+      .notNull()
+      .default(0),
     bugQualityPoints: doublePrecision("bug_quality_points"),
 
     // MTTR (§4.3) — minutes null when no qualifying samples.
