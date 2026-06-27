@@ -19,7 +19,8 @@
     "collect:git-stats": "tsx --env-file=.env.local scripts/collect-git-stats.ts",
     "backfill:jira-identities": "tsx --env-file=.env.local scripts/backfill-jira-identities.ts",
     "backfill:github-identities": "tsx --env-file=.env.local scripts/backfill-github-identities.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@clerk/nextjs": "^7.0.12",

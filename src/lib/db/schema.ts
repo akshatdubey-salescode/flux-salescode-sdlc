@@ -106,6 +106,12 @@ export const jiraProjects = pgTable(
     // rating engine. Same null/[]/[...] semantics as above.
     complexityFieldIds: text("complexity_field_ids").array(),
     issueOwnerFieldIds: text("issue_owner_field_ids").array(),
+    // Auto-discovered Jira custom field IDs for the "Dev Owner" user-picker.
+    // Performance-review task credit goes to the Dev Owner when set, falling
+    // back to the issue Assignee. Like Issue Owner, the site has several distinct
+    // fields all named "Dev Owner", so this is disambiguated to the one each
+    // project actually populates. Same null/[]/[...] semantics as above.
+    devOwnerFieldIds: text("dev_owner_field_ids").array(),
     // Auto-discovered Jira custom field IDs for the "Environment" dropdown
     // (e.g. Prod/Demo/UAT) that feeds the bug-summary env column. The system
     // `environment` field is an unreliable fallback — most projects record it

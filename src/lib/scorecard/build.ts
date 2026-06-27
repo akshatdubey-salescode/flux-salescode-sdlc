@@ -11,11 +11,12 @@ import {
   extractActualStart,
   extractActualEnd,
 } from "@/lib/jira/dates";
+import { isWorkInQuarter } from "./scope";
 import {
   extractComplexity,
   extractIssueOwnerEmail,
   extractOriginalEstimateSeconds,
-  normalizeEmail,
+  resolveTaskOwnerEmail,
 } from "@/lib/jira/scorecard-fields";
 import {
   BUG_INVALID_STATUSES,
@@ -205,10 +206,16 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
 
   const accountIdEmailMap = await loadAccountIdEmailMap();
 
-  // Issues both raised and completed within the quarter, with their project's
-  // discovered custom-field IDs (for complexity / issue-owner / due-date
-  // extraction). Requiring created-in-quarter keeps the scorecard's counts in
-  // step with the Bug Board, which scopes by created date.
+  // Candidate issues: completed within the quarter (must be Done), with their
+  // project's discovered custom-field IDs (for complexity / issue-owner /
+  // due-date / actual-date extraction). Creation date is intentionally NOT a
+  // filter — quarter membership is decided in JS below by where the WORK
+  // finished (see isWorkInQuarter), so carryover raised in an earlier quarter
+  // but delivered here still counts. completedAt-in-quarter is the candidate
+  // net; isWorkInQuarter then applies the Actual/planned finish + backdating
+  // rules. (Edge: an issue whose Actual end lands in-quarter but whose Done
+  // date is in another quarter isn't fetched here — rare, and completedAt is
+  // the canonical "delivered" signal.)
   const rows = await db
     .select({
       jiraKey: jiraIssues.jiraKey,
@@ -225,6 +232,8 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
       devCompletedAt: jiraIssues.devCompletedAt,
       complexityFieldIds: jiraProjects.complexityFieldIds,
       issueOwnerFieldIds: jiraProjects.issueOwnerFieldIds,
+      devOwnerFieldIds: jiraProjects.devOwnerFieldIds,
+      startDateFieldIds: jiraProjects.startDateFieldIds,
       endDateFieldIds: jiraProjects.endDateFieldIds,
       actualStartFieldIds: jiraProjects.actualStartFieldIds,
       actualEndFieldIds: jiraProjects.actualEndFieldIds,
@@ -235,13 +244,7 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
       and(
         sql`${jiraIssues.completedAt} is not null`,
         sql`${jiraIssues.completedAt}::date >= ${quarter.start}::date`,
-        sql`${jiraIssues.completedAt}::date <= ${quarter.end}::date`,
-        // Only count work that was also raised within the quarter, so the
-        // scorecard's bug/task counts line up with the Bug Board (which scopes
-        // by created date). Drops cross-quarter carryover finished this quarter.
-        sql`${jiraIssues.jiraCreatedAt} is not null`,
-        sql`${jiraIssues.jiraCreatedAt}::date >= ${quarter.start}::date`,
-        sql`${jiraIssues.jiraCreatedAt}::date <= ${quarter.end}::date`
+        sql`${jiraIssues.completedAt}::date <= ${quarter.end}::date`
       )
     );
 
@@ -255,10 +258,14 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
     return a;
   };
 
+  // Quarter scope: keep issues whose work finished this quarter, dropping
+  // backdated tickets — see isWorkInQuarter for the full rule.
+  const scoped = rows.filter((r) => isWorkInQuarter(r, quarter));
+
   // Partition so all bug ownership is known before tasks compute feature count.
-  const bugs: typeof rows = [];
-  const tasks: typeof rows = [];
-  for (const r of rows) {
+  const bugs: typeof scoped = [];
+  const tasks: typeof scoped = [];
+  for (const r of scoped) {
     if (BUG_ISSUE_TYPES.has((r.issueType ?? "").trim().toLowerCase())) bugs.push(r);
     else tasks.push(r);
   }
@@ -321,9 +328,16 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
 
   // Pass 2 — tasks: features, complexity, AI tasks, sprint commitment.
   for (const t of tasks) {
-    const assignee = normalizeEmail(t.assigneeEmail);
-    if (!assignee) continue; // tasks with no assignee are dropped (§5.1)
-    const a = getAcc(assignee);
+    // Task credit goes to the Dev Owner when set, else the Assignee (§5.1); a
+    // task with neither is credited to nobody and dropped.
+    const owner = resolveTaskOwnerEmail(
+      t.customFields,
+      t.devOwnerFieldIds,
+      t.assigneeEmail,
+      accountIdEmailMap
+    );
+    if (!owner) continue;
+    const a = getAcc(owner);
 
     recordMissingActual(
       a,

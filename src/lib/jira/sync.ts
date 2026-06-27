@@ -176,6 +176,7 @@ type DiscoveredFields = {
   actualEndFieldIds: string[];
   complexityFieldIds: string[];
   issueOwnerFieldIds: string[];
+  devOwnerFieldIds: string[];
   environmentFieldIds: string[];
 };
 
@@ -279,6 +280,14 @@ async function discoverProjectFields(
     .map((f) => f.id);
   const issueOwnerFieldIds = await primaryOwnerFieldIds(projectId, issueOwnerCandidates);
 
+  // The "Dev Owner" user-picker — performance-review task credit prefers this
+  // over the Assignee. The site likewise has several distinct fields named
+  // "Dev Owner", so disambiguate to the one this project actually populates.
+  const devOwnerCandidates = fields
+    .filter((f) => f.custom && normName(f.name) === "dev owner")
+    .map((f) => f.id);
+  const devOwnerFieldIds = await primaryOwnerFieldIds(projectId, devOwnerCandidates);
+
   // The "Environment" dropdown (Prod/Demo/UAT) that feeds the bug summary.
   // Exact normalized-name match keeps unrelated fields ("Test Environment
   // Notes" etc.) out.
@@ -296,6 +305,7 @@ async function discoverProjectFields(
       actualEndFieldIds,
       complexityFieldIds,
       issueOwnerFieldIds,
+      devOwnerFieldIds,
       environmentFieldIds,
     })
     .where(eq(jiraProjects.id, projectId));
@@ -308,6 +318,7 @@ async function discoverProjectFields(
     actualEndFieldIds,
     complexityFieldIds,
     issueOwnerFieldIds,
+    devOwnerFieldIds,
     environmentFieldIds,
   };
 }
@@ -328,6 +339,7 @@ export async function resolveProjectFieldConfig(
     actualEndFieldIds: string[] | null;
     complexityFieldIds: string[] | null;
     issueOwnerFieldIds: string[] | null;
+    devOwnerFieldIds: string[] | null;
     environmentFieldIds: string[] | null;
   }
 ): Promise<{
@@ -342,6 +354,7 @@ export async function resolveProjectFieldConfig(
   let actualEndFieldIds: string[] | null = project.actualEndFieldIds;
   let complexityFieldIds: string[] | null = project.complexityFieldIds;
   let issueOwnerFieldIds: string[] | null = project.issueOwnerFieldIds;
+  let devOwnerFieldIds: string[] | null = project.devOwnerFieldIds;
   let environmentFieldIds: string[] | null = project.environmentFieldIds;
 
   try {
@@ -353,6 +366,7 @@ export async function resolveProjectFieldConfig(
     actualEndFieldIds = discovered.actualEndFieldIds;
     complexityFieldIds = discovered.complexityFieldIds;
     issueOwnerFieldIds = discovered.issueOwnerFieldIds;
+    devOwnerFieldIds = discovered.devOwnerFieldIds;
     environmentFieldIds = discovered.environmentFieldIds;
   } catch (err) {
     // Transient API failure — keep the previously-cached values for this sync.
@@ -367,6 +381,7 @@ export async function resolveProjectFieldConfig(
   if (actualEndFieldIds?.length) extraFields.push(...actualEndFieldIds);
   if (complexityFieldIds?.length) extraFields.push(...complexityFieldIds);
   if (issueOwnerFieldIds?.length) extraFields.push(...issueOwnerFieldIds);
+  if (devOwnerFieldIds?.length) extraFields.push(...devOwnerFieldIds);
   if (environmentFieldIds?.length) extraFields.push(...environmentFieldIds);
 
   return {

@@ -55,6 +55,25 @@ export function extractIssueOwnerEmail(
 }
 
 /**
+ * Who a *task* (non-bug issue) is credited to in the performance review: the
+ * "Dev Owner" user-picker when set, else the issue Assignee. Both are resolved
+ * to a normalized email (Dev Owner via the same user-picker logic as Issue
+ * Owner, since it's the same field type). Returns null when neither is present —
+ * such a task is credited to nobody.
+ */
+export function resolveTaskOwnerEmail(
+  cf: CustomFields | null | undefined,
+  devOwnerFieldIds: string[] | null,
+  assigneeEmail: string | null | undefined,
+  accountIdEmailMap?: Map<string, string> | null
+): string | null {
+  return (
+    extractIssueOwnerEmail(cf, devOwnerFieldIds, accountIdEmailMap) ??
+    normalizeEmail(assigneeEmail)
+  );
+}
+
+/**
  * Display name of the "Issue Owner" user-picker, paired with
  * extractIssueOwnerEmail for UI attribution (the bug summary shows the owner's
  * name, not their email). Handles single-user (object) and multi-user (array,
