@@ -9,6 +9,7 @@ import {
   THRESHOLDS,
   EFFORT_EXPECTED_HOURS,
   SCORE_SCALE,
+  COMPLEX_TASKS_K,
   type MetricKey,
 } from "./config";
 
@@ -116,16 +117,17 @@ export function sprintCommitmentPoints(
   return rubricDescending(pct, THRESHOLDS.sprintCommitment);
 }
 
-/** §4.4 — average complexity × volume factor. 0–5 (asymptotic). 0 if no tasks. */
-export function complexTasksPoints(
-  weightedTotal: number,
-  totalTasks: number
-): number {
-  if (totalTasks === 0) return 0;
-  const avgWeight = weightedTotal / totalTasks; // 1 … 10
-  const normalizedComplexity = avgWeight / 10; // 0.1 … 1.0
-  const volumeFactor = 1 - Math.exp(-totalTasks / 60); // 0 … →1
-  return normalizedComplexity * 5 * volumeFactor;
+/**
+ * §4.4 — complexity-weighted throughput. 0–5 (asymptotic, diminishing returns).
+ * `weightedTotal` (output) is the SUM of complexity weights over the developer's
+ * tasks (C1=1 … C5=10). Score depends only on this sum, so volume and depth are
+ * balanced by the weights — a few hard tasks and many easy tasks earn credit on
+ * the same scale — instead of being gated by a multiplicative volume factor that
+ * used to crush low-volume / high-complexity work. 0 when there's no output.
+ */
+export function complexTasksPoints(weightedTotal: number): number {
+  if (weightedTotal <= 0) return 0;
+  return 5 * (1 - Math.exp(-weightedTotal / COMPLEX_TASKS_K));
 }
 
 /** §4.6 — share of complex tasks with a small original estimate. 0 if none. */
@@ -204,10 +206,7 @@ export function computeScorecard(inputs: ScorecardInputs): ScorecardResult {
     inputs.sprintNotDelayed,
     inputs.sprintTotal
   );
-  const complexPts = complexTasksPoints(
-    inputs.complexWeightedTotal,
-    inputs.complexTotalTasks
-  );
+  const complexPts = complexTasksPoints(inputs.complexWeightedTotal);
   const aiPts = aiTasksPoints(inputs.aiTaskCount, inputs.totalComplex);
 
   // Optional / not-sourced metrics.
@@ -277,9 +276,7 @@ export function computeScorecard(inputs: ScorecardInputs): ScorecardResult {
       raw:
         inputs.complexTotalTasks === 0
           ? "No tasks"
-          : `${inputs.complexTotalTasks} task(s), avg weight ${(
-              inputs.complexWeightedTotal / inputs.complexTotalTasks
-            ).toFixed(2)}`,
+          : `${inputs.complexTotalTasks} task(s), ${inputs.complexWeightedTotal} complexity-pts`,
       available: true,
     },
     {

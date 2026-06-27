@@ -1,11 +1,27 @@
-// Plain-English explanations of each performance-review metric, shown on the
-// score-breakdown drill-down so reviewers can read exactly what every sub-score
-// means and how it's computed. Kept separate from the stored breakdown (which
-// holds per-developer numbers) since this text is static.
+// Plain-English, always-current explanations of every performance-review score
+// field — shown in-app (main board + drill-down) so nobody has to guess how a
+// number was produced.
+//
+// MAINTENANCE: numeric parameters (weights, thresholds, complexity weights, K)
+// are interpolated from ./config, so they stay correct automatically when those
+// constants change. If you change the *shape* of a formula or the attribution /
+// scope rules (engine.ts, build.ts, scope.ts), update the matching prose here in
+// the same change — this file is the single source of truth users read.
 
-import type { MetricKey } from "./config";
+import {
+  WEIGHTS,
+  THRESHOLDS,
+  PRIORITY_WEIGHTS,
+  COMPLEXITY_WEIGHTS,
+  COMPLEX_TASKS_K,
+  COMPLEX_THRESHOLD,
+  AI_TASK_MAX_ESTIMATE_HOURS,
+  type MetricKey,
+} from "./config";
 
 export type MetricInfo = {
+  /** Share of the final score this metric carries, e.g. "30%". */
+  weightPct: string;
   /** Point range the metric can produce. */
   range: string;
   /** One-line summary of what the metric captures. */
@@ -14,61 +30,112 @@ export type MetricInfo = {
   detail: string;
 };
 
-// How the time-based metrics (MTTR, Sprint Commitment) decide the start and end
-// dates they measure against. Surfaced on the breakdown page so reviewers
-// understand why a number isn't simply "created → done".
-export const DATE_CAPTURE_NOTE = {
-  title: "How dates are captured",
-  intro:
-    "MTTR and Sprint Commitment measure the developer work-window — the time a ticket was actually being worked — not its whole life in Jira. A ticket is often raised by an analyst days before it's assigned, and can sit in QA for days after the developer is done; neither gap is the developer's to own. The window's start and end are resolved in this order:",
-  steps: [
-    "Actual start / Actual end — when the project has these Jira fields filled in, they are used directly.",
-    "Otherwise, from the status history: the window starts when the ticket first moved into an In Progress status, and ends when it first left development for In QA or Done.",
-    "If a ticket never passed through an In Progress status, we fall back to Jira's created and completed timestamps so it is still scored rather than dropped.",
-  ],
-} as const;
+const pct = (k: MetricKey) => `${Math.round(WEIGHTS[k] * 100)}%`;
+const cw = COMPLEXITY_WEIGHTS;
+const [mttrFast, mttrOk] = THRESHOLDS.mttr;
+const [sc1, sc2, sc3, sc4] = THRESHOLDS.sprintCommitment;
+// Output that earns ~63% of full marks on Complex Tasks, for the example below.
+const complexAtK = (5 * (1 - Math.exp(-1))).toFixed(1);
 
 export const METRIC_INFO: Record<MetricKey, MetricInfo> = {
   bugQuality: {
+    weightPct: pct("bugQuality"),
     range: "0–5",
-    summary: "Feature output relative to the bugs attributed to the developer.",
+    summary: "Productive output (features + bugs you resolved) vs the bugs you own.",
     detail:
-      "Score = features ÷ (features + priority-weighted bugs) × 5. Every non-bug task the developer delivered counts as a feature. Bugs are weighted by priority (P0 = 10, P1 = 7, P2 = 5, P3 = 3, P4 = 1) and charged to the bug's Issue Owner, falling back to its assignee. Bugs whose status is “Not a bug” or “Can’t Reproduce” are ignored entirely. A developer with no bugs and no features scores a full 5.",
+      `Score = output ÷ (output + your priority-weighted bug load) × 5, where output = your feature tasks plus the priority-weighted bugs you resolved. ` +
+      `The bug *load* (the penalty) is charged to each bug's Issue Owner — accountability for the defect existing. *Resolving* a bug instead credits the resolver (Dev Owner → Assignee), so fixing bugs lifts the score while owning them lowers it. ` +
+      `Bugs are weighted by priority (P0 = ${PRIORITY_WEIGHTS.p0}, P1 = ${PRIORITY_WEIGHTS.p1}, P2 = ${PRIORITY_WEIGHTS.p2}, P3 = ${PRIORITY_WEIGHTS.p3}, P4 = ${PRIORITY_WEIGHTS.p4}). Bugs marked “Not a bug” / “Can’t Reproduce” are ignored. No bugs and no output → a full 5.`,
   },
   codeChurn: {
+    weightPct: pct("codeChurn"),
     range: "N/A",
     summary: "Rework — how often PRs are re-opened against the same ticket.",
     detail:
-      "Measures repeated pull requests against the same Jira ticket (a rework signal). Not tracked on this platform — GitHub pull requests are not synced — and it carries weight 0, so it does not affect the final score.",
+      "Repeated pull requests against the same Jira ticket (a rework signal). Not tracked on this platform — GitHub PRs aren't synced — and it carries weight 0, so it does not affect the final score.",
   },
   mttr: {
+    weightPct: pct("mttr"),
     range: "0–5",
-    summary: "Average time to resolve the developer's high-priority bugs.",
+    summary: "Average time to resolve the high-priority bugs you fixed.",
     detail:
-      "Mean Time To Resolve — the average resolution time across the developer's P1/P2 (high-priority) bugs, in minutes. Under 90 min → 5, under 180 min → 4, otherwise 0. (Thresholds are configurable.) Resolution time is measured over the developer work-window (see “How dates are captured” above), not the full ticket lifetime, so time a bug sits unassigned before work begins — or waits in QA after hand-off — isn't charged to the developer. Only P1/P2 bugs owned by the developer (Issue Owner, assignee fallback) count; a developer with no such bugs scores a full 5.",
+      `Mean Time To Resolve — the average resolution time across P1/P2 bugs, measured over the developer work-window (see “How dates are captured”), not the whole ticket life. Under ${mttrFast} min → 5, under ${mttrOk} min → 4, otherwise 0. ` +
+      `Only actual bugs count (issue type bug / defect / sub-bug) — a high-priority *Task* never counts, even when it's P1. Credited to the resolver (Dev Owner → Assignee). A developer with no qualifying bugs scores a full 5.`,
   },
   sprintCommitment: {
+    weightPct: pct("sprintCommitment"),
     range: "1–5",
     summary: "Share of due-dated tasks delivered on or before their due date.",
     detail:
-      "The percentage of the developer's due-dated tasks delivered on or before the due date (time of day ignored): ≥95% → 5, ≥90% → 4, ≥80% → 3, ≥70% → 2, below 70% → 1. The delivery date is the end of the developer work-window (see “How dates are captured” above) — when the developer handed the task off to QA or marked it done — not when it later cleared QA. Tasks without a due date are excluded, and a developer with no due-dated tasks receives no Sprint Commitment score.",
+      `The percentage of your due-dated tasks delivered on or before the due date (time of day ignored): ≥${sc1}% → 5, ≥${sc2}% → 4, ≥${sc3}% → 3, ≥${sc4}% → 2, below → 1. ` +
+      `“Delivered” is the end of the developer work-window — when you handed it to QA or marked it done — not when it later cleared QA. Tasks without a due date are excluded; with no due-dated tasks you receive no Sprint Commitment score.`,
   },
   complexTasks: {
+    weightPct: pct("complexTasks"),
     range: "0–5",
-    summary: "Average task complexity rewarded together with volume.",
+    summary: "Complexity-weighted throughput — volume and difficulty on one scale.",
     detail:
-      "Rewards both how hard and how much work was completed. Each task's complexity (1–5) maps to a weight (1 / 3 / 5 / 7 / 10); the score multiplies the average weight by a volume factor that grows with task count (≈0.63 at 60 tasks, ≈0.86 at 120). Reaching 5 requires consistently high-complexity work at high volume. Needs the Jira Complexity field — a resync is required for this to be meaningful.",
+      `Each task's complexity (1–5) maps to a weight (C1 = ${cw[1]}, C2 = ${cw[2]}, C3 = ${cw[3]}, C4 = ${cw[4]}, C5 = ${cw[5]}). Your “output” is the SUM of those weights across your tasks. ` +
+      `Score = 5 × (1 − e^(−output ÷ ${COMPLEX_TASKS_K})) — rising with diminishing returns (output of ${COMPLEX_TASKS_K} ≈ ${complexAtK}/5). ` +
+      `Because it's a sum, many small tasks and a few hard ones earn credit on the same scale — a handful of complex tasks is no longer crushed by low volume, and high-volume work is no longer crushed by low average complexity. Needs the Jira Complexity field set.`,
   },
   aiTasks: {
+    weightPct: pct("aiTasks"),
     range: "N/A",
     summary: "Share of complex tasks delivered with a small original estimate.",
     detail:
-      "Of the developer's complex tasks (complexity ≥ 3), the percentage delivered with a small original estimate (under 5 hours). Currently excluded from the rating — it carries weight 0, so it does not affect the final score.",
+      `Of your complex tasks (complexity ≥ ${COMPLEX_THRESHOLD}), the share delivered with a small original estimate (under ${AI_TASK_MAX_ESTIMATE_HOURS} hours). Tracked but currently excluded from the rating — weight 0, so it does not affect the final score.`,
   },
   effort: {
+    weightPct: pct("effort"),
     range: "N/A",
     summary: "Logged development + meeting hours vs an expected baseline.",
     detail:
       "Total logged development and meeting hours relative to an expected baseline. Not tracked on this platform (no per-developer dev-hours data) and it carries weight 0, so it does not affect the final score.",
   },
 };
+
+// How the time-based metrics (MTTR, Sprint Commitment) decide the start/end they
+// measure against — so a number isn't read as simply "created → done".
+export const DATE_CAPTURE_NOTE = {
+  title: "How dates are captured",
+  intro:
+    "MTTR and Sprint Commitment measure the developer work-window — the time a ticket was actually being worked — not its whole life in Jira. A ticket is often raised days before it's assigned, and can sit in QA after the developer is done; neither gap is theirs to own. Start and end resolve in this order:",
+  steps: [
+    "Actual start / Actual end — when the team fills these Jira fields in, they're used directly.",
+    "Otherwise from the status history: starts when the ticket first moved into an In Progress status, ends when it first left development for In QA or Done.",
+    "If it never passed through In Progress, fall back to Jira's created / completed timestamps so it's still scored rather than dropped.",
+  ],
+} as const;
+
+// Who each score is credited to — attribution is by role, not just the assignee.
+export const ATTRIBUTION_NOTE = {
+  title: "Who a score is credited to",
+  intro: "Credit follows the person who did the work, not just the assignee:",
+  steps: [
+    "Tasks (non-bugs) → the Dev Owner if set, otherwise the Assignee. Feeds Complex Tasks, Sprint Commitment, and the output side of Bug Quality.",
+    "Bug penalty (Bug Quality bug-load) → the bug's Issue Owner — accountability for the defect. A bug with no Issue Owner is charged to nobody.",
+    "Bug resolution credit + MTTR → the resolver (Dev Owner → Assignee) — whoever actually fixed it.",
+  ],
+} as const;
+
+// Which quarter an issue lands in.
+export const SCOPE_NOTE = {
+  title: "Which quarter an issue counts in",
+  intro: "An issue is scored in the quarter its work finished, regardless of when it was raised:",
+  steps: [
+    "Finish date = Actual end → planned End/Due date → the Done date; it must fall inside the quarter.",
+    "Carryover raised in an earlier quarter but delivered this quarter still counts here.",
+    "Backdated tickets are dropped: a recorded start that's before the quarter and before the ticket's own creation means the dates were filled in after the fact.",
+  ],
+} as const;
+
+// Who shows up on the leaderboard at all (display-level filtering).
+export const BOARD_NOTE = {
+  title: "Who appears on the board",
+  intro: "The leaderboard is the engineering team only:",
+  steps: [
+    "Business-team departments are excluded (Sales & Business Development, Projects & Product, Support, Marketing, Human Resources, Finance, Admin & IT, Founder's Office).",
+    "People who have left the org are removed — a Keka exit date on or before today (people on notice still appear).",
+  ],
+} as const;

@@ -15,6 +15,7 @@ import { METRIC_INFO, DATE_CAPTURE_NOTE } from "@/lib/scorecard/metric-descripti
 import { fetchScorecards, fetchScorecardDetail } from "./data";
 import { ReviewControls } from "./controls";
 import { LeaderboardTable } from "./leaderboard-table";
+import { ScoringGuide } from "./scoring-guide";
 
 type SearchParams = Promise<{ quarter?: string; person?: string }>;
 
@@ -698,6 +699,8 @@ export default async function PerformanceReviewPage({
             computedAt={computedAt}
             canRecompute={canRecompute}
           />
+
+          <ScoringGuide />
 
           <LeaderboardTable
             rows={rows}

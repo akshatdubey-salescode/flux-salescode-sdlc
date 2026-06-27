@@ -1,5 +1,5 @@
-// Verifies the performance-review scoring engine against the reference
-// worked example (rating doc §6.4, expected final_score ≈ 3.451). No DB.
+// Verifies the performance-review scoring engine against a worked example.
+// final_score is on the 0–100 scale (Σ weight×points × 20). No DB.
 // Run: pnpm tsx scripts/verify-scorecard-engine.ts
 
 import assert from "node:assert/strict";
@@ -35,9 +35,11 @@ const result = computeScorecard({
 approx(result.bugQualityPoints!, 4.0);
 approx(result.mttrPoints!, 5);
 approx(result.sprintCommitmentPoints!, 4);
-approx(result.complexTasksPoints!, 1.2642, 1e-3);
+// Complex Tasks now = 5 × (1 − e^(−output/K)); output 240, K 150 → ≈ 3.9905.
+approx(result.complexTasksPoints!, 3.9905, 1e-3);
 approx(result.underestimatedTasksPoints!, 3);
-approx(result.finalScore, 3.451, 2e-3);
+// final = (0.30×4 + 0.15×5 + 0.25×4 + 0.30×3.9905) × 20 ≈ 82.94 (0–100 scale).
+approx(result.finalScore, 82.943, 0.05);
 
 // Code Churn 1/20 = 5% → 4 points (weight 0). Effort 400/464×5 ≈ 4.31 (weight 0).
 const churn = result.breakdown.metrics.find((m) => m.key === "codeChurn")!;
@@ -67,8 +69,8 @@ assert.equal(empty.mttrPoints, 5); // no samples → full
 assert.equal(empty.sprintCommitmentPoints, null); // empty
 assert.equal(empty.complexTasksPoints, 0);
 assert.equal(empty.underestimatedTasksPoints, 0);
-// final = 0.30×5 + 0.15×5 + 0.25×0 + 0.23×0 + 0.07×0 = 2.25
-approx(empty.finalScore, 2.25);
+// final = (0.30×5 + 0.15×5) × 20 = 45 (bug quality + MTTR default to full).
+approx(empty.finalScore, 45);
 assert.equal(
   empty.breakdown.metrics.find((m) => m.key === "codeChurn")!.available,
   false

@@ -86,6 +86,14 @@ export const COMPLEXITY_WEIGHTS: Record<number, number> = {
 export const DEFAULT_COMPLEXITY_WEIGHT = 1;
 
 /**
+ * Complex-Tasks scale (§4.4). Points = 5 × (1 − e^(−output / K)) where output is
+ * the sum of complexity weights over the developer's tasks. K is the output that
+ * earns ~63% of full marks (3.16/5); calibrated against the cohort so the median
+ * dev lands ~2.3 and strong quarters approach 5. Lower K = more generous.
+ */
+export const COMPLEX_TASKS_K = 150;
+
+/**
  * Bug statuses that exclude a bug from all scoring. Compared after normalizing
  * (lower-cased, trimmed, apostrophes stripped, whitespace collapsed) so curly
  * vs straight apostrophes and spacing don't matter — see normalizeStatus().
