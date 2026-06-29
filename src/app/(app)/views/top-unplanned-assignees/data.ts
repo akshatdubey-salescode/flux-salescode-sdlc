@@ -1,6 +1,8 @@
 import { cacheLife, cacheTag } from "next/cache";
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
+import { loadKekaDirectory } from "@/lib/keka/directory";
 
 export type TeamRef = { id: string; name: string };
 
@@ -10,6 +12,10 @@ export type TopUnplannedRow = {
   name: string;
   unplanned_count: number;
   teams: TeamRef[];
+  // Keka org context (null/empty when not a current employee).
+  department: string | null;
+  managerName: string | null;
+  managerChain: string[];
 };
 
 type RankRow = {
@@ -61,6 +67,7 @@ export async function fetchTopUnplannedAssignees(
   cacheLife("minutes");
   cacheTag("jira-issues");
   cacheTag("boards");
+  cacheTag(KEKA_DIRECTORY_TAG);
 
   const excludeDoneCondition = includeCompleted
     ? sql`TRUE`
@@ -148,10 +155,18 @@ export async function fetchTopUnplannedAssignees(
     teamsByEmail.set(row.email, list);
   }
 
-  return topRows.map((r) => ({
-    ...r,
-    teams: teamsByEmail.get(r.email) ?? [],
-  }));
+  const dir = await loadKekaDirectory();
+  return topRows.map((r) => {
+    const e = dir.get(r.email);
+    return {
+      ...r,
+      name: e?.displayName ?? r.name,
+      teams: teamsByEmail.get(r.email) ?? [],
+      department: e?.department ?? null,
+      managerName: e?.managerName ?? null,
+      managerChain: dir.managerChain(r.email),
+    };
+  });
 }
 
 export type UnplannedIssue = {

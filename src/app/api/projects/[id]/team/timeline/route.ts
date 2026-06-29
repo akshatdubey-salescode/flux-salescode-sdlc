@@ -5,6 +5,8 @@ import { db } from "@/lib/db";
 import { jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
+import { KEKA_LEAVE_TAG } from "@/lib/keka/cache-tags";
+import { loadLeaveByEmail } from "@/lib/keka/absence";
 import {
   workingDaysBetween,
   workingDaysRemainingFromToday,
@@ -86,6 +88,7 @@ async function fetchProjectTeamTimeline(
   "use cache";
   cacheLife("minutes");
   cacheTag("projects", `project:${projectId}`);
+  cacheTag(KEKA_LEAVE_TAG);
 
   const [project] = await db.select().from(jiraProjects).where(eq(jiraProjects.id, projectId));
   if (!project) return null;
@@ -222,8 +225,12 @@ async function fetchProjectTeamTimeline(
 
   const labelOrder: Record<IssueLabel, number> = { overdue: 0, at_risk: 1, on_track: 2, done: 3 };
 
+  // Keka leave overlay — approved on-leave dates + types per member in window.
+  const leave = await loadLeaveByEmail(filterStart, filterEnd);
+
   const memberResults: TimelineMember[] = members.map((member, idx) => {
     const emailKey = member.email;
+    const li = leave.get(emailKey);
     const issues = timelineByEmail.get(emailKey) ?? [];
     issues.sort((a, b) => labelOrder[a.label] - labelOrder[b.label]);
     const overdueIssues = (overdueByEmail.get(emailKey) ?? [])
@@ -249,6 +256,8 @@ async function fetchProjectTeamTimeline(
       },
       unplannedCount: unplanned.length,
       unplannedPreview,
+      absentDates: [...(li?.dates ?? [])].sort(),
+      leaveTypes: [...(li?.types ?? [])].sort(),
     };
   });
 

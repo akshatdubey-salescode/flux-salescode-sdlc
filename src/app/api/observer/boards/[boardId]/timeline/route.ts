@@ -6,6 +6,8 @@ import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
+import { KEKA_LEAVE_TAG } from "@/lib/keka/cache-tags";
+import { loadLeaveByEmail } from "@/lib/keka/absence";
 import {
   workingDaysBetween,
   workingDaysRemainingFromToday,
@@ -65,6 +67,11 @@ export type TimelineMember = {
   counts: { active: number; atRisk: number; overdue: number; done: number };
   unplannedCount: number;
   unplannedPreview: UnplannedIssue[];
+  /** YYYY-MM-DD dates within [filterStart, filterEnd] the member is on approved
+   *  Keka leave. Empty when no leave / no Keka record. */
+  absentDates: string[];
+  /** Distinct approved leave-type names in the window (e.g. "Comp Offs"). */
+  leaveTypes: string[];
 };
 
 export type UnplannedMember = {
@@ -150,6 +157,7 @@ async function fetchBoardTimeline(
   "use cache";
   cacheLife("minutes");
   cacheTag(`board:${boardId}`);
+  cacheTag(KEKA_LEAVE_TAG);
 
   const [board] = await db
     .select()
@@ -327,8 +335,12 @@ async function fetchBoardTimeline(
     done: 3,
   };
 
+  // Keka leave overlay — approved on-leave dates + types per member in window.
+  const leave = await loadLeaveByEmail(filterStart, filterEnd);
+
   const memberResults: TimelineMember[] = members.map((member) => {
     const emailKey = member.email.toLowerCase();
+    const li = leave.get(emailKey);
     const issues = timelineByEmail.get(emailKey) ?? [];
     issues.sort((a, b) => labelOrder[a.label] - labelOrder[b.label]);
 
@@ -359,6 +371,8 @@ async function fetchBoardTimeline(
       },
       unplannedCount: unplanned.length,
       unplannedPreview,
+      absentDates: [...(li?.dates ?? [])].sort(),
+      leaveTypes: [...(li?.types ?? [])].sort(),
     };
   });
 

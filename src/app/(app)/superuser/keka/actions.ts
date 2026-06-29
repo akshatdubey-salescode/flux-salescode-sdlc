@@ -1,13 +1,29 @@
 "use server";
 
 import { eq } from "drizzle-orm";
+import { revalidateTag } from "next/cache";
 import { requireRole } from "@/lib/auth/server";
 import { db } from "@/lib/db";
 import { kekaEmployees, users } from "@/lib/db/schema";
+import {
+  KEKA_ATTENDANCE_TAG,
+  KEKA_DIRECTORY_TAG,
+  KEKA_LEAVE_TAG,
+} from "@/lib/keka/cache-tags";
 import { syncKekaEmployees } from "@/lib/keka/sync";
+import { syncKekaAttendance } from "@/lib/keka/attendance-sync";
+import { syncKekaLeave } from "@/lib/keka/leave-sync";
 
 export type KekaSyncResult =
   | { ok: true; synced: number; errors: number; resolved: number; pruned: number }
+  | { ok: false; error: string };
+
+export type KekaAttendanceSyncResult =
+  | { ok: true; synced: number; errors: number; skipped: number; from: string; to: string }
+  | { ok: false; error: string };
+
+export type KekaLeaveSyncResult =
+  | { ok: true; synced: number; errors: number; skipped: number; from: string; to: string }
   | { ok: false; error: string };
 
 /**
@@ -19,7 +35,39 @@ export async function syncKekaNow(): Promise<KekaSyncResult> {
   await requireRole("SUPERUSER");
   try {
     const { synced, errors, resolved, pruned } = await syncKekaEmployees();
+    revalidateTag(KEKA_DIRECTORY_TAG, "max");
     return { ok: true, synced, errors, resolved, pruned };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Pull recent Keka attendance on demand (trailing window). Runs inline; the
+ * heavy first-ever backfill is best done via a pnpm script (no serverless time
+ * limit). Surfaces any error back to the UI instead of throwing.
+ */
+export async function syncKekaAttendanceNow(): Promise<KekaAttendanceSyncResult> {
+  await requireRole("SUPERUSER");
+  try {
+    const r = await syncKekaAttendance();
+    revalidateTag(KEKA_ATTENDANCE_TAG, "max");
+    return { ok: true, ...r };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Pull Keka leave requests on demand (trailing + forward window). Runs inline;
+ * surfaces errors to the UI. The authoritative "on leave" source.
+ */
+export async function syncKekaLeaveNow(): Promise<KekaLeaveSyncResult> {
+  await requireRole("SUPERUSER");
+  try {
+    const r = await syncKekaLeave();
+    revalidateTag(KEKA_LEAVE_TAG, "max");
+    return { ok: true, ...r };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

@@ -5,6 +5,8 @@ import { cacheLife, cacheTag } from "next/cache";
 import { requireAuth } from "@/lib/auth/server";
 import { stampCache, withCacheMetrics } from "@/lib/cache/metrics";
 import { currentFiscalQuarterChip } from "@/lib/date-utils";
+import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
+import { loadKekaDirectory, tenureDays } from "@/lib/keka/directory";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -35,6 +37,13 @@ export type PersonThroughput = {
   selfReported: number;
   /** Subset closed reported by someone else (assigned / client work). */
   othersReported: number;
+  // Keka org context — null/empty when the person isn't a current employee.
+  department: string | null;
+  managerName: string | null;
+  managerChain: string[];
+  jobTitle: string | null;
+  tenureDays: number | null;
+  isActive: boolean;
   issues: ClosedIssue[];
 };
 
@@ -100,7 +109,7 @@ async function fetchThroughput(opts: {
 }): Promise<ReturnType<typeof stampCache>> {
   "use cache";
   cacheLife("minutes");
-  cacheTag("jira-issues", "throughput");
+  cacheTag("jira-issues", "throughput", KEKA_DIRECTORY_TAG);
 
   // Optional focus filter: when non-empty, only credit these people.
   const focus = opts.emails.length ? new Set(opts.emails) : null;
@@ -219,17 +228,28 @@ async function fetchThroughput(opts: {
       credit(ae, false, !!reporterEmail && ae === reporterEmail, null);
   }
 
+  const dir = await loadKekaDirectory();
   const people: PersonThroughput[] = [...byEmail.entries()]
-    .map(([email, a]) => ({
-      email,
-      name: a.name,
-      closed: a.closed,
-      asPrimary: a.asPrimary,
-      asAdditional: a.asAdditional,
-      selfReported: a.selfReported,
-      othersReported: a.othersReported,
-      issues: a.issues.sort((x, y) => (x.completedAt < y.completedAt ? 1 : -1)),
-    }))
+    .map(([email, a]) => {
+      const e = dir.get(email);
+      return {
+        email,
+        // Prefer Keka's canonical display name over the Jira assignee name.
+        name: e?.displayName ?? a.name,
+        closed: a.closed,
+        asPrimary: a.asPrimary,
+        asAdditional: a.asAdditional,
+        selfReported: a.selfReported,
+        othersReported: a.othersReported,
+        department: e?.department ?? null,
+        managerName: e?.managerName ?? null,
+        managerChain: dir.managerChain(email),
+        jobTitle: e?.jobTitle ?? null,
+        tenureDays: tenureDays(e?.joiningDate ?? null),
+        isActive: e !== undefined,
+        issues: a.issues.sort((x, y) => (x.completedAt < y.completedAt ? 1 : -1)),
+      };
+    })
     .sort((a, b) => b.closed - a.closed || a.name.localeCompare(b.name));
 
   const response: ThroughputResponse = {

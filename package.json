@@ -16,6 +16,8 @@
     "seed:github-orgs": "tsx --env-file=.env.local scripts/seed-github-orgs.ts",
     "sync:github": "tsx --env-file=.env.local scripts/sync-all-github.ts",
     "sync:keka": "tsx --env-file=.env.local scripts/sync-keka.ts",
+    "sync:keka-attendance": "tsx --env-file=.env.local scripts/sync-keka-attendance.ts",
+    "sync:keka-leave": "tsx --env-file=.env.local scripts/sync-keka-leave.ts",
     "collect:git-stats": "tsx --env-file=.env.local scripts/collect-git-stats.ts",
     "backfill:jira-identities": "tsx --env-file=.env.local scripts/backfill-jira-identities.ts",
     "backfill:github-identities": "tsx --env-file=.env.local scripts/backfill-github-identities.ts",

@@ -5,6 +5,8 @@ import { cacheLife, cacheTag } from "next/cache";
 import { requireAuth } from "@/lib/auth/server";
 import { stampCache, withCacheMetrics } from "@/lib/cache/metrics";
 import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
+import { KEKA_LEAVE_TAG } from "@/lib/keka/cache-tags";
+import { loadAbsencesByEmail } from "@/lib/keka/absence";
 
 // ── Date helpers (calendar-day granularity) ───────────────────────────────────
 
@@ -70,6 +72,8 @@ export type PersonAvailability = {
   // duration mode
   freeNow?: boolean;
   nextFreeFrom?: string | null;
+  /** Working days in the window the person is on Keka leave (corrects "free"). */
+  onLeaveDates?: string[];
 };
 
 export type AvailabilityResponse = {
@@ -179,7 +183,7 @@ async function fetchAvailability(opts: {
 }): Promise<ReturnType<typeof stampCache>> {
   "use cache";
   cacheLife("minutes");
-  cacheTag("jira-issues", "availability");
+  cacheTag("jira-issues", "availability", KEKA_LEAVE_TAG);
 
   const people = await resolvePeople(opts.scope, opts.projectId, opts.boardId, opts.emails);
 
@@ -278,23 +282,48 @@ async function fetchAvailability(opts: {
 
   const horizonEnd = addDays(opts.from, opts.horizon - 1);
 
+  // Keka leave overlay for the relevant window. Closes the "shows Free while on
+  // leave" gap: a dated Jira task isn't the only reason a person is unavailable.
+  const absences = await loadAbsencesByEmail(
+    opts.mode === "range" ? opts.start : opts.from,
+    opts.mode === "range" ? opts.end : horizonEnd
+  );
+
   const result: PersonAvailability[] = people.map((person) => {
     const b = byEmail.get(person.email)!;
+    const leaveSet = absences.get(person.email) ?? new Set<string>();
     const base = { email: person.email, name: person.name, undated: b.undated };
 
     if (opts.mode === "range") {
       const conflicts = b.conflicts
         .filter((c) => c.start <= opts.end && c.due >= opts.start)
         .sort((a, c) => (a.due < c.due ? -1 : 1));
-      return { ...base, free: conflicts.length === 0, conflicts };
+      // On-leave working days inside the range make a person not "free", even
+      // with zero task conflicts.
+      const onLeaveDates = [...leaveSet]
+        .filter((d) => d >= opts.start && d <= opts.end && !isWeekend(d))
+        .sort();
+      return {
+        ...base,
+        free: conflicts.length === 0 && onLeaveDates.length === 0,
+        conflicts,
+        onLeaveDates,
+      };
     }
 
     // duration mode — weekends are skipped, so the earliest a slot can start is
     // the first working day on/after `from`; "free now" means their next free
-    // slot starts exactly there.
+    // slot starts exactly there. Leave days are treated as busy.
     const earliestStart = firstWorkingDay(opts.from);
-    const nextFreeFrom = nextFreeSlot(b.intervals, opts.from, horizonEnd, opts.duration);
-    return { ...base, freeNow: nextFreeFrom === earliestStart, nextFreeFrom };
+    const nextFreeFrom = nextFreeSlot(
+      b.intervals,
+      opts.from,
+      horizonEnd,
+      opts.duration,
+      leaveSet
+    );
+    const onLeaveDates = [...leaveSet].filter((d) => !isWeekend(d)).sort();
+    return { ...base, freeNow: nextFreeFrom === earliestStart, nextFreeFrom, onLeaveDates };
   });
 
   // Most useful first.
@@ -336,10 +365,12 @@ function nextFreeSlot(
   intervals: { start: string; due: string }[],
   from: string,
   searchEnd: string,
-  duration: number
+  duration: number,
+  leave?: Set<string>
 ): string | null {
   const busyOn = (d: string) =>
-    intervals.some((iv) => iv.start <= d && iv.due >= d);
+    intervals.some((iv) => iv.start <= d && iv.due >= d) ||
+    (leave?.has(d) ?? false);
 
   let runStart: string | null = null;
   let runLen = 0;

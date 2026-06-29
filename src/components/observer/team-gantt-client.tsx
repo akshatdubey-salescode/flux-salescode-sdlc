@@ -175,7 +175,18 @@ function GanttGrid({
       bucket.events.push(ev);
       dayBuckets[dateKey] = bucket;
     }
-    return { member, bars, dayBuckets };
+    // Keka absence overlay: which visible days this member was on leave, and
+    // which day-columns are covered by at least one issue bar (so we can mark
+    // present-but-no-task gaps).
+    const absentSet = new Set(member.absentDates ?? []);
+    const coveredDays = new Set<number>();
+    for (const bar of bars) {
+      const ds = Math.floor(bar.startSlot / 2);
+      const de = Math.floor(bar.endSlot / 2);
+      for (let di = ds; di <= de; di++) coveredDays.add(di);
+    }
+
+    return { member, bars, dayBuckets, absentSet, coveredDays };
   });
 
   const headerH = HDR1_H + HDR2_H;
@@ -353,7 +364,7 @@ function GanttGrid({
             </div>
 
             {/* Member rows */}
-            {rowData.map(({ member, bars, dayBuckets }, rowIndex) => {
+            {rowData.map(({ member, bars, dayBuckets, absentSet, coveredDays }, rowIndex) => {
               const numRows = Math.max(1, bars.length);
               const issuesAreaH = numRows * ROW_H;
               const hasMeetings = Object.keys(dayBuckets).length > 0;
@@ -380,6 +391,53 @@ function GanttGrid({
                       style={{ left: di * SLOT_W * 2, width: SLOT_W * 2 }}
                     />
                   ))}
+
+                  {/* Keka leave bands — diagonal-hatched amber over days the
+                      member is on approved leave (with type, e.g. Comp Offs).
+                      Skips weekends (already shaded); drawn before bars so a
+                      task scheduled over leave still shows on top. */}
+                  {days.map((day, di) =>
+                    absentSet.has(day) && !isWeekend(day) ? (
+                      <div
+                        key={`${day}-leave`}
+                        title={
+                          member.leaveTypes?.length
+                            ? `On leave — ${member.leaveTypes.join(", ")}`
+                            : "On leave (Keka)"
+                        }
+                        className="absolute top-0 bottom-0 bg-amber-200/25 dark:bg-amber-900/20"
+                        style={{
+                          left: di * SLOT_W * 2,
+                          width: SLOT_W * 2,
+                          backgroundImage:
+                            "repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(217,119,6,0.18) 5px, rgba(217,119,6,0.18) 10px)",
+                        }}
+                      />
+                    ) : null
+                  )}
+
+                  {/* Present-but-no-task markers: a faint dot on past/today
+                      working days the member had no scheduled task (and wasn't
+                      on leave). Only shown for rows that have some work, so a
+                      fully-empty row keeps its "No issues" message. */}
+                  {bars.length > 0 &&
+                    days.map((day, di) =>
+                      !isWeekend(day) &&
+                      day <= today &&
+                      !absentSet.has(day) &&
+                      !coveredDays.has(di) ? (
+                        <div
+                          key={`${day}-idle`}
+                          className="absolute pointer-events-none rounded-full bg-zinc-300 dark:bg-zinc-600"
+                          style={{
+                            left: di * SLOT_W * 2 + SLOT_W - 2,
+                            top: issuesAreaH / 2 - 2,
+                            width: 4,
+                            height: 4,
+                          }}
+                        />
+                      ) : null
+                    )}
 
                   {/* Vertical grid lines */}
                   {days.map((day, di) => (
@@ -644,6 +702,7 @@ export function TeamGanttClient({ apiBase, start, end }: Props) {
                 ["bg-red-500", "Overdue"],
                 ["bg-emerald-500 dark:bg-emerald-600", "Done"],
                 ["bg-violet-500 dark:bg-violet-400", "Meetings"],
+                ["bg-amber-200 dark:bg-amber-900/40", "On leave"],
               ] as [string, string][]
             ).map(([bg, label]) => (
               <span key={label} className="flex items-center gap-1">

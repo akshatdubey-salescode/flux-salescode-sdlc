@@ -235,6 +235,9 @@ export default async function TopUnplannedAssigneesPage({
                     Email
                   </th>
                   <th className="px-4 py-2.5 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">
+                    Dept / Manager
+                  </th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">
                     Team
                   </th>
                   <th className="px-4 py-2.5 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wide">
@@ -261,6 +264,31 @@ export default async function TopUnplannedAssigneesPage({
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400 align-top">
                       {row.email}
+                    </td>
+                    <td className="px-4 py-3 align-top">
+                      {row.department || row.managerName ? (
+                        <>
+                          {row.department && (
+                            <span className="block text-xs text-zinc-700 dark:text-zinc-300">
+                              {row.department}
+                            </span>
+                          )}
+                          {row.managerName && (
+                            <span
+                              className="block text-xs text-zinc-500 dark:text-zinc-400"
+                              title={
+                                row.managerChain.length > 1
+                                  ? row.managerChain.join(" → ")
+                                  : undefined
+                              }
+                            >
+                              ↳ {row.managerName}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-xs text-zinc-400">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 align-top">
                       {row.teams.length === 0 ? (
@@ -291,7 +319,7 @@ export default async function TopUnplannedAssigneesPage({
                 {rows.length === 0 && (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={6}
                       className="px-4 py-8 text-center text-sm text-zinc-400"
                     >
                       No unplanned tasks in this period.

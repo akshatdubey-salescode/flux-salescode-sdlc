@@ -330,6 +330,20 @@
       "when": 1782555946483,
       "tag": "0047_gifted_thanos",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1782753600370,
+      "tag": "0048_keka_attendance",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1782756097206,
+      "tag": "0049_keka_leave",
+      "breakpoints": true
     }
   ]
 }

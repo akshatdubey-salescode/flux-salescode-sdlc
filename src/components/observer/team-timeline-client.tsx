@@ -831,6 +831,15 @@ function MemberTimelineCard({
 
         <div className="flex items-center gap-3 shrink-0">
           <div className="flex items-center gap-2 text-[11px] font-medium">
+            {(member.absentDates?.length ?? 0) > 0 && (
+              <span
+                title={`On leave${member.leaveTypes?.length ? ` (${member.leaveTypes.join(", ")})` : ""}: ${member.absentDates.join(", ")}`}
+                className="inline-flex items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-900/30 px-1.5 py-0.5 font-semibold text-amber-700 dark:text-amber-400"
+              >
+                On leave
+                {member.absentDates.length > 1 ? ` · ${member.absentDates.length}d` : ""}
+              </span>
+            )}
             {counts.overdue > 0 && <span className="text-red-600 dark:text-red-400">{counts.overdue} overdue</span>}
             {counts.atRisk > 0 && <span className="text-amber-600 dark:text-amber-400">{counts.atRisk} at risk</span>}
             {counts.active - counts.atRisk - counts.overdue > 0 && (

@@ -264,8 +264,29 @@ function PersonRow({ person, max }: { person: PersonThroughput; max: number }) {
         onClick={() => setOpen((o) => !o)}
       >
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-foreground">{person.name}</p>
-          <p className="truncate text-xs text-muted-foreground">{person.email}</p>
+          <p className="flex items-center gap-1.5 truncate text-sm font-medium text-foreground">
+            {person.name}
+            {person.tenureDays != null && person.tenureDays <= 90 && (
+              <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400">
+                New
+              </span>
+            )}
+          </p>
+          <p className="truncate text-xs text-muted-foreground">
+            {person.department ? (
+              <>
+                {person.department}
+                {person.managerName && (
+                  <span title={person.managerChain.length > 1 ? person.managerChain.join(" → ") : undefined}>
+                    {" "}· ↳ {person.managerName}
+                  </span>
+                )}
+                <span className="text-muted-foreground/50"> · {person.email}</span>
+              </>
+            ) : (
+              person.email
+            )}
+          </p>
           {/* Proportional bar (length = volume), split into self-created (emerald)
               and reported-by-someone-else (blue). */}
           <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">

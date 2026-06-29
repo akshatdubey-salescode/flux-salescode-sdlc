@@ -1037,6 +1037,93 @@ export const kekaEmployees = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Keka Attendance — synced daily attendance from Keka's /time/attendance API.
+// One row per (employee, date). The attendance API keys on `employeeNumber`
+// (NOT the GUID the directory uses), so the number is the natural key and the
+// GUID is best-effort resolved at sync time. Deliberately NO foreign key to
+// keka_employees: the directory sync hard-prunes relieved staff, and historical
+// attendance must survive that. `isAbsent` is a derived convenience flag (no
+// clock-in and ~zero effective hours) for fast "who's out" queries; `dayType`
+// (Keka's undocumented enum) + `raw` are retained so the heuristic can be
+// refined without re-fetching.
+// ---------------------------------------------------------------------------
+
+export const kekaAttendance = pgTable(
+  "keka_attendance",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Keka attendance natural key — the employee number from the API.
+    employeeNumber: text("employee_number").notNull(),
+    // Best-effort link to the directory GUID (resolved at sync time; null if the
+    // employee isn't in the current active directory).
+    kekaEmployeeId: text("keka_employee_id"),
+    attendanceDate: date("attendance_date").notNull(),
+    // Keka's day-type enum, stored raw (undocumented codes) for later decoding.
+    dayType: text("day_type"),
+    totalGrossHours: doublePrecision("total_gross_hours"),
+    totalEffectiveHours: doublePrecision("total_effective_hours"),
+    firstIn: timestamp("first_in", { withTimezone: true }),
+    lastOut: timestamp("last_out", { withTimezone: true }),
+    // Derived: no clock-in and no effective hours → treated as absent / on leave.
+    // Heuristic until dayType is decoded; refine here, not at every read site.
+    isAbsent: boolean("is_absent").notNull().default(false),
+    raw: jsonb("raw"),
+    syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("keka_attendance_emp_date_idx").on(t.employeeNumber, t.attendanceDate),
+    index("keka_attendance_date_idx").on(t.attendanceDate),
+    index("keka_attendance_keka_id_idx").on(t.kekaEmployeeId),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Keka Leave — synced leave requests from Keka's /time/leaverequests API. One
+// row per request (which may span multiple dates). This is the AUTHORITATIVE
+// "who's on leave" source (approved leave, with type incl. Comp Offs, filed
+// ahead of time) — far better than the attendance-gap heuristic. Keyed on the
+// request GUID; joins to people on employee_number like attendance. No FK to
+// keka_employees (relieved staff are pruned; leave history must survive).
+//   status: 0 = pending, 1 = approved, 3 = cancelled/rejected (decoded live).
+//   fromSession/toSession: 0 = first half (AM), 1 = second half (PM) — half-days.
+//   leaveTypeName/leaveTypeId: the first selection entry, denormalised for
+//   querying; `raw` keeps the full selection[] for multi-type requests.
+// ---------------------------------------------------------------------------
+
+export const kekaLeave = pgTable(
+  "keka_leave",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Keka leave-request GUID — the natural upsert key.
+    kekaLeaveId: text("keka_leave_id").notNull(),
+    employeeNumber: text("employee_number").notNull(),
+    employeeIdentifier: text("employee_identifier"),
+    fromDate: date("from_date").notNull(),
+    toDate: date("to_date").notNull(),
+    fromSession: integer("from_session"),
+    toSession: integer("to_session"),
+    status: integer("status"),
+    statusLabel: text("status_label"),
+    leaveTypeName: text("leave_type_name"),
+    leaveTypeId: text("leave_type_id"),
+    note: text("note"),
+    requestedOn: timestamp("requested_on", { withTimezone: true }),
+    raw: jsonb("raw"),
+    syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("keka_leave_id_idx").on(t.kekaLeaveId),
+    index("keka_leave_emp_idx").on(t.employeeNumber),
+    index("keka_leave_range_idx").on(t.fromDate, t.toDate),
+    index("keka_leave_status_idx").on(t.status),
+  ]
+);
+
+// ---------------------------------------------------------------------------
 // Type exports
 // ---------------------------------------------------------------------------
 
@@ -1080,6 +1167,10 @@ export type NewGithubContributorStat = typeof githubContributorStats.$inferInser
 export type GithubSyncJob = typeof githubSyncJobs.$inferSelect;
 export type KekaEmployee = typeof kekaEmployees.$inferSelect;
 export type NewKekaEmployee = typeof kekaEmployees.$inferInsert;
+export type KekaAttendance = typeof kekaAttendance.$inferSelect;
+export type NewKekaAttendance = typeof kekaAttendance.$inferInsert;
+export type KekaLeave = typeof kekaLeave.$inferSelect;
+export type NewKekaLeave = typeof kekaLeave.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // Release Notes — admin-authored "What's New" entries surfaced via the bell

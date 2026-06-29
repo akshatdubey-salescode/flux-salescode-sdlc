@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { MyTasksView } from "@/components/my-tasks";
 import { AssigneePicker } from "@/components/my-tasks/assignee-picker";
+import { KekaProfileHeader } from "@/components/keka/profile-header";
 import { RiArrowLeftLine, RiUserSearchLine } from "@remixicon/react";
 
 type Props = {
@@ -70,6 +71,7 @@ export default function UserTasksPage({ params }: Props) {
       </PageHeader>
 
       <main className="flex-1 p-6">
+        <KekaProfileHeader email={decodedEmail} />
         <Suspense fallback={<TasksLoading />}>
           <MyTasksView targetEmail={decodedEmail} />
         </Suspense>

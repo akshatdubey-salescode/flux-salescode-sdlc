@@ -1,4 +1,4 @@
-import { asc, isNull, sql } from "drizzle-orm";
+import { asc, desc, isNull, sql } from "drizzle-orm";
 import { requireRole } from "@/lib/auth/server";
 import { db } from "@/lib/db";
 import { kekaEmployees, users } from "@/lib/db/schema";
@@ -25,6 +25,16 @@ export default async function KekaPage() {
 
   const total = counts?.total ?? 0;
   const linked = counts?.linked ?? 0;
+
+  // Freshness — the most-recent sync timestamp across the directory. Lets a
+  // superuser confirm the keka-sync cron is actually running (before the cron
+  // existed, the directory only refreshed on a manual button click / CLI run).
+  const [latest] = await db
+    .select({ syncedAt: kekaEmployees.syncedAt })
+    .from(kekaEmployees)
+    .orderBy(desc(kekaEmployees.syncedAt))
+    .limit(1);
+  const lastSynced = latest?.syncedAt ? latest.syncedAt.toISOString() : null;
 
   // Employees we couldn't auto-link by email — the superuser maps these by hand.
   const unlinked: KekaEmployeeRow[] = await db
@@ -77,6 +87,7 @@ export default async function KekaPage() {
 
           <KekaManager
             counts={{ total, linked, unlinked: total - linked }}
+            lastSynced={lastSynced}
             unlinked={unlinked}
             users={userOptions}
           />

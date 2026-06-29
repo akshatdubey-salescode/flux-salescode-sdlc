@@ -8,6 +8,7 @@ import {
 } from "@/lib/db/schema";
 import { detectViolations } from "@/lib/services/sla-detection";
 import { sendSLADigestEmail, type DigestRecipient } from "@/lib/services/sla-email";
+import { loadAbsencesByEmail } from "@/lib/keka/absence";
 
 // ---------------------------------------------------------------------------
 // Auth — CRON_SECRET bearer token, no Clerk session required
@@ -36,7 +37,24 @@ export async function POST(req: Request) {
     escalations: 0,
     emailsSent: 0,
     emailsFailed: 0,
+    assigneesOnLeaveSkipped: 0,
     errors: [] as string[],
+  };
+
+  // Keka leave guard — don't ping an assignee who is out. Attendance lags by a
+  // day, so a 2-day window (yesterday + today) is used as a "currently on leave"
+  // proxy. Reporters / additional recipients are still notified. (A proper leave
+  // API would let us suppress proactively; until then this is after-the-fact.)
+  const nowDay = new Date();
+  const todayStr = nowDay.toISOString().slice(0, 10);
+  const yesterdayStr = new Date(nowDay.getTime() - 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  const recentAbsence = await loadAbsencesByEmail(yesterdayStr, todayStr);
+  const onLeave = (email: string | null | undefined): boolean => {
+    if (!email) return false;
+    const set = recentAbsence.get(email.toLowerCase());
+    return !!set && set.size > 0;
   };
 
   // 1. Load all projects that have at least one active SLA rule
@@ -133,7 +151,15 @@ export async function POST(req: Request) {
       }
 
       for (const v of needsNotification) {
-        if (v.rule.notifyAssignee) addToRecipient(v.issue.assigneeEmail, v);
+        if (v.rule.notifyAssignee) {
+          // Suppress the assignee ping when they're on leave — but still notify
+          // the reporter / additional recipients so the breach isn't ignored.
+          if (onLeave(v.issue.assigneeEmail)) {
+            runStats.assigneesOnLeaveSkipped++;
+          } else {
+            addToRecipient(v.issue.assigneeEmail, v);
+          }
+        }
         if (v.rule.notifyReporter) addToRecipient(v.issue.reporterEmail, v);
         for (const email of v.rule.additionalEmails) addToRecipient(email, v);
       }

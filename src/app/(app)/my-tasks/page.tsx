@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { MyTasksView } from "@/components/my-tasks";
 import { AssigneePicker } from "@/components/my-tasks/assignee-picker";
+import { KekaProfileHeader } from "@/components/keka/profile-header";
 import { RiUserSearchLine } from "@remixicon/react";
 
 export default function MyTasksPage() {
@@ -41,6 +42,7 @@ export default function MyTasksPage() {
       </PageHeader>
 
       <main className="flex-1 p-6">
+        <KekaProfileHeader />
         <Suspense fallback={<MyTasksLoading />}>
           <MyTasksView />
         </Suspense>
