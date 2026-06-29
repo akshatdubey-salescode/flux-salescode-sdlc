@@ -6,8 +6,9 @@ import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
-import { KEKA_LEAVE_TAG } from "@/lib/keka/cache-tags";
+import { KEKA_LEAVE_TAG, KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
 import { loadLeaveByEmail } from "@/lib/keka/absence";
+import { loadKekaDirectory } from "@/lib/keka/directory";
 import {
   workingDaysBetween,
   workingDaysRemainingFromToday,
@@ -72,6 +73,13 @@ export type TimelineMember = {
   absentDates: string[];
   /** Distinct approved leave-type names in the window (e.g. "Comp Offs"). */
   leaveTypes: string[];
+  /** Number of direct reports this member has in Keka (0 = not a manager).
+   *  Drives the "View team" cross-navigation affordance. Optional: only the
+   *  board timeline populates it (the project timeline reuses this type). */
+  kekaReportCount?: number;
+  /** Id of a Team Pulse board this member already owns/manages, if any (so the
+   *  affordance links straight to it instead of offering to build one). */
+  ownedBoardId?: string | null;
 };
 
 export type UnplannedMember = {
@@ -158,6 +166,10 @@ async function fetchBoardTimeline(
   cacheLife("minutes");
   cacheTag(`board:${boardId}`);
   cacheTag(KEKA_LEAVE_TAG);
+  // The per-member "View team" affordance reads the Keka org tree and the set
+  // of existing boards, so refresh when either changes.
+  cacheTag(KEKA_DIRECTORY_TAG);
+  cacheTag("boards");
 
   const [board] = await db
     .select()
@@ -338,6 +350,26 @@ async function fetchBoardTimeline(
   // Keka leave overlay — approved on-leave dates + types per member in window.
   const leave = await loadLeaveByEmail(filterStart, filterEnd);
 
+  // Cross-navigation: does each member manage their own team?
+  //  - kekaReportCount: # of direct reports in the Keka org tree (0 = not a manager)
+  //  - ownedBoardId: a board they already manage (so we link straight to it)
+  const directory = await loadKekaDirectory();
+  const ownedBoardByEmail = new Map<string, string>();
+  const ownerRows = await db.execute(sql`
+    SELECT id, lower(manager_email) AS manager_email, lower(created_by) AS created_by
+    FROM observer_boards
+    WHERE id <> ${boardId}
+      AND (lower(manager_email) IN (${emailsIn}) OR lower(created_by) IN (${emailsIn}))
+  `);
+  for (const row of ownerRows.rows as { id: string; manager_email: string | null; created_by: string | null }[]) {
+    if (row.manager_email && !ownedBoardByEmail.has(row.manager_email)) {
+      ownedBoardByEmail.set(row.manager_email, row.id);
+    }
+    if (row.created_by && !ownedBoardByEmail.has(row.created_by)) {
+      ownedBoardByEmail.set(row.created_by, row.id);
+    }
+  }
+
   const memberResults: TimelineMember[] = members.map((member) => {
     const emailKey = member.email.toLowerCase();
     const li = leave.get(emailKey);
@@ -373,6 +405,8 @@ async function fetchBoardTimeline(
       unplannedPreview,
       absentDates: [...(li?.dates ?? [])].sort(),
       leaveTypes: [...(li?.types ?? [])].sort(),
+      kekaReportCount: directory.directReports(emailKey).length,
+      ownedBoardId: ownedBoardByEmail.get(emailKey) ?? null,
     };
   });
 

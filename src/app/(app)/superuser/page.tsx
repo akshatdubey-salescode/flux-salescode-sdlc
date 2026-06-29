@@ -7,7 +7,7 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
-import { RiFlag2Line, RiRefreshLine, RiLightbulbLine, RiDeleteBin2Line, RiCalendarLine, RiCustomerService2Line, RiArrowLeftRightLine, RiGithubLine, RiGitMergeLine, RiGitBranchLine, RiBuilding2Line, RiMegaphoneLine, RiTeamLine } from "@remixicon/react";
+import { RiFlag2Line, RiRefreshLine, RiLightbulbLine, RiDeleteBin2Line, RiCalendarLine, RiCustomerService2Line, RiArrowLeftRightLine, RiGithubLine, RiGitMergeLine, RiGitBranchLine, RiBuilding2Line, RiMegaphoneLine, RiTeamLine, RiGroupLine } from "@remixicon/react";
 
 const TOOLS = [
   {
@@ -75,6 +75,12 @@ const TOOLS = [
     icon: RiTeamLine,
     title: "Keka HR",
     description: "Sync the Keka employee directory and map employees that couldn't be auto-linked to a user by email.",
+  },
+  {
+    href: "/superuser/provision-teams",
+    icon: RiGroupLine,
+    title: "Provision Teams",
+    description: "Bulk-create Team Pulse boards from the Keka org hierarchy — one board per manager, seeded with their direct reports. Preview first, fully reversible.",
   },
   {
     href: "/superuser/unmapped-projects",

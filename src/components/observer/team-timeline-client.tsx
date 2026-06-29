@@ -26,6 +26,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Calendar } from "@/components/ui/calendar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type {
@@ -784,6 +795,110 @@ function TimelineTableRow({ issue, estimateThreshold }: { issue: TimelineIssue; 
   );
 }
 
+// "View team →" cross-navigation: when a board member is themselves a manager,
+// link to the team they own — or, if they have Keka direct reports but no board
+// yet, offer to build one on the spot (server restricts this to the manager
+// themselves or a superuser). Renders nothing for non-managers.
+function MemberTeamLink({
+  email,
+  name,
+  ownedBoardId,
+  reportCount,
+  parentBoardId,
+  parentBoardName,
+}: {
+  email: string;
+  name: string;
+  ownedBoardId: string | null;
+  reportCount: number;
+  parentBoardId?: string;
+  parentBoardName?: string;
+}) {
+  const router = useRouter();
+  const [building, setBuilding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const teamUrl = useCallback(
+    (boardId: string) => {
+      const params = new URLSearchParams();
+      if (parentBoardId) params.set("parentBoardId", parentBoardId);
+      if (parentBoardName) params.set("parentName", parentBoardName);
+      const qs = params.toString();
+      return `/observer/${boardId}${qs ? `?${qs}` : ""}`;
+    },
+    [parentBoardId, parentBoardName]
+  );
+
+  if (!ownedBoardId && reportCount <= 0) return null;
+
+  if (ownedBoardId) {
+    return (
+      <Link
+        href={teamUrl(ownedBoardId)}
+        prefetch={false}
+        onClick={(e) => e.stopPropagation()}
+        className="text-[11px] font-medium text-primary hover:text-primary/80 transition-colors whitespace-nowrap"
+      >
+        View team →
+      </Link>
+    );
+  }
+
+  // Has direct reports in Keka but no board yet → build on demand.
+  async function buildTeam() {
+    setBuilding(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/observer/member/${encodeURIComponent(email)}/team`, {
+        method: "POST",
+      });
+      const json = (await res.json()) as { boardId?: string; error?: string };
+      if (!res.ok || !json.boardId) {
+        setError(json.error ?? "Could not build team.");
+        setBuilding(false);
+        return;
+      }
+      router.push(teamUrl(json.boardId));
+    } catch {
+      setError("Could not build team.");
+      setBuilding(false);
+    }
+  }
+
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <button
+          type="button"
+          onClick={(e) => e.stopPropagation()}
+          disabled={building}
+          title={error ?? `Build ${name}'s team from ${reportCount} Keka direct report${reportCount === 1 ? "" : "s"}`}
+          className="text-[11px] font-medium text-primary hover:text-primary/80 transition-colors whitespace-nowrap disabled:opacity-50"
+        >
+          {building ? "Building…" : "Build team →"}
+        </button>
+      </AlertDialogTrigger>
+      <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Build {name}&apos;s team?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This creates a Team Pulse board for {name} seeded with their{" "}
+            {reportCount} direct report{reportCount === 1 ? "" : "s"} from Keka. Only{" "}
+            {name} or an admin can do this.
+            {error && <span className="mt-2 block text-red-600 dark:text-red-400">{error}</span>}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={buildTeam} disabled={building}>
+            {building ? "Building…" : "Build team"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 function MemberTimelineCard({
   member,
   meetings,
@@ -791,6 +906,8 @@ function MemberTimelineCard({
   quarterStart,
   quarterEnd,
   estimateThreshold,
+  parentBoardId,
+  parentBoardName,
 }: {
   member: TimelineMember;
   meetings?: { totalMinutes: number; eventCount: number; events: MeetingEvent[] };
@@ -798,6 +915,10 @@ function MemberTimelineCard({
   quarterStart: string;
   quarterEnd: string;
   estimateThreshold: number;
+  /** Current board context — passed to the "View team" link so the drilled-to
+   *  team can render a breadcrumb back here. */
+  parentBoardId?: string;
+  parentBoardName?: string;
 }) {
   const { counts } = member;
   const [collapsed, setCollapsed] = useState(false);
@@ -862,6 +983,14 @@ function MemberTimelineCard({
               </span>
             )}
           </div>
+          <MemberTeamLink
+            email={member.email}
+            name={member.name}
+            ownedBoardId={member.ownedBoardId ?? null}
+            reportCount={member.kekaReportCount ?? 0}
+            parentBoardId={parentBoardId}
+            parentBoardName={parentBoardName}
+          />
           <Link
             href={`/observer/developer/${encodeURIComponent(member.email)}`}
             prefetch={false}
@@ -2721,6 +2850,8 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember }: Props) {
                             quarterStart={ustart}
                             quarterEnd={uend}
                             estimateThreshold={data.estimateThresholdDays}
+                            parentBoardId={boardId}
+                            parentBoardName={name}
                           />
                         ))}
                       </div>

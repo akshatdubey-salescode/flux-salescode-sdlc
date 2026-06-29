@@ -27,6 +27,9 @@ export type KekaDirectoryEntry = {
   managerKekaId: string | null;
   managerName: string | null;
   managerEmail: string | null;
+  // Linked app user id (lowercased email) or null when this employee has no
+  // Flux account. Lets surfaces flag "not a Flux user" without a second query.
+  userId: string | null;
   // ISO yyyy-mm-dd (date only); null if Keka has no joining date.
   joiningDate: string | null;
 };
@@ -92,6 +95,7 @@ async function loadRaw(): Promise<{ entries: KekaDirectoryEntry[]; graph: GraphR
       manager_keka_id AS "managerKekaId",
       manager_name AS "managerName",
       manager_email AS "managerEmail",
+      user_id AS "userId",
       to_char(joining_date, 'YYYY-MM-DD') AS "joiningDate"
     FROM keka_employees
   `);
@@ -113,6 +117,10 @@ async function loadRaw(): Promise<{ entries: KekaDirectoryEntry[]; graph: GraphR
  */
 export class KekaDirectory {
   private readonly byEmailMap = new Map<string, KekaDirectoryEntry>();
+  // Inverse of the manager link: managerEmail (lowercased) → direct reports.
+  // Built once here so "who reports to X" is O(1), the lookup team provisioning
+  // needs (the rest of this read-model only walks *up* the chain).
+  private readonly reportsByManagerEmail = new Map<string, KekaDirectoryEntry[]>();
   private readonly graph = new Map<
     string,
     { managerId: string | null; managerName: string | null }
@@ -121,6 +129,12 @@ export class KekaDirectory {
   constructor(entries: KekaDirectoryEntry[], graph: GraphRow[]) {
     for (const e of entries) {
       if (e.email) this.byEmailMap.set(e.email.toLowerCase(), e);
+      if (e.managerEmail) {
+        const key = e.managerEmail.toLowerCase();
+        const reports = this.reportsByManagerEmail.get(key);
+        if (reports) reports.push(e);
+        else this.reportsByManagerEmail.set(key, [e]);
+      }
     }
     for (const g of graph) {
       this.graph.set(g.id, { managerId: g.managerId, managerName: g.managerName });
@@ -143,6 +157,24 @@ export class KekaDirectory {
     const e = this.get(email);
     if (!e) return [];
     return buildManagerChain(e.managerName, e.managerKekaId, this.graph);
+  }
+
+  /**
+   * Direct reports of a manager email (case-insensitive); [] if none. Excludes
+   * a self-report (someone whose managerEmail equals their own email), so the
+   * org's top person never appears as their own report.
+   */
+  directReports(managerEmail: string | null | undefined): KekaDirectoryEntry[] {
+    if (!managerEmail) return [];
+    const key = managerEmail.toLowerCase();
+    const reports = this.reportsByManagerEmail.get(key);
+    if (!reports) return [];
+    return reports.filter((r) => r.email?.toLowerCase() !== key);
+  }
+
+  /** Emails that are the direct manager of at least one active employee. */
+  managerEmails(): string[] {
+    return [...this.reportsByManagerEmail.keys()];
   }
 
   get size(): number {

@@ -15,11 +15,17 @@ import {
 } from "@/components/ui/breadcrumb";
 import { BoardDetailClient } from "@/components/observer/board-detail-client";
 
-type Props = { params: Promise<{ boardId: string }> };
+type Props = {
+  params: Promise<{ boardId: string }>;
+  // Set when this team was reached by drilling down from another team's member,
+  // so we can show a breadcrumb back to that parent team.
+  searchParams: Promise<{ parentBoardId?: string; parentName?: string }>;
+};
 
-export default async function BoardDetailPage({ params }: Props) {
+export default async function BoardDetailPage({ params, searchParams }: Props) {
   const user = await requireAuth();
   const { boardId } = await params;
+  const { parentBoardId, parentName } = await searchParams;
 
   const [board] = await db
     .select()
@@ -44,6 +50,16 @@ export default async function BoardDetailPage({ params }: Props) {
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
+            {parentBoardId && parentName && (
+              <>
+                <BreadcrumbItem>
+                  <BreadcrumbLink asChild>
+                    <Link href={`/observer/${parentBoardId}`}>{parentName}</Link>
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator />
+              </>
+            )}
             <BreadcrumbItem>
               <BreadcrumbPage>{board.name}</BreadcrumbPage>
             </BreadcrumbItem>

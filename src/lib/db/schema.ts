@@ -660,6 +660,13 @@ export const observerBoards = pgTable("observer_boards", {
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
+  // Set only on boards created by a Keka bulk-provision run; NULL for every
+  // hand-made board. Rollback deletes strictly by this id, so manual boards
+  // (NULL) can never be touched. See observerBoardProvisionRuns.
+  provisionRunId: uuid("provision_run_id").references(
+    () => observerBoardProvisionRuns.id,
+    { onDelete: "set null" }
+  ),
 });
 
 export const observerBoardMembers = pgTable(
@@ -681,6 +688,27 @@ export const observerBoardMembers = pgTable(
     index("observer_board_members_board_idx").on(t.boardId),
   ]
 );
+
+// One row per Keka bulk-provision run (superuser → /superuser/provision-teams).
+// Records provenance so a run can be rolled back precisely: deleting the run's
+// boards via observer_boards.provision_run_id (cascade removes their members)
+// and nothing else. Purely additive — its existence never affects manual boards.
+export const observerBoardProvisionRuns = pgTable("observer_board_provision_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  triggeredBy: text("triggered_by")
+    .notNull()
+    .references(() => users.id),
+  source: text("source").notNull().default("keka_direct_reports"),
+  status: text("status", { enum: ["active", "rolled_back"] })
+    .notNull()
+    .default("active"),
+  boardsCreated: integer("boards_created").notNull().default(0),
+  membersCreated: integer("members_created").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  rolledBackAt: timestamp("rolled_back_at", { withTimezone: true }),
+});
 
 // ---------------------------------------------------------------------------
 // Feature Requests — submitted by org members to propose new product features
