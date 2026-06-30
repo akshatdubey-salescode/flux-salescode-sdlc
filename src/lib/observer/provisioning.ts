@@ -80,8 +80,11 @@ export async function buildProvisionProposal(): Promise<ProvisionProposal> {
     if (b.managerEmail) {
       const k = b.managerEmail.toLowerCase();
       if (!existingBoardByEmail.has(k)) existingBoardByEmail.set(k, b.id);
-    }
-    if (b.createdBy) {
+    } else if (b.createdBy) {
+      // createdBy only counts as ownership when the board has no managerEmail
+      // (creator == manager). Mirrors provisionSingleManager's dedup check —
+      // otherwise a superuser who created boards for others would have their
+      // own team treated as already-provisioned and marked skipped.
       const k = b.createdBy.toLowerCase();
       if (!existingBoardByEmail.has(k)) existingBoardByEmail.set(k, b.id);
     }
@@ -182,7 +185,13 @@ export async function provisionSingleManager(
     .where(
       or(
         sql`lower(${observerBoards.managerEmail}) = ${managerEmail}`,
-        sql`lower(${observerBoards.createdBy}) = ${managerEmail}`
+        // createdBy is an ownership signal ONLY for a hand-made board that has
+        // no managerEmail (there, creator == manager). Without the IS NULL
+        // guard it misfires during a bulk run: the acting superuser is the
+        // createdBy of EVERY board, so once any board exists their own team
+        // (managerEmail == their email) matches createdBy and is wrongly
+        // skipped — a superuser could never provision their own team.
+        sql`${observerBoards.managerEmail} IS NULL AND lower(${observerBoards.createdBy}) = ${managerEmail}`
       )
     )
     .limit(1);
