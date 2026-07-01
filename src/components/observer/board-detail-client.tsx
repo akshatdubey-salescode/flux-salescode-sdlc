@@ -11,7 +11,7 @@ import {
   RiSearchLine,
   RiSettings3Line,
 } from "@remixicon/react";
-import { TeamTimelineClient } from "@/components/observer/team-timeline-client";
+import { TeamTimelineClient, type AddTarget } from "@/components/observer/team-timeline-client";
 import { BugTracker } from "@/components/bug-summary";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -57,9 +57,12 @@ type Props = {
   board: Board;
   initialMembers: Member[];
   isOwner: boolean;
+  /** The board the viewer manages, if different from this one — lets them pull
+   *  members shown here onto their own board ("Track on my board"). */
+  addTarget?: AddTarget | null;
 };
 
-export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
+export function BoardDetailClient({ board, initialMembers, isOwner, addTarget }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Persist the active view (Timeline / Bugs) in the URL so it survives reloads
@@ -233,6 +236,7 @@ export function BoardDetailClient({ board, initialMembers, isOwner }: Props) {
               <TeamTimelineClient
                 boardId={board.id}
                 name={board.name}
+                addTarget={addTarget}
                 onRemoveMember={isOwner
                   ? (email) => setRemoveMember(members.find((m) => m.email === email) ?? null)
                   : undefined

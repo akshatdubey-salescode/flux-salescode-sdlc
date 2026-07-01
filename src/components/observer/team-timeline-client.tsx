@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { toast } from "sonner";
 import {
   RiCalendarLine,
   RiArrowLeftSLine,
@@ -22,6 +23,7 @@ import {
   RiInformationLine,
   RiAlarmWarningLine,
   RiCheckLine,
+  RiUserAddLine,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -899,6 +901,55 @@ function MemberTeamLink({
   );
 }
 
+// "Track on my board" — a manager viewing any team (e.g. a member's sub-team
+// they drilled into) can pull this person onto the board THEY manage with one
+// click. Hidden unless the viewer manages a board other than the one they're
+// looking at; flips to a "Tracked" marker once the person is on that board.
+function TrackButton({
+  targetName,
+  isTracked,
+  onTrack,
+}: {
+  targetName: string;
+  isTracked: boolean;
+  onTrack: () => Promise<boolean>;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  if (isTracked) {
+    return (
+      <span
+        title={`Already on ${targetName}`}
+        className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 whitespace-nowrap"
+      >
+        <RiCheckLine size={12} />
+        Tracked
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      title={`Add to ${targetName}`}
+      onClick={async (e) => {
+        e.stopPropagation();
+        setBusy(true);
+        try {
+          await onTrack();
+        } finally {
+          setBusy(false);
+        }
+      }}
+      className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary/80 transition-colors whitespace-nowrap disabled:opacity-50"
+    >
+      <RiUserAddLine size={12} />
+      {busy ? "Adding…" : "Track on my board"}
+    </button>
+  );
+}
+
 function MemberTimelineCard({
   member,
   meetings,
@@ -908,6 +959,9 @@ function MemberTimelineCard({
   estimateThreshold,
   parentBoardId,
   parentBoardName,
+  addTargetName,
+  isTracked,
+  onTrack,
 }: {
   member: TimelineMember;
   meetings?: { totalMinutes: number; eventCount: number; events: MeetingEvent[] };
@@ -919,6 +973,13 @@ function MemberTimelineCard({
    *  team can render a breadcrumb back here. */
   parentBoardId?: string;
   parentBoardName?: string;
+  /** Name of the board the viewer manages, when it differs from the one being
+   *  viewed — enables the "Track on my board" affordance. Undefined hides it. */
+  addTargetName?: string;
+  /** True when this member is already on the viewer's board. */
+  isTracked?: boolean;
+  /** Add this member to the viewer's board; resolves true on success. */
+  onTrack?: () => Promise<boolean>;
 }) {
   const { counts } = member;
   const [collapsed, setCollapsed] = useState(false);
@@ -983,6 +1044,13 @@ function MemberTimelineCard({
               </span>
             )}
           </div>
+          {addTargetName && onTrack && (
+            <TrackButton
+              targetName={addTargetName}
+              isTracked={isTracked ?? false}
+              onTrack={onTrack}
+            />
+          )}
           <MemberTeamLink
             email={member.email}
             name={member.name}
@@ -2569,18 +2637,80 @@ function OverdueTab({
 // Main export
 // ---------------------------------------------------------------------------
 
+export type AddTarget = {
+  /** Board the viewer manages — where "Track on my board" adds people. */
+  boardId: string;
+  boardName: string;
+  /** Lowercased emails already on that board (to mark members as tracked). */
+  memberEmails: string[];
+};
+
 type Props = {
   boardId: string;
   name?: string;
   onRemoveMember?: (email: string) => void;
+  /** The board the viewer manages, when it's not the board being viewed. Lets a
+   *  manager pull any member shown here onto their own board. Null when the
+   *  viewer manages no other board (no "Track on my board" affordance). */
+  addTarget?: AddTarget | null;
 };
 
 const VALID_TABS = ["timeline", "active", "at-risk", "overdue", "completed", "unplanned", "gantt"] as const;
 type TabValue = (typeof VALID_TABS)[number];
 
-export function TeamTimelineClient({ boardId, name, onRemoveMember }: Props) {
+export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // Members already on the viewer's own board, straight from the server — read
+  // from props each render so navigating between boards never goes stale.
+  const serverTracked = useMemo(
+    () => new Set((addTarget?.memberEmails ?? []).map((e) => e.toLowerCase())),
+    [addTarget]
+  );
+  // People the viewer added during THIS session (optimistic, additive only).
+  const [locallyTracked, setLocallyTracked] = useState<Set<string>>(new Set());
+  const isTracked = useCallback(
+    (email: string) => {
+      const e = email.toLowerCase();
+      return serverTracked.has(e) || locallyTracked.has(e);
+    },
+    [serverTracked, locallyTracked]
+  );
+
+  // The target only makes sense when it's a DIFFERENT board than the one shown
+  // (on your own board everyone is already tracked — nothing to add).
+  const canTrack = !!addTarget && addTarget.boardId !== boardId;
+
+  const trackOnMyBoard = useCallback(
+    async (m: { name: string; email: string }): Promise<boolean> => {
+      if (!addTarget) return false;
+      try {
+        const res = await fetch(`/api/observer/boards/${addTarget.boardId}/members`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: m.name, email: m.email }),
+        });
+        // 409 = already a member; treat as success so the UI reflects reality.
+        if (res.ok || res.status === 409) {
+          setLocallyTracked((prev) => new Set(prev).add(m.email.toLowerCase()));
+          toast.success(
+            res.status === 409
+              ? `${m.name} is already on ${addTarget.boardName}`
+              : `Added ${m.name} to ${addTarget.boardName}`
+          );
+          return true;
+        }
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(err.error ?? "Failed to add member");
+        return false;
+      } catch {
+        toast.error("Failed to add member");
+        return false;
+      }
+    },
+    [addTarget]
+  );
 
   // --- derive filter from URL params ---
   const mode = (searchParams.get("mode") ?? "single") as FilterMode;
@@ -2852,6 +2982,9 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember }: Props) {
                             estimateThreshold={data.estimateThresholdDays}
                             parentBoardId={boardId}
                             parentBoardName={name}
+                            addTargetName={canTrack ? addTarget!.boardName : undefined}
+                            isTracked={isTracked(member.email)}
+                            onTrack={canTrack ? () => trackOnMyBoard(member) : undefined}
                           />
                         ))}
                       </div>
