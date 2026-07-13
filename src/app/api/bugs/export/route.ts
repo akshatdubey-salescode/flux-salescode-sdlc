@@ -3,8 +3,10 @@ import ExcelJS from "exceljs";
 import { requireAuth } from "@/lib/auth/server";
 import {
   buildOwnerSummaries,
+  priorityBucket,
   ENV_UNSET,
   type BugRow,
+  type BugPriorityBucket,
   type OwnerSummary,
 } from "@/lib/bug-summary";
 
@@ -97,10 +99,12 @@ async function buildWorkbook(rows: BugRow[], opts: Opts): Promise<ArrayBuffer> {
   wb.creator = "Flux";
   wb.created = new Date();
 
-  // "developer" scope = the Developer-wise Bug Count table only; "all" also
-  // includes the detailed bug list sheet.
+  // "developer" scope = the Developer-wise sheets only; "all" also includes the
+  // flat detailed bug list sheet.
+  const summaries = buildOwnerSummaries(rows);
   if (opts.scope !== "developer") addBugsSheet(wb, rows, opts);
-  addDeveloperSheet(wb, buildOwnerSummaries(rows), opts);
+  addDeveloperSheet(wb, summaries, opts);
+  addDeveloperDetailSheet(wb, rows, summaries, opts);
 
   const buffer = await wb.xlsx.writeBuffer();
   return buffer as ArrayBuffer;
@@ -361,4 +365,195 @@ function addDeveloperSheet(wb: ExcelJS.Workbook, summaries: OwnerSummary[], opts
 
   ws.getColumn(1).width = 28;
   for (let c = 2; c <= colCount; c++) ws.getColumn(c).width = 10;
+}
+
+// ---- Sheet 3: dev-wise bug detail (the "click a dev" view, materialized) ----
+//
+// One section per developer (in the same order as the rollup), listing every
+// bug they touch — as owner OR assignee — mirroring what the app shows in the
+// table below when you click that developer. A Role column disambiguates why
+// each bug appears in the section.
+
+type DevDetailColKey = BugColKey | "role";
+type DevDetailCol = { header: string; key: DevDetailColKey; width?: number; min: number; max: number };
+
+function devDetailColumns(showProject: boolean): DevDetailCol[] {
+  const cols: DevDetailCol[] = [
+    { header: "Role", key: "role", min: 9, max: 10 },
+    { header: "Jira Key", key: "jiraKey", min: 10, max: 16 },
+  ];
+  if (showProject) cols.push({ header: "Project", key: "project", min: 14, max: 30 });
+  cols.push(
+    { header: "Summary", key: "summary", width: 50, min: 30, max: 60 },
+    { header: "Priority", key: "priority", min: 8, max: 12 },
+    { header: "Environment", key: "environment", min: 11, max: 16 },
+    { header: "Status", key: "status", min: 12, max: 26 },
+    { header: "Open", key: "open", min: 6, max: 8 },
+    { header: "Owner", key: "ownerName", min: 14, max: 28 },
+    { header: "Assignee", key: "assigneeName", min: 14, max: 28 },
+    { header: "Created", key: "createdAt", min: 12, max: 14 },
+    { header: "Updated", key: "updatedAt", min: 12, max: 14 }
+  );
+  return cols;
+}
+
+type BugRole = "Owner" | "Assignee" | "Both";
+
+const ROLE_COLOR: Record<BugRole, string> = {
+  Owner: TEAL_DARK,
+  Assignee: "FF1D4ED8", // blue
+  Both: "FF7C3AED", // violet
+};
+
+const BUCKET_RANK: Record<BugPriorityBucket, number> = { P1: 0, P2: 1, P3: 2, Other: 3 };
+
+/** Which role puts this bug in the given developer's section. */
+function roleForDev(bug: BugRow, devKey: string): BugRole {
+  const isOwner = (bug.ownerEmail ?? bug.ownerName) === devKey;
+  const isAssignee = (bug.assigneeEmail ?? bug.assigneeName) === devKey;
+  return isOwner && isAssignee ? "Both" : isOwner ? "Owner" : "Assignee";
+}
+
+function addDeveloperDetailSheet(
+  wb: ExcelJS.Workbook,
+  rows: BugRow[],
+  summaries: OwnerSummary[],
+  opts: Opts
+) {
+  const columns = devDetailColumns(opts.showProject);
+  const colCount = columns.length;
+  const ws = wb.addWorksheet("Dev-wise Bug Detail", { views: [{ state: "frozen", ySplit: 3 }] });
+
+  bannerRows(
+    ws,
+    colCount,
+    `Dev-wise Bug Detail — ${opts.title}`,
+    `${summaries.length} developer${summaries.length === 1 ? "" : "s"} · each dev's bugs as owner or assignee`
+  );
+  headerRow(ws, columns.map((c) => c.header));
+
+  const widths = columns.map((c) => c.header.length);
+  let r = 4; // first body row (banner rows 1–2, header row 3)
+
+  summaries.forEach((s) => {
+    const devKey = s.ownerEmail ?? s.ownerName;
+    const devBugs = rows
+      .filter(
+        (b) =>
+          (b.ownerEmail ?? b.ownerName) === devKey ||
+          (b.assigneeEmail ?? b.assigneeName) === devKey
+      )
+      .sort(
+        (a, b) =>
+          BUCKET_RANK[priorityBucket(a.priority)] - BUCKET_RANK[priorityBucket(b.priority)] ||
+          a.jiraKey.localeCompare(b.jiraKey, undefined, { numeric: true })
+      );
+    if (devBugs.length === 0) return;
+
+    // Section header spanning every column.
+    ws.mergeCells(r, 1, r, colCount);
+    const gc = ws.getCell(r, 1);
+    gc.value = `${s.ownerName}   —   ${s.assigned} assigned, ${s.total} owned  ·  ${devBugs.length} total`;
+    gc.font = { name: "Calibri", size: 11, bold: true, color: { argb: TEAL_DARK } };
+    gc.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+    gc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE6F7F4" } };
+    gc.border = { top: { style: "thin", color: { argb: TEAL } } };
+    ws.getRow(r).height = 20;
+    r++;
+
+    devBugs.forEach((bug, bi) => {
+      const row = ws.getRow(r);
+      const zebra = bi % 2 === 1;
+      const role = roleForDev(bug, devKey);
+
+      columns.forEach((col, ci) => {
+        const cell = row.getCell(ci + 1);
+        let display = "";
+
+        switch (col.key) {
+          case "role": {
+            display = role;
+            cell.value = display;
+            cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: ROLE_COLOR[role] } };
+            break;
+          }
+          case "jiraKey": {
+            const url =
+              bug.jiraBaseUrl && bug.jiraKey
+                ? `${bug.jiraBaseUrl.replace(/\/$/, "")}/browse/${bug.jiraKey}`
+                : null;
+            display = bug.jiraKey ?? "";
+            if (url) {
+              cell.value = { text: display, hyperlink: url };
+              cell.font = { name: "Calibri", size: 11, color: { argb: TEAL_DARK }, underline: true, bold: true };
+            } else {
+              cell.value = display;
+              cell.font = { name: "Calibri", size: 11, bold: true, color: { argb: TEXT } };
+            }
+            break;
+          }
+          case "project": {
+            display = bug.projectName || bug.projectKey;
+            cell.value = display;
+            cell.font = { name: "Calibri", size: 10, color: { argb: TEXT } };
+            break;
+          }
+          case "priority": {
+            display = bug.priority ?? "";
+            cell.value = display;
+            const color = priorityColor(bug.priority);
+            cell.font = { name: "Calibri", size: 11, bold: !!color, color: { argb: color ?? TEXT } };
+            break;
+          }
+          case "open": {
+            display = bug.isOpen ? "Open" : "Closed";
+            cell.value = display;
+            cell.font = { name: "Calibri", size: 11, bold: bug.isOpen, color: { argb: bug.isOpen ? "FFB45309" : MUTED } };
+            break;
+          }
+          case "environment": {
+            display = bug.environment === ENV_UNSET ? "" : bug.environment;
+            cell.value = display;
+            cell.font = { name: "Calibri", size: 11, color: { argb: TEXT } };
+            break;
+          }
+          case "createdAt":
+          case "updatedAt": {
+            const iso = col.key === "createdAt" ? bug.jiraCreatedAt : bug.jiraUpdatedAt;
+            display = fmtDate(iso);
+            cell.value = display;
+            cell.font = { name: "Calibri", size: 10, color: { argb: MUTED } };
+            break;
+          }
+          default: {
+            display = ((bug[col.key as keyof BugRow] as string | null) ?? "").toString();
+            cell.value = display;
+            cell.font = { name: "Calibri", size: 11, color: { argb: TEXT } };
+          }
+        }
+
+        cell.alignment = {
+          vertical: "top",
+          horizontal: "left",
+          indent: 1,
+          wrapText: col.key === "summary",
+        };
+        cell.border = {
+          bottom: { style: "hair", color: { argb: BORDER } },
+          right: { style: "hair", color: { argb: BORDER } },
+        };
+        if (zebra) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: ZEBRA } };
+
+        if (display && col.key !== "summary") widths[ci] = Math.max(widths[ci], display.length);
+      });
+      r++;
+    });
+  });
+
+  columns.forEach((col, i) => {
+    const measured = col.key === "summary" ? (col.width ?? 50) : widths[i] + 3;
+    ws.getColumn(i + 1).width = Math.min(col.max, Math.max(col.min, measured));
+  });
+  // No autoFilter here: this sheet is sectioned by developer (merged group
+  // rows between the data), so a flat-table filter would be misleading.
 }
