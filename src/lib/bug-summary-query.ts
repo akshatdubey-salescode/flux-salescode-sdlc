@@ -146,6 +146,8 @@ export async function loadBugRows(
       environment,
       ownerName,
       ownerEmail,
+      assigneeName: r.assigneeName?.trim() || null,
+      assigneeEmail: normalizeEmail(r.assigneeEmail),
       isOpen: (r.statusCategory ?? "").trim().toLowerCase() !== "done",
       isInvalid: BUG_INVALID_STATUSES.has(normalizeStatus(r.status)),
       jiraCreatedAt: r.jiraCreatedAt ? r.jiraCreatedAt.toISOString() : null,

@@ -55,6 +55,7 @@ type DetailSortKey =
   | "project"
   | "summary"
   | "owner"
+  | "assignee"
   | "priority"
   | "environment"
   | "status"
@@ -65,6 +66,7 @@ const SORT_KEYS: DetailSortKey[] = [
   "project",
   "summary",
   "owner",
+  "assignee",
   "priority",
   "environment",
   "status",
@@ -317,12 +319,18 @@ export function BugTracker({
   const detailSorted = useMemo(() => {
     const needle = q.trim().toLowerCase();
     let list = filteredBugs.filter((b) => {
-      if (ownerFilter && (b.ownerEmail ?? b.ownerName) !== ownerFilter) return false;
+      // Clicking a developer shows every bug they touch — as owner OR assignee.
+      if (ownerFilter) {
+        const ownerKey = b.ownerEmail ?? b.ownerName;
+        const assigneeKey = b.assigneeEmail ?? b.assigneeName;
+        if (ownerKey !== ownerFilter && assigneeKey !== ownerFilter) return false;
+      }
       if (!needle) return true;
       return (
         b.jiraKey.toLowerCase().includes(needle) ||
         b.summary.toLowerCase().includes(needle) ||
         b.ownerName.toLowerCase().includes(needle) ||
+        (b.assigneeName ?? "").toLowerCase().includes(needle) ||
         b.environment.toLowerCase().includes(needle) ||
         (b.priority ?? "").toLowerCase().includes(needle) ||
         b.status.toLowerCase().includes(needle) ||
@@ -346,6 +354,9 @@ export function BugTracker({
           break;
         case "owner":
           cmp = a.ownerName.localeCompare(b.ownerName);
+          break;
+        case "assignee":
+          cmp = (a.assigneeName ?? "").localeCompare(b.assigneeName ?? "");
           break;
         case "priority":
           cmp = BUCKET_RANK[a.priorityBucket] - BUCKET_RANK[b.priorityBucket];
@@ -597,6 +608,11 @@ export function BugTracker({
                               </span>
                               <span className="font-medium text-zinc-800 dark:text-zinc-200">
                                 {s.ownerName}
+                                {s.ownerName !== MISSING_ISSUE_OWNER && (
+                                  <span className="ml-1.5 font-normal text-zinc-400">
+                                    ({s.assigned} assigned, {s.total} owned)
+                                  </span>
+                                )}
                               </span>
                             </span>
                           </td>
@@ -659,7 +675,7 @@ export function BugTracker({
                   <Input
                     value={searchInput}
                     onChange={(e) => handleSearch(e.target.value)}
-                    placeholder="Search key, summary, owner…"
+                    placeholder="Search key, summary, owner, assignee…"
                     className="h-8 pl-8 text-xs"
                   />
                 </div>
@@ -682,7 +698,8 @@ export function BugTracker({
                   <span className="font-medium text-zinc-700 dark:text-zinc-300">
                     {summaries.find((s) => (s.ownerEmail ?? s.ownerName) === ownerFilter)?.ownerName ??
                       "selected developer"}
-                  </span>
+                  </span>{" "}
+                  <span className="text-zinc-400">(owner or assignee)</span>
                 </span>
                 <button
                   onClick={() => updateParams({ [QP.owner]: null })}
@@ -704,6 +721,7 @@ export function BugTracker({
                       )}
                       <SortHeader label="Summary" col="summary" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                       <SortHeader label="Owner" col="owner" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-40" />
+                      <SortHeader label="Assignee" col="assignee" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-40" />
                       <SortHeader label="Priority" col="priority" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-24" />
                       <SortHeader label="Environment" col="environment" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-28" />
                       <SortHeader label="Status" col="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-36" />
@@ -713,7 +731,7 @@ export function BugTracker({
                   <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/80">
                     {detailPageItems.length === 0 ? (
                       <tr>
-                        <td colSpan={showProject ? 8 : 7} className="px-4 py-12 text-center text-zinc-400">
+                        <td colSpan={showProject ? 9 : 8} className="px-4 py-12 text-center text-zinc-400">
                           No bugs match the current filters.
                         </td>
                       </tr>
@@ -783,6 +801,21 @@ export function BugTracker({
                                 </span>
                                 <span className="truncate text-zinc-700 dark:text-zinc-300">{b.ownerName}</span>
                               </span>
+                            </td>
+                            <td className="px-3 py-2">
+                              {b.assigneeName ? (
+                                <span
+                                  className="inline-flex items-center gap-1.5"
+                                  title={b.assigneeEmail ?? b.assigneeName}
+                                >
+                                  <span className="flex size-5 items-center justify-center rounded-full bg-zinc-200 text-[8px] font-bold text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+                                    {initials(b.assigneeName)}
+                                  </span>
+                                  <span className="truncate text-zinc-700 dark:text-zinc-300">{b.assigneeName}</span>
+                                </span>
+                              ) : (
+                                <span className="text-zinc-300 dark:text-zinc-600">Unassigned</span>
+                              )}
                             </td>
                             <td className="px-3 py-2">
                               {b.priority ? (

@@ -126,6 +126,8 @@ function bugColumns(showProject: boolean): BugCol[] {
     { header: "Summary", key: "summary", width: 50, min: 30, max: 60 },
     { header: "Owner", key: "ownerName", min: 14, max: 28 },
     { header: "Owner Email", key: "ownerEmail", min: 18, max: 36 },
+    { header: "Assignee", key: "assigneeName", min: 14, max: 28 },
+    { header: "Assignee Email", key: "assigneeEmail", min: 18, max: 36 },
     { header: "Priority", key: "priority", min: 8, max: 12 },
     { header: "Environment", key: "environment", min: 11, max: 16 },
     { header: "Status", key: "status", min: 12, max: 26 },
@@ -250,8 +252,9 @@ function addBugsSheet(wb: ExcelJS.Workbook, rows: BugRow[], opts: Opts) {
           cell.font = { name: "Calibri", size: 11, color: { argb: TEXT } };
           break;
         }
-        case "ownerEmail": {
-          display = bug.ownerEmail ?? "";
+        case "ownerEmail":
+        case "assigneeEmail": {
+          display = (col.key === "ownerEmail" ? bug.ownerEmail : bug.assigneeEmail) ?? "";
           cell.value = display;
           cell.font = { name: "Calibri", size: 10, color: { argb: MUTED } };
           break;

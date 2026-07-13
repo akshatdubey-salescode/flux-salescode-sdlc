@@ -19,10 +19,14 @@ export type BugRow = {
   priorityBucket: BugPriorityBucket;
   /** Normalized environment label; "—" when unset. */
   environment: string;
-  /** Resolved owner: the Issue Owner field, else "Missing Issue Owner". */
+  /** Resolved owner: Issue Owner field, else assignee, else "Missing Issue Owner". */
   ownerName: string;
   /** Owner email (attribution key); null when unassigned/unresolved. */
   ownerEmail: string | null;
+  /** Primary Jira assignee display name; null when the bug is unassigned. */
+  assigneeName: string | null;
+  /** Primary assignee email (normalized); null when unassigned. */
+  assigneeEmail: string | null;
   /** Not yet resolved (status category is not Done). */
   isOpen: boolean;
   /**
@@ -34,7 +38,7 @@ export type BugRow = {
   jiraUpdatedAt: string | null;
 };
 
-/** Bucket label for bugs whose Issue Owner field is empty (no assignee fallback). */
+/** Bucket label for bugs with neither an Issue Owner nor an assignee. */
 export const MISSING_ISSUE_OWNER = "Missing Issue Owner";
 export const ENV_UNSET = "—";
 
@@ -42,6 +46,8 @@ export const ENV_UNSET = "—";
 export type OwnerSummary = {
   ownerName: string;
   ownerEmail: string | null;
+  /** Bugs where this person is the assignee (independent of ownership). */
+  assigned: number;
   p1: number;
   p2: number;
   p3: number;
@@ -56,6 +62,15 @@ export type OwnerSummary = {
  * export so both show identical numbers.
  */
 export function buildOwnerSummaries(bugs: BugRow[]): OwnerSummary[] {
+  // How many bugs each person is the *assignee* of, keyed the same way owners
+  // are (email when known, else display name) so the tally lines up with that
+  // person's owner row.
+  const assignedByKey = new Map<string, number>();
+  for (const b of bugs) {
+    const aKey = b.assigneeEmail ?? b.assigneeName;
+    if (aKey) assignedByKey.set(aKey, (assignedByKey.get(aKey) ?? 0) + 1);
+  }
+
   const map = new Map<string, OwnerSummary>();
   for (const b of bugs) {
     // Group by email when known so the same person isn't split by name casing;
@@ -66,6 +81,7 @@ export function buildOwnerSummaries(bugs: BugRow[]): OwnerSummary[] {
       s = {
         ownerName: b.ownerName,
         ownerEmail: b.ownerEmail,
+        assigned: assignedByKey.get(key) ?? 0,
         p1: 0,
         p2: 0,
         p3: 0,
