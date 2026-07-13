@@ -5,6 +5,7 @@ import { loadAccountIdEmailMap } from "@/lib/jira/identity";
 import {
   extractIssueOwnerEmail,
   extractIssueOwnerName,
+  normalizeEmail,
 } from "@/lib/jira/scorecard-fields";
 import {
   BUG_ISSUE_TYPES,
@@ -68,8 +69,9 @@ export async function ownedByConditions(emails: string[]): Promise<SQL> {
 }
 
 /**
- * Load bug rows across one or more projects, resolving owner (Issue Owner field
- * → assignee) and environment per project. Shared by every bug-tracker scope
+ * Load bug rows across one or more projects, resolving owner (Issue Owner field,
+ * falling back to the assignee) and environment per project. Shared by every
+ * bug-tracker scope
  * (single project, My Bugs, team board) so they all produce identical BugRows.
  * The caller supplies the scope + date conditions; the bug-type filter is added
  * here.
@@ -89,6 +91,8 @@ export async function loadBugRows(
       statusCategory: jiraIssues.statusCategory,
       priority: jiraIssues.priority,
       customFields: jiraIssues.customFields,
+      assigneeEmail: jiraIssues.assigneeEmail,
+      assigneeName: jiraIssues.assigneeName,
       jiraCreatedAt: jiraIssues.jiraCreatedAt,
       jiraUpdatedAt: jiraIssues.jiraUpdatedAt,
       issueOwnerFieldIds: jiraProjects.issueOwnerFieldIds,
@@ -102,15 +106,27 @@ export async function loadBugRows(
     .where(and(bugTypeCondition, ...conditions));
 
   const mapped = rows.map((r): BugRow => {
-    // Attribution is the Issue Owner field only — no assignee fallback. Bugs
-    // with no Issue Owner are surfaced as "Missing Issue Owner".
-    const ownerEmail = extractIssueOwnerEmail(
+    // Attribution is the Issue Owner field, falling back to the primary
+    // assignee when no Issue Owner is set. The Issue Owner is treated as a
+    // unit — when it's present we take both its email and name from the field,
+    // and only when it's entirely absent do we fall back to the assignee — so
+    // the resolved email and name always describe the same person. Bugs with
+    // neither an Issue Owner nor an assignee are surfaced as
+    // "Missing Issue Owner".
+    const ownerFieldEmail = extractIssueOwnerEmail(
       r.customFields,
       r.issueOwnerFieldIds,
       accountIdEmailMap
     );
+    const ownerFieldName = extractIssueOwnerName(r.customFields, r.issueOwnerFieldIds);
+    const hasIssueOwner = ownerFieldEmail !== null || ownerFieldName !== null;
+
+    const ownerEmail = hasIssueOwner
+      ? ownerFieldEmail
+      : normalizeEmail(r.assigneeEmail);
     const ownerName =
-      extractIssueOwnerName(r.customFields, r.issueOwnerFieldIds) ?? MISSING_ISSUE_OWNER;
+      (hasIssueOwner ? ownerFieldName : r.assigneeName?.trim() || null) ??
+      MISSING_ISSUE_OWNER;
     const environment = resolveEnvironment(
       r.customFields as Record<string, unknown> | null,
       r.environmentFieldIds
