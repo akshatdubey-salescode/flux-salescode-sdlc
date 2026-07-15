@@ -25,6 +25,7 @@ import {
   RiCheckLine,
   RiUserAddLine,
   RiUserUnfollowLine,
+  RiDownload2Line,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -122,6 +123,121 @@ function formatDisplayDate(dateStr: string): string {
     year: new Date(dateStr + "T12:00:00").getFullYear() !== new Date().getFullYear() ? "numeric" : undefined,
   });
 }
+
+type ExcelCell = string | number | null | undefined;
+
+function safeExportName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "developer";
+}
+
+async function exportDeveloperRows(
+  developerName: string,
+  tabName: string,
+  headers: string[],
+  rows: ExcelCell[][],
+) {
+  const ExcelJS = (await import("exceljs")).default;
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Salescode SDLC";
+  workbook.created = new Date();
+
+  const worksheet = workbook.addWorksheet(tabName.slice(0, 31));
+  worksheet.addRow(headers);
+  rows.forEach((row) => worksheet.addRow(row.map((cell) => cell ?? "")));
+
+  const header = worksheet.getRow(1);
+  header.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF18181B" } };
+  header.alignment = { vertical: "middle" };
+  header.height = 22;
+  worksheet.views = [{ state: "frozen", ySplit: 1 }];
+  worksheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: headers.length } };
+
+  worksheet.columns.forEach((column, index) => {
+    const longest = Math.max(
+      headers[index]?.length ?? 0,
+      ...rows.map((row) => String(row[index] ?? "").length),
+    );
+    column.width = Math.min(Math.max(longest + 2, 12), index === 2 ? 60 : 32);
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([new Uint8Array(buffer as ArrayBuffer)], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${safeExportName(developerName)}-${safeExportName(tabName)}.xlsx`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function DeveloperExcelButton({
+  developerName,
+  tabName,
+  headers,
+  rows,
+}: {
+  developerName: string;
+  tabName: string;
+  headers: string[];
+  rows: ExcelCell[][];
+}) {
+  const [exporting, setExporting] = useState(false);
+
+  return (
+    <button
+      type="button"
+      disabled={exporting || rows.length === 0}
+      title={`Export ${developerName}'s ${tabName} table to Excel`}
+      onClick={async (event) => {
+        event.stopPropagation();
+        setExporting(true);
+        try {
+          await exportDeveloperRows(developerName, tabName, headers, rows);
+          toast.success(`Exported ${developerName}'s ${tabName} table`);
+        } catch {
+          toast.error("Could not create the Excel export");
+        } finally {
+          setExporting(false);
+        }
+      }}
+      onKeyDown={(event) => event.stopPropagation()}
+      className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+    >
+      <RiDownload2Line size={12} />
+      {exporting ? "Exporting…" : "Export Excel"}
+    </button>
+  );
+}
+
+function timelineIssueExportRows(issues: TimelineIssue[]): ExcelCell[][] {
+  return issues.map((issue) => [
+    issue.issueType,
+    issue.jiraKey,
+    issue.summary,
+    issue.status,
+    issue.priority,
+    issue.startDate,
+    issue.dueDate,
+    formatEst(issue.estWorkingDays),
+    issue.label,
+    issue.workingDaysRemaining == null ? "" : formatEst(issue.workingDaysRemaining),
+    `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`,
+  ]);
+}
+
+const TIMELINE_EXPORT_HEADERS = [
+  "Type", "Key", "Summary", "Status", "Priority", "Start Date", "Due Date",
+  "Estimate", "Health", "Working Days Remaining", "Jira URL",
+];
 
 // "Assigned" cell for unplanned tasks: the date the current assignee took
 // ownership, plus how long ago — so a task assigned long ago that is still
@@ -1126,6 +1242,25 @@ function MemberTimelineCard({
           >
             Full profile →
           </Link>
+          <DeveloperExcelButton
+            developerName={member.name}
+            tabName="workload"
+            headers={hasNoPlanned
+              ? ["Type", "Key", "Summary", "Status", "Priority", "Jira URL"]
+              : TIMELINE_EXPORT_HEADERS
+            }
+            rows={hasNoPlanned
+              ? member.unplannedPreview.map((issue) => [
+                  issue.issueType,
+                  issue.jiraKey,
+                  issue.summary,
+                  issue.status,
+                  issue.priority,
+                  `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`,
+                ])
+              : timelineIssueExportRows(member.issues)
+            }
+          />
           <RiArrowLeftSLine
             size={14}
             className={`text-muted-foreground transition-transform duration-200 ${collapsed ? "-rotate-90" : "rotate-90"}`}
@@ -1666,6 +1801,22 @@ function UnplannedPersonTable({
         >
           <RiSearchLine size={13} />
         </button>
+        <DeveloperExcelButton
+          developerName={person.name}
+          tabName="unplanned"
+          headers={["Type", "Key", "Summary", "Status", "Priority", "Start", "Due", "Assigned", "Jira URL"]}
+          rows={visible.map((issue) => [
+            issue.issueType,
+            issue.jiraKey,
+            issue.summary,
+            issue.status,
+            issue.priority,
+            issue.missingStart ? "Missing" : "",
+            issue.missingDue ? "Missing" : "",
+            issue.assignedAt,
+            `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`,
+          ])}
+        />
         <RiArrowLeftSLine
           size={14}
           className={`text-muted-foreground shrink-0 transition-transform duration-200 ${collapsed ? "-rotate-90" : "rotate-90"}`}
@@ -2048,8 +2199,11 @@ function AtRiskPersonCard({ person, estimateThreshold }: { person: AtRiskPersonG
 
   return (
     <div className="rounded-xl border border-amber-200 dark:border-amber-800/50 bg-card overflow-hidden shadow-sm">
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setOpen((v) => !v)}
+        onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setOpen((v) => !v); }}
         className="w-full flex items-center justify-between gap-4 px-4 py-3 border-b border-amber-100 dark:border-amber-900/40 bg-amber-50/40 dark:bg-amber-950/10 hover:bg-amber-50/70 dark:hover:bg-amber-950/20 text-left transition-colors cursor-pointer select-none"
       >
         <div className="flex items-center gap-2 min-w-0">
@@ -2064,9 +2218,20 @@ function AtRiskPersonCard({ person, estimateThreshold }: { person: AtRiskPersonG
           <span className="inline-flex items-center gap-1 rounded-full bg-amber-500 text-white text-xs font-bold px-2 py-0.5">
             {formatHoursRemaining(person.issues[0].remainingWorkingHours)}
           </span>
+          <DeveloperExcelButton
+            developerName={person.name}
+            tabName="at-risk"
+            headers={["Type", "Key", "Summary", "Status", "Priority", "Start Date", "Due Date", "Estimate", "Working Hours Left", "Percent Remaining", "Jira URL"]}
+            rows={person.issues.map((issue) => [
+              issue.issueType, issue.jiraKey, issue.summary, issue.status, issue.priority,
+              issue.startDate, issue.dueDate, formatEst(issue.estWorkingDays),
+              issue.remainingWorkingHours, issue.percentRemaining,
+              `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`,
+            ])}
+          />
           {open ? <RiArrowUpSLine size={16} className="text-muted-foreground" /> : <RiArrowDownSLine size={16} className="text-muted-foreground" />}
         </div>
-      </button>
+      </div>
 
       {open && (
         <div className="overflow-x-auto">
@@ -2215,8 +2380,11 @@ function ActivePersonCard({ member, estimateThreshold }: { member: TimelineMembe
 
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setOpen((v) => !v)}
+        onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setOpen((v) => !v); }}
         className="w-full flex items-center justify-between gap-4 px-4 py-3 border-b border-border bg-muted/20 hover:bg-muted/40 text-left transition-colors cursor-pointer select-none"
       >
         <div className="flex items-center gap-2 min-w-0">
@@ -2239,9 +2407,15 @@ function ActivePersonCard({ member, estimateThreshold }: { member: TimelineMembe
               {doneCount} done
             </span>
           )}
+          <DeveloperExcelButton
+            developerName={member.name}
+            tabName="active"
+            headers={TIMELINE_EXPORT_HEADERS}
+            rows={timelineIssueExportRows(allIssues)}
+          />
           {open ? <RiArrowUpSLine size={16} className="text-muted-foreground ml-1" /> : <RiArrowDownSLine size={16} className="text-muted-foreground ml-1" />}
         </div>
-      </button>
+      </div>
 
       {open && (
         <div className="overflow-x-auto">
@@ -2427,8 +2601,11 @@ function CompletedPersonCard({ member, estimateThreshold }: { member: TimelineMe
 
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setOpen((v) => !v)}
+        onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setOpen((v) => !v); }}
         className="w-full flex items-center justify-between gap-4 px-4 py-3 border-b border-border bg-muted/20 hover:bg-muted/40 text-left transition-colors cursor-pointer select-none"
       >
         <div className="flex items-center gap-2 min-w-0">
@@ -2440,9 +2617,15 @@ function CompletedPersonCard({ member, estimateThreshold }: { member: TimelineMe
           <span className="inline-flex items-center rounded-full bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 text-xs font-semibold px-2 py-0.5">
             {done.length} done
           </span>
+          <DeveloperExcelButton
+            developerName={member.name}
+            tabName="completed"
+            headers={TIMELINE_EXPORT_HEADERS}
+            rows={timelineIssueExportRows(done)}
+          />
           {open ? <RiArrowUpSLine size={16} className="text-muted-foreground" /> : <RiArrowDownSLine size={16} className="text-muted-foreground" />}
         </div>
-      </button>
+      </div>
 
       {open && (
         <div className="overflow-x-auto">
@@ -2543,8 +2726,11 @@ function OverduePersonCard({ person, estimateThreshold }: { person: OverduePerso
 
   return (
     <div className="rounded-xl border border-red-200 dark:border-red-800/50 bg-card overflow-hidden shadow-sm">
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setOpen((v) => !v)}
+        onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setOpen((v) => !v); }}
         className="w-full flex items-center justify-between gap-4 px-4 py-3 border-b border-red-100 dark:border-red-900/40 bg-red-50/40 dark:bg-red-950/10 hover:bg-red-50/70 dark:hover:bg-red-950/20 text-left transition-colors cursor-pointer select-none"
       >
         <div className="flex items-center gap-2 min-w-0">
@@ -2559,9 +2745,19 @@ function OverduePersonCard({ person, estimateThreshold }: { person: OverduePerso
           <span className="inline-flex items-center gap-1 rounded-full bg-red-600 text-white text-xs font-bold px-2 py-0.5">
             up to {person.maxDaysOverdue}d late
           </span>
+          <DeveloperExcelButton
+            developerName={person.name}
+            tabName="overdue"
+            headers={["Type", "Key", "Summary", "Status", "Priority", "Due Date", "Estimate", "Days Overdue", "Jira URL"]}
+            rows={person.issues.map((issue) => [
+              issue.issueType, issue.jiraKey, issue.summary, issue.status, issue.priority,
+              issue.dueDate, formatEst(issue.estWorkingDays), issue.daysOverdue,
+              `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`,
+            ])}
+          />
           {open ? <RiArrowUpSLine size={16} className="text-muted-foreground" /> : <RiArrowDownSLine size={16} className="text-muted-foreground" />}
         </div>
-      </button>
+      </div>
 
       {open && (
         <div className="overflow-x-auto">
