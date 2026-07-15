@@ -69,16 +69,20 @@ export default async function BoardDetailPage({ params, searchParams }: Props) {
   // offers a per-member "Track on my board" action so the manager can pull
   // anyone shown here (e.g. a report's sub-team member) onto their own board.
   // Their board's current members seed the "tracked" markers.
-  let addTarget: { boardId: string; boardName: string; memberEmails: string[] } | null = null;
+  let addTarget: {
+    boardId: string;
+    boardName: string;
+    members: { id: string; email: string }[];
+  } | null = null;
   if (viewerBoard && viewerBoard.id !== boardId) {
     const viewerMembers = await db
-      .select({ email: observerBoardMembers.email })
+      .select({ id: observerBoardMembers.id, email: observerBoardMembers.email })
       .from(observerBoardMembers)
       .where(eq(observerBoardMembers.boardId, viewerBoard.id));
     addTarget = {
       boardId: viewerBoard.id,
       boardName: viewerBoard.name,
-      memberEmails: viewerMembers.map((m) => m.email.toLowerCase()),
+      members: viewerMembers.map((m) => ({ ...m, email: m.email.toLowerCase() })),
     };
   }
 

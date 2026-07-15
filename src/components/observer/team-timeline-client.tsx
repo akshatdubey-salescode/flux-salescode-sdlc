@@ -24,6 +24,7 @@ import {
   RiAlarmWarningLine,
   RiCheckLine,
   RiUserAddLine,
+  RiUserUnfollowLine,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -907,24 +908,60 @@ function MemberTeamLink({
 // looking at; flips to a "Tracked" marker once the person is on that board.
 function TrackButton({
   targetName,
+  memberName,
   isTracked,
   onTrack,
+  onRemove,
 }: {
   targetName: string;
+  memberName: string;
   isTracked: boolean;
   onTrack: () => Promise<boolean>;
+  onRemove: () => Promise<boolean>;
 }) {
   const [busy, setBusy] = useState(false);
 
   if (isTracked) {
     return (
-      <span
-        title={`Already on ${targetName}`}
-        className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 whitespace-nowrap"
-      >
-        <RiCheckLine size={12} />
-        Tracked
-      </span>
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <button
+            type="button"
+            disabled={busy}
+            title={`Remove from ${targetName}`}
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-destructive hover:text-destructive/80 transition-colors whitespace-nowrap disabled:opacity-50"
+          >
+            <RiUserUnfollowLine size={12} />
+            Remove from my board
+          </button>
+        </AlertDialogTrigger>
+        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove {memberName} from your board?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove {memberName} from {targetName}. You can add them back later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await onRemove();
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <RiUserUnfollowLine size={14} />
+              Remove from my board
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     );
   }
 
@@ -962,6 +999,8 @@ function MemberTimelineCard({
   addTargetName,
   isTracked,
   onTrack,
+  onRemove,
+  onRemoveFromCurrentBoard,
 }: {
   member: TimelineMember;
   meetings?: { totalMinutes: number; eventCount: number; events: MeetingEvent[] };
@@ -980,6 +1019,10 @@ function MemberTimelineCard({
   isTracked?: boolean;
   /** Add this member to the viewer's board; resolves true on success. */
   onTrack?: () => Promise<boolean>;
+  /** Remove this member from the viewer's board; resolves true on success. */
+  onRemove?: () => Promise<boolean>;
+  /** Request removal when the viewer owns the board currently being shown. */
+  onRemoveFromCurrentBoard?: () => void;
 }) {
   const { counts } = member;
   const [collapsed, setCollapsed] = useState(false);
@@ -1044,12 +1087,28 @@ function MemberTimelineCard({
               </span>
             )}
           </div>
-          {addTargetName && onTrack && (
+          {addTargetName && onTrack && onRemove && (
             <TrackButton
               targetName={addTargetName}
+              memberName={member.name}
               isTracked={isTracked ?? false}
               onTrack={onTrack}
+              onRemove={onRemove}
             />
+          )}
+          {onRemoveFromCurrentBoard && (
+            <button
+              type="button"
+              title="Remove from this board"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemoveFromCurrentBoard();
+              }}
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-destructive hover:text-destructive/80 transition-colors whitespace-nowrap"
+            >
+              <RiUserUnfollowLine size={12} />
+              Remove
+            </button>
           )}
           <MemberTeamLink
             email={member.email}
@@ -2638,11 +2697,11 @@ function OverdueTab({
 // ---------------------------------------------------------------------------
 
 export type AddTarget = {
-  /** Board the viewer manages — where "Track on my board" adds people. */
+  /** Board the viewer manages — where people can be tracked or removed. */
   boardId: string;
   boardName: string;
-  /** Lowercased emails already on that board (to mark members as tracked). */
-  memberEmails: string[];
+  /** Current members provide both tracked state and the id needed for removal. */
+  members: { id: string; email: string }[];
 };
 
 type Props = {
@@ -2665,17 +2724,22 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
   // Members already on the viewer's own board, straight from the server — read
   // from props each render so navigating between boards never goes stale.
   const serverTracked = useMemo(
-    () => new Set((addTarget?.memberEmails ?? []).map((e) => e.toLowerCase())),
+    () => new Map((addTarget?.members ?? []).map((m) => [m.email.toLowerCase(), m.id])),
     [addTarget]
   );
-  // People the viewer added during THIS session (optimistic, additive only).
-  const [locallyTracked, setLocallyTracked] = useState<Set<string>>(new Set());
-  const isTracked = useCallback(
+  // Session changes override the server snapshot. A null id means the member
+  // was removed; a string id means they were added.
+  const [localTrackedOverrides, setLocalTrackedOverrides] = useState<Map<string, string | null>>(
+    new Map()
+  );
+  const trackedMemberId = useCallback(
     (email: string) => {
       const e = email.toLowerCase();
-      return serverTracked.has(e) || locallyTracked.has(e);
+      return localTrackedOverrides.has(e)
+        ? localTrackedOverrides.get(e) ?? null
+        : serverTracked.get(e) ?? null;
     },
-    [serverTracked, locallyTracked]
+    [serverTracked, localTrackedOverrides]
   );
 
   // The target only makes sense when it's a DIFFERENT board than the one shown
@@ -2691,9 +2755,18 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: m.name, email: m.email }),
         });
-        // 409 = already a member; treat as success so the UI reflects reality.
-        if (res.ok || res.status === 409) {
-          setLocallyTracked((prev) => new Set(prev).add(m.email.toLowerCase()));
+        const result = (await res.json().catch(() => ({}))) as {
+          id?: string;
+          memberId?: string;
+          error?: string;
+        };
+        // 409 = already a member; the API returns its id so removal remains
+        // available even if another request added the person first.
+        if ((res.ok && result.id) || (res.status === 409 && result.memberId)) {
+          const memberId = result.id ?? result.memberId!;
+          setLocalTrackedOverrides((prev) =>
+            new Map(prev).set(m.email.toLowerCase(), memberId)
+          );
           toast.success(
             res.status === 409
               ? `${m.name} is already on ${addTarget.boardName}`
@@ -2701,8 +2774,7 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
           );
           return true;
         }
-        const err = (await res.json().catch(() => ({}))) as { error?: string };
-        toast.error(err.error ?? "Failed to add member");
+        toast.error(result.error ?? "Failed to add member");
         return false;
       } catch {
         toast.error("Failed to add member");
@@ -2710,6 +2782,37 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
       }
     },
     [addTarget]
+  );
+
+  const removeFromMyBoard = useCallback(
+    async (m: { name: string; email: string }): Promise<boolean> => {
+      if (!addTarget) return false;
+      const memberId = trackedMemberId(m.email);
+      if (!memberId) {
+        toast.error(`${m.name} is no longer on ${addTarget.boardName}`);
+        return false;
+      }
+      try {
+        const res = await fetch(
+          `/api/observer/boards/${addTarget.boardId}/members/${memberId}`,
+          { method: "DELETE" }
+        );
+        if (res.ok) {
+          setLocalTrackedOverrides((prev) =>
+            new Map(prev).set(m.email.toLowerCase(), null)
+          );
+          toast.success(`Removed ${m.name} from ${addTarget.boardName}`);
+          return true;
+        }
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(err.error ?? "Failed to remove member");
+        return false;
+      } catch {
+        toast.error("Failed to remove member");
+        return false;
+      }
+    },
+    [addTarget, trackedMemberId]
   );
 
   // --- derive filter from URL params ---
@@ -2983,8 +3086,13 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
                             parentBoardId={boardId}
                             parentBoardName={name}
                             addTargetName={canTrack ? addTarget!.boardName : undefined}
-                            isTracked={isTracked(member.email)}
+                            isTracked={!!trackedMemberId(member.email)}
                             onTrack={canTrack ? () => trackOnMyBoard(member) : undefined}
+                            onRemove={canTrack ? () => removeFromMyBoard(member) : undefined}
+                            onRemoveFromCurrentBoard={onRemoveMember
+                              ? () => onRemoveMember(member.email)
+                              : undefined
+                            }
                           />
                         ))}
                       </div>

@@ -56,7 +56,22 @@ export async function POST(request: Request, { params }: Params) {
       .returning();
 
     if (!member) {
-      return NextResponse.json({ error: "Member already exists on this board" }, { status: 409 });
+      const [existingMember] = await db
+        .select({ id: observerBoardMembers.id })
+        .from(observerBoardMembers)
+        .where(
+          and(
+            eq(observerBoardMembers.boardId, boardId),
+            eq(observerBoardMembers.email, email.trim().toLowerCase())
+          )
+        );
+      return NextResponse.json(
+        {
+          error: "Member already exists on this board",
+          memberId: existingMember?.id,
+        },
+        { status: 409 }
+      );
     }
 
     // Resolve Jira accountId in the background when the caller didn't

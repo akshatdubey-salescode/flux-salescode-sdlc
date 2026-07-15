@@ -175,14 +175,23 @@ export function BoardDetailClient({ board, initialMembers, isOwner, addTarget }:
 
   async function handleRemove() {
     if (!removeMember) return;
-    const res = await fetch(
-      `/api/observer/boards/${board.id}/members/${removeMember.id}`,
-      { method: "DELETE" }
-    );
-    if (res.ok) {
-      setMembers((prev) => prev.filter((m) => m.id !== removeMember.id));
+    try {
+      const res = await fetch(
+        `/api/observer/boards/${board.id}/members/${removeMember.id}`,
+        { method: "DELETE" }
+      );
+      if (res.ok) {
+        setMembers((prev) => prev.filter((m) => m.id !== removeMember.id));
+        toast.success(`Removed ${removeMember.name} from ${board.name}`);
+      } else {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(err.error ?? "Failed to remove member");
+      }
+    } catch {
+      toast.error("Failed to remove member");
+    } finally {
+      setRemoveMember(null);
     }
-    setRemoveMember(null);
   }
 
 
@@ -234,6 +243,7 @@ export function BoardDetailClient({ board, initialMembers, isOwner, addTarget }:
             </TabsList>
             <TabsContent value="timeline" className="outline-none">
               <TeamTimelineClient
+                key={members.map((member) => member.id).sort().join(",")}
                 boardId={board.id}
                 name={board.name}
                 addTarget={addTarget}
