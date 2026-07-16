@@ -21,6 +21,7 @@ import {
   RiArrowDownLine,
   RiExternalLinkLine,
 } from "@remixicon/react";
+import { ProjectDelayPanel } from "@/components/delay-tracker/project-delay-panel";
 
 type ProjectDashboardData = {
   projectHealth: {
@@ -82,6 +83,9 @@ export function ProjectOverviewDashboard({ projectId }: { projectId: string }) {
             staleIssues={data.staleIssues}
             jiraBaseUrl={data.jiraBaseUrl}
           />
+        </div>
+        <div className="xl:col-span-2">
+          <ProjectDelayPanel projectId={projectId} />
         </div>
       </div>
     </div>

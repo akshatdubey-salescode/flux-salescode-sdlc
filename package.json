@@ -5,7 +5,7 @@
   "scripts": {
     "prepare": "husky || true; git rev-parse --git-dir >/dev/null 2>&1 && git config user.name 'Akshat Dubey' && git config user.email 'akshat.dubey@salescode.ai' || true",
     "dev": "next dev",
-    "build": "next build",
+    "build": "bash scripts/build.sh",
     "start": "next start",
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",

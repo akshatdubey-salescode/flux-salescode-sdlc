@@ -7,6 +7,7 @@ import {
   RiInboxLine,
   RiDeleteBin6Line,
 } from "@remixicon/react";
+import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 
 type ActiveIssue = {
   jiraIssueId: string;
@@ -228,6 +229,7 @@ function IssueRow({ issue }: { issue: ActiveIssue }) {
                 <span className={priorityColor(issue.priority)}>{issue.priority}</span>
               </>
             )}
+            <DelayLogButton issueId={issue.jiraIssueId} />
           </div>
         </div>
       </div>

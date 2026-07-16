@@ -18,6 +18,7 @@ import { RiDownload2Line, RiLayoutColumnLine } from "@remixicon/react";
 import { UserInsightsDashboard } from "./user-insights-dashboard";
 import { MyMeetings } from "./my-meetings";
 import { BugTracker } from "@/components/bug-summary";
+import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import { usePinnedTasks } from "./use-pinned-tasks";
 import {
   useColumnVisibility,
@@ -116,7 +117,7 @@ function readFilters(
 
 export function MyTasksView({
   targetEmail,
-  renderIssueActions,
+  renderIssueActions = (issue) => <DelayLogButton issueId={issue.id} />,
   hideTabs = false,
 }: {
   targetEmail?: string;

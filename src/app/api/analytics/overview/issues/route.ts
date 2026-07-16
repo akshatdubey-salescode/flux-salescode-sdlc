@@ -61,6 +61,7 @@ export type OverviewBucket =
   | "unplanned";
 
 type IssueRow = {
+  id: string;
   jira_key: string;
   summary: string;
   status: string;
@@ -76,6 +77,7 @@ type IssueRow = {
 };
 
 export type OverviewIssue = {
+  id: string;
   jiraKey: string;
   summary: string;
   status: string;
@@ -132,6 +134,7 @@ async function fetchBucketIssues(
 
   const res = await db.execute(sql`
     SELECT
+      ji.id,
       ji.jira_key,
       ji.summary,
       ji.status,
@@ -166,6 +169,7 @@ async function fetchBucketIssues(
     const startDate = extractStartDate(cf, raw.start_date_field_ids);
 
     const base = {
+      id: raw.id,
       jiraKey: raw.jira_key,
       summary: raw.summary,
       status: raw.status,

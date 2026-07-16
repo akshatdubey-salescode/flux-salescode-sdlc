@@ -64,6 +64,8 @@ import {
   currentFiscalQuarterChip,
   type QuarterChip,
 } from "@/lib/date-utils";
+import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
+import type { DelayAnalyticsResponse, DelayLeader } from "@/app/api/analytics/delays/route";
 
 const flowConfig: ChartConfig = {
   completed: { label: "Completed", color: "var(--chart-1)" },
@@ -80,6 +82,7 @@ export function ExecutiveDashboard() {
   const [boards, setBoards] = useState<{ boards: BoardSummary[] } | null>(null);
   const [committers, setCommitters] = useState<CommittersResponse | null>(null);
   const [linesOfCode, setLinesOfCode] = useState<LinesOfCodeResponse | null>(null);
+  const [delays, setDelays] = useState<DelayAnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
   const [quarter, setQuarter] = useState<QuarterChip | null>(null);
@@ -131,12 +134,14 @@ export function ExecutiveDashboard() {
       getJson(`/api/analytics/workload/boards?${boardParams}`),
       getJson(`/api/analytics/committers?${committerParams}`),
       getJson(`/api/analytics/lines-of-code?${committerParams}`),
-    ]).then(([o, t, b, c, l]) => {
+      getJson(`/api/analytics/delays`),
+    ]).then(([o, t, b, c, l, d]) => {
       if (o.status === "fulfilled") setData(o.value);
       if (t.status === "fulfilled") setThroughput(t.value);
       if (b.status === "fulfilled") setBoards(b.value);
       if (c.status === "fulfilled") setCommitters(c.value);
       if (l.status === "fulfilled") setLinesOfCode(l.value);
+      if (d.status === "fulfilled") setDelays(d.value);
       setLoading(false);
     });
   }, [quarter, reloadKey]);
@@ -247,6 +252,18 @@ export function ExecutiveDashboard() {
             <TopNetLocCard people={linesOfCode?.people ?? []} />
             <TopTeamsCard boards={boards?.boards ?? []} />
             <TopProjectsCard projects={data.topProjects} />
+            <TopDelayLeaderboard
+              title="Top Delay Reasons · Projects"
+              info="Projects with the most logged delay entries. The subtitle shows each project's single most common reason."
+              emptyMessage="No delays logged yet"
+              leaders={delays?.byProject ?? []}
+            />
+            <TopDelayLeaderboard
+              title="Top Delay Reasons · People"
+              info="People most often named as responsible for a logged delay. The subtitle shows their single most common reason."
+              emptyMessage="No delays logged yet"
+              leaders={delays?.byUser ?? []}
+            />
           </div>
         </div>
       )}
@@ -330,6 +347,7 @@ function BucketDialog({
                 <col className="w-[140px]" />
                 <col className="w-[140px]" />
                 <col className="w-[104px]" />
+                <col className="w-[40px]" />
               </colgroup>
               <thead className="sticky top-0 bg-muted/80 backdrop-blur">
                 <tr className="border-b border-border">
@@ -338,11 +356,12 @@ function BucketDialog({
                   <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Assignee</th>
                   <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Project</th>
                   <th className="px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Due</th>
+                  <th className="px-2 py-2" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">
                 {issues.map((it) => (
-                  <tr key={it.jiraKey} className="hover:bg-muted/30 transition-colors">
+                  <tr key={it.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-3 py-2">
                       <a
                         href={it.jiraUrl}
@@ -358,6 +377,7 @@ function BucketDialog({
                     <td className="px-3 py-2 text-muted-foreground"><span className="block truncate" title={it.assigneeName ?? "Unassigned"}>{it.assigneeName ?? "Unassigned"}</span></td>
                     <td className="px-3 py-2 text-muted-foreground"><span className="block truncate" title={it.projectName}>{it.projectName}</span></td>
                     <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums"><DueLabel issue={it} /></td>
+                    <td className="px-2 py-2"><DelayLogButton issueId={it.id} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -758,6 +778,27 @@ function TopTeamsCard({ boards }: { boards: BoardSummary[] }) {
       items={items}
     />
   );
+}
+
+function TopDelayLeaderboard({
+  title,
+  info,
+  emptyMessage,
+  leaders,
+}: {
+  title: string;
+  info: string;
+  emptyMessage: string;
+  leaders: DelayLeader[];
+}) {
+  const items: LeaderItem[] = leaders.map((l) => ({
+    key: l.key,
+    primary: l.name,
+    secondary: `${l.topCategory} · ${l.topCategoryCount}`,
+    value: l.total,
+    href: l.href,
+  }));
+  return <LeaderboardCard title={title} info={info} emptyMessage={emptyMessage} items={items} />;
 }
 
 function TopProjectsCard({ projects }: { projects: TopProject[] }) {

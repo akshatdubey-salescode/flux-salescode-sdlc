@@ -39,6 +39,7 @@ import type {
   AvailabilityScope,
   AvailabilityMode,
 } from "@/app/api/analytics/availability/route";
+import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 
 type Props = {
   projects: { id: string; name: string }[];
@@ -659,20 +660,22 @@ function PersonRow({
       {mode === "range" && open && hasConflicts && (
         <div className="space-y-1 bg-muted/20 px-4 py-2">
           {person.conflicts!.map((c) => (
-            <a
-              key={c.jiraKey}
-              href={c.jiraUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group flex items-center gap-2 text-xs"
-            >
-              <span className="font-mono font-medium text-primary group-hover:underline">{c.jiraKey}</span>
-              <span className="min-w-0 flex-1 truncate text-muted-foreground">{c.summary}</span>
-              <span className="shrink-0 tabular-nums text-muted-foreground/80">
-                {fmt(c.start)} – {fmt(c.due)}
-              </span>
-              <RiExternalLinkLine className="size-3 shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground" />
-            </a>
+            <div key={c.id} className="group flex items-center gap-2 text-xs">
+              <a
+                href={c.jiraUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex min-w-0 flex-1 items-center gap-2"
+              >
+                <span className="font-mono font-medium text-primary group-hover:underline">{c.jiraKey}</span>
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">{c.summary}</span>
+                <span className="shrink-0 tabular-nums text-muted-foreground/80">
+                  {fmt(c.start)} – {fmt(c.due)}
+                </span>
+                <RiExternalLinkLine className="size-3 shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground" />
+              </a>
+              <DelayLogButton issueId={c.id} />
+            </div>
           ))}
         </div>
       )}

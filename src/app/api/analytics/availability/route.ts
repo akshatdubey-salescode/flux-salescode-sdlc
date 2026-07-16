@@ -53,6 +53,7 @@ export type AvailabilityScope = "project" | "team" | "global" | "people";
 export type AvailabilityMode = "range" | "duration";
 
 export type ConflictTask = {
+  id: string;
   jiraKey: string;
   summary: string;
   projectName: string;
@@ -89,6 +90,7 @@ export type AvailabilityResponse = {
 type Person = { email: string; name: string };
 
 type TaskRow = {
+  id: string;
   jira_key: string;
   summary: string;
   status_category: string | null;
@@ -208,6 +210,7 @@ async function fetchAvailability(opts: {
   const rows = (
     await db.execute(sql`
       SELECT
+        ji.id,
         ji.jira_key,
         ji.summary,
         ji.status_category,
@@ -263,6 +266,7 @@ async function fetchAvailability(opts: {
         // so no staleness cutoff here — same as the dashboard's active/overdue.
         bucket.intervals.push({ start: startDate, due: dueDate });
         bucket.conflicts.push({
+          id: r.id,
           jiraKey: r.jira_key,
           summary: r.summary,
           projectName: r.project_name,

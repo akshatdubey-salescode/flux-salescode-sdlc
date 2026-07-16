@@ -36,6 +36,7 @@ import {
   type BugPriorityBucket,
 } from "@/lib/bug-summary";
 import { DateRangeBar } from "./date-range-bar";
+import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 
 type Props = {
   /** GET endpoint returning { bugs: BugRow[] }; receives ?start&end (+extraParams). */
@@ -726,12 +727,13 @@ export function BugTracker({
                       <SortHeader label="Environment" col="environment" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-28" />
                       <SortHeader label="Status" col="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-36" />
                       <SortHeader label="Updated" col="updated" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-24 text-right" />
+                      <th className="w-10 px-2 py-2" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/80">
                     {detailPageItems.length === 0 ? (
                       <tr>
-                        <td colSpan={showProject ? 9 : 8} className="px-4 py-12 text-center text-zinc-400">
+                        <td colSpan={showProject ? 10 : 9} className="px-4 py-12 text-center text-zinc-400">
                           No bugs match the current filters.
                         </td>
                       </tr>
@@ -853,6 +855,9 @@ export function BugTracker({
                             </td>
                             <td className="px-3 py-2 text-right text-zinc-400">
                               {formatRelativeTime(b.jiraUpdatedAt)}
+                            </td>
+                            <td className="px-2 py-2">
+                              <DelayLogButton issueId={b.id} />
                             </td>
                           </tr>
                         );
