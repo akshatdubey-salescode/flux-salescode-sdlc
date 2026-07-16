@@ -28,6 +28,7 @@ import {
   RiDownload2Line,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
+import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -910,6 +911,9 @@ function TimelineTableRow({ issue, estimateThreshold }: { issue: TimelineIssue; 
       <td className="px-3 py-2.5 text-right whitespace-nowrap text-xs">
         {daysText ? <span className={daysColor}>{daysText}</span> : <span className="text-muted-foreground/30">—</span>}
       </td>
+      <td className="px-2 py-2.5">
+        <DelayLogButton issueId={issue.id} />
+      </td>
     </tr>
   );
 }
@@ -1329,6 +1333,7 @@ function MemberTimelineCard({
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-36">Dates</th>
                   <th className="px-3 py-2.5 text-right font-medium text-muted-foreground w-20">Est</th>
                   <th className="px-3 py-2.5 text-right font-medium text-muted-foreground w-32">Remaining</th>
+                  <th className="w-10 px-2 py-2.5" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -1543,6 +1548,9 @@ function UnplannedTableRow({ issue, preview }: { issue: UnplannedIssue; preview?
                 </span>
               );
             })()}
+          </td>
+          <td className="px-2 py-2">
+            <DelayLogButton issueId={issue.id} />
           </td>
         </>
       )}
@@ -1887,12 +1895,13 @@ function UnplannedPersonTable({
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-24">Start</th>
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-24">Due</th>
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-28">Assigned</th>
+                  <th className="w-10 px-2 py-2.5" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {pageItems.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-6 text-center text-xs text-muted-foreground">
+                    <td colSpan={9} className="px-4 py-6 text-center text-xs text-muted-foreground">
                       No issues match your search.
                     </td>
                   </tr>
@@ -2190,6 +2199,9 @@ function AtRiskIssueRow({ issue, estimateThreshold }: { issue: AtRiskIssueItem; 
         <span className={urgencyColor}>{formatHoursRemaining(issue.remainingWorkingHours)}</span>
         <span className="ml-1 text-muted-foreground">({Math.round(issue.percentRemaining)}%)</span>
       </td>
+      <td className="px-2 py-2.5">
+        <DelayLogButton issueId={issue.id} />
+      </td>
     </tr>
   );
 }
@@ -2246,6 +2258,7 @@ function AtRiskPersonCard({ person, estimateThreshold }: { person: AtRiskPersonG
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date Range</th>
                 <th className="px-3 py-2 text-right font-medium text-muted-foreground w-20">Est</th>
                 <th className="px-3 py-2 text-right font-medium text-muted-foreground">Time Left</th>
+                <th className="w-10 px-2 py-2" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -2431,6 +2444,7 @@ function ActivePersonCard({ member, estimateThreshold }: { member: TimelineMembe
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date Range</th>
                 <th className="px-3 py-2 text-right font-medium text-muted-foreground w-20">Est</th>
                 <th className="px-3 py-2 text-right font-medium text-muted-foreground">Time</th>
+                <th className="w-10 px-2 py-2" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -2639,6 +2653,7 @@ function CompletedPersonCard({ member, estimateThreshold }: { member: TimelineMe
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Priority</th>
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date Range</th>
                 <th className="px-3 py-2 text-right font-medium text-muted-foreground w-20">Est</th>
+                <th className="w-10 px-2 py-2" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -2717,6 +2732,9 @@ function OverdueIssueRow({ issue, estimateThreshold }: { issue: OverdueIssueItem
       <td className="px-3 py-2.5 text-right whitespace-nowrap text-xs font-semibold text-red-600 dark:text-red-400">
         {issue.daysOverdue}d overdue
       </td>
+      <td className="px-2 py-2.5">
+        <DelayLogButton issueId={issue.id} />
+      </td>
     </tr>
   );
 }
@@ -2772,6 +2790,7 @@ function OverduePersonCard({ person, estimateThreshold }: { person: OverduePerso
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Due Date</th>
                 <th className="px-3 py-2 text-right font-medium text-muted-foreground w-20">Est</th>
                 <th className="px-3 py-2 text-right font-medium text-muted-foreground">Overdue By</th>
+                <th className="w-10 px-2 py-2" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -3407,6 +3426,7 @@ function UnassignedTab({ projectId, quarterStart, quarterEnd }: { projectId: str
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">Status</th>
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">Priority</th>
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">Created</th>
+                  <th className="w-10 px-2 py-2.5" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -3444,6 +3464,9 @@ function UnassignedTab({ projectId, quarterStart, quarterEnd }: { projectId: str
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">
                         {issue.createdAt ? formatDisplayDate(issue.createdAt.slice(0, 10)) : "—"}
+                      </td>
+                      <td className="px-2 py-2.5">
+                        <DelayLogButton issueId={issue.id} />
                       </td>
                     </tr>
                   );

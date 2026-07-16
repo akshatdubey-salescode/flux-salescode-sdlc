@@ -11,6 +11,7 @@ import { loadKekaDirectory, tenureDays } from "@/lib/keka/directory";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type ClosedIssue = {
+  id: string;
   jiraKey: string;
   summary: string;
   projectName: string;
@@ -55,6 +56,7 @@ export type ThroughputResponse = {
 };
 
 type IssueRow = {
+  id: string;
   jira_key: string;
   summary: string;
   completed_at: string | Date | null;
@@ -120,6 +122,7 @@ async function fetchThroughput(opts: {
   const rows = (
     await db.execute(sql`
       SELECT
+        ji.id,
         ji.jira_key,
         ji.summary,
         ji.completed_at,
@@ -165,6 +168,7 @@ async function fetchThroughput(opts: {
     const completedAt = toDateStr(r.completed_at) ?? opts.start;
     const jiraUrl = `${r.jira_base_url.replace(/\/$/, "")}/browse/${r.jira_key}`;
     const base = {
+      id: r.id,
       jiraKey: r.jira_key,
       summary: r.summary,
       projectName: r.project_name,

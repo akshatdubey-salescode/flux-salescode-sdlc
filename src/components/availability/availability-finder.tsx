@@ -39,6 +39,7 @@ import type {
   AvailabilityScope,
   AvailabilityMode,
 } from "@/app/api/analytics/availability/route";
+import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 
 type Props = {
   projects: { id: string; name: string }[];
@@ -660,7 +661,7 @@ function PersonRow({
         <div className="space-y-1 bg-muted/20 px-4 py-2">
           {person.conflicts!.map((c) => (
             <a
-              key={c.jiraKey}
+              key={c.id}
               href={c.jiraUrl}
               target="_blank"
               rel="noopener noreferrer"
@@ -672,6 +673,7 @@ function PersonRow({
                 {fmt(c.start)} – {fmt(c.due)}
               </span>
               <RiExternalLinkLine className="size-3 shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground" />
+              <DelayLogButton issueId={c.id} />
             </a>
           ))}
         </div>

@@ -1329,3 +1329,70 @@ export const performanceScorecards = pgTable(
 export type PerformanceScorecard = typeof performanceScorecards.$inferSelect;
 export type NewPerformanceScorecard = typeof performanceScorecards.$inferInsert;
 
+// ---------------------------------------------------------------------------
+// Delay Logs — scrum-master-recorded reasons for why a task/bug is delayed.
+// Append-only history: an issue can accrue many entries over its lifetime, one
+// per delay event, rather than a single open/resolve flag. `linkedProjectId`/
+// `linkedIssueId` are set only for the two "other project" categories, where
+// the delay is attributed to a task/bug in a different project.
+// ---------------------------------------------------------------------------
+
+export const delayReasonCategoryEnum = pgEnum("delay_reason_category", [
+  "leave",
+  "third_party_dependency",
+  "person_dependency",
+  "dev_delay",
+  "qa_delay",
+  "resource_unavailability",
+  "env_unavailability",
+  "other_project_task",
+  "other_project_bug",
+  "estimate_low",
+  "other",
+]);
+
+export const delayLogs = pgTable(
+  "delay_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    issueId: uuid("issue_id")
+      .notNull()
+      .references(() => jiraIssues.id, { onDelete: "cascade" }),
+    // Denormalized for fast project-wise analytics without joining through the issue.
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => jiraProjects.id, { onDelete: "cascade" }),
+    category: delayReasonCategoryEnum("category").notNull(),
+    delayDate: date("delay_date").notNull(),
+    // Person responsible for this specific delay — defaults to the issue's
+    // resolved owner in the UI, but editable per entry, so it's captured here
+    // (not just derived from the issue) to preserve history if ownership changes.
+    responsibleEmail: text("responsible_email"),
+    responsibleName: text("responsible_name"),
+    note: text("note"),
+    // Set only when category is 'other_project_task' / 'other_project_bug'.
+    linkedProjectId: uuid("linked_project_id").references(() => jiraProjects.id, {
+      onDelete: "set null",
+    }),
+    linkedIssueId: uuid("linked_issue_id").references(() => jiraIssues.id, {
+      onDelete: "set null",
+    }),
+    loggedBy: text("logged_by")
+      .notNull()
+      .references(() => users.id),
+    loggedByName: text("logged_by_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("delay_logs_issue_idx").on(t.issueId),
+    index("delay_logs_project_idx").on(t.projectId),
+    index("delay_logs_responsible_idx").on(t.responsibleEmail),
+    index("delay_logs_category_idx").on(t.category),
+  ]
+);
+
+export type DelayLog = typeof delayLogs.$inferSelect;
+export type NewDelayLog = typeof delayLogs.$inferInsert;
+export type DelayReasonCategory = (typeof delayReasonCategoryEnum.enumValues)[number];
+

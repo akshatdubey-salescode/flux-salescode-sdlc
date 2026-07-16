@@ -30,6 +30,7 @@ import type {
   ThroughputResponse,
   PersonThroughput,
 } from "@/app/api/analytics/throughput/route";
+import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 
 type Props = {
   people: { email: string; name: string }[];
@@ -336,7 +337,7 @@ function PersonRow({ person, max }: { person: PersonThroughput; max: number }) {
         <div className="space-y-1 bg-muted/20 px-4 py-2">
           {person.issues.map((i) => (
             <a
-              key={i.jiraKey}
+              key={i.id}
               href={i.jiraUrl}
               target="_blank"
               rel="noopener noreferrer"
@@ -363,6 +364,7 @@ function PersonRow({ person, max }: { person: PersonThroughput; max: number }) {
                 {fmt(i.completedAt)}
               </span>
               <RiExternalLinkLine className="size-3 shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground" />
+              <DelayLogButton issueId={i.id} />
             </a>
           ))}
         </div>
