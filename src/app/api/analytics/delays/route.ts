@@ -18,8 +18,9 @@ export type DelayAnalyticsResponse = {
  * row also surfaces its single most common reason category.
  */
 export async function GET() {
+  await requireAuth();
+
   try {
-    await requireAuth();
     const data = await fetchDelayAnalytics();
     return NextResponse.json(data);
   } catch (error) {

@@ -7,17 +7,19 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { localDateStr } from "@/lib/date-utils";
-import { DELAY_CATEGORIES, OTHER_PROJECT_CATEGORIES, type DelayCategoryValue } from "./categories";
+import { DELAY_CATEGORIES, OTHER_PROJECT_CATEGORIES, type DelayCategoryValue } from "@/lib/delay-tracker/categories";
 import { PersonPicker } from "./person-picker";
 import { LinkedIssuePicker, type LinkedIssue } from "./linked-issue-picker";
 import type { DelayLogEntry } from "@/app/api/delay-tracker/issue/[issueId]/route";
 
 export function AddDelayForm({
   issueId,
+  projectId,
   defaultResponsible,
   onCreated,
 }: {
   issueId: string;
+  projectId: string;
   defaultResponsible: { email: string | null; name: string | null };
   onCreated: (entry: DelayLogEntry) => void;
 }) {
@@ -110,7 +112,11 @@ export function AddDelayForm({
       {needsLink && (
         <div className="space-y-1">
           <Label className="text-[11px] text-muted-foreground">Linked project + issue</Label>
-          <LinkedIssuePicker value={linked} onChange={setLinked} />
+          <LinkedIssuePicker
+            value={linked}
+            onChange={setLinked}
+            excludedProjectId={projectId}
+          />
         </div>
       )}
 

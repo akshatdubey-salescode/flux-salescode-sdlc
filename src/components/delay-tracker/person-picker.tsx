@@ -11,6 +11,7 @@ type Person = { email: string; name: string };
 
 async function searchPeople(query: string): Promise<Person[]> {
   const res = await fetch(`/api/observer/developers?q=${encodeURIComponent(query)}&limit=10`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = (await res.json()) as { email: string; name: string }[];
   return data.map((d) => ({ email: d.email, name: d.name }));
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { categoryLabel } from "./categories";
+import { categoryLabel } from "@/lib/delay-tracker/categories";
 import { CategoryDonut } from "./category-donut";
 
 type Props = { history: { category: string }[] };

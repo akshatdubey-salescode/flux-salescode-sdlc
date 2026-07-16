@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 
 /**
- * Runs `search(query)` 250ms after `query` (or any of `deps`) last changed,
+ * Runs `search(query)` 250ms after `query` (or `dependency`) last changed,
  * only while `active` — shared by PersonPicker and LinkedIssuePicker's
  * Popover-driven search-selects so the debounce/cleanup logic lives in one
  * place instead of two near-identical copies.
@@ -12,22 +12,30 @@ export function useDebouncedSearch<T>(
   active: boolean,
   query: string,
   search: (query: string) => Promise<T[]>,
-  deps: unknown[] = []
+  dependency?: unknown
 ): T[] {
   const [results, setResults] = useState<T[]>([]);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const runSearch = useEffectEvent(search);
 
   useEffect(() => {
     if (!active) return;
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      search(query)
-        .then(setResults)
-        .catch(() => setResults([]));
+
+    let cancelled = false;
+    const timeout = setTimeout(() => {
+      runSearch(query)
+        .then((nextResults) => {
+          if (!cancelled) setResults(nextResults);
+        })
+        .catch(() => {
+          if (!cancelled) setResults([]);
+        });
     }, 250);
-    return () => clearTimeout(debounceRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `deps` is a fixed-shape array per call site (e.g. always [projectId])
-  }, [active, query, ...deps]);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [active, query, dependency]);
 
   return results;
 }

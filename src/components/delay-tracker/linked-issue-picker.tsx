@@ -20,9 +20,11 @@ export type LinkedIssue = { projectId: string; issueId: string; jiraKey: string;
 export function LinkedIssuePicker({
   value,
   onChange,
+  excludedProjectId,
 }: {
   value: LinkedIssue | null;
   onChange: (linked: LinkedIssue | null) => void;
+  excludedProjectId: string;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<string>(value?.projectId ?? "");
@@ -31,20 +33,24 @@ export function LinkedIssuePicker({
 
   useEffect(() => {
     fetch("/api/projects")
-      .then((r) => r.json())
-      .then((data: Project[]) => setProjects(data))
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      })
+      .then((data: Project[]) => setProjects(data.filter((project) => project.id !== excludedProjectId)))
       .catch(() => setProjects([]));
-  }, []);
+  }, [excludedProjectId]);
 
   const results = useDebouncedSearch(
     open && !!projectId,
     query,
     async (q) => {
       const res = await fetch(`/api/search?projects=${encodeURIComponent(projectId)}&q=${encodeURIComponent(q)}&pageSize=10`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as { issues: IssueResult[] };
       return data.issues ?? [];
     },
-    [projectId]
+    projectId
   );
 
   const selectedProject = projects.find((p) => p.id === projectId);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { RiAlarmWarningLine, RiExternalLinkLine, RiDeleteBinLine, RiPencilLine, RiCloseLine } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,7 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { DelayTrackerIssueDetail, DelayLogEntry } from "@/app/api/delay-tracker/issue/[issueId]/route";
-import { DELAY_CATEGORIES, OTHER_PROJECT_CATEGORIES, categoryLabel, categoryColor, type DelayCategoryValue } from "./categories";
+import { DELAY_CATEGORIES, OTHER_PROJECT_CATEGORIES, categoryLabel, categoryColor, type DelayCategoryValue } from "@/lib/delay-tracker/categories";
 import { DelayHistoryDonut } from "./delay-history-donut";
 import { AddDelayForm } from "./add-delay-form";
 import { PersonPicker } from "./person-picker";
@@ -32,31 +32,60 @@ export function DelayLogButton({ issueId }: { issueId: string }) {
   const [detail, setDetail] = useState<DelayTrackerIssueDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestRef = useRef<AbortController | null>(null);
 
   // Fetch is triggered from the open-change event, not an effect — nothing
   // runs until the user actually opens the popup for this issue, and there's
   // no risk of cascading synchronous re-renders from setState-in-effect.
   function handleOpenChange(next: boolean) {
     setOpen(next);
-    if (!next) return;
+    requestRef.current?.abort();
+    requestRef.current = null;
+    if (!next) {
+      setLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    requestRef.current = controller;
     setLoading(true);
     setError(null);
-    fetch(`/api/delay-tracker/issue/${issueId}`)
+    fetch(`/api/delay-tracker/issue/${issueId}`, { signal: controller.signal })
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then((d: DelayTrackerIssueDetail) => setDetail(d))
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
+      .then((d: DelayTrackerIssueDetail) => {
+        if (!controller.signal.aborted) setDetail(d);
+      })
+      .catch((e: unknown) => {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        setError(e instanceof Error ? e.message : "Failed to load");
+      })
+      .finally(() => {
+        if (requestRef.current !== controller) return;
+        requestRef.current = null;
+        setLoading(false);
+      });
   }
 
   function handleCreated(entry: DelayLogEntry) {
-    setDetail((prev) => (prev ? { ...prev, history: [entry, ...prev.history] } : prev));
+    setDetail((prev) =>
+      prev ? { ...prev, history: sortHistory([entry, ...prev.history]) } : prev
+    );
   }
   function handleUpdated(entry: DelayLogEntry) {
     setDetail((prev) =>
-      prev ? { ...prev, history: prev.history.map((h) => (h.id === entry.id ? entry : h)) } : prev
+      prev
+        ? {
+            ...prev,
+            history: sortHistory(
+              prev.history.map((historyEntry) =>
+                historyEntry.id === entry.id ? entry : historyEntry
+              )
+            ),
+          }
+        : prev
     );
   }
   function handleDeleted(id: string) {
@@ -104,6 +133,7 @@ export function DelayLogButton({ issueId }: { issueId: string }) {
         */}
         {loading && !detail && <DelayTrackerSkeleton />}
         {error && !detail && <p className="text-xs text-destructive">Failed to load: {error}</p>}
+        {error && detail && <p className="text-xs text-destructive">Refresh failed: {error}</p>}
 
         {detail && (
           <div className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
@@ -139,7 +169,13 @@ export function DelayLogButton({ issueId }: { issueId: string }) {
               ) : (
                 <div className="space-y-2">
                   {detail.history.map((entry) => (
-                    <HistoryRow key={entry.id} entry={entry} onUpdated={handleUpdated} onDeleted={handleDeleted} />
+                    <HistoryRow
+                      key={entry.id}
+                      entry={entry}
+                      projectId={detail.issue.projectId}
+                      onUpdated={handleUpdated}
+                      onDeleted={handleDeleted}
+                    />
                   ))}
                 </div>
               )}
@@ -147,6 +183,7 @@ export function DelayLogButton({ issueId }: { issueId: string }) {
 
             <AddDelayForm
               issueId={issueId}
+              projectId={detail.issue.projectId}
               defaultResponsible={detail.defaultResponsible}
               onCreated={handleCreated}
             />
@@ -183,35 +220,46 @@ function DelayTrackerSkeleton() {
 
 function HistoryRow({
   entry,
+  projectId,
   onUpdated,
   onDeleted,
 }: {
   entry: DelayLogEntry;
+  projectId: string;
   onUpdated: (entry: DelayLogEntry) => void;
   onDeleted: (id: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [category, setCategory] = useState<DelayCategoryValue>(entry.category as DelayCategoryValue);
   const [delayDate, setDelayDate] = useState(entry.delayDate);
-  const [responsible, setResponsible] = useState(
-    entry.responsibleEmail ? { email: entry.responsibleEmail, name: entry.responsibleName ?? entry.responsibleEmail } : null
-  );
-  const [linked, setLinked] = useState<LinkedIssue | null>(
-    entry.linkedIssueId && entry.linkedProjectId
-      ? {
-          projectId: entry.linkedProjectId,
-          issueId: entry.linkedIssueId,
-          jiraKey: entry.linkedJiraKey ?? "",
-          summary: entry.linkedSummary ?? "",
-        }
-      : null
-  );
+  const [responsible, setResponsible] = useState(() => responsibleFromEntry(entry));
+  const [linked, setLinked] = useState<LinkedIssue | null>(() => linkedIssueFromEntry(entry));
   const [note, setNote] = useState(entry.note ?? "");
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const needsLink = OTHER_PROJECT_CATEGORIES.has(category);
-  const canSave = !!category && !!delayDate && (!needsLink || !!linked) && !saving;
+  const canSave = !!category && !!delayDate && (!needsLink || !!linked) && !saving && !deleting;
+
+  function resetDraft(source: DelayLogEntry = entry) {
+    setCategory(source.category as DelayCategoryValue);
+    setDelayDate(source.delayDate);
+    setResponsible(responsibleFromEntry(source));
+    setLinked(linkedIssueFromEntry(source));
+    setNote(source.note ?? "");
+    setError(null);
+  }
+
+  function beginEditing() {
+    resetDraft();
+    setEditing(true);
+  }
+
+  function cancelEditing() {
+    resetDraft();
+    setEditing(false);
+  }
 
   async function handleSave() {
     if (!canSave) return;
@@ -222,6 +270,7 @@ function HistoryRow({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          expectedUpdatedAt: entry.updatedAt,
           category,
           delayDate,
           responsibleEmail: responsible?.email ?? null,
@@ -235,8 +284,9 @@ function HistoryRow({
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? `HTTP ${res.status}`);
       }
-      const { log } = await res.json();
-      onUpdated(log as DelayLogEntry);
+      const { log } = (await res.json()) as { log: DelayLogEntry };
+      resetDraft(log);
+      onUpdated(log);
       setEditing(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
@@ -247,8 +297,20 @@ function HistoryRow({
 
   async function handleDelete() {
     if (!confirm("Remove this delay entry?")) return;
-    const res = await fetch(`/api/delay-tracker/logs/${entry.id}`, { method: "DELETE" });
-    if (res.ok) onDeleted(entry.id);
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/delay-tracker/logs/${entry.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      onDeleted(entry.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   if (editing) {
@@ -275,14 +337,20 @@ function HistoryRow({
           />
         </div>
         <PersonPicker value={responsible} onChange={setResponsible} />
-        {needsLink && <LinkedIssuePicker value={linked} onChange={setLinked} />}
+        {needsLink && (
+          <LinkedIssuePicker
+            value={linked}
+            onChange={setLinked}
+            excludedProjectId={projectId}
+          />
+        )}
         <Textarea value={note} onChange={(e) => setNote(e.target.value)} className="min-h-14 text-xs" />
         {error && <p className="text-xs text-destructive">{error}</p>}
         <div className="flex gap-2">
           <Button size="sm" onClick={handleSave} disabled={!canSave} className="flex-1">
             {saving ? "Saving…" : "Save"}
           </Button>
-          <Button size="sm" variant="outline" onClick={() => setEditing(false)}>
+          <Button size="sm" variant="outline" onClick={cancelEditing} disabled={saving}>
             <RiCloseLine className="size-3.5" />
           </Button>
         </div>
@@ -304,10 +372,10 @@ function HistoryRow({
           <span className="text-[11px] text-muted-foreground">{entry.delayDate}</span>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <Button variant="ghost" size="icon-sm" onClick={() => setEditing(true)} title="Edit">
+          <Button variant="ghost" size="icon-sm" onClick={beginEditing} title="Edit" disabled={deleting}>
             <RiPencilLine className="size-3" />
           </Button>
-          <Button variant="ghost" size="icon-sm" onClick={handleDelete} title="Delete">
+          <Button variant="ghost" size="icon-sm" onClick={handleDelete} title="Delete" disabled={deleting}>
             <RiDeleteBinLine className="size-3" />
           </Button>
         </div>
@@ -323,7 +391,35 @@ function HistoryRow({
         </p>
       )}
       {entry.note && <p className="mt-1 text-xs text-muted-foreground">{entry.note}</p>}
+      {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
       <p className="mt-1 text-[10px] text-muted-foreground/70">Logged by {entry.loggedByName ?? entry.loggedBy}</p>
     </div>
+  );
+}
+
+function responsibleFromEntry(entry: DelayLogEntry) {
+  return entry.responsibleEmail
+    ? {
+        email: entry.responsibleEmail,
+        name: entry.responsibleName ?? entry.responsibleEmail,
+      }
+    : null;
+}
+
+function linkedIssueFromEntry(entry: DelayLogEntry): LinkedIssue | null {
+  return entry.linkedIssueId && entry.linkedProjectId
+    ? {
+        projectId: entry.linkedProjectId,
+        issueId: entry.linkedIssueId,
+        jiraKey: entry.linkedJiraKey ?? "",
+        summary: entry.linkedSummary ?? "",
+      }
+    : null;
+}
+
+function sortHistory(history: DelayLogEntry[]): DelayLogEntry[] {
+  return history.sort(
+    (a, b) =>
+      b.delayDate.localeCompare(a.delayDate) || b.createdAt.localeCompare(a.createdAt)
   );
 }

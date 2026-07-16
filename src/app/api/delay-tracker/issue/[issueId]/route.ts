@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth/server";
 import { loadAccountIdEmailMap } from "@/lib/jira/identity";
 import { extractIssueOwnerEmail, extractIssueOwnerName } from "@/lib/jira/scorecard-fields";
-import { fetchDelayLogHistory, type DelayLogEntry } from "@/lib/delay-tracker/entries";
+import { fetchDelayLogHistory, isValidUuid, type DelayLogEntry } from "@/lib/delay-tracker/entries";
 
 export type { DelayLogEntry };
 
@@ -39,6 +39,9 @@ export type DelayTrackerIssueDetail = {
 export async function GET(_req: NextRequest, { params }: Params) {
   await requireAuth();
   const { issueId } = await params;
+  if (!isValidUuid(issueId)) {
+    return NextResponse.json({ error: "issueId must be a valid UUID" }, { status: 400 });
+  }
 
   const [issueRes, history, accountIdEmailMap] = await Promise.all([
     db.execute(sql`

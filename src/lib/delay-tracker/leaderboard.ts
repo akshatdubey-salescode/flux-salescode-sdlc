@@ -1,4 +1,4 @@
-import { categoryLabel } from "@/components/delay-tracker/categories";
+import { categoryLabel } from "@/lib/delay-tracker/categories";
 
 export type DelayLeader = {
   key: string;
@@ -32,6 +32,8 @@ export function rankByKey(
     if (!bucket) {
       bucket = { name, total: 0, categories: new Map() };
       byKey.set(key, bucket);
+    } else if (bucket.name === key && name !== key) {
+      bucket.name = name;
     }
     bucket.total += n;
     bucket.categories.set(category, (bucket.categories.get(category) ?? 0) + n);
@@ -39,7 +41,9 @@ export function rankByKey(
 
   return [...byKey.entries()]
     .map(([key, b]) => {
-      const [topCategory, topCategoryCount] = [...b.categories.entries()].sort((a, c) => c[1] - a[1])[0];
+      const [topCategory, topCategoryCount] = [...b.categories.entries()].sort(
+        (a, c) => c[1] - a[1] || a[0].localeCompare(c[0])
+      )[0];
       return {
         key,
         name: b.name,
@@ -48,6 +52,9 @@ export function rankByKey(
         topCategoryCount,
       };
     })
-    .sort((a, b) => b.total - a.total)
+    .sort(
+      (a, b) =>
+        b.total - a.total || a.name.localeCompare(b.name) || a.key.localeCompare(b.key)
+    )
     .slice(0, limit);
 }

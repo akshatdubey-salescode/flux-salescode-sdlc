@@ -3,8 +3,9 @@ import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { cacheLife, cacheTag } from "next/cache";
 import { requireAuth } from "@/lib/auth/server";
-import { categoryLabel } from "@/components/delay-tracker/categories";
+import { categoryLabel } from "@/lib/delay-tracker/categories";
 import { rankByKey, type DelayLeader } from "@/lib/delay-tracker/leaderboard";
+import { isValidUuid } from "@/lib/delay-tracker/entries";
 
 export type ProjectDelayCategoryCount = { category: string; label: string; count: number };
 
@@ -23,9 +24,13 @@ export async function GET(
   _request: Request,
   props: { params: Promise<{ id: string }> }
 ) {
+  await requireAuth();
+  const { id: projectId } = await props.params;
+  if (!isValidUuid(projectId)) {
+    return NextResponse.json({ error: "Project id must be a valid UUID" }, { status: 400 });
+  }
+
   try {
-    await requireAuth();
-    const { id: projectId } = await props.params;
     const data = await fetchProjectDelayAnalytics(projectId);
     return NextResponse.json(data);
   } catch (error) {
@@ -43,10 +48,14 @@ async function fetchProjectDelayAnalytics(
 
   const rows = (
     await db.execute(sql`
-      SELECT dl.category, dl.responsible_email AS email, dl.responsible_name AS name, COUNT(*)::int AS n
+      SELECT
+        dl.category,
+        dl.responsible_email AS email,
+        MAX(dl.responsible_name) AS name,
+        COUNT(*)::int AS n
       FROM delay_logs dl
       WHERE dl.project_id = ${projectId}
-      GROUP BY dl.category, dl.responsible_email, dl.responsible_name
+      GROUP BY dl.category, dl.responsible_email
     `)
   ).rows as Record<string, unknown>[];
 
@@ -61,7 +70,7 @@ async function fetchProjectDelayAnalytics(
 
   const categoryBreakdown: ProjectDelayCategoryCount[] = [...byCategory.entries()]
     .map(([category, count]) => ({ category, label: categoryLabel(category), count }))
-    .sort((a, b) => b.count - a.count);
+    .sort((a, b) => b.count - a.count || a.category.localeCompare(b.category));
 
   // byUser only makes sense for rows that actually name someone responsible —
   // byCategory above still counts every row, named or not.

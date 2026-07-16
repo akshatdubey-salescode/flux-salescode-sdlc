@@ -6,8 +6,13 @@ import { db } from "@/lib/db";
 import { delayLogs, delayReasonCategoryEnum, jiraIssues } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { authOptions } from "@/lib/auth/nextauth-options";
-import { OTHER_PROJECT_CATEGORIES, type DelayCategoryValue } from "@/components/delay-tracker/categories";
-import { fetchDelayLogEntry, isValidDateString } from "@/lib/delay-tracker/entries";
+import { OTHER_PROJECT_CATEGORIES, type DelayCategoryValue } from "@/lib/delay-tracker/categories";
+import {
+  fetchDelayLogEntry,
+  isValidDateString,
+  isValidUuid,
+  parseOptionalText,
+} from "@/lib/delay-tracker/entries";
 
 const VALID_CATEGORIES = new Set<string>(delayReasonCategoryEnum.enumValues);
 
@@ -25,20 +30,36 @@ export async function POST(req: NextRequest) {
   const issueId = body.issueId;
   const category = body.category;
   const delayDate = body.delayDate;
-  const responsibleEmail = (body.responsibleEmail as string | undefined)?.trim() || null;
-  const responsibleName = (body.responsibleName as string | undefined)?.trim() || null;
-  const note = (body.note as string | undefined)?.trim() || null;
-  const linkedProjectId = (body.linkedProjectId as string | undefined) || null;
-  const linkedIssueId = (body.linkedIssueId as string | undefined) || null;
+  const responsibleEmail = parseOptionalText(body.responsibleEmail) ?? null;
+  const responsibleName = parseOptionalText(body.responsibleName) ?? null;
+  const note = parseOptionalText(body.note) ?? null;
+  const linkedProjectId = parseOptionalText(body.linkedProjectId) ?? null;
+  const linkedIssueId = parseOptionalText(body.linkedIssueId) ?? null;
 
-  if (typeof issueId !== "string" || !issueId) {
-    return NextResponse.json({ error: "issueId is required" }, { status: 400 });
+  if (!isValidUuid(issueId)) {
+    return NextResponse.json({ error: "issueId must be a valid UUID" }, { status: 400 });
   }
   if (typeof category !== "string" || !VALID_CATEGORIES.has(category)) {
     return NextResponse.json({ error: "Invalid category" }, { status: 400 });
   }
   if (!isValidDateString(delayDate)) {
-    return NextResponse.json({ error: "delayDate must be YYYY-MM-DD" }, { status: 400 });
+    return NextResponse.json({ error: "delayDate must be a valid YYYY-MM-DD date" }, { status: 400 });
+  }
+  for (const field of ["responsibleEmail", "responsibleName", "note"] as const) {
+    if (body[field] !== undefined && body[field] !== null && typeof body[field] !== "string") {
+      return NextResponse.json({ error: `${field} must be a string or null` }, { status: 400 });
+    }
+  }
+  for (const field of ["linkedProjectId", "linkedIssueId"] as const) {
+    if (body[field] !== undefined && body[field] !== null && typeof body[field] !== "string") {
+      return NextResponse.json({ error: `${field} must be a UUID string or null` }, { status: 400 });
+    }
+  }
+  if (linkedProjectId && !isValidUuid(linkedProjectId)) {
+    return NextResponse.json({ error: "linkedProjectId must be a valid UUID" }, { status: 400 });
+  }
+  if (linkedIssueId && !isValidUuid(linkedIssueId)) {
+    return NextResponse.json({ error: "linkedIssueId must be a valid UUID" }, { status: 400 });
   }
   const needsLink = OTHER_PROJECT_CATEGORIES.has(category as DelayCategoryValue);
   if (needsLink && (!linkedProjectId || !linkedIssueId)) {
@@ -55,6 +76,26 @@ export async function POST(req: NextRequest) {
     .limit(1);
   if (!issue) {
     return NextResponse.json({ error: "Issue not found" }, { status: 404 });
+  }
+
+  if (needsLink) {
+    const [linkedIssue] = await db
+      .select({ projectId: jiraIssues.projectId })
+      .from(jiraIssues)
+      .where(eq(jiraIssues.id, linkedIssueId!))
+      .limit(1);
+    if (!linkedIssue || linkedIssue.projectId !== linkedProjectId) {
+      return NextResponse.json(
+        { error: "Linked issue does not belong to the linked project" },
+        { status: 400 }
+      );
+    }
+    if (linkedProjectId === issue.projectId) {
+      return NextResponse.json(
+        { error: "Linked project must be different from the delayed issue's project" },
+        { status: 400 }
+      );
+    }
   }
 
   const session = await getServerSession(authOptions);
@@ -88,5 +129,8 @@ export async function POST(req: NextRequest) {
   // linkedProjectName are present immediately, without needing to close and
   // reopen the popup to trigger a real GET.
   const log = await fetchDelayLogEntry(created.id);
+  if (!log) {
+    return NextResponse.json({ error: "Created delay entry could not be loaded" }, { status: 500 });
+  }
   return NextResponse.json({ log }, { status: 201 });
 }

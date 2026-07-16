@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
-import { categoryColor } from "./categories";
+import { categoryColor } from "@/lib/delay-tracker/categories";
 
 export type CategorySlice = { category: string; label: string; value: number };
 

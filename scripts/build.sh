@@ -9,11 +9,11 @@
 # `drizzle-kit migrate` is idempotent — already-applied migrations are
 # skipped — so re-running it on every production deploy is safe even when a
 # deploy has no new migrations.
-set -e
+set -euo pipefail
 
-if [ "$VERCEL_ENV" = "production" ]; then
+if [ "${VERCEL_ENV:-}" = "production" ]; then
   echo "==> Production build: applying pending database migrations"
-  pnpm db:migrate
+  pnpm run db:migrate
 fi
 
-next build
+exec pnpm exec next build

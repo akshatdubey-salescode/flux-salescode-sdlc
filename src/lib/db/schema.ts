@@ -15,6 +15,7 @@ import {
   primaryKey,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { DELAY_CATEGORY_VALUES } from "../delay-tracker/categories";
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -1330,26 +1331,14 @@ export type PerformanceScorecard = typeof performanceScorecards.$inferSelect;
 export type NewPerformanceScorecard = typeof performanceScorecards.$inferInsert;
 
 // ---------------------------------------------------------------------------
-// Delay Logs — scrum-master-recorded reasons for why a task/bug is delayed.
-// Append-only history: an issue can accrue many entries over its lifetime, one
-// per delay event, rather than a single open/resolve flag. `linkedProjectId`/
+// Delay Logs — recorded reasons for why a task/bug is delayed. An issue can
+// accrue many editable entries over its lifetime, one per delay event, rather
+// than a single open/resolve flag. `linkedProjectId`/
 // `linkedIssueId` are set only for the two "other project" categories, where
 // the delay is attributed to a task/bug in a different project.
 // ---------------------------------------------------------------------------
 
-export const delayReasonCategoryEnum = pgEnum("delay_reason_category", [
-  "leave",
-  "third_party_dependency",
-  "person_dependency",
-  "dev_delay",
-  "qa_delay",
-  "resource_unavailability",
-  "env_unavailability",
-  "other_project_task",
-  "other_project_bug",
-  "estimate_low",
-  "other",
-]);
+export const delayReasonCategoryEnum = pgEnum("delay_reason_category", DELAY_CATEGORY_VALUES);
 
 export const delayLogs = pgTable(
   "delay_logs",
@@ -1395,4 +1384,3 @@ export const delayLogs = pgTable(
 export type DelayLog = typeof delayLogs.$inferSelect;
 export type NewDelayLog = typeof delayLogs.$inferInsert;
 export type DelayReasonCategory = (typeof delayReasonCategoryEnum.enumValues)[number];
-
