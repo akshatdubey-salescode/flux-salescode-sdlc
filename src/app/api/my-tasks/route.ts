@@ -10,6 +10,7 @@ import {
   gte,
   lte,
   sql,
+  type SQL,
 } from "drizzle-orm";
 import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
@@ -17,7 +18,12 @@ import { jiraIssues, jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { stampCache, withCacheMetrics, type Stamped } from "@/lib/cache/metrics";
 import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
-import { hasStartDateSql, hasDueDateSql } from "@/lib/jira/planned-sql";
+import {
+  hasStartDateSql,
+  hasDueDateSql,
+  startDateValueSql,
+  dueDateValueSql,
+} from "@/lib/jira/planned-sql";
 
 /** Issue is "planned" only with both a start and a due/end date set. */
 const UNPLANNED_EXPR = sql`NOT (${hasStartDateSql(
@@ -151,11 +157,40 @@ async function fetchMyTasks(
     if (labelsCondition) conditions.push(labelsCondition);
   }
 
-  if (dateFrom) conditions.push(gte(jiraIssues.jiraCreatedAt, new Date(dateFrom)));
-  if (dateTo) {
-    const to = new Date(dateTo);
-    to.setHours(23, 59, 59, 999);
-    conditions.push(lte(jiraIssues.jiraCreatedAt, to));
+  // Quarter / date-range filter. A task belongs to the [dateFrom, dateTo]
+  // window when its PLANNED window (start date → due date) OVERLAPS it —
+  // start ≤ window end AND due ≥ window start — so a task planned for this
+  // period shows here regardless of when its ticket was created, and one that
+  // straddles a quarter boundary shows in both quarters it spans. Tasks without
+  // both a start and a due date have no plan to place, so they fall back to the
+  // prior behavior: their creation date must fall in the window. This keeps
+  // undated tickets from silently disappearing from a quarter view.
+  if (dateFrom || dateTo) {
+    const startVal = startDateValueSql(
+      jiraIssues.customFields,
+      jiraProjects.startDateFieldIds
+    );
+    const dueVal = dueDateValueSql(
+      jiraIssues.customFields,
+      jiraProjects.endDateFieldIds
+    );
+
+    const overlap: SQL[] = [
+      sql`${startVal} IS NOT NULL`,
+      sql`${dueVal} IS NOT NULL`,
+    ];
+    if (dateTo) overlap.push(sql`${startVal} <= ${dateTo}::date`);
+    if (dateFrom) overlap.push(sql`${dueVal} >= ${dateFrom}::date`);
+
+    const fallback: SQL[] = [sql`(${startVal} IS NULL OR ${dueVal} IS NULL)`];
+    if (dateFrom) fallback.push(gte(jiraIssues.jiraCreatedAt, new Date(dateFrom)));
+    if (dateTo) {
+      const to = new Date(dateTo);
+      to.setHours(23, 59, 59, 999);
+      fallback.push(lte(jiraIssues.jiraCreatedAt, to));
+    }
+
+    conditions.push(or(and(...overlap)!, and(...fallback)!)!);
   }
   if (!showCompleted) {
     conditions.push(

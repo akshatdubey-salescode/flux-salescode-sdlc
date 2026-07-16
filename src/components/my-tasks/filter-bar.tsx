@@ -524,7 +524,7 @@ function MoreFiltersSheet({
 
         <div className="flex-1 overflow-y-auto space-y-5 p-6">
           {/* Quarter */}
-          <FilterSection label="Creation Quarter">
+          <FilterSection label="Planned Quarter">
             <div className="flex gap-1.5 flex-wrap">
               {getRelevantQuarters().map((c) => {
                 const active = filters.qstart === c.start && filters.qend === c.end;
@@ -555,7 +555,7 @@ function MoreFiltersSheet({
                       </TooltipTrigger>
                       <TooltipContent side="top" className="text-[10px]">
                         <p className="font-medium">{c.sublabel} {c.year}</p>
-                        <p className="text-zinc-400">Jiras created in this quarter.</p>
+                        <p className="text-zinc-400">Jiras planned in this quarter (start–due overlaps it). Undated ones fall back to creation.</p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
