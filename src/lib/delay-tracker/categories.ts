@@ -49,6 +49,13 @@ export const PERSON_REQUIRED_CATEGORIES = new Set<DelayCategoryValue>([
   "estimate_low",
 ]);
 
+const DELAY_CATEGORY_VALUE_SET = new Set<string>(DELAY_CATEGORY_VALUES);
+
+/** The single check every delay route uses to reject an unknown category value from a request body/query. */
+export function isDelayCategory(value: unknown): value is DelayCategoryValue {
+  return typeof value === "string" && DELAY_CATEGORY_VALUE_SET.has(value);
+}
+
 export function categoryLabel(value: string): string {
   return Object.prototype.hasOwnProperty.call(CATEGORY_LABELS, value)
     ? CATEGORY_LABELS[value as DelayCategoryValue]

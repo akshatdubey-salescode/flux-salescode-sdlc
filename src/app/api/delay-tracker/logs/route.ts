@@ -9,6 +9,7 @@ import { authOptions } from "@/lib/auth/nextauth-options";
 import {
   OTHER_PROJECT_CATEGORIES,
   PERSON_REQUIRED_CATEGORIES,
+  isDelayCategory,
   type DelayCategoryValue,
 } from "@/lib/delay-tracker/categories";
 import {
@@ -17,8 +18,6 @@ import {
   isValidUuid,
   parseOptionalText,
 } from "@/lib/delay-tracker/entries";
-
-const VALID_CATEGORIES = new Set<string>(delayReasonCategoryEnum.enumValues);
 
 /** Append one delay entry to an issue's history. Multiple entries per issue are expected. */
 export async function POST(req: NextRequest) {
@@ -43,7 +42,7 @@ export async function POST(req: NextRequest) {
   if (!isValidUuid(issueId)) {
     return NextResponse.json({ error: "issueId must be a valid UUID" }, { status: 400 });
   }
-  if (typeof category !== "string" || !VALID_CATEGORIES.has(category)) {
+  if (!isDelayCategory(category)) {
     return NextResponse.json({ error: "Invalid category" }, { status: 400 });
   }
   if (!isValidDateString(delayDate)) {
