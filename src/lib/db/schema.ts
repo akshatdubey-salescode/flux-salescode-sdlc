@@ -1372,12 +1372,19 @@ export const delayLogs = pgTable(
     loggedByName: text("logged_by_name"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Soft-delete: NULL = active. Deleting an entry never destroys the row
+    // (and with it logged_by/logged_by_name) — it just deactivates it and
+    // records who did that and when.
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: text("deleted_by").references(() => users.id),
+    deletedByName: text("deleted_by_name"),
   },
   (t) => [
     index("delay_logs_issue_idx").on(t.issueId),
     index("delay_logs_project_idx").on(t.projectId),
     index("delay_logs_responsible_idx").on(t.responsibleEmail),
     index("delay_logs_category_idx").on(t.category),
+    index("delay_logs_active_idx").on(t.deletedAt),
   ]
 );
 

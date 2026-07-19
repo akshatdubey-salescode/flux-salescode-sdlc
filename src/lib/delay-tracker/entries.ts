@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { categoryLabel, pickTopCategory } from "@/lib/delay-tracker/categories";
 
 /** Matches the codebase's YYYY-MM-DD date-input convention (delayDate is a plain `date` column, not a Jira-field date). */
 export function isValidDateString(value: unknown): value is string {
@@ -42,6 +43,9 @@ export type DelayLogEntry = {
   loggedByName: string | null;
   createdAt: string;
   updatedAt: string;
+  deletedAt: string | null;
+  deletedBy: string | null;
+  deletedByName: string | null;
   linkedProjectId: string | null;
   linkedProjectName: string | null;
   linkedIssueId: string | null;
@@ -64,6 +68,9 @@ export function mapDelayLogRow(r: Record<string, unknown>): DelayLogEntry {
     // convention as every other raw-SQL route in this app) — pass through as-is.
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string,
+    deletedAt: (r.deleted_at as string | null) ?? null,
+    deletedBy: (r.deleted_by as string | null) ?? null,
+    deletedByName: (r.deleted_by_name as string | null) ?? null,
     linkedProjectId: (r.linked_project_id as string | null) ?? null,
     linkedProjectName: (r.linked_project_name as string | null) ?? null,
     linkedIssueId: (r.linked_issue_id as string | null) ?? null,
@@ -76,6 +83,7 @@ const DELAY_LOG_SELECT = sql`
   SELECT
     dl.id, dl.category, dl.delay_date, dl.responsible_email, dl.responsible_name,
     dl.note, dl.logged_by, dl.logged_by_name, dl.created_at, dl.updated_at,
+    dl.deleted_at, dl.deleted_by, dl.deleted_by_name,
     dl.linked_project_id, dl.linked_issue_id,
     li.jira_key AS linked_jira_key, li.summary AS linked_summary,
     lp.name AS linked_project_name
@@ -84,7 +92,7 @@ const DELAY_LOG_SELECT = sql`
   LEFT JOIN jira_projects lp ON lp.id = dl.linked_project_id
 `;
 
-/** Full history for one issue, newest first — used by the issue-detail popup. */
+/** Full history for one issue (active and deleted), newest first — the caller partitions by `deletedAt`. */
 export async function fetchDelayLogHistory(issueId: string): Promise<DelayLogEntry[]> {
   const res = await db.execute(sql`
     ${DELAY_LOG_SELECT}
@@ -109,4 +117,81 @@ export async function fetchDelayLogEntry(id: string): Promise<DelayLogEntry | nu
   `);
   const row = res.rows[0] as Record<string, unknown> | undefined;
   return row ? mapDelayLogRow(row) : null;
+}
+
+export type DelaySummary = {
+  count: number;
+  topCategory: string;
+  topCategoryLabel: string;
+  latestDelayDate: string;
+  /** True when every entry behind this summary has been deleted — the icon stays amber as a permanent "this issue has had delay trouble" marker, but the count/reason/date describe history, not a current problem. */
+  allDeleted: boolean;
+};
+
+type SummaryBucket = { total: number; categories: Map<string, number>; latest: string };
+
+function bucketToSummary(b: SummaryBucket, allDeleted: boolean): DelaySummary {
+  const [topCategory] = pickTopCategory(b.categories);
+  return {
+    count: b.total,
+    topCategory,
+    topCategoryLabel: categoryLabel(topCategory),
+    latestDelayDate: b.latest,
+    allDeleted,
+  };
+}
+
+function addToBucket(byIssue: Map<string, SummaryBucket>, issueId: string, category: string, n: number, latest: string) {
+  let bucket = byIssue.get(issueId);
+  if (!bucket) {
+    bucket = { total: 0, categories: new Map(), latest };
+    byIssue.set(issueId, bucket);
+  }
+  bucket.total += n;
+  bucket.categories.set(category, (bucket.categories.get(category) ?? 0) + n);
+  if (latest > bucket.latest) bucket.latest = latest;
+}
+
+/**
+ * Lightweight per-issue summary (count, top reason, most recent date) for a
+ * batch of issue ids in one query — backs the "has delay(s)" icon color and
+ * hover tooltip across every list surface without a per-row request. Issues
+ * with no delay_logs rows at all are simply absent from the result.
+ *
+ * Deleted entries still count for *existence* (an issue that once had delays
+ * later all deleted keeps its amber icon, `allDeleted: true`, per the
+ * confirmed design), but never for the active count/reason/date once any
+ * active entry exists — matching every analytics query's `deleted_at IS
+ * NULL` filter, which counts strictly active delays.
+ */
+export async function fetchDelaySummaries(
+  issueIds: string[]
+): Promise<Record<string, DelaySummary>> {
+  if (issueIds.length === 0) return {};
+
+  const rows = (
+    await db.execute(sql`
+      SELECT dl.issue_id, dl.category, (dl.deleted_at IS NOT NULL) AS is_deleted,
+        COUNT(*)::int AS n, MAX(dl.delay_date) AS latest
+      FROM delay_logs dl
+      WHERE dl.issue_id IN (${sql.join(issueIds.map((id) => sql`${id}`), sql`, `)})
+      GROUP BY dl.issue_id, dl.category, (dl.deleted_at IS NOT NULL)
+    `)
+  ).rows as { issue_id: string; category: string; is_deleted: boolean; n: number; latest: string }[];
+
+  const byIssueActive = new Map<string, SummaryBucket>();
+  const byIssueAll = new Map<string, SummaryBucket>();
+  for (const r of rows) {
+    addToBucket(byIssueAll, r.issue_id, r.category, r.n, r.latest);
+    if (!r.is_deleted) addToBucket(byIssueActive, r.issue_id, r.category, r.n, r.latest);
+  }
+
+  const result: Record<string, DelaySummary> = {};
+  for (const [issueId, allBucket] of byIssueAll) {
+    const activeBucket = byIssueActive.get(issueId);
+    result[issueId] = activeBucket
+      ? bucketToSummary(activeBucket, false)
+      : bucketToSummary(allBucket, true);
+  }
+  return result;
 }

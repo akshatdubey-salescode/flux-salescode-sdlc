@@ -505,10 +505,7 @@ export function BoardDetailClient({ board, initialMembers, isOwner, addTarget }:
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={handleRemove}
-            >
+            <AlertDialogAction variant="destructive" onClick={handleRemove}>
               Remove
             </AlertDialogAction>
           </AlertDialogFooter>

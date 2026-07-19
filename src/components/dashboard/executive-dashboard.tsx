@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -254,15 +255,17 @@ export function ExecutiveDashboard() {
             <TopProjectsCard projects={data.topProjects} />
             <TopDelayLeaderboard
               title="Top Delay Reasons · Projects"
-              info="Projects with the most logged delay entries. The subtitle shows each project's single most common reason."
+              info="Projects with the most logged delay entries. The subtitle shows each project's single most common reason. Click a row to see the delayed issues."
               emptyMessage="No delays logged yet"
               leaders={delays?.byProject ?? []}
+              filterKind="project"
             />
             <TopDelayLeaderboard
               title="Top Delay Reasons · People"
-              info="People most often named as responsible for a logged delay. The subtitle shows their single most common reason."
+              info="People most often named as responsible for a logged delay. The subtitle shows their single most common reason. Click a row to see the delayed issues."
               emptyMessage="No delays logged yet"
               leaders={delays?.byUser ?? []}
+              filterKind="user"
             />
           </div>
         </div>
@@ -623,18 +626,29 @@ function LeaderboardCard({
   info,
   emptyMessage,
   items,
+  titleHref,
 }: {
   title: string;
   info: string;
   emptyMessage: string;
   items: LeaderItem[];
+  /** When set, the card title itself links here — "see everything behind this leaderboard," distinct from a row's own href. */
+  titleHref?: string;
 }) {
   const max = items.reduce((m, it) => Math.max(m, it.value), 0);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
+        {titleHref ? (
+          <CardTitle>
+            <Link href={titleHref} className="hover:underline">
+              {title}
+            </Link>
+          </CardTitle>
+        ) : (
+          <CardTitle>{title}</CardTitle>
+        )}
         <CardAction>
           <ChartInfo description={info} />
         </CardAction>
@@ -785,20 +799,40 @@ function TopDelayLeaderboard({
   info,
   emptyMessage,
   leaders,
+  filterKind,
 }: {
   title: string;
   info: string;
   emptyMessage: string;
   leaders: DelayLeader[];
+  /** Which filter field `l.key` maps to when a row is clicked. */
+  filterKind: "project" | "user";
 }) {
-  const items: LeaderItem[] = leaders.map((l) => ({
-    key: l.key,
-    primary: l.name,
-    secondary: `${l.topCategory} · ${l.topCategoryCount}`,
-    value: l.total,
-    href: l.href,
-  }));
-  return <LeaderboardCard title={title} info={info} emptyMessage={emptyMessage} items={items} />;
+  const items: LeaderItem[] = leaders.map((l) => {
+    const params = new URLSearchParams();
+    if (filterKind === "project") {
+      params.set("projectIds", l.key);
+    } else {
+      params.set("responsibleEmail", l.key);
+      params.set("responsibleName", l.name);
+    }
+    return {
+      key: l.key,
+      primary: l.name,
+      secondary: `${l.topCategory} · ${l.topCategoryCount}`,
+      value: l.total,
+      href: `/delay-tracker?${params}`,
+    };
+  });
+  return (
+    <LeaderboardCard
+      title={title}
+      info={info}
+      emptyMessage={emptyMessage}
+      items={items}
+      titleHref="/delay-tracker"
+    />
+  );
 }
 
 function TopProjectsCard({ projects }: { projects: TopProject[] }) {
