@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
+import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth/server";
 import { loadAccountIdEmailMap } from "@/lib/jira/identity";
@@ -25,6 +26,7 @@ export type DelayTrackerIssueDetail = {
   };
   defaultResponsible: { email: string | null; name: string | null };
   history: DelayLogEntry[];
+  deletedHistory: DelayLogEntry[];
 };
 
 /**
@@ -43,7 +45,26 @@ export async function GET(_req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "issueId must be a valid UUID" }, { status: 400 });
   }
 
-  const [issueRes, history, accountIdEmailMap] = await Promise.all([
+  const detail = await fetchDelayTrackerIssueDetail(issueId);
+  if (!detail) {
+    return NextResponse.json({ error: "Issue not found" }, { status: 404 });
+  }
+  return NextResponse.json(detail);
+}
+
+// Every sibling delay-tracker route ("use cache" + cacheTag("delay-logs"))
+// already caches its data fetch this way; this one didn't, so opening the
+// popup always paid a fresh round trip to jira_issues/delay_logs/users even
+// though nothing had changed since the last time — noticeably slower than
+// the rest of the feature. Same coarse "delay-logs" tag the mutation routes
+// already revalidate on every create/update/delete, so a fresh log still
+// shows up immediately; only the *unchanged* case gets faster.
+async function fetchDelayTrackerIssueDetail(issueId: string): Promise<DelayTrackerIssueDetail | null> {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag("delay-logs");
+
+  const [issueRes, allHistory, accountIdEmailMap] = await Promise.all([
     db.execute(sql`
       SELECT
         ji.id, ji.jira_key, ji.summary, ji.status, ji.status_category,
@@ -60,9 +81,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
   ]);
 
   const row = issueRes.rows[0] as Record<string, unknown> | undefined;
-  if (!row) {
-    return NextResponse.json({ error: "Issue not found" }, { status: 404 });
-  }
+  if (!row) return null;
 
   const customFields = (row.custom_fields as Record<string, unknown>) ?? {};
   const ownerFieldIds = row.issue_owner_field_ids as string[] | null;
@@ -73,7 +92,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const resolvedOwnerName =
     extractIssueOwnerName(customFields, ownerFieldIds) ?? (row.assignee_name as string | null) ?? null;
 
-  const detail: DelayTrackerIssueDetail = {
+  return {
     issue: {
       id: row.id as string,
       jiraKey: row.jira_key as string,
@@ -87,8 +106,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       jiraBaseUrl: row.jira_base_url as string,
     },
     defaultResponsible: { email: resolvedOwnerEmail, name: resolvedOwnerName },
-    history,
+    history: allHistory.filter((h) => !h.deletedAt),
+    deletedHistory: allHistory.filter((h) => h.deletedAt),
   };
-
-  return NextResponse.json(detail);
 }

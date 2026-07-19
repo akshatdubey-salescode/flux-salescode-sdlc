@@ -40,20 +40,19 @@ async function fetchDelayAnalytics(): Promise<DelayAnalyticsResponse> {
         dl.project_id, jp.name AS project_name, dl.category, COUNT(*)::int AS n
       FROM delay_logs dl
       JOIN jira_projects jp ON jp.id = dl.project_id
+      WHERE dl.deleted_at IS NULL
       GROUP BY dl.project_id, jp.name, dl.category
     `),
     db.execute(sql`
       SELECT
         dl.responsible_email AS email, MAX(dl.responsible_name) AS name, dl.category, COUNT(*)::int AS n
       FROM delay_logs dl
-      WHERE dl.responsible_email IS NOT NULL
+      WHERE dl.responsible_email IS NOT NULL AND dl.deleted_at IS NULL
       GROUP BY dl.responsible_email, dl.category
     `),
   ]);
 
-  const byProject = rankByKey(projectRows.rows as Record<string, unknown>[], "project_id", "project_name").map(
-    (l) => ({ ...l, href: `/projects/${l.key}` })
-  );
+  const byProject = rankByKey(projectRows.rows as Record<string, unknown>[], "project_id", "project_name");
   const byUser = rankByKey(userRows.rows as Record<string, unknown>[], "email", "name");
 
   return { byProject, byUser };

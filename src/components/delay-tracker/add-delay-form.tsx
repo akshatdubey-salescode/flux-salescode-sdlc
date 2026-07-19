@@ -7,7 +7,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { localDateStr } from "@/lib/date-utils";
-import { DELAY_CATEGORIES, OTHER_PROJECT_CATEGORIES, type DelayCategoryValue } from "@/lib/delay-tracker/categories";
+import {
+  DELAY_CATEGORIES,
+  OTHER_PROJECT_CATEGORIES,
+  PERSON_REQUIRED_CATEGORIES,
+  type DelayCategoryValue,
+} from "@/lib/delay-tracker/categories";
 import { PersonPicker } from "./person-picker";
 import { LinkedIssuePicker, type LinkedIssue } from "./linked-issue-picker";
 import type { DelayLogEntry } from "@/app/api/delay-tracker/issue/[issueId]/route";
@@ -25,18 +30,38 @@ export function AddDelayForm({
 }) {
   const [category, setCategory] = useState<DelayCategoryValue | "">("");
   const [delayDate, setDelayDate] = useState(localDateStr(new Date()));
-  const [responsible, setResponsible] = useState<{ email: string; name: string } | null>(
-    defaultResponsible.email
-      ? { email: defaultResponsible.email, name: defaultResponsible.name ?? defaultResponsible.email }
-      : null
-  );
+  // Starts unset — only auto-filled with the issue's default owner once a
+  // category that actually needs a responsible person is picked (below), so
+  // categories that don't need one default to None instead of silently
+  // inheriting the issue owner. Once the user touches this field themselves
+  // (including explicitly choosing "None"), later category changes leave
+  // their choice alone.
+  const [responsible, setResponsible] = useState<{ email: string; name: string } | null>(null);
+  const [responsibleTouched, setResponsibleTouched] = useState(false);
   const [linked, setLinked] = useState<LinkedIssue | null>(null);
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const needsLink = category ? OTHER_PROJECT_CATEGORIES.has(category) : false;
-  const canSubmit = !!category && !!delayDate && (!needsLink || !!linked) && !submitting;
+  const needsResponsible = category ? PERSON_REQUIRED_CATEGORIES.has(category) : false;
+  const canSubmit =
+    !!category && !!delayDate && (!needsLink || !!linked) && (!needsResponsible || !!responsible) && !submitting;
+
+  function handleCategoryChange(v: DelayCategoryValue) {
+    setCategory(v);
+    if (responsibleTouched) return;
+    setResponsible(
+      PERSON_REQUIRED_CATEGORIES.has(v) && defaultResponsible.email
+        ? { email: defaultResponsible.email, name: defaultResponsible.name ?? defaultResponsible.email }
+        : null
+    );
+  }
+
+  function handleResponsibleChange(p: { email: string; name: string } | null) {
+    setResponsible(p);
+    setResponsibleTouched(true);
+  }
 
   async function handleSubmit() {
     if (!canSubmit) return;
@@ -67,6 +92,8 @@ export function AddDelayForm({
       setNote("");
       setLinked(null);
       setDelayDate(localDateStr(new Date()));
+      setResponsible(null);
+      setResponsibleTouched(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to log delay");
     } finally {
@@ -79,7 +106,7 @@ export function AddDelayForm({
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label className="text-[11px] text-muted-foreground">Reason</Label>
-          <Select value={category} onValueChange={(v) => setCategory(v as DelayCategoryValue)}>
+          <Select value={category} onValueChange={(v) => handleCategoryChange(v as DelayCategoryValue)}>
             <SelectTrigger size="sm" className="w-full">
               <SelectValue placeholder="Select reason…" />
             </SelectTrigger>
@@ -106,7 +133,10 @@ export function AddDelayForm({
 
       <div className="space-y-1">
         <Label className="text-[11px] text-muted-foreground">Responsible person</Label>
-        <PersonPicker value={responsible} onChange={setResponsible} />
+        <PersonPicker value={responsible} onChange={handleResponsibleChange} allowClear />
+        {needsResponsible && !responsible && (
+          <p className="text-[11px] text-destructive">A responsible person is required for this reason.</p>
+        )}
       </div>
 
       {needsLink && (

@@ -54,7 +54,7 @@ async function fetchProjectDelayAnalytics(
         MAX(dl.responsible_name) AS name,
         COUNT(*)::int AS n
       FROM delay_logs dl
-      WHERE dl.project_id = ${projectId}
+      WHERE dl.project_id = ${projectId} AND dl.deleted_at IS NULL
       GROUP BY dl.category, dl.responsible_email
     `)
   ).rows as Record<string, unknown>[];

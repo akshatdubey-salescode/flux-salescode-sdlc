@@ -24,9 +24,18 @@ async function searchPeople(query: string): Promise<Person[]> {
 export function PersonPicker({
   value,
   onChange,
+  allowClear = false,
 }: {
   value: Person | null;
-  onChange: (person: Person) => void;
+  onChange: (person: Person | null) => void;
+  /**
+   * Shows an explicit "None" option and displays "None" (not "Select
+   * person…") when unset — for categories where a responsible person isn't
+   * mandatory, so the field has a real, selectable no-one-assigned state
+   * instead of just an empty prompt. Filter-bar usage leaves this off, since
+   * a filter's "unset" state already reads correctly as "Select person…".
+   */
+  allowClear?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -37,7 +46,9 @@ export function PersonPicker({
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm" className="w-full justify-start gap-1.5">
           <RiUserLine className="size-3.5 shrink-0 opacity-60" />
-          <span className="truncate">{value ? value.name || value.email : "Select person…"}</span>
+          <span className={value ? "truncate" : "truncate text-muted-foreground"}>
+            {value ? value.name || value.email : allowClear ? "None" : "Select person…"}
+          </span>
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 p-0">
@@ -46,6 +57,17 @@ export function PersonPicker({
           <CommandList>
             <CommandEmpty>No matching person.</CommandEmpty>
             <CommandGroup>
+              {allowClear && (
+                <CommandItem
+                  value="__none__"
+                  onSelect={() => {
+                    onChange(null);
+                    setOpen(false);
+                  }}
+                >
+                  <span className="text-muted-foreground italic">None</span>
+                </CommandItem>
+              )}
               {results.map((p) => (
                 <CommandItem
                   key={p.email}

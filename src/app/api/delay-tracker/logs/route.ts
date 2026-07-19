@@ -6,7 +6,11 @@ import { db } from "@/lib/db";
 import { delayLogs, delayReasonCategoryEnum, jiraIssues } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { authOptions } from "@/lib/auth/nextauth-options";
-import { OTHER_PROJECT_CATEGORIES, type DelayCategoryValue } from "@/lib/delay-tracker/categories";
+import {
+  OTHER_PROJECT_CATEGORIES,
+  PERSON_REQUIRED_CATEGORIES,
+  type DelayCategoryValue,
+} from "@/lib/delay-tracker/categories";
 import {
   fetchDelayLogEntry,
   isValidDateString,
@@ -65,6 +69,12 @@ export async function POST(req: NextRequest) {
   if (needsLink && (!linkedProjectId || !linkedIssueId)) {
     return NextResponse.json(
       { error: "linkedProjectId and linkedIssueId are required for this category" },
+      { status: 400 }
+    );
+  }
+  if (PERSON_REQUIRED_CATEGORIES.has(category as DelayCategoryValue) && !responsibleEmail) {
+    return NextResponse.json(
+      { error: "responsibleEmail is required for this category" },
       { status: 400 }
     );
   }

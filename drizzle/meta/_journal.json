@@ -358,6 +358,13 @@
       "when": 1784210081462,
       "tag": "0051_soft_maximus",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1784310829200,
+      "tag": "0052_nice_prodigy",
+      "breakpoints": true
     }
   ]
 }

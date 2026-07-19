@@ -1,4 +1,4 @@
-import { categoryLabel } from "@/lib/delay-tracker/categories";
+import { categoryLabel, pickTopCategory } from "@/lib/delay-tracker/categories";
 
 export type DelayLeader = {
   key: string;
@@ -6,7 +6,6 @@ export type DelayLeader = {
   total: number;
   topCategory: string;
   topCategoryCount: number;
-  href?: string;
 };
 
 /**
@@ -41,9 +40,7 @@ export function rankByKey(
 
   return [...byKey.entries()]
     .map(([key, b]) => {
-      const [topCategory, topCategoryCount] = [...b.categories.entries()].sort(
-        (a, c) => c[1] - a[1] || a[0].localeCompare(c[0])
-      )[0];
+      const [topCategory, topCategoryCount] = pickTopCategory(b.categories);
       return {
         key,
         name: b.name,
