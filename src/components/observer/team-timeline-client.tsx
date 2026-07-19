@@ -57,13 +57,7 @@ import type { AtRiskResponse, AtRiskPersonGroup, AtRiskIssueItem } from "@/app/a
 import type { MeetingEvent, MeetingsResponse } from "@/app/api/observer/boards/[boardId]/meetings/route";
 import { statusCategoryStyles, priorityStyles, issueTypeStyles } from "@/components/project-tracking/helpers";
 import { TeamGanttClient } from "@/components/observer/team-gantt-client";
-import {
-  localDateStr,
-  quarterBounds,
-  currentFyStartYear,
-  currentQuarterNum,
-  getRelevantQuarters,
-} from "@/lib/date-utils";
+import { localDateStr } from "@/lib/date-utils";
 
 // ---------------------------------------------------------------------------
 // Hooks
@@ -463,15 +457,9 @@ function DatePicker({
 function DateFilterBar({
   filter,
   onChange,
-  quarterStart,
-  quarterEnd,
-  onQuarterChange,
 }: {
   filter: DateFilter;
   onChange: (f: DateFilter) => void;
-  quarterStart: string;
-  quarterEnd: string;
-  onQuarterChange: (start: string, end: string) => void;
 }) {
   const today = todayStr();
 
@@ -512,8 +500,6 @@ function DateFilterBar({
       end: today,
     },
   ];
-
-  const quarterChips = getRelevantQuarters();
 
   return (
     <div className="flex flex-col gap-3 mb-6">
@@ -645,41 +631,6 @@ function DateFilterBar({
           </div>
         </div>
 
-        {/* Quarter chips — independent of date filter */}
-        <div className="flex items-center gap-2">
-          <div className="w-px h-4 bg-border mx-1 hidden lg:block" />
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest hidden sm:inline">Quarter</span>
-            <div className="flex gap-1">
-            {quarterChips.map((c) => {
-              const active = quarterStart === c.start && quarterEnd === c.end;
-              return (
-                <TooltipProvider key={`${c.label}-${c.year}`}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() => onQuarterChange(c.start, c.end)}
-                        className={`h-7 px-2.5 rounded-md border text-xs font-medium transition-colors flex items-center gap-1.5 ${
-                          active
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "border-input bg-background text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground"
-                        }`}
-                      >
-                        <span className="font-semibold">{c.label}</span>
-                        <span className="opacity-60 text-[10px]">{c.year}</span>
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="text-xs">
-                      <p className="font-medium">{c.sublabel} {c.year}</p>
-                      <p className="text-zinc-400">Shows jiras created in this quarter.</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              );
-            })}
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* Active range label */}
@@ -705,12 +656,10 @@ function DateFilterBar({
 function SummaryCards({
   summary,
   onTabClick,
-  quarterLabel,
   unassignedCount,
 }: {
   summary: TimelineResponse["summary"];
   onTabClick: (tab: string) => void;
-  quarterLabel?: string;
   unassignedCount?: number;
 }) {
   const workload = summary.onTrack + summary.atRisk;
@@ -1111,8 +1060,8 @@ function MemberTimelineCard({
   member,
   meetings,
   onSwitchToUnplanned,
-  quarterStart,
-  quarterEnd,
+  filterStart,
+  filterEnd,
   estimateThreshold,
   parentBoardId,
   parentBoardName,
@@ -1125,8 +1074,8 @@ function MemberTimelineCard({
   member: TimelineMember;
   meetings?: { totalMinutes: number; eventCount: number; events: MeetingEvent[] };
   onSwitchToUnplanned?: (name: string) => void;
-  quarterStart: string;
-  quarterEnd: string;
+  filterStart: string;
+  filterEnd: string;
   estimateThreshold: number;
   /** Current board context — passed to the "View team" link so the drilled-to
    *  team can render a breadcrumb back here. */
@@ -1150,9 +1099,7 @@ function MemberTimelineCard({
 
   const showingUnplanned = hasNoPlanned && member.unplannedPreview.length > 0;
 
-  const chips = getRelevantQuarters();
-  const match = chips.find((c) => c.start === quarterStart && c.end === quarterEnd);
-  const qLabel = match ? `${match.label} ${match.year}` : "selected quarter";
+  const dateRangeLabel = `${formatDisplayDate(filterStart)} → ${formatDisplayDate(filterEnd)}`;
 
   return (
     <div className={`rounded-xl border shadow-sm overflow-hidden ${showingUnplanned ? "border-orange-200 dark:border-orange-800/50 bg-card" : "border-border bg-card"}`}>
@@ -1309,14 +1256,14 @@ function MemberTimelineCard({
                     onClick={(e) => { e.stopPropagation(); onSwitchToUnplanned?.(member.name); }}
                     className="text-xs font-medium text-orange-500 hover:text-orange-600 dark:text-orange-400 dark:hover:text-orange-300 transition-colors"
                   >
-                    +{member.unplannedCount - 5} more unplanned in {qLabel} →
+                    +{member.unplannedCount - 5} more unplanned in {dateRangeLabel} →
                   </button>
                 </div>
               )}
             </div>
           ) : (
             <div className="py-6 px-4 text-center">
-              <p className="text-xs text-muted-foreground italic">No planned or unplanned jiras that were created in the {qLabel}</p>
+              <p className="text-xs text-muted-foreground italic">No planned or unplanned jiras were created from {dateRangeLabel}</p>
             </div>
           )
         ) : (
@@ -2003,7 +1950,7 @@ function UnplannedWithDateFilter({ apiBase, start, end }: { apiBase: string; sta
 
   return (
     <div>
-      {/* Filter bar: type filter left, quarter + date pickers right */}
+      {/* Filter bar: issue type filter and active date-range label */}
       <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
         {/* Left: issue type filter */}
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -2060,17 +2007,13 @@ function UnplannedWithDateFilter({ apiBase, start, end }: { apiBase: string; sta
         );
 
         if (filteredTotal === 0) {
-          const chips = getRelevantQuarters();
-          const match = chips.find(c => c.start === start && c.end === end);
-          const qLabel = match ? `${match.label} ${match.year}` : "selected quarter";
-
           return (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="size-12 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center mb-3">
                 <RiCheckboxCircleLine size={22} className="text-emerald-600 dark:text-emerald-400" />
               </div>
               <p className="text-sm font-semibold text-foreground mb-1">All issues are planned</p>
-              <p className="text-xs text-muted-foreground">No planned or unplanned jiras that were created in the {qLabel}</p>
+              <p className="text-xs text-muted-foreground">No planned or unplanned jiras were created from {formatDisplayDate(start)} → {formatDisplayDate(end)}</p>
             </div>
           );
         }
@@ -2275,13 +2218,13 @@ function AtRiskPersonCard({ person, estimateThreshold }: { person: AtRiskPersonG
 
 function AtRiskTab({
   apiBase,
-  quarterStart,
-  quarterEnd,
+  filterStart,
+  filterEnd,
   estimateThreshold,
 }: {
   apiBase: string;
-  quarterStart: string;
-  quarterEnd: string;
+  filterStart: string;
+  filterEnd: string;
   estimateThreshold: number;
 }) {
   const [data, setData] = useState<AtRiskResponse | null>(null);
@@ -2304,7 +2247,7 @@ function AtRiskTab({
     }
   }, [apiBase]);
 
-  useEffect(() => { load(quarterStart, quarterEnd); }, [quarterStart, quarterEnd, load]);
+  useEffect(() => { load(filterStart, filterEnd); }, [filterStart, filterEnd, load]);
 
   const filteredPersons = useMemo(() => {
     if (!data) return [];
@@ -2807,13 +2750,13 @@ function OverduePersonCard({ person, estimateThreshold }: { person: OverduePerso
 
 function OverdueTab({
   apiBase,
-  quarterStart,
-  quarterEnd,
+  filterStart,
+  filterEnd,
   estimateThreshold,
 }: {
   apiBase: string;
-  quarterStart: string;
-  quarterEnd: string;
+  filterStart: string;
+  filterEnd: string;
   estimateThreshold: number;
 }) {
   const [data, setData] = useState<OverdueResponse | null>(null);
@@ -2834,7 +2777,7 @@ function OverdueTab({
     }
   }, [apiBase]);
 
-  useEffect(() => { load(quarterStart, quarterEnd); }, [quarterStart, quarterEnd, load]);
+  useEffect(() => { load(filterStart, filterEnd); }, [filterStart, filterEnd, load]);
 
   const filteredPersons = useMemo(() => {
     if (!data) return [];
@@ -2862,7 +2805,7 @@ function OverdueTab({
       <div className="flex flex-col items-center justify-center py-16 text-center">
         <RiCheckboxCircleLine size={28} className="text-green-500 mb-3" />
         <p className="text-sm font-medium text-foreground">No overdue tasks</p>
-        <p className="text-xs text-muted-foreground mt-1">All planned work for this quarter is on track.</p>
+        <p className="text-xs text-muted-foreground mt-1">No planned work is overdue in the selected date range.</p>
       </div>
     );
   }
@@ -2876,7 +2819,7 @@ function OverdueTab({
             {data.totalCount} overdue {data.totalCount === 1 ? "task" : "tasks"}
           </span>
           <span className="text-xs text-muted-foreground">
-            — scoped to {formatDisplayDate(data.quarterStart)} → {formatDisplayDate(data.quarterEnd)}
+            — scoped to {formatDisplayDate(filterStart)} → {formatDisplayDate(filterEnd)}
           </span>
         </div>
       </div>
@@ -3036,11 +2979,6 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
   const spTstart = searchParams.get("tstart") ?? todayStr();
   const spTend = searchParams.get("tend") ?? offsetDate(todayStr(), 6);
 
-  // Quarter filter — independent of date filter, controls unplanned Jiras by creation date
-  const defaultQBounds = quarterBounds(currentFyStartYear(), currentQuarterNum());
-  const ustart = searchParams.get("ustart") ?? defaultQBounds.start;
-  const uend = searchParams.get("uend") ?? defaultQBounds.end;
-
   // Local state for search so every keystroke doesn't trigger router.replace
   const [qInput, setQInput] = useState(() => searchParams.get("q") ?? "");
   const debouncedQ = useDebounce(qInput, 350);
@@ -3053,6 +2991,8 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
         : { mode: "single", date: spDate },
     [mode, spDate, spTstart, spTend]
   );
+  const selectedStart = filter.mode === "single" ? filter.date : filter.start;
+  const selectedEnd = filter.mode === "single" ? filter.date : filter.end;
 
   const [data, setData] = useState<TimelineResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -3097,10 +3037,6 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
     }
   }
 
-  function setQuarter(start: string, end: string) {
-    updateParams({ ustart: start, uend: end });
-  }
-
   // Sync debounced search to URL (skip first mount to avoid redundant replace)
   useEffect(() => {
     if (!isMounted.current) { isMounted.current = true; return; }
@@ -3110,19 +3046,19 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
     router.replace(`?${params.toString()}`, { scroll: false });
   }, [debouncedQ]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function buildUrl(f: DateFilter, qs: string, qe: string): string {
+  function buildUrl(f: DateFilter): string {
     const base = `/api/observer/boards/${boardId}/timeline`;
-    const qPart = `ustart=${qs}&uend=${qe}&now=${encodeURIComponent(localNowStr())}`;
-    if (f.mode === "single") return `${base}?date=${f.date}&${qPart}`;
-    return `${base}?start=${f.start}&end=${f.end}&${qPart}`;
+    const nowPart = `now=${encodeURIComponent(localNowStr())}`;
+    if (f.mode === "single") return `${base}?date=${f.date}&${nowPart}`;
+    return `${base}?start=${f.start}&end=${f.end}&${nowPart}`;
   }
 
   const load = useCallback(
-    async (f: DateFilter, qs: string, qe: string) => {
+    async (f: DateFilter) => {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(buildUrl(f, qs, qe));
+        const res = await fetch(buildUrl(f));
         if (res.ok) {
           setData(await res.json());
         } else {
@@ -3139,8 +3075,8 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
   );
 
   useEffect(() => {
-    load(filter, ustart, uend);
-  }, [filter, ustart, uend, load]);
+    load(filter);
+  }, [filter, load]);
 
   useEffect(() => {
     const start = filter.mode === "single" ? filter.date : filter.start;
@@ -3180,7 +3116,7 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
       <div className="py-12 text-center">
         <p className="text-sm text-destructive mb-2">{error}</p>
         <button
-          onClick={() => load(filter, ustart, uend)}
+          onClick={() => load(filter)}
           className="text-xs text-muted-foreground hover:text-foreground underline"
         >
           Try again
@@ -3194,9 +3130,6 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
       <DateFilterBar
         filter={filter}
         onChange={setFilter}
-        quarterStart={ustart}
-        quarterEnd={uend}
-        onQuarterChange={setQuarter}
       />
 
       {loading ? (
@@ -3211,11 +3144,6 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
           <SummaryCards
             summary={data.summary}
             onTabClick={setActiveTab}
-            quarterLabel={(() => {
-              const chips = getRelevantQuarters();
-              const match = chips.find(c => c.start === ustart && c.end === uend);
-              return match ? `${match.label} ${match.year}` : undefined;
-            })()}
           />
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -3243,7 +3171,7 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
                   </button>
                 )}
                 <button
-                  onClick={() => load(filter, ustart, uend)}
+                  onClick={() => load(filter)}
                   disabled={loading}
                   className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
@@ -3295,8 +3223,8 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
                             member={member}
                             meetings={meetingsByEmail[member.email.toLowerCase()]}
                             onSwitchToUnplanned={(name) => updateParams({ tab: "unplanned", uq: name })}
-                            quarterStart={ustart}
-                            quarterEnd={uend}
+                            filterStart={selectedStart}
+                            filterEnd={selectedEnd}
                             estimateThreshold={data.estimateThresholdDays}
                             parentBoardId={boardId}
                             parentBoardName={name}
@@ -3322,11 +3250,11 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
             </TabsContent>
 
             <TabsContent value="at-risk">
-              <AtRiskTab apiBase={`/api/observer/boards/${boardId}`} quarterStart={ustart} quarterEnd={uend} estimateThreshold={data.estimateThresholdDays} />
+              <AtRiskTab apiBase={`/api/observer/boards/${boardId}`} filterStart={selectedStart} filterEnd={selectedEnd} estimateThreshold={data.estimateThresholdDays} />
             </TabsContent>
 
             <TabsContent value="overdue">
-              <OverdueTab apiBase={`/api/observer/boards/${boardId}`} quarterStart={ustart} quarterEnd={uend} estimateThreshold={data.estimateThresholdDays} />
+              <OverdueTab apiBase={`/api/observer/boards/${boardId}`} filterStart={selectedStart} filterEnd={selectedEnd} estimateThreshold={data.estimateThresholdDays} />
             </TabsContent>
 
             <TabsContent value="completed">
@@ -3334,7 +3262,7 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
             </TabsContent>
 
             <TabsContent value="unplanned">
-              <UnplannedWithDateFilter apiBase={`/api/observer/boards/${boardId}`} start={ustart} end={uend} />
+              <UnplannedWithDateFilter apiBase={`/api/observer/boards/${boardId}`} start={selectedStart} end={selectedEnd} />
             </TabsContent>
 
             <TabsContent value="gantt">
@@ -3351,9 +3279,9 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
 // Unassigned tab (project-only)
 // ---------------------------------------------------------------------------
 
-import type { UnassignedResponse, UnassignedIssueItem } from "@/app/api/projects/[id]/team/unassigned/route";
+import type { UnassignedResponse } from "@/app/api/projects/[id]/team/unassigned/route";
 
-function UnassignedTab({ projectId, quarterStart, quarterEnd }: { projectId: string; quarterStart: string; quarterEnd: string }) {
+function UnassignedTab({ projectId, filterStart, filterEnd }: { projectId: string; filterStart: string; filterEnd: string }) {
   const [data, setData] = useState<UnassignedResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -3367,7 +3295,7 @@ function UnassignedTab({ projectId, quarterStart, quarterEnd }: { projectId: str
     finally { setLoading(false); }
   }, [projectId]);
 
-  useEffect(() => { load(quarterStart, quarterEnd); }, [quarterStart, quarterEnd, load]);
+  useEffect(() => { load(filterStart, filterEnd); }, [filterStart, filterEnd, load]);
 
   const rows = useMemo(() => {
     if (!data) return [];
@@ -3385,7 +3313,9 @@ function UnassignedTab({ projectId, quarterStart, quarterEnd }: { projectId: str
       <div className="flex flex-col items-center justify-center py-16 text-center">
         <RiCheckboxCircleLine size={28} className="text-green-500 mb-3" />
         <p className="text-sm font-medium text-foreground">No unassigned tasks</p>
-        <p className="text-xs text-muted-foreground mt-1">All open tasks in this project have an assignee.</p>
+        <p className="text-xs text-muted-foreground mt-1">
+          No open unassigned tasks were created from {formatDisplayDate(filterStart)} to {formatDisplayDate(filterEnd)}.
+        </p>
       </div>
     );
   }
@@ -3395,7 +3325,7 @@ function UnassignedTab({ projectId, quarterStart, quarterEnd }: { projectId: str
       <div className="flex items-center gap-2 mb-4">
         <span className="text-sm font-semibold text-foreground">{data.totalCount} unassigned {data.totalCount === 1 ? "task" : "tasks"}</span>
         <span className="text-xs text-muted-foreground">
-          — scoped to {formatDisplayDate(quarterStart)} → {formatDisplayDate(quarterEnd)}
+          — scoped to {formatDisplayDate(filterStart)} → {formatDisplayDate(filterEnd)}
         </span>
       </div>
 
@@ -3498,10 +3428,6 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
   const spDate = searchParams.get("ptdate") ?? todayStr();
   const spTstart = searchParams.get("pttstart") ?? todayStr();
   const spTend = searchParams.get("pttend") ?? offsetDate(todayStr(), 6);
-  const defaultQBounds = quarterBounds(currentFyStartYear(), currentQuarterNum());
-  const ustart = searchParams.get("ptustart") ?? defaultQBounds.start;
-  const uend = searchParams.get("ptuend") ?? defaultQBounds.end;
-
   const [qInput, setQInput] = useState(() => searchParams.get("ptq") ?? "");
   const debouncedQ = useDebounce(qInput, 350);
   const isMounted = useRef(false);
@@ -3510,6 +3436,8 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
     () => mode === "range" ? { mode: "range", start: spTstart, end: spTend } : { mode: "single", date: spDate },
     [mode, spDate, spTstart, spTend]
   );
+  const selectedStart = filter.mode === "single" ? filter.date : filter.start;
+  const selectedEnd = filter.mode === "single" ? filter.date : filter.end;
 
   const [data, setData] = useState<TimelineResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -3542,8 +3470,6 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
     else updateParams({ ptmode: "range", pttstart: f.start, pttend: f.end, ptdate: null });
   }
 
-  function setQuarter(start: string, end: string) { updateParams({ ptustart: start, ptuend: end }); }
-
   useEffect(() => {
     if (!isMounted.current) { isMounted.current = true; return; }
     const params = new URLSearchParams(searchParams.toString());
@@ -3551,30 +3477,30 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
     router.replace(`?${params.toString()}`, { scroll: false });
   }, [debouncedQ]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function buildUrl(f: DateFilter, qs: string, qe: string): string {
-    const qPart = `ustart=${qs}&uend=${qe}&now=${encodeURIComponent(localNowStr())}`;
-    if (f.mode === "single") return `${apiBase}/timeline?date=${f.date}&${qPart}`;
-    return `${apiBase}/timeline?start=${f.start}&end=${f.end}&${qPart}`;
+  function buildUrl(f: DateFilter): string {
+    const nowPart = `now=${encodeURIComponent(localNowStr())}`;
+    if (f.mode === "single") return `${apiBase}/timeline?date=${f.date}&${nowPart}`;
+    return `${apiBase}/timeline?start=${f.start}&end=${f.end}&${nowPart}`;
   }
 
-  const load = useCallback(async (f: DateFilter, qs: string, qe: string) => {
+  const load = useCallback(async (f: DateFilter) => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch(buildUrl(f, qs, qe));
+      const res = await fetch(buildUrl(f));
       if (res.ok) setData(await res.json());
       else { const body = await res.json().catch(() => ({})); setError(body.error ?? `Server error (${res.status})`); }
     } catch { setError("Failed to load team data."); }
     finally { setLoading(false); }
   }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { load(filter, ustart, uend); }, [filter, ustart, uend, load]);
+  useEffect(() => { load(filter); }, [filter, load]);
 
   useEffect(() => {
-    fetch(`/api/projects/${projectId}/team/unassigned?qstart=${ustart}&qend=${uend}`)
+    fetch(`/api/projects/${projectId}/team/unassigned?qstart=${selectedStart}&qend=${selectedEnd}`)
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d) setUnassignedCount(d.totalCount); })
       .catch(() => {});
-  }, [projectId, ustart, uend]);
+  }, [projectId, selectedStart, selectedEnd]);
 
   // Gantt dates derived from the top-level filter (single date → 7-day window)
   const ganttStart = filter.mode === "single" ? filter.date : filter.start;
@@ -3587,13 +3513,13 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
   if (error) return (
     <div className="py-12 text-center">
       <p className="text-sm text-destructive mb-2">{error}</p>
-      <button onClick={() => load(filter, ustart, uend)} className="text-xs text-muted-foreground hover:text-foreground underline">Try again</button>
+      <button onClick={() => load(filter)} className="text-xs text-muted-foreground hover:text-foreground underline">Try again</button>
     </div>
   );
 
   return (
     <div>
-      <DateFilterBar filter={filter} onChange={setFilter} quarterStart={ustart} quarterEnd={uend} onQuarterChange={setQuarter} />
+      <DateFilterBar filter={filter} onChange={setFilter} />
 
       {loading ? (
         <div className="space-y-3 animate-pulse">
@@ -3606,11 +3532,6 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
             summary={data.summary}
             onTabClick={setActiveTab}
             unassignedCount={unassignedCount}
-            quarterLabel={(() => {
-              const chips = getRelevantQuarters();
-              const match = chips.find(c => c.start === ustart && c.end === uend);
-              return match ? `${match.label} ${match.year}` : undefined;
-            })()}
           />
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -3637,7 +3558,7 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
                     }
                   </button>
                 )}
-                <button onClick={() => load(filter, ustart, uend)} disabled={loading} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                <button onClick={() => load(filter)} disabled={loading} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
                   <RiRefreshLine size={12} className={loading ? "animate-spin" : ""} />
                   Refresh
                 </button>
@@ -3666,7 +3587,7 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
                     ) : (
                       <div className="space-y-4">
                         {filteredMembers.map((member) => (
-                          <MemberTimelineCard key={member.memberId} member={member} quarterStart={ustart} quarterEnd={uend} onSwitchToUnplanned={(name) => updateParams({ pttab: "unplanned", ptuq: name })} estimateThreshold={data.estimateThresholdDays} />
+                          <MemberTimelineCard key={member.memberId} member={member} filterStart={selectedStart} filterEnd={selectedEnd} onSwitchToUnplanned={(name) => updateParams({ pttab: "unplanned", ptuq: name })} estimateThreshold={data.estimateThresholdDays} />
                         ))}
                       </div>
                     )}
@@ -3680,11 +3601,11 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
             </TabsContent>
 
             <TabsContent value="at-risk">
-              <AtRiskTab apiBase={apiBase} quarterStart={ustart} quarterEnd={uend} estimateThreshold={data.estimateThresholdDays} />
+              <AtRiskTab apiBase={apiBase} filterStart={selectedStart} filterEnd={selectedEnd} estimateThreshold={data.estimateThresholdDays} />
             </TabsContent>
 
             <TabsContent value="overdue">
-              <OverdueTab apiBase={apiBase} quarterStart={ustart} quarterEnd={uend} estimateThreshold={data.estimateThresholdDays} />
+              <OverdueTab apiBase={apiBase} filterStart={selectedStart} filterEnd={selectedEnd} estimateThreshold={data.estimateThresholdDays} />
             </TabsContent>
 
             <TabsContent value="completed">
@@ -3692,11 +3613,11 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
             </TabsContent>
 
             <TabsContent value="unplanned">
-              <UnplannedWithDateFilter apiBase={apiBase} start={ustart} end={uend} />
+              <UnplannedWithDateFilter apiBase={apiBase} start={selectedStart} end={selectedEnd} />
             </TabsContent>
 
             <TabsContent value="unassigned">
-              <UnassignedTab projectId={projectId} quarterStart={ustart} quarterEnd={uend} />
+              <UnassignedTab projectId={projectId} filterStart={selectedStart} filterEnd={selectedEnd} />
             </TabsContent>
 
             <TabsContent value="gantt">

@@ -66,9 +66,7 @@ export async function GET(req: Request, { params }: Params) {
     const singleDate = url.searchParams.get("date");
     const filterStart = url.searchParams.get("start") ?? singleDate ?? today;
     const filterEnd = url.searchParams.get("end") ?? singleDate ?? today;
-    const uFilterStart = url.searchParams.get("ustart") ?? null;
-    const uFilterEnd = url.searchParams.get("uend") ?? null;
-    const data = await fetchProjectTeamTimeline(projectId, filterStart, filterEnd, nowStr, uFilterStart, uFilterEnd);
+    const data = await fetchProjectTeamTimeline(projectId, filterStart, filterEnd, nowStr);
     if (data === null) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json(data);
   } catch (err) {
@@ -82,8 +80,6 @@ async function fetchProjectTeamTimeline(
   filterStart: string,
   filterEnd: string,
   nowStr: string,
-  uFilterStart: string | null,
-  uFilterEnd: string | null,
 ) {
   "use cache";
   cacheLife("minutes");
@@ -157,12 +153,9 @@ async function fetchProjectTeamTimeline(
     const email = raw.assignee_email;
 
     if (!startDate || !dueDate) {
-      if (uFilterStart && uFilterEnd && raw.jira_created_at) {
-        const createdDate = raw.jira_created_at.slice(0, 10);
-        if (createdDate < uFilterStart || createdDate > uFilterEnd) continue;
-      } else if (uFilterStart && uFilterEnd && !raw.jira_created_at) {
-        continue;
-      }
+      if (!raw.jira_created_at) continue;
+      const createdDate = raw.jira_created_at.slice(0, 10);
+      if (createdDate < filterStart || createdDate > filterEnd) continue;
       const list = unplannedByEmail.get(email) ?? [];
       list.push({
         id: raw.id, jiraKey: raw.jira_key, summary: raw.summary,
@@ -181,7 +174,7 @@ async function fetchProjectTeamTimeline(
     const isDoneStatus = cat === "done" || cat.includes("complete") || cat.includes("closed");
 
     if (!isDoneStatus && dueDate < today) {
-      if (!(uFilterStart && dueDate < uFilterStart)) {
+      if (dueDate >= filterStart && dueDate <= filterEnd) {
         const daysRemaining = Math.ceil(
           (new Date(dueDate).getTime() - new Date(today).getTime()) / 86400000
         );
