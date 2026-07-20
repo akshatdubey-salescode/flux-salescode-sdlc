@@ -16,6 +16,9 @@ export type OverdueIssueItem = {
   summary: string;
   status: string;
   statusCategory: string | null;
+  /** Our own status bucket, translated from the raw Jira status per the
+   * project's status mapping. Null when the raw status has no mapping. */
+  canonicalStatus: string | null;
   priority: string | null;
   issueType: string;
   startDate: string;
@@ -48,6 +51,7 @@ type IssueRow = {
   summary: string;
   status: string;
   status_category: string | null;
+  canonical_status: string | null;
   priority: string | null;
   issue_type: string;
   assignee_email: string;
@@ -143,6 +147,7 @@ async function fetchBoardOverdue(
       ji.summary,
       ji.status,
       ji.status_category,
+      psm.canonical_status AS canonical_status,
       ji.priority,
       ji.issue_type,
       mie.effective_email AS assignee_email,
@@ -154,6 +159,8 @@ async function fetchBoardOverdue(
     FROM member_issue_emails mie
     JOIN jira_issues ji ON ji.id = mie.id
     JOIN jira_projects jp ON jp.id = ji.project_id
+    LEFT JOIN project_status_mappings psm
+      ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
     ORDER BY mie.effective_email, ji.jira_key
   `);
 
@@ -189,6 +196,7 @@ async function fetchBoardOverdue(
       summary: raw.summary,
       status: raw.status,
       statusCategory: raw.status_category,
+      canonicalStatus: raw.canonical_status,
       priority: raw.priority,
       issueType: raw.issue_type,
       startDate: startDate ?? "",

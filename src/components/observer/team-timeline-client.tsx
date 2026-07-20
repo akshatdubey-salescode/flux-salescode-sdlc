@@ -28,6 +28,7 @@ import {
   RiDownload2Line,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -2748,6 +2749,9 @@ function OverduePersonCard({ person, estimateThreshold }: { person: OverduePerso
   );
 }
 
+/** localStorage key for the "Hide Jiras in QA" toggle on the overdue tab. */
+const HIDE_QA_STORAGE_KEY = "observer.overdue.hideQaJiras";
+
 function OverdueTab({
   apiBase,
   filterStart,
@@ -2762,6 +2766,27 @@ function OverdueTab({
   const [data, setData] = useState<OverdueResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  // Default to showing QA jiras so the first client render matches the server
+  // HTML; the persisted choice is loaded after mount to avoid a hydration
+  // mismatch.
+  const [hideQa, setHideQa] = useState(false);
+
+  useEffect(() => {
+    try {
+      setHideQa(localStorage.getItem(HIDE_QA_STORAGE_KEY) === "1");
+    } catch {
+      // ignore (private browsing, disabled storage, etc.)
+    }
+  }, []);
+
+  const toggleHideQa = useCallback((next: boolean) => {
+    setHideQa(next);
+    try {
+      localStorage.setItem(HIDE_QA_STORAGE_KEY, next ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const load = useCallback(async (qs: string, qe: string) => {
     setLoading(true);
@@ -2782,21 +2807,30 @@ function OverdueTab({
   const filteredPersons = useMemo(() => {
     if (!data) return [];
     const needle = search.trim().toLowerCase();
-    if (!needle) return data.byPerson;
     return data.byPerson
       .map((p) => {
+        // Drop QA jiras first when the toggle is on, then apply search.
+        const qaFiltered = hideQa
+          ? p.issues.filter((i) => i.canonicalStatus !== "IN_QA")
+          : p.issues;
+        if (!needle) return { ...p, issues: qaFiltered };
         const matchesPerson =
           p.name.toLowerCase().includes(needle) ||
           p.email.toLowerCase().includes(needle);
-        const filteredIssues = p.issues.filter(
+        const searched = qaFiltered.filter(
           (i) =>
             i.summary.toLowerCase().includes(needle) ||
             i.jiraKey.toLowerCase().includes(needle)
         );
-        return { ...p, issues: matchesPerson ? p.issues : filteredIssues };
+        return { ...p, issues: matchesPerson ? qaFiltered : searched };
       })
       .filter((p) => p.issues.length > 0);
-  }, [data, search]);
+  }, [data, search, hideQa]);
+
+  const visibleCount = useMemo(
+    () => filteredPersons.reduce((sum, p) => sum + p.issues.length, 0),
+    [filteredPersons]
+  );
 
   if (loading) return <div className="h-40 bg-muted rounded-xl animate-pulse" />;
 
@@ -2816,12 +2850,19 @@ function OverdueTab({
         <div className="flex items-center gap-2">
           <RiAlertLine size={14} className="text-red-500" />
           <span className="text-sm font-semibold text-red-600 dark:text-red-400">
-            {data.totalCount} overdue {data.totalCount === 1 ? "task" : "tasks"}
+            {visibleCount} overdue {visibleCount === 1 ? "task" : "tasks"}
           </span>
           <span className="text-xs text-muted-foreground">
             — scoped to {formatDisplayDate(filterStart)} → {formatDisplayDate(filterEnd)}
           </span>
         </div>
+        <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground cursor-pointer select-none shrink-0">
+          <Checkbox
+            checked={hideQa}
+            onCheckedChange={(v) => toggleHideQa(v === true)}
+          />
+          Hide Jiras in QA
+        </label>
       </div>
 
       <div className="relative mb-5">
@@ -2837,7 +2878,11 @@ function OverdueTab({
 
       {filteredPersons.length === 0 ? (
         <div className="py-10 text-center">
-          <p className="text-sm text-muted-foreground">No results for &ldquo;{search}&rdquo;.</p>
+          <p className="text-sm text-muted-foreground">
+            {search.trim()
+              ? <>No results for &ldquo;{search}&rdquo;.</>
+              : "No overdue tasks match the current filters."}
+          </p>
         </div>
       ) : (
         <div className="space-y-4">
