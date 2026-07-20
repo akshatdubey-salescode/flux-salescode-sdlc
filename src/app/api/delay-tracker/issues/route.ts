@@ -3,11 +3,9 @@ import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { cacheLife, cacheTag } from "next/cache";
 import { requireAuth } from "@/lib/auth/server";
-import { categoryLabel } from "@/lib/delay-tracker/categories";
+import { categoryLabel, isDelayCategory } from "@/lib/delay-tracker/categories";
 import { isValidUuid, isValidDateString } from "@/lib/delay-tracker/entries";
-import { delayReasonCategoryEnum } from "@/lib/db/schema";
 
-const VALID_CATEGORIES = new Set<string>(delayReasonCategoryEnum.enumValues);
 const MAX_ISSUES = 500;
 
 export type DelayedIssueRow = {
@@ -45,7 +43,7 @@ export async function GET(request: Request) {
     if (!projectIds.every(isValidUuid)) {
       return NextResponse.json({ error: "every projectId must be a valid UUID" }, { status: 400 });
     }
-    if (!categories.every((c) => VALID_CATEGORIES.has(c))) {
+    if (!categories.every(isDelayCategory)) {
       return NextResponse.json({ error: "Invalid category" }, { status: 400 });
     }
     if (dateFrom && !isValidDateString(dateFrom)) {

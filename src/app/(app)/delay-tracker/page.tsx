@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { PageHeader } from "@/components/page-header";
@@ -75,7 +76,12 @@ export default async function DelayTrackerPage({ searchParams }: { searchParams:
       <main className="flex-1 p-6">
         <div className="max-w-5xl mx-auto space-y-4">
           <h1 className="text-2xl font-semibold tracking-tight">Delay Tracker</h1>
-          <DelayIssuesTable />
+          {/* DelayIssuesTable reads filter state via useSearchParams, which
+              must sit under a Suspense boundary — same page-level wrapping every
+              other useSearchParams surface here uses (search, my-tasks, …). */}
+          <Suspense fallback={<div className="h-96 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-800" />}>
+            <DelayIssuesTable />
+          </Suspense>
         </div>
       </main>
     </div>

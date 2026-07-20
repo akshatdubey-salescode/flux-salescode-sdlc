@@ -9,6 +9,7 @@ import { authOptions } from "@/lib/auth/nextauth-options";
 import {
   OTHER_PROJECT_CATEGORIES,
   PERSON_REQUIRED_CATEGORIES,
+  isDelayCategory,
   type DelayCategoryValue,
 } from "@/lib/delay-tracker/categories";
 import {
@@ -19,8 +20,6 @@ import {
 } from "@/lib/delay-tracker/entries";
 
 type Params = { params: Promise<{ id: string }> };
-
-const VALID_CATEGORIES = new Set<string>(delayReasonCategoryEnum.enumValues);
 
 /** Edit a single delay entry (category, date, responsible person, note, or link). */
 export async function PATCH(req: NextRequest, { params }: Params) {
@@ -62,7 +61,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
 
   if (body.category !== undefined) {
-    if (typeof body.category !== "string" || !VALID_CATEGORIES.has(body.category)) {
+    if (!isDelayCategory(body.category)) {
       return NextResponse.json({ error: "Invalid category" }, { status: 400 });
     }
     updates.category = body.category as (typeof delayReasonCategoryEnum.enumValues)[number];
