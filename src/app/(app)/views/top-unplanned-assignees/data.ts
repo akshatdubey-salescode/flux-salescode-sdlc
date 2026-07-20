@@ -170,6 +170,7 @@ export async function fetchTopUnplannedAssignees(
 }
 
 export type UnplannedIssue = {
+  id: string;
   jira_key: string;
   summary: string;
   browse_url: string;
@@ -249,7 +250,7 @@ export async function fetchUnplannedIssuesForAssignee(
       WHERE NOT (has_start AND has_due)
     )
     SELECT
-      jira_key, summary, status, jira_created_at, assigned_at, name, browse_url
+      id, jira_key, summary, status, jira_created_at, assigned_at, name, browse_url
     FROM unplanned
     ORDER BY jira_created_at DESC
     LIMIT 2000
@@ -261,6 +262,7 @@ export async function fetchUnplannedIssuesForAssignee(
     name: rows[0]?.name ?? "(unknown)",
     email,
     issues: rows.map((r) => ({
+      id: r.id,
       jira_key: r.jira_key,
       summary: r.summary,
       browse_url: r.browse_url,
