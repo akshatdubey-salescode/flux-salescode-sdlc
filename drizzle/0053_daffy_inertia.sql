@@ -1,0 +1,1 @@
+ALTER TYPE "public"."delay_reason_category" ADD VALUE 'ba_delay' BEFORE 'resource_unavailability';
