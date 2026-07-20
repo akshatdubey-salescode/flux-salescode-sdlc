@@ -16,6 +16,7 @@ import {
   getRelevantQuarters,
   quarterBounds,
 } from "@/lib/date-utils";
+import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import {
   fetchTopUnplannedAssignees,
   fetchUnplannedIssuesForAssignee,
@@ -123,6 +124,7 @@ export default async function TopUnplannedAssigneesPage({
                     <th className="px-4 py-2.5 text-right text-xs font-semibold text-zinc-500 uppercase tracking-wide">
                       Assigned
                     </th>
+                    <th className="w-8 px-2 py-2.5" />
                   </tr>
                 </thead>
                 <tbody>
@@ -158,13 +160,16 @@ export default async function TopUnplannedAssigneesPage({
                           ? new Date(issue.assigned_at).toLocaleString()
                           : "—"}
                       </td>
+                      <td className="px-2 py-3 align-top">
+                        <DelayLogButton issueId={issue.id} />
+                      </td>
                     </tr>
                   ))}
 
                   {detail.issues.length === 0 && (
                     <tr>
                       <td
-                        colSpan={4}
+                        colSpan={5}
                         className="px-4 py-8 text-center text-sm text-zinc-400"
                       >
                         No unplanned tasks in this period.

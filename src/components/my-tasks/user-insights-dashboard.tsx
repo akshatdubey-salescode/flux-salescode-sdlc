@@ -26,6 +26,7 @@ import {
   RiArrowDownLine,
   RiExternalLinkLine,
 } from "@remixicon/react";
+import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 
 type UserDashboardData = {
   personalHealth: {
@@ -277,6 +278,7 @@ function MyStaleIssues({
                   <span className="text-[10px] text-muted-foreground">
                     {row.project_name}
                   </span>
+                  <DelayLogButton issueId={row.id} />
                 </div>
               </div>
             ))}

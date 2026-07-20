@@ -7,6 +7,7 @@ import {
   RiListCheck2,
 } from "@remixicon/react";
 import { cn } from "@/lib/utils";
+import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import { FilterBar } from "./filter-bar";
 import { BoardView, BoardViewSkeleton } from "./board-view";
 import { ListView } from "./list-view";
@@ -223,6 +224,7 @@ export function ProjectTrackingTab({ projectId }: Props) {
             updateParams({ sortBy, sortDir, page: "1" })
           }
           onPageChange={(page) => updateParams({ page: String(page) })}
+          renderActions={(issue) => <DelayLogButton issueId={issue.id} />}
         />
       )}
     </div>

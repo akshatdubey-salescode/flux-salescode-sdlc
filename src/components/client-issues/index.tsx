@@ -30,6 +30,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import type { FreshdeskTicket } from "@/lib/db/schema";
 
 type TicketWithJiraDate = FreshdeskTicket & {
@@ -1033,14 +1034,19 @@ export function ClientIssuesTab({ projectId, projectName }: { projectId: string;
                         {col("jiraTicket") && (
                           <td className="px-4 py-3 font-mono text-xs whitespace-nowrap">
                             {ticket.linkedJiraKey ? (
-                              jiraBaseUrl ? (
-                                <a href={`${jiraBaseUrl}/browse/${ticket.linkedJiraKey}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">
-                                  {ticket.linkedJiraKey}
-                                  <RiExternalLinkLine className="h-3 w-3 shrink-0" />
-                                </a>
-                              ) : (
-                                <span className="text-zinc-700 dark:text-zinc-300">{ticket.linkedJiraKey}</span>
-                              )
+                              <span className="inline-flex items-center gap-0.5">
+                                {jiraBaseUrl ? (
+                                  <a href={`${jiraBaseUrl}/browse/${ticket.linkedJiraKey}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">
+                                    {ticket.linkedJiraKey}
+                                    <RiExternalLinkLine className="h-3 w-3 shrink-0" />
+                                  </a>
+                                ) : (
+                                  <span className="text-zinc-700 dark:text-zinc-300">{ticket.linkedJiraKey}</span>
+                                )}
+                                {ticket.linkedJiraIssueId && (
+                                  <DelayLogButton issueId={ticket.linkedJiraIssueId} />
+                                )}
+                              </span>
                             ) : (
                               <span className="inline-flex items-center gap-1 text-orange-500">
                                 <RiAlertLine className="h-3 w-3 shrink-0" /> Not linked

@@ -22,6 +22,7 @@ import {
   RiExternalLinkLine,
 } from "@remixicon/react";
 import { ProjectDelayPanel } from "@/components/delay-tracker/project-delay-panel";
+import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 
 type ProjectDashboardData = {
   projectHealth: {
@@ -373,6 +374,7 @@ function StaleIssuesList({
                   <th className="px-4 py-2.5 text-right font-medium text-muted-foreground w-16">
                     Age
                   </th>
+                  <th className="w-8 px-2 py-2.5" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">
@@ -410,6 +412,9 @@ function StaleIssuesList({
                         <RiTimeLine className="size-2.5" />
                         {row.days_stale}d
                       </Badge>
+                    </td>
+                    <td className="px-2 py-2.5">
+                      <DelayLogButton issueId={row.id} />
                     </td>
                   </tr>
                 ))}

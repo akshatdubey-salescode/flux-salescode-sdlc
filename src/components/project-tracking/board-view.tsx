@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import {
   TrackingIssue,
   FilterState,
@@ -246,6 +247,7 @@ function IssueCard({ issue }: { issue: TrackingIssue }) {
             {issue.priority ?? "—"}
           </span>
         </div>
+        <DelayLogButton issueId={issue.id} />
       </div>
 
       {/* Summary */}

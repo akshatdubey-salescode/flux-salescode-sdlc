@@ -5,6 +5,7 @@ export const DELAY_CATEGORY_VALUES = [
   "person_dependency",
   "dev_delay",
   "qa_delay",
+  "ba_delay",
   "resource_unavailability",
   "env_unavailability",
   "other_project_task",
@@ -21,6 +22,7 @@ const CATEGORY_LABELS = {
   person_dependency: "Person dependency",
   dev_delay: "Dev Delay",
   qa_delay: "QA Delay",
+  ba_delay: "BA Delay",
   resource_unavailability: "Resource unavailability",
   env_unavailability: "Env unavailability",
   other_project_task: "Other Project task",
@@ -45,6 +47,7 @@ export const PERSON_REQUIRED_CATEGORIES = new Set<DelayCategoryValue>([
   "person_dependency",
   "dev_delay",
   "qa_delay",
+  "ba_delay",
   "resource_unavailability",
   "estimate_low",
 ]);
