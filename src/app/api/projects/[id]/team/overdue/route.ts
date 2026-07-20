@@ -19,7 +19,8 @@ type Params = { params: Promise<{ id: string }> };
 
 type IssueRow = {
   id: string; jira_key: string; summary: string; status: string;
-  status_category: string | null; priority: string | null; issue_type: string;
+  status_category: string | null; canonical_status: string | null;
+  priority: string | null; issue_type: string;
   assignee_email: string; custom_fields: Record<string, unknown>;
   project_name: string; jira_base_url: string;
   end_date_field_ids: string[] | null; start_date_field_ids: string[] | null;
@@ -74,10 +75,13 @@ async function fetchProjectOverdue(projectId: string, today: string, quarterStar
       CROSS JOIN LATERAL unnest(ji.additional_assignee_emails) AS ae
       WHERE lower(ae) IN (${emailsIn}) AND ji.project_id = ${projectId}
     )
-    SELECT ji.id, ji.jira_key, ji.summary, ji.status, ji.status_category, ji.priority, ji.issue_type,
+    SELECT ji.id, ji.jira_key, ji.summary, ji.status, ji.status_category,
+      psm.canonical_status AS canonical_status, ji.priority, ji.issue_type,
       mie.effective_email AS assignee_email, ji.custom_fields,
       jp.name AS project_name, jp.jira_base_url, jp.end_date_field_ids, jp.start_date_field_ids
     FROM mie JOIN jira_issues ji ON ji.id = mie.id JOIN jira_projects jp ON jp.id = ji.project_id
+    LEFT JOIN project_status_mappings psm
+      ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
     ORDER BY mie.effective_email, ji.jira_key
   `);
 
@@ -95,7 +99,8 @@ async function fetchProjectOverdue(projectId: string, today: string, quarterStar
     const list = byEmail.get(raw.assignee_email) ?? [];
     list.push({
       id: raw.id, jiraKey: raw.jira_key, summary: raw.summary, status: raw.status,
-      statusCategory: raw.status_category, priority: raw.priority, issueType: raw.issue_type,
+      statusCategory: raw.status_category, canonicalStatus: raw.canonical_status,
+      priority: raw.priority, issueType: raw.issue_type,
       startDate: startDate ?? "", dueDate, daysOverdue,
       projectName: raw.project_name, jiraBaseUrl: raw.jira_base_url,
       estWorkingDays: startDate ? workingDaysBetween(startDate, dueDate) : null,
