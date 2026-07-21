@@ -58,7 +58,7 @@ import type { AtRiskResponse, AtRiskPersonGroup, AtRiskIssueItem } from "@/app/a
 import type { MeetingEvent, MeetingsResponse } from "@/app/api/observer/boards/[boardId]/meetings/route";
 import { statusCategoryStyles, priorityStyles, issueTypeStyles } from "@/components/project-tracking/helpers";
 import { TeamGanttClient } from "@/components/observer/team-gantt-client";
-import { localDateStr } from "@/lib/date-utils";
+import { currentFiscalQuarterChip, localDateStr } from "@/lib/date-utils";
 
 // ---------------------------------------------------------------------------
 // Hooks
@@ -386,6 +386,17 @@ export type FilterMode = "single" | "range";
 export type DateFilter =
   | { mode: "single"; date: string }
   | { mode: "range"; start: string; end: string };
+
+const QUARTER_SCOPED_TABS = new Set([
+  "at-risk",
+  "overdue",
+  "unplanned",
+  "unassigned",
+]);
+
+function usesQuarterDataInSingleMode(tab: string): boolean {
+  return QUARTER_SCOPED_TABS.has(tab);
+}
 
 function startOfWeek(date: string): string {
   const d = new Date(date + "T12:00:00");
@@ -3029,6 +3040,9 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
   const debouncedQ = useDebounce(qInput, 350);
   const isMounted = useRef(false);
 
+  const rawTab = searchParams.get("tab") ?? "timeline";
+  const activeTab: TabValue = VALID_TABS.includes(rawTab as TabValue) ? (rawTab as TabValue) : "timeline";
+
   const filter: DateFilter = useMemo(
     () =>
       mode === "range"
@@ -3036,8 +3050,18 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
         : { mode: "single", date: spDate },
     [mode, spDate, spTstart, spTend]
   );
-  const selectedStart = filter.mode === "single" ? filter.date : filter.start;
-  const selectedEnd = filter.mode === "single" ? filter.date : filter.end;
+  // Keep the visible Single Date selection intact, but use the current fiscal
+  // quarter as the data window for tabs whose metrics only make sense over a
+  // period. Leaving the tab restores the original single-date data window.
+  const dataFilter: DateFilter = useMemo(() => {
+    if (filter.mode === "single" && usesQuarterDataInSingleMode(activeTab)) {
+      const { start, end } = currentFiscalQuarterChip();
+      return { mode: "range", start, end };
+    }
+    return filter;
+  }, [activeTab, filter]);
+  const selectedStart = dataFilter.mode === "single" ? dataFilter.date : dataFilter.start;
+  const selectedEnd = dataFilter.mode === "single" ? dataFilter.date : dataFilter.end;
 
   const [data, setData] = useState<TimelineResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -3050,9 +3074,6 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
   const [meetingsByEmail, setMeetingsByEmail] = useState<
     Record<string, { totalMinutes: number; eventCount: number; events: MeetingEvent[] }>
   >({});
-
-  const rawTab = searchParams.get("tab") ?? "timeline";
-  const activeTab: TabValue = VALID_TABS.includes(rawTab as TabValue) ? (rawTab as TabValue) : "timeline";
 
   function handleCopyAlert() {
     if (!data) return;
@@ -3120,12 +3141,12 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
   );
 
   useEffect(() => {
-    load(filter);
-  }, [filter, load]);
+    load(dataFilter);
+  }, [dataFilter, load]);
 
   useEffect(() => {
-    const start = filter.mode === "single" ? filter.date : filter.start;
-    const end = filter.mode === "single" ? filter.date : filter.end;
+    const start = dataFilter.mode === "single" ? dataFilter.date : dataFilter.start;
+    const end = dataFilter.mode === "single" ? dataFilter.date : dataFilter.end;
     let cancelled = false;
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     fetch(
@@ -3146,7 +3167,7 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
       })
       .catch(() => { /* meetings are non-critical; silently skip */ });
     return () => { cancelled = true; };
-  }, [boardId, filter]);
+  }, [boardId, dataFilter]);
 
   // Gantt dates derived from the top-level filter (single date → 7-day window)
   const ganttStart = filter.mode === "single" ? filter.date : filter.start;
@@ -3161,7 +3182,7 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
       <div className="py-12 text-center">
         <p className="text-sm text-destructive mb-2">{error}</p>
         <button
-          onClick={() => load(filter)}
+          onClick={() => load(dataFilter)}
           className="text-xs text-muted-foreground hover:text-foreground underline"
         >
           Try again
@@ -3216,7 +3237,7 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
                   </button>
                 )}
                 <button
-                  onClick={() => load(filter)}
+                  onClick={() => load(dataFilter)}
                   disabled={loading}
                   className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
@@ -3477,21 +3498,29 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
   const debouncedQ = useDebounce(qInput, 350);
   const isMounted = useRef(false);
 
+  const rawTab = searchParams.get("pttab") ?? "timeline";
+  const activeTab: ProjectTabValue = PROJECT_VALID_TABS.includes(rawTab as ProjectTabValue) ? (rawTab as ProjectTabValue) : "timeline";
+
   const filter: DateFilter = useMemo(
     () => mode === "range" ? { mode: "range", start: spTstart, end: spTend } : { mode: "single", date: spDate },
     [mode, spDate, spTstart, spTend]
   );
-  const selectedStart = filter.mode === "single" ? filter.date : filter.start;
-  const selectedEnd = filter.mode === "single" ? filter.date : filter.end;
+  // Project Team follows the same display-filter/data-filter split as boards.
+  const dataFilter: DateFilter = useMemo(() => {
+    if (filter.mode === "single" && usesQuarterDataInSingleMode(activeTab)) {
+      const { start, end } = currentFiscalQuarterChip();
+      return { mode: "range", start, end };
+    }
+    return filter;
+  }, [activeTab, filter]);
+  const selectedStart = dataFilter.mode === "single" ? dataFilter.date : dataFilter.start;
+  const selectedEnd = dataFilter.mode === "single" ? dataFilter.date : dataFilter.end;
 
   const [data, setData] = useState<TimelineResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [unassignedCount, setUnassignedCount] = useState<number | undefined>(undefined);
   const [alertCopied, setAlertCopied] = useState(false);
-
-  const rawTab = searchParams.get("pttab") ?? "timeline";
-  const activeTab: ProjectTabValue = PROJECT_VALID_TABS.includes(rawTab as ProjectTabValue) ? (rawTab as ProjectTabValue) : "timeline";
 
   function handleCopyAlert() {
     if (!data) return;
@@ -3538,7 +3567,7 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
     finally { setLoading(false); }
   }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { load(filter); }, [filter, load]);
+  useEffect(() => { load(dataFilter); }, [dataFilter, load]);
 
   useEffect(() => {
     fetch(`/api/projects/${projectId}/team/unassigned?qstart=${selectedStart}&qend=${selectedEnd}`)
@@ -3558,7 +3587,7 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
   if (error) return (
     <div className="py-12 text-center">
       <p className="text-sm text-destructive mb-2">{error}</p>
-      <button onClick={() => load(filter)} className="text-xs text-muted-foreground hover:text-foreground underline">Try again</button>
+      <button onClick={() => load(dataFilter)} className="text-xs text-muted-foreground hover:text-foreground underline">Try again</button>
     </div>
   );
 
@@ -3603,7 +3632,7 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
                     }
                   </button>
                 )}
-                <button onClick={() => load(filter)} disabled={loading} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                <button onClick={() => load(dataFilter)} disabled={loading} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
                   <RiRefreshLine size={12} className={loading ? "animate-spin" : ""} />
                   Refresh
                 </button>
