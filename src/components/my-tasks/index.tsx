@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ListView } from "../project-tracking/list-view";
 import { MyTasksFilterBar } from "./filter-bar";
@@ -19,6 +19,7 @@ import { UserInsightsDashboard } from "./user-insights-dashboard";
 import { MyMeetings } from "./my-meetings";
 import { BugTracker } from "@/components/bug-summary";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
+import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
 import { usePinnedTasks } from "./use-pinned-tasks";
 import {
   useColumnVisibility,
@@ -103,6 +104,8 @@ function readFilters(
     labels: searchParams.get("labels")?.split(",").filter(Boolean) ?? [],
     dateFrom: searchParams.get("dateFrom") ?? "",
     dateTo: searchParams.get("dateTo") ?? "",
+    deliveryDateFrom: searchParams.get("deliveryDateFrom") ?? "",
+    deliveryDateTo: searchParams.get("deliveryDateTo") ?? "",
     qstart,
     qend,
     showCompleted,
@@ -117,7 +120,7 @@ function readFilters(
 
 export function MyTasksView({
   targetEmail,
-  renderIssueActions = (issue) => <DelayLogButton issueId={issue.id} />,
+  renderIssueActions,
   hideTabs = false,
 }: {
   targetEmail?: string;
@@ -161,6 +164,8 @@ export function MyTasksView({
       const effectiveDateTo = filters.qend || filters.dateTo;
       if (effectiveDateFrom) params.set("dateFrom", effectiveDateFrom);
       if (effectiveDateTo) params.set("dateTo", effectiveDateTo);
+      if (filters.deliveryDateFrom) params.set("deliveryDateFrom", filters.deliveryDateFrom);
+      if (filters.deliveryDateTo) params.set("deliveryDateTo", filters.deliveryDateTo);
       if (filters.showCompleted) params.set("showCompleted", "true");
       if (filters.includeReported) params.set("includeReported", "true");
       if (filters.unplannedOnly) params.set("unplannedOnly", "true");
@@ -199,6 +204,8 @@ export function MyTasksView({
     labels: filters.labels,
     dateFrom: filters.dateFrom,
     dateTo: filters.dateTo,
+    deliveryDateFrom: filters.deliveryDateFrom,
+    deliveryDateTo: filters.deliveryDateTo,
     qstart: filters.qstart,
     qend: filters.qend,
     showCompleted: filters.showCompleted,
@@ -251,7 +258,7 @@ export function MyTasksView({
     }
   }, [searchParams, router]);
 
-  useEffect(() => {
+  const loadTasks = useCallback(() => {
     const params = new URLSearchParams();
     const parsed: MyTasksFilterState = JSON.parse(filterKey);
 
@@ -266,6 +273,8 @@ export function MyTasksView({
     const effectiveDateTo = parsed.qend || parsed.dateTo;
     if (effectiveDateFrom) params.set("dateFrom", effectiveDateFrom);
     if (effectiveDateTo) params.set("dateTo", effectiveDateTo);
+    if (parsed.deliveryDateFrom) params.set("deliveryDateFrom", parsed.deliveryDateFrom);
+    if (parsed.deliveryDateTo) params.set("deliveryDateTo", parsed.deliveryDateTo);
     if (parsed.showCompleted) params.set("showCompleted", "true");
     if (parsed.includeReported) params.set("includeReported", "true");
     if (parsed.unplannedOnly) params.set("unplannedOnly", "true");
@@ -277,7 +286,10 @@ export function MyTasksView({
     if (targetEmail) params.set("forEmail", targetEmail);
 
     setLoading(true);
-    fetch(`/api/my-tasks?${params.toString()}`)
+    // no-store: the browser's default HTTP cache mode otherwise reuses a
+    // stale response for this exact URL even after a delivery mutation's
+    // server-side revalidateTag ran correctly — confirmed directly.
+    return fetch(`/api/my-tasks?${params.toString()}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
         setIssues(data.issues ?? []);
@@ -286,7 +298,20 @@ export function MyTasksView({
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [filterKey]);
+  }, [filterKey, targetEmail]);
+
+  useEffect(() => {
+    loadTasks();
+  }, [loadTasks]);
+
+  const resolvedRenderIssueActions =
+    renderIssueActions ??
+    ((issue: TrackingIssue) => (
+      <div className="flex items-center gap-0.5">
+        <DelayLogButton issueId={issue.id} />
+        <DeliveryBadge issueId={issue.id} onChanged={loadTasks} />
+      </div>
+    ));
 
   const sortedIssues = isObserving
     ? issues
@@ -389,7 +414,7 @@ export function MyTasksView({
             updateParams({ sortBy, sortDir, page: "1" })
           }
           onPageChange={(page) => updateParams({ page: String(page) })}
-          renderActions={renderIssueActions}
+          renderActions={resolvedRenderIssueActions}
           showPlanned
           visibleColumns={visibleColumns}
           {...(!isObserving && {

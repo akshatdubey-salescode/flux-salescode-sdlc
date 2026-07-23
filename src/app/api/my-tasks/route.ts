@@ -24,6 +24,7 @@ import {
   startDateValueSql,
   dueDateValueSql,
 } from "@/lib/jira/planned-sql";
+import { nearestDeliveryDateSql, nearestDeliveryStatusSql } from "@/lib/deliveries/entries";
 
 /** Issue is "planned" only with both a start and a due/end date set. */
 const UNPLANNED_EXPR = sql`NOT (${hasStartDateSql(
@@ -41,6 +42,8 @@ type MyTaskFilters = {
   labelsList: string[];
   dateFrom: string;
   dateTo: string;
+  deliveryDateFrom: string;
+  deliveryDateTo: string;
   showCompleted: boolean;
   includeReported: boolean;
   unplannedOnly: boolean;
@@ -71,6 +74,10 @@ function buildOrderExpr(sortBy: string, sortDir: string) {
       )} AND ${hasDueDateSql(jiraIssues.customFields, jiraProjects.endDateFieldIds)})`;
       return isAsc ? sql`${planned} ASC` : sql`${planned} DESC`;
     }
+    case "delivery": {
+      const deliveryDate = nearestDeliveryDateSql(jiraIssues.id);
+      return isAsc ? sql`${deliveryDate} ASC NULLS LAST` : sql`${deliveryDate} DESC NULLS LAST`;
+    }
     default:
       return isAsc
         ? asc(jiraIssues.jiraUpdatedAt)
@@ -96,6 +103,8 @@ export async function GET(req: NextRequest) {
     labelsList: (searchParams.get("labels") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
     dateFrom: searchParams.get("dateFrom") ?? "",
     dateTo: searchParams.get("dateTo") ?? "",
+    deliveryDateFrom: searchParams.get("deliveryDateFrom") ?? "",
+    deliveryDateTo: searchParams.get("deliveryDateTo") ?? "",
     showCompleted: searchParams.get("showCompleted") === "true",
     includeReported: searchParams.get("includeReported") === "true",
     unplannedOnly: searchParams.get("unplannedOnly") === "true",
@@ -117,11 +126,16 @@ async function fetchMyTasks(
 ): Promise<Stamped<unknown>> {
   "use cache";
   cacheLife("minutes");
-  cacheTag(`my-tasks:${targetEmail}`);
+  // The per-email tag alone can't be targeted by a delivery mutation route
+  // (it doesn't know which users have the affected issue in their list) —
+  // the broad "my-tasks" tag lets any delivery mutation invalidate every
+  // user's cached list in one call so its embedded Delivery column doesn't
+  // stay stale for the rest of the cache's lifetime.
+  cacheTag(`my-tasks:${targetEmail}`, "my-tasks");
 
   const {
     q, projectList, statusList, priorityList, reporterList,
-    issueTypeList, labelsList, dateFrom, dateTo,
+    issueTypeList, labelsList, dateFrom, dateTo, deliveryDateFrom, deliveryDateTo,
     showCompleted, includeReported, unplannedOnly, sortBy, sortDir, pageSize, page,
   } = filters;
 
@@ -198,6 +212,8 @@ async function fetchMyTasks(
     );
   }
   if (unplannedOnly) conditions.push(UNPLANNED_EXPR);
+  if (deliveryDateFrom) conditions.push(sql`${nearestDeliveryDateSql(jiraIssues.id)} >= ${deliveryDateFrom}::date`);
+  if (deliveryDateTo) conditions.push(sql`${nearestDeliveryDateSql(jiraIssues.id)} <= ${deliveryDateTo}::date`);
 
   const where = and(...conditions);
   const orderExpr = buildOrderExpr(sortBy, sortDir);
@@ -223,6 +239,8 @@ async function fetchMyTasks(
         customFields: jiraIssues.customFields,
         startDateFieldIds: jiraProjects.startDateFieldIds,
         endDateFieldIds: jiraProjects.endDateFieldIds,
+        deliveryDate: nearestDeliveryDateSql(jiraIssues.id).as("delivery_date"),
+        deliveryStatus: nearestDeliveryStatusSql(jiraIssues.id).as("delivery_status"),
       })
       .from(jiraIssues)
       .innerJoin(jiraProjects, eq(jiraIssues.projectId, jiraProjects.id))

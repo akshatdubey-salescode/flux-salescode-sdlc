@@ -66,6 +66,7 @@ import {
   type QuarterChip,
 } from "@/lib/date-utils";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
+import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
 import type { DelayAnalyticsResponse, DelayLeader } from "@/app/api/analytics/delays/route";
 
 const flowConfig: ChartConfig = {
@@ -380,7 +381,7 @@ function BucketDialog({
                     <td className="px-3 py-2 text-muted-foreground"><span className="block truncate" title={it.assigneeName ?? "Unassigned"}>{it.assigneeName ?? "Unassigned"}</span></td>
                     <td className="px-3 py-2 text-muted-foreground"><span className="block truncate" title={it.projectName}>{it.projectName}</span></td>
                     <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums"><DueLabel issue={it} /></td>
-                    <td className="px-2 py-2"><DelayLogButton issueId={it.id} /></td>
+                    <td className="px-2 py-2"><div className="flex items-center gap-0.5"><DelayLogButton issueId={it.id} /><DeliveryBadge issueId={it.id} /></div></td>
                   </tr>
                 ))}
               </tbody>

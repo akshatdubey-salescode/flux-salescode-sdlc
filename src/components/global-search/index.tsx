@@ -20,6 +20,8 @@ function readFilters(
     labels: searchParams.get("labels")?.split(",").filter(Boolean) ?? [],
     dateFrom: searchParams.get("dateFrom") ?? "",
     dateTo: searchParams.get("dateTo") ?? "",
+    deliveryDateFrom: searchParams.get("deliveryDateFrom") ?? "",
+    deliveryDateTo: searchParams.get("deliveryDateTo") ?? "",
     showCompleted: false,
     sortBy: searchParams.get("sortBy") ?? "updated",
     sortDir: searchParams.get("sortDir") === "asc" ? "asc" : "desc",
@@ -50,6 +52,8 @@ export function SearchView() {
     labels: filters.labels,
     dateFrom: filters.dateFrom,
     dateTo: filters.dateTo,
+    deliveryDateFrom: filters.deliveryDateFrom,
+    deliveryDateTo: filters.deliveryDateTo,
     sortBy: filters.sortBy,
     sortDir: filters.sortDir,
     page: filters.page,
@@ -88,13 +92,15 @@ export function SearchView() {
     if (parsed.labels.length) params.set("labels", parsed.labels.join(","));
     if (parsed.dateFrom) params.set("dateFrom", parsed.dateFrom);
     if (parsed.dateTo) params.set("dateTo", parsed.dateTo);
+    if (parsed.deliveryDateFrom) params.set("deliveryDateFrom", parsed.deliveryDateFrom);
+    if (parsed.deliveryDateTo) params.set("deliveryDateTo", parsed.deliveryDateTo);
     params.set("sortBy", parsed.sortBy);
     params.set("sortDir", parsed.sortDir);
     params.set("pageSize", "50");
     params.set("page", String(parsed.page));
 
     setLoading(true);
-    fetch(`/api/search?${params.toString()}`)
+    fetch(`/api/search?${params.toString()}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
         setIssues(data.issues ?? []);

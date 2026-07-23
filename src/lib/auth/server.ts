@@ -12,6 +12,7 @@ export type AuthUser = {
   id: string;
   email: string;
   role: UserRole;
+  canManageDeliveries: boolean;
 };
 
 /**
@@ -31,7 +32,12 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   );
 
   if (user) {
-    return { id: user.id, email: user.email, role: user.role as UserRole };
+    return {
+      id: user.id,
+      email: user.email,
+      role: user.role as UserRole,
+      canManageDeliveries: user.canManageDeliveries,
+    };
   }
 
   // Defensive fallback: the signIn callback should have inserted this row,
@@ -39,7 +45,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   await withDbRetry(() =>
     db.insert(users).values({ id: email, email, role: "USER" }).onConflictDoNothing()
   );
-  return { id: email, email, role: "USER" };
+  return { id: email, email, role: "USER", canManageDeliveries: false };
 }
 
 /**

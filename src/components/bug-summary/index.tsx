@@ -37,6 +37,7 @@ import {
 } from "@/lib/bug-summary";
 import { DateRangeBar } from "./date-range-bar";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
+import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
 
 type Props = {
   /** GET endpoint returning { bugs: BugRow[] }; receives ?start&end (+extraParams). */
@@ -858,6 +859,7 @@ export function BugTracker({
                             </td>
                             <td className="px-2 py-2">
                               <DelayLogButton issueId={b.id} />
+                              <DeliveryBadge issueId={b.id} />
                             </td>
                           </tr>
                         );

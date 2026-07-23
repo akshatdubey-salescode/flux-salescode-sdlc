@@ -40,6 +40,7 @@ import type {
   AvailabilityMode,
 } from "@/app/api/analytics/availability/route";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
+import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
 
 type Props = {
   projects: { id: string; name: string }[];
@@ -675,6 +676,7 @@ function PersonRow({
                 <RiExternalLinkLine className="size-3 shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground" />
               </a>
               <DelayLogButton issueId={c.id} />
+              <DeliveryBadge issueId={c.id} />
             </div>
           ))}
         </div>

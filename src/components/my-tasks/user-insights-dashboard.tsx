@@ -27,6 +27,7 @@ import {
   RiExternalLinkLine,
 } from "@remixicon/react";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
+import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
 
 type UserDashboardData = {
   personalHealth: {
@@ -279,6 +280,7 @@ function MyStaleIssues({
                     {row.project_name}
                   </span>
                   <DelayLogButton issueId={row.id} />
+                  <DeliveryBadge issueId={row.id} />
                 </div>
               </div>
             ))}

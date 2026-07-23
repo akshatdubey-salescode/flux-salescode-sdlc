@@ -15,6 +15,7 @@ import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import { jiraIssues, jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
+import { nearestDeliveryDateSql, nearestDeliveryStatusSql } from "@/lib/deliveries/entries";
 
 type ProjectIssueFilters = {
   q: string;
@@ -26,6 +27,8 @@ type ProjectIssueFilters = {
   labelsList: string[];
   dateFrom: string;
   dateTo: string;
+  deliveryDateFrom: string;
+  deliveryDateTo: string;
   sortBy: string;
   sortDir: string;
   pageSize: number;
@@ -43,6 +46,10 @@ function buildOrderExpr(sortBy: string, sortDir: string) {
         : sql`CASE WHEN ${jiraIssues.priority} = 'Highest' THEN 1 WHEN ${jiraIssues.priority} = 'High' THEN 2 WHEN ${jiraIssues.priority} = 'Medium' THEN 3 WHEN ${jiraIssues.priority} = 'Low' THEN 4 WHEN ${jiraIssues.priority} = 'Lowest' THEN 5 ELSE 6 END DESC`;
     case "status":
       return isAsc ? asc(jiraIssues.status) : desc(jiraIssues.status);
+    case "delivery": {
+      const deliveryDate = nearestDeliveryDateSql(jiraIssues.id);
+      return isAsc ? sql`${deliveryDate} ASC NULLS LAST` : sql`${deliveryDate} DESC NULLS LAST`;
+    }
     default:
       return isAsc ? asc(jiraIssues.jiraUpdatedAt) : desc(jiraIssues.jiraUpdatedAt);
   }
@@ -75,6 +82,8 @@ export async function GET(
     labelsList: (searchParams.get("labels") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
     dateFrom: searchParams.get("dateFrom") ?? "",
     dateTo: searchParams.get("dateTo") ?? "",
+    deliveryDateFrom: searchParams.get("deliveryDateFrom") ?? "",
+    deliveryDateTo: searchParams.get("deliveryDateTo") ?? "",
     sortBy: searchParams.get("sortBy") ?? "updated",
     sortDir: searchParams.get("sortDir") === "asc" ? "asc" : "desc",
     pageSize: Math.min(200, Math.max(1, parseInt(searchParams.get("pageSize") ?? "50", 10))),
@@ -91,7 +100,7 @@ async function fetchProjectIssues(projectId: string, filters: ProjectIssueFilter
 
   const {
     q, statusList, priorityList, assigneeList, reporterList,
-    issueTypeList, labelsList, dateFrom, dateTo,
+    issueTypeList, labelsList, dateFrom, dateTo, deliveryDateFrom, deliveryDateTo,
     sortBy, sortDir, pageSize, page,
   } = filters;
 
@@ -131,6 +140,8 @@ async function fetchProjectIssues(projectId: string, filters: ProjectIssueFilter
     to.setHours(23, 59, 59, 999);
     conditions.push(lte(jiraIssues.jiraCreatedAt, to));
   }
+  if (deliveryDateFrom) conditions.push(sql`${nearestDeliveryDateSql(jiraIssues.id)} >= ${deliveryDateFrom}::date`);
+  if (deliveryDateTo) conditions.push(sql`${nearestDeliveryDateSql(jiraIssues.id)} <= ${deliveryDateTo}::date`);
   const where = and(...conditions);
   const orderExpr = buildOrderExpr(sortBy, sortDir);
 
@@ -152,6 +163,8 @@ async function fetchProjectIssues(projectId: string, filters: ProjectIssueFilter
         jiraCreatedAt: jiraIssues.jiraCreatedAt,
         jiraUpdatedAt: jiraIssues.jiraUpdatedAt,
         jiraBaseUrl: jiraProjects.jiraBaseUrl,
+        deliveryDate: nearestDeliveryDateSql(jiraIssues.id).as("delivery_date"),
+        deliveryStatus: nearestDeliveryStatusSql(jiraIssues.id).as("delivery_status"),
       })
       .from(jiraIssues)
       .innerJoin(jiraProjects, eq(jiraIssues.projectId, jiraProjects.id))

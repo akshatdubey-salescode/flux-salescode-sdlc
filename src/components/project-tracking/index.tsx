@@ -8,17 +8,23 @@ import {
 } from "@remixicon/react";
 import { cn } from "@/lib/utils";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
+import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
+import { AddToDeliveryMenu } from "@/components/delivery-tracker/add-to-delivery-menu";
 import { FilterBar } from "./filter-bar";
 import { BoardView, BoardViewSkeleton } from "./board-view";
 import { ListView } from "./list-view";
-import { sortStatusesByCategory } from "./helpers";
+import { sortStatusesByCategory, resolveDefaultSort } from "./helpers";
 import type { TrackingIssue, TrackingFields, FilterState } from "./helpers";
 
-type Props = { projectId: string };
+type Props = { projectId: string; canManageDeliveries: boolean };
 
 function readFilters(
   searchParams: ReturnType<typeof useSearchParams>
 ): FilterState {
+  const { sortBy, sortDir } = resolveDefaultSort(
+    searchParams.get("sortBy"),
+    searchParams.get("sortDir")
+  );
   return {
     q: searchParams.get("q") ?? "",
     status:
@@ -35,16 +41,17 @@ function readFilters(
       searchParams.get("labels")?.split(",").filter(Boolean) ?? [],
     dateFrom: searchParams.get("dateFrom") ?? "",
     dateTo: searchParams.get("dateTo") ?? "",
+    deliveryDateFrom: searchParams.get("deliveryDateFrom") ?? "",
+    deliveryDateTo: searchParams.get("deliveryDateTo") ?? "",
     showCompleted: false,
-    sortBy: searchParams.get("sortBy") ?? "updated",
-    sortDir:
-      searchParams.get("sortDir") === "asc" ? "asc" : "desc",
+    sortBy,
+    sortDir,
     view: searchParams.get("view") === "list" ? "list" : "board",
     page: Math.max(1, parseInt(searchParams.get("page") ?? "1", 10)),
   };
 }
 
-export function ProjectTrackingTab({ projectId }: Props) {
+export function ProjectTrackingTab({ projectId, canManageDeliveries }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const filters = readFilters(searchParams);
@@ -66,6 +73,8 @@ export function ProjectTrackingTab({ projectId }: Props) {
     labels: filters.labels,
     dateFrom: filters.dateFrom,
     dateTo: filters.dateTo,
+    deliveryDateFrom: filters.deliveryDateFrom,
+    deliveryDateTo: filters.deliveryDateTo,
     sortBy: filters.sortBy,
     sortDir: filters.sortDir,
     view: filters.view,
@@ -83,6 +92,8 @@ export function ProjectTrackingTab({ projectId }: Props) {
     labels: filters.labels,
     dateFrom: filters.dateFrom,
     dateTo: filters.dateTo,
+    deliveryDateFrom: filters.deliveryDateFrom,
+    deliveryDateTo: filters.deliveryDateTo,
     sortBy: filters.sortBy,
     sortDir: filters.sortDir,
   });
@@ -125,8 +136,13 @@ export function ProjectTrackingTab({ projectId }: Props) {
       .catch(() => {});
   }, [projectId]);
 
-  // Fetch issues (always, for count) — board view columns manage their own data fetching
-  useEffect(() => {
+  // Fetch issues (always, for count) — board view columns manage their own
+  // data fetching. Not wrapped in a manual useCallback: React Compiler
+  // (reactCompiler: true in next.config.ts) infers stable memoization for
+  // plain functions itself, and a hand-written dependency array here
+  // disagrees with what it infers (setState setters are already stable),
+  // which makes the compiler skip optimizing the whole component.
+  function loadIssues() {
     const parsed: FilterState = JSON.parse(filterKey);
     const isBoard = parsed.view === "board";
 
@@ -140,6 +156,8 @@ export function ProjectTrackingTab({ projectId }: Props) {
     if (parsed.labels.length) params.set("labels", parsed.labels.join(","));
     if (parsed.dateFrom) params.set("dateFrom", parsed.dateFrom);
     if (parsed.dateTo) params.set("dateTo", parsed.dateTo);
+    if (parsed.deliveryDateFrom) params.set("deliveryDateFrom", parsed.deliveryDateFrom);
+    if (parsed.deliveryDateTo) params.set("deliveryDateTo", parsed.deliveryDateTo);
     params.set("sortBy", parsed.sortBy);
     params.set("sortDir", parsed.sortDir);
     // In board view, only fetch enough to get the total count
@@ -147,7 +165,11 @@ export function ProjectTrackingTab({ projectId }: Props) {
     params.set("page", isBoard ? "1" : String(parsed.page));
 
     if (!isBoard) setLoading(true);
-    fetch(`/api/projects/${projectId}/issues?${params.toString()}`)
+    // no-store: the browser's default HTTP cache mode will otherwise reuse a
+    // stale response for this exact URL — confirmed directly, a delivery
+    // mutation's revalidateTag runs correctly server-side, but a plain
+    // fetch() still served the pre-mutation payload from the browser cache.
+    return fetch(`/api/projects/${projectId}/issues?${params.toString()}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
         if (!isBoard) {
@@ -158,7 +180,11 @@ export function ProjectTrackingTab({ projectId }: Props) {
       })
       .catch(() => {})
       .finally(() => { if (!isBoard) setLoading(false); });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }
+
+  useEffect(() => {
+    loadIssues();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadIssues reads filterKey/projectId from closure; those are the real deps
   }, [projectId, filterKey]);
 
   return (
@@ -209,6 +235,7 @@ export function ProjectTrackingTab({ projectId }: Props) {
             columns={boardColumns}
             filters={filters}
             boardFilterKey={boardFilterKey}
+            canManageDeliveries={canManageDeliveries}
           />
         )
       ) : (
@@ -224,7 +251,15 @@ export function ProjectTrackingTab({ projectId }: Props) {
             updateParams({ sortBy, sortDir, page: "1" })
           }
           onPageChange={(page) => updateParams({ page: String(page) })}
-          renderActions={(issue) => <DelayLogButton issueId={issue.id} />}
+          renderActions={(issue) => (
+            <div className="flex items-center gap-0.5">
+              <DelayLogButton issueId={issue.id} />
+              <DeliveryBadge issueId={issue.id} canManage={canManageDeliveries} onChanged={loadIssues} />
+              {canManageDeliveries && (
+                <AddToDeliveryMenu projectId={projectId} issueId={issue.id} onChanged={loadIssues} />
+              )}
+            </div>
+          )}
         />
       )}
     </div>

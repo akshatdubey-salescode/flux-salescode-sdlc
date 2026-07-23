@@ -21,6 +21,7 @@ import {
 } from "./helpers";
 import { SORT_OPTIONS } from "./helpers";
 import { localDateStr } from "@/lib/date-utils";
+import { nearestDeliveryColorClass } from "@/lib/deliveries/status";
 
 type Props = {
   issues: TrackingIssue[];
@@ -122,7 +123,7 @@ export function ListView({
 
   // Toggleable data columns + optional pin / actions columns.
   const colCount =
-    ["type", "key", "summary", "status", "priority", "assignee", "reporter", "created", "updated"].filter(
+    ["type", "key", "summary", "status", "priority", "assignee", "reporter", "delivery", "created", "updated"].filter(
       isVisible
     ).length +
     (planVisible ? 1 : 0) +
@@ -186,6 +187,16 @@ export function ListView({
                   <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-20">
                     Reporter
                   </th>
+                )}
+                {isVisible("delivery") && (
+                  <SortableHeader
+                    label="Delivery"
+                    colKey="delivery"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleColSort}
+                    className="w-24"
+                  />
                 )}
                 {planVisible && (
                   <SortableHeader
@@ -516,6 +527,27 @@ function IssueRow({
         </td>
       )}
 
+      {/* Delivery — nearest active delivery's date, colored the same way the
+          cross-surface badge is (delivered/partial/not-delivered/overdue). */}
+      {isVisible("delivery") && (
+        <td className="px-3 py-2 whitespace-nowrap tabular-nums">
+          {issue.deliveryDate ? (
+            <span
+              className={cn(
+                "font-medium",
+                nearestDeliveryColorClass(
+                  issue.deliveryStatus ?? "pending",
+                  issue.deliveryDate < localDateStr(new Date())
+                )
+              )}
+            >
+              {issue.deliveryDate}
+            </span>
+          ) : (
+            <span className="text-zinc-300 dark:text-zinc-600">—</span>
+          )}
+        </td>
+      )}
 
       {/* Planned / Unplanned + dates */}
       {showPlanned && (

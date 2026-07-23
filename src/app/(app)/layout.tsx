@@ -6,6 +6,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { CommandPalette } from "@/components/command-palette";
 import { WhatsNewProvider } from "@/components/whats-new/context";
+import { DeliveryBanner } from "@/components/delivery-tracker/delivery-banner";
 import { isEnabled, FEATURE_FLAGS } from "@/lib/feature-flags";
 
 export default async function AppLayout({
@@ -51,6 +52,7 @@ export default async function AppLayout({
         isSuperUser={user.role === "SUPERUSER"}
         requirementBuilderEnabled={requirementBuilderEnabled}
       />
+      <DeliveryBanner userEmail={user.email} />
     </SidebarProvider>
   );
 }
