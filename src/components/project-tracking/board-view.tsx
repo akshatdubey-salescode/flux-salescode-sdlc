@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
+import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
+import { AddToDeliveryMenu } from "@/components/delivery-tracker/add-to-delivery-menu";
 import {
   TrackingIssue,
   FilterState,
@@ -23,6 +25,7 @@ type Props = {
   columns: Column[];
   filters: FilterState;
   boardFilterKey: string;
+  canManageDeliveries: boolean;
 };
 
 export function BoardViewSkeleton() {
@@ -46,7 +49,7 @@ export function BoardViewSkeleton() {
   );
 }
 
-export function BoardView({ projectId, columns, filters, boardFilterKey }: Props) {
+export function BoardView({ projectId, columns, filters, boardFilterKey, canManageDeliveries }: Props) {
   if (columns.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-zinc-200 p-16 text-center dark:border-zinc-800">
@@ -68,6 +71,7 @@ export function BoardView({ projectId, columns, filters, boardFilterKey }: Props
           statusCategory={col.statusCategory}
           filters={filters}
           boardFilterKey={boardFilterKey}
+          canManageDeliveries={canManageDeliveries}
         />
       ))}
     </div>
@@ -89,6 +93,8 @@ function buildColumnUrl(
   if (filters.labels.length) params.set("labels", filters.labels.join(","));
   if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
   if (filters.dateTo) params.set("dateTo", filters.dateTo);
+  if (filters.deliveryDateFrom) params.set("deliveryDateFrom", filters.deliveryDateFrom);
+  if (filters.deliveryDateTo) params.set("deliveryDateTo", filters.deliveryDateTo);
   params.set("sortBy", filters.sortBy);
   params.set("sortDir", filters.sortDir);
   params.set("status", status);
@@ -103,12 +109,14 @@ function BoardColumn({
   statusCategory,
   filters,
   boardFilterKey,
+  canManageDeliveries,
 }: {
   projectId: string;
   status: string;
   statusCategory: string | null;
   filters: FilterState;
   boardFilterKey: string;
+  canManageDeliveries: boolean;
 }) {
   const [issues, setIssues] = useState<TrackingIssue[]>([]);
   const [total, setTotal] = useState(0);
@@ -116,25 +124,39 @@ function BoardColumn({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
+  // Guards against a race when loadColumn is called again (filter change or
+  // an onChanged callback) before an earlier request has resolved — only the
+  // most recently started request is allowed to apply its result.
+  const requestIdRef = useRef(0);
+
+  // Reloads just this column's first page — used both by the filter-driven
+  // effect below and as the onChanged callback for AddToDeliveryMenu/
+  // DeliveryBadge, so attaching an issue or changing its delivery status
+  // refreshes this card's Delivery info without a full page reload. Not
+  // wrapped in useCallback: React Compiler (reactCompiler: true) infers
+  // memoization for plain functions itself, and a hand-written dependency
+  // array here would disagree with its inference and make it skip
+  // optimizing the component (setState setters are already stable).
+  function loadColumn() {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setIssues([]);
     setPage(1);
-    fetch(buildColumnUrl(projectId, status, filters, 1))
+    return fetch(buildColumnUrl(projectId, status, filters, 1), { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
-        if (cancelled) return;
+        if (requestIdRef.current !== requestId) return;
         setIssues(data.issues ?? []);
         setTotal(data.total ?? 0);
         setLoading(false);
       })
       .catch(() => {
-        if (!cancelled) setLoading(false);
+        if (requestIdRef.current === requestId) setLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
+  }
+
+  useEffect(() => {
+    loadColumn();
     // boardFilterKey encodes all filter fields that affect per-column queries
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, status, boardFilterKey]);
@@ -142,7 +164,7 @@ function BoardColumn({
   function handleLoadMore() {
     const nextPage = page + 1;
     setLoadingMore(true);
-    fetch(buildColumnUrl(projectId, status, filters, nextPage))
+    fetch(buildColumnUrl(projectId, status, filters, nextPage), { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
         setIssues((prev) => [...prev, ...(data.issues ?? [])]);
@@ -194,7 +216,13 @@ function BoardColumn({
         ) : (
           <>
             {issues.map((issue) => (
-              <IssueCard key={issue.id} issue={issue} />
+              <IssueCard
+                key={issue.id}
+                issue={issue}
+                projectId={projectId}
+                canManageDeliveries={canManageDeliveries}
+                onDeliveryChanged={loadColumn}
+              />
             ))}
 
             {hasMore && (
@@ -215,7 +243,17 @@ function BoardColumn({
   );
 }
 
-function IssueCard({ issue }: { issue: TrackingIssue }) {
+function IssueCard({
+  issue,
+  projectId,
+  canManageDeliveries,
+  onDeliveryChanged,
+}: {
+  issue: TrackingIssue;
+  projectId: string;
+  canManageDeliveries: boolean;
+  onDeliveryChanged: () => void;
+}) {
   const pStyles = priorityStyles(issue.priority);
   const tStyles = issueTypeStyles(issue.issueType);
   const visibleLabels = issue.labels.slice(0, 2);
@@ -248,6 +286,10 @@ function IssueCard({ issue }: { issue: TrackingIssue }) {
           </span>
         </div>
         <DelayLogButton issueId={issue.id} />
+        <DeliveryBadge issueId={issue.id} canManage={canManageDeliveries} onChanged={onDeliveryChanged} />
+        {canManageDeliveries && (
+          <AddToDeliveryMenu projectId={projectId} issueId={issue.id} onChanged={onDeliveryChanged} />
+        )}
       </div>
 
       {/* Summary */}

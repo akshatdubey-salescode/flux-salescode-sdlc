@@ -8,6 +8,7 @@ import {
   RiDeleteBin6Line,
 } from "@remixicon/react";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
+import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
 
 type ActiveIssue = {
   jiraIssueId: string;
@@ -230,6 +231,7 @@ function IssueRow({ issue }: { issue: ActiveIssue }) {
               </>
             )}
             <DelayLogButton issueId={issue.jiraIssueId} />
+            <DeliveryBadge issueId={issue.jiraIssueId} />
           </div>
         </div>
       </div>

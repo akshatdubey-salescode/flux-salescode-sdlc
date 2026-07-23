@@ -13,6 +13,7 @@ export const TOGGLEABLE_COLUMNS = [
   { key: "priority", label: "Priority" },
   { key: "assignee", label: "Assignee" },
   { key: "reporter", label: "Reporter" },
+  { key: "delivery", label: "Delivery" },
   { key: "planned", label: "Plan" },
   { key: "created", label: "Created" },
   { key: "updated", label: "Updated" },

@@ -25,6 +25,7 @@ import { ProjectOverviewDashboard } from "@/components/project-overview/project-
 import { ClientIssuesTab } from "@/components/client-issues";
 import { BugTracker } from "@/components/bug-summary";
 import { ProjectTeamClient } from "@/components/observer/team-timeline-client";
+import { DeliveryTrackerTab } from "@/components/delivery-tracker/delivery-tracker-tab";
 
 type SyncJob = {
   id: string;
@@ -40,16 +41,17 @@ type Props = {
   hasFreshdesk: boolean;
   isAdmin: boolean;
   isSuperuser: boolean;
+  canManageDeliveries: boolean;
 };
 
-const VALID_TABS = ["overview", "project-tracking", "team", "bug-summary", "sla-engine", "status-mapping", "client-issues"] as const;
+const VALID_TABS = ["overview", "project-tracking", "delivery-tracker", "team", "bug-summary", "sla-engine", "status-mapping", "client-issues"] as const;
 type Tab = (typeof VALID_TABS)[number];
 
 function isValidTab(value: string | null): value is Tab {
   return VALID_TABS.includes(value as Tab);
 }
 
-export function ProjectTabs({ projectId, projectName, hasFreshdesk, isAdmin, isSuperuser }: Props) {
+export function ProjectTabs({ projectId, projectName, hasFreshdesk, isAdmin, isSuperuser, canManageDeliveries }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawTab = searchParams.get("tab");
@@ -131,6 +133,7 @@ export function ProjectTabs({ projectId, projectName, hasFreshdesk, isAdmin, isS
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="project-tracking">Project Tracking</TabsTrigger>
+          <TabsTrigger value="delivery-tracker">Delivery Tracking</TabsTrigger>
           <TabsTrigger value="team">Team Tracking</TabsTrigger>
           <TabsTrigger value="bug-summary">Bug Summary</TabsTrigger>
           {isAdmin && (
@@ -209,7 +212,11 @@ export function ProjectTabs({ projectId, projectName, hasFreshdesk, isAdmin, isS
             </TabsContent>
 
             <TabsContent value="project-tracking">
-              <ProjectTrackingTab projectId={projectId} />
+              <ProjectTrackingTab projectId={projectId} canManageDeliveries={canManageDeliveries} />
+            </TabsContent>
+
+            <TabsContent value="delivery-tracker">
+              <DeliveryTrackerTab projectId={projectId} canManage={canManageDeliveries} />
             </TabsContent>
 
             <TabsContent value="team">

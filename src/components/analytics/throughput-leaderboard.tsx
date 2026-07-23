@@ -31,6 +31,7 @@ import type {
   PersonThroughput,
 } from "@/app/api/analytics/throughput/route";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
+import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
 
 type Props = {
   people: { email: string; name: string }[];
@@ -366,6 +367,7 @@ function PersonRow({ person, max }: { person: PersonThroughput; max: number }) {
                 <RiExternalLinkLine className="size-3 shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground" />
               </a>
               <DelayLogButton issueId={i.id} />
+              <DeliveryBadge issueId={i.id} />
             </div>
           ))}
         </div>

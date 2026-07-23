@@ -14,6 +14,7 @@ import {
 import { db } from "@/lib/db";
 import { jiraIssues } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
+import { nearestDeliveryDateSql, nearestDeliveryStatusSql } from "@/lib/deliveries/entries";
 
 function buildOrderExpr(sortBy: string, sortDir: string) {
   const isAsc = sortDir === "asc";
@@ -28,6 +29,10 @@ function buildOrderExpr(sortBy: string, sortDir: string) {
         : sql`CASE WHEN ${jiraIssues.priority} = 'Highest' THEN 1 WHEN ${jiraIssues.priority} = 'High' THEN 2 WHEN ${jiraIssues.priority} = 'Medium' THEN 3 WHEN ${jiraIssues.priority} = 'Low' THEN 4 WHEN ${jiraIssues.priority} = 'Lowest' THEN 5 ELSE 6 END DESC`;
     case "status":
       return isAsc ? asc(jiraIssues.status) : desc(jiraIssues.status);
+    case "delivery": {
+      const deliveryDate = nearestDeliveryDateSql(jiraIssues.id);
+      return isAsc ? sql`${deliveryDate} ASC NULLS LAST` : sql`${deliveryDate} DESC NULLS LAST`;
+    }
     default:
       return isAsc
         ? asc(jiraIssues.jiraUpdatedAt)
@@ -71,6 +76,8 @@ export async function GET(req: NextRequest) {
     .filter(Boolean);
   const dateFrom = searchParams.get("dateFrom") ?? "";
   const dateTo = searchParams.get("dateTo") ?? "";
+  const deliveryDateFrom = searchParams.get("deliveryDateFrom") ?? "";
+  const deliveryDateTo = searchParams.get("deliveryDateTo") ?? "";
   const sortBy = searchParams.get("sortBy") ?? "updated";
   const sortDir = searchParams.get("sortDir") === "asc" ? "asc" : "desc";
   const pageSize = Math.min(
@@ -126,6 +133,8 @@ export async function GET(req: NextRequest) {
     to.setHours(23, 59, 59, 999);
     conditions.push(lte(jiraIssues.jiraCreatedAt, to));
   }
+  if (deliveryDateFrom) conditions.push(sql`${nearestDeliveryDateSql(jiraIssues.id)} >= ${deliveryDateFrom}::date`);
+  if (deliveryDateTo) conditions.push(sql`${nearestDeliveryDateSql(jiraIssues.id)} <= ${deliveryDateTo}::date`);
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const orderExpr = buildOrderExpr(sortBy, sortDir);
 
@@ -144,6 +153,8 @@ export async function GET(req: NextRequest) {
     labels: jiraIssues.labels,
     jiraCreatedAt: jiraIssues.jiraCreatedAt,
     jiraUpdatedAt: jiraIssues.jiraUpdatedAt,
+    deliveryDate: nearestDeliveryDateSql(jiraIssues.id).as("delivery_date"),
+    deliveryStatus: nearestDeliveryStatusSql(jiraIssues.id).as("delivery_status"),
   };
 
   const [issues, countResult] = await Promise.all([

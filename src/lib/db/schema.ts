@@ -16,6 +16,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { DELAY_CATEGORY_VALUES } from "../delay-tracker/categories";
+import { DELIVERY_STATUS_VALUES } from "../deliveries/status";
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -56,6 +57,11 @@ export const users = pgTable("users", {
   // privacy settings that hide emailAddress on issue payloads — we link by
   // accountId instead. null = not yet attempted/resolved.
   jiraAccountId: text("jira_account_id"),
+  // Grants delivery-tracker management (create/add/remove) to a USER who
+  // isn't an ADMIN — orthogonal to the role hierarchy, not another tier of
+  // it, so it lives as its own flag rather than a new `role` value. Granted
+  // via the Superuser "Delivery Managers" tool.
+  canManageDeliveries: boolean("can_manage_deliveries").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -1391,3 +1397,96 @@ export const delayLogs = pgTable(
 export type DelayLog = typeof delayLogs.$inferSelect;
 export type NewDelayLog = typeof delayLogs.$inferInsert;
 export type DelayReasonCategory = (typeof delayReasonCategoryEnum.enumValues)[number];
+
+// ---------------------------------------------------------------------------
+// Deliveries — a named batch of Jira tasks/bugs committed to ship by one
+// target date. The same issue can belong to several deliveries at once (no
+// uniqueness on issueId alone, only on (deliveryId, issueId)) — when that
+// happens, every surface that shows the issue resolves to whichever
+// delivery is nearest (soonest upcoming, else most recently overdue).
+// ---------------------------------------------------------------------------
+
+export const deliveryStatusEnum = pgEnum("delivery_status", DELIVERY_STATUS_VALUES);
+
+export const deliveries = pgTable(
+  "deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => jiraProjects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    deliveryDate: date("delivery_date").notNull(),
+    // How many days before deliveryDate the reminder banner starts showing
+    // to responsible people / item assignees.
+    notifyDaysBefore: integer("notify_days_before").notNull().default(5),
+    // Parallel arrays (same idiom as jiraIssues.additionalAssigneeEmails) —
+    // `users` has no display-name column, and the banner/UI need a name to
+    // show without an extra join per delivery.
+    responsibleEmails: text("responsible_emails")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    responsibleNames: text("responsible_names")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdByName: text("created_by_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Soft-delete: NULL = active. Matches delayLogs' pattern — deletion never
+    // destroys history a banner/analytics query might still reference.
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: text("deleted_by").references(() => users.id),
+    deletedByName: text("deleted_by_name"),
+  },
+  (t) => [
+    index("deliveries_project_idx").on(t.projectId),
+    index("deliveries_date_idx").on(t.deliveryDate),
+    index("deliveries_active_idx").on(t.deletedAt),
+    index("deliveries_responsible_emails_gin_idx").using("gin", t.responsibleEmails),
+  ]
+);
+
+export const deliveryItems = pgTable(
+  "delivery_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deliveryId: uuid("delivery_id")
+      .notNull()
+      .references(() => deliveries.id, { onDelete: "cascade" }),
+    issueId: uuid("issue_id")
+      .notNull()
+      .references(() => jiraIssues.id, { onDelete: "cascade" }),
+    addedBy: text("added_by")
+      .notNull()
+      .references(() => users.id),
+    addedByName: text("added_by_name"),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+    status: deliveryStatusEnum("status").notNull().default("pending"),
+    statusComment: text("status_comment"),
+    // Null until the first status change — "who marked this, and when."
+    // Deliberately current-state only (no append-only history table), same
+    // simplicity tradeoff as removal being a hard delete below.
+    statusSetBy: text("status_set_by").references(() => users.id),
+    statusSetByName: text("status_set_by_name"),
+    statusSetAt: timestamp("status_set_at", { withTimezone: true }),
+  },
+  (t) => [
+    // Only (deliveryId, issueId) is unique — an issue can be a member of
+    // many different deliveries at once, just not the same one twice.
+    uniqueIndex("delivery_items_delivery_issue_idx").on(t.deliveryId, t.issueId),
+    index("delivery_items_delivery_idx").on(t.deliveryId),
+    index("delivery_items_issue_idx").on(t.issueId),
+    index("delivery_items_status_idx").on(t.status),
+  ]
+);
+
+export type Delivery = typeof deliveries.$inferSelect;
+export type NewDelivery = typeof deliveries.$inferInsert;
+export type DeliveryItem = typeof deliveryItems.$inferSelect;
+export type NewDeliveryItem = typeof deliveryItems.$inferInsert;
+export type DeliveryStatus = (typeof deliveryStatusEnum.enumValues)[number];

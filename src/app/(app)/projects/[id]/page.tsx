@@ -4,7 +4,7 @@ import { eq, and } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
-import { hasMinRole } from "@/lib/auth/types";
+import { hasMinRole, canManageDeliveries } from "@/lib/auth/types";
 import { PageHeader } from "@/components/page-header";
 import {
   Breadcrumb,
@@ -33,6 +33,7 @@ export default async function ProjectPage(props: {
 
   const isAdmin = hasMinRole(user.role, "ADMIN");
   const isSuperuser = hasMinRole(user.role, "SUPERUSER");
+  const canManage = canManageDeliveries(user);
 
   return (
     <div className="flex flex-col min-h-svh min-w-0 w-full">
@@ -64,7 +65,7 @@ export default async function ProjectPage(props: {
 
       <main className="flex-1 min-w-0 w-full">
         <Suspense fallback={<TabsSkeleton />}>
-          <ProjectTabs projectId={project.id} projectName={project.name} hasFreshdesk={project.freshdeskCompanyId != null} isAdmin={isAdmin} isSuperuser={isSuperuser} />
+          <ProjectTabs projectId={project.id} projectName={project.name} hasFreshdesk={project.freshdeskCompanyId != null} isAdmin={isAdmin} isSuperuser={isSuperuser} canManageDeliveries={canManage} />
         </Suspense>
       </main>
     </div>

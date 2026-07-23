@@ -50,6 +50,8 @@ export function FilterBar({ filters, fields, onUpdate, total }: Props) {
     filters.labels.length > 0,
     !!filters.dateFrom,
     !!filters.dateTo,
+    !!filters.deliveryDateFrom,
+    !!filters.deliveryDateTo,
   ].filter(Boolean).length;
 
   function handleSearch(value: string) {
@@ -72,6 +74,8 @@ export function FilterBar({ filters, fields, onUpdate, total }: Props) {
       labels: null,
       dateFrom: null,
       dateTo: null,
+      deliveryDateFrom: null,
+      deliveryDateTo: null,
       page: "1",
     });
   }
@@ -429,6 +433,16 @@ function ActiveChips({
       label: `To: ${filters.dateTo}`,
       onRemove: () => onUpdate({ dateTo: null, page: "1" }),
     });
+  if (filters.deliveryDateFrom)
+    chips.push({
+      label: `Delivery from: ${filters.deliveryDateFrom}`,
+      onRemove: () => onUpdate({ deliveryDateFrom: null, page: "1" }),
+    });
+  if (filters.deliveryDateTo)
+    chips.push({
+      label: `Delivery to: ${filters.deliveryDateTo}`,
+      onRemove: () => onUpdate({ deliveryDateTo: null, page: "1" }),
+    });
 
   if (chips.length === 0) return null;
 
@@ -573,6 +587,36 @@ function MoreFiltersSheet({
                   value={filters.dateTo}
                   onChange={(e) =>
                     onUpdate({ dateTo: e.target.value || null, page: "1" })
+                  }
+                />
+              </div>
+            </div>
+          </FilterSection>
+
+          {/* Delivery date range */}
+          <FilterSection label="Delivery Date">
+            <div className="space-y-1.5">
+              <div>
+                <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-zinc-400">
+                  From
+                </p>
+                <Input
+                  type="date"
+                  value={filters.deliveryDateFrom}
+                  onChange={(e) =>
+                    onUpdate({ deliveryDateFrom: e.target.value || null, page: "1" })
+                  }
+                />
+              </div>
+              <div>
+                <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-zinc-400">
+                  To
+                </p>
+                <Input
+                  type="date"
+                  value={filters.deliveryDateTo}
+                  onChange={(e) =>
+                    onUpdate({ deliveryDateTo: e.target.value || null, page: "1" })
                   }
                 />
               </div>

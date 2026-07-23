@@ -7,7 +7,7 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
-import { RiFlag2Line, RiRefreshLine, RiLightbulbLine, RiDeleteBin2Line, RiCalendarLine, RiCustomerService2Line, RiArrowLeftRightLine, RiGithubLine, RiGitMergeLine, RiGitBranchLine, RiBuilding2Line, RiMegaphoneLine, RiTeamLine, RiGroupLine } from "@remixicon/react";
+import { RiFlag2Line, RiRefreshLine, RiLightbulbLine, RiDeleteBin2Line, RiCalendarLine, RiCustomerService2Line, RiArrowLeftRightLine, RiGithubLine, RiGitMergeLine, RiGitBranchLine, RiBuilding2Line, RiMegaphoneLine, RiTeamLine, RiGroupLine, RiTruckLine } from "@remixicon/react";
 
 const TOOLS = [
   {
@@ -75,6 +75,12 @@ const TOOLS = [
     icon: RiTeamLine,
     title: "Keka HR",
     description: "Sync the Keka employee directory and map employees that couldn't be auto-linked to a user by email.",
+  },
+  {
+    href: "/superuser/delivery-managers",
+    icon: RiTruckLine,
+    title: "Delivery Access",
+    description: "Grant or revoke who beyond Admins can create and manage delivery trackers.",
   },
   {
     href: "/superuser/provision-teams",

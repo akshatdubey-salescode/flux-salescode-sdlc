@@ -17,6 +17,7 @@ import {
   quarterBounds,
 } from "@/lib/date-utils";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
+import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
 import {
   fetchTopUnplannedAssignees,
   fetchUnplannedIssuesForAssignee,
@@ -162,6 +163,7 @@ export default async function TopUnplannedAssigneesPage({
                       </td>
                       <td className="px-2 py-3 align-top">
                         <DelayLogButton issueId={issue.id} />
+                        <DeliveryBadge issueId={issue.id} />
                       </td>
                     </tr>
                   ))}

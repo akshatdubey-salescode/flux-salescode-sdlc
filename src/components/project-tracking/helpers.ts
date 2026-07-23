@@ -18,6 +18,11 @@ export type TrackingIssue = {
   startDate?: string | null;
   dueDate?: string | null;
   isPlanned?: boolean;
+  // Nearest active delivery this issue belongs to, if any — same "nearest"
+  // resolution the cross-surface badge uses (soonest upcoming, else most
+  // recently overdue), computed live via nearestDeliveryDateSql/StatusSql.
+  deliveryDate?: string | null;
+  deliveryStatus?: string | null;
 };
 
 export type TrackingFields = {
@@ -39,6 +44,8 @@ export type FilterState = {
   labels: string[];
   dateFrom: string;
   dateTo: string;
+  deliveryDateFrom: string;
+  deliveryDateTo: string;
   showCompleted: boolean;
   sortBy: string;
   sortDir: "asc" | "desc";
@@ -191,4 +198,23 @@ export const SORT_OPTIONS = [
   { value: "created", label: "Created" },
   { value: "priority", label: "Priority" },
   { value: "status", label: "Status" },
+  { value: "delivery", label: "Delivery" },
 ] as const;
+
+/**
+ * Default sort applied when a page first loads with no sortBy/sortDir
+ * params — nearest delivery date first (earliest on top; issues with no
+ * delivery are pushed to the bottom server-side via NULLS LAST), since
+ * surfacing what's coming due is more useful on first view than "recently
+ * touched." An explicit sortDir in the URL always wins once the user (or a
+ * saved link) sets one; only the *default* changes based on sortBy.
+ */
+export function resolveDefaultSort(
+  sortByParam: string | null,
+  sortDirParam: string | null
+): { sortBy: string; sortDir: "asc" | "desc" } {
+  const sortBy = sortByParam ?? "delivery";
+  const sortDir: "asc" | "desc" =
+    sortDirParam === "asc" ? "asc" : sortDirParam === "desc" ? "desc" : sortBy === "delivery" ? "asc" : "desc";
+  return { sortBy, sortDir };
+}

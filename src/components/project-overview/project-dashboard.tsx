@@ -23,6 +23,7 @@ import {
 } from "@remixicon/react";
 import { ProjectDelayPanel } from "@/components/delay-tracker/project-delay-panel";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
+import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
 
 type ProjectDashboardData = {
   projectHealth: {
@@ -415,6 +416,7 @@ function StaleIssuesList({
                     </td>
                     <td className="px-2 py-2.5">
                       <DelayLogButton issueId={row.id} />
+                      <DeliveryBadge issueId={row.id} />
                     </td>
                   </tr>
                 ))}
