@@ -9,6 +9,7 @@ export type DeliveryItemRow = {
   id: string;
   issueId: string;
   jiraKey: string;
+  jiraBaseUrl: string;
   summary: string;
   jiraStatus: string;
   priority: string | null;
@@ -44,6 +45,11 @@ export type DeliveryWithItems = {
   createdByName: string | null;
   createdAt: string;
   updatedAt: string;
+  // Set once every item's status is "delivered" AND someone explicitly marks
+  // the delivery complete (the gate lives in the PATCH route) — null means
+  // still active. Completed deliveries default-hide from the list.
+  completedAt: string | null;
+  completedByName: string | null;
   items: DeliveryItemRow[];
   rollup: DeliveryRollup;
 };
@@ -72,6 +78,8 @@ type DeliveryHeaderRow = {
   created_by_name: string | null;
   created_at: string;
   updated_at: string;
+  completed_at: string | null;
+  completed_by_name: string | null;
 };
 
 type DeliveryItemJoinRow = {
@@ -79,6 +87,7 @@ type DeliveryItemJoinRow = {
   delivery_id: string;
   issue_id: string;
   jira_key: string;
+  jira_base_url: string;
   summary: string;
   jira_status: string;
   priority: string | null;
@@ -99,6 +108,7 @@ function mapItemRow(r: DeliveryItemJoinRow): DeliveryItemRow {
     id: r.id,
     issueId: r.issue_id,
     jiraKey: r.jira_key,
+    jiraBaseUrl: r.jira_base_url,
     summary: r.summary,
     jiraStatus: r.jira_status,
     priority: r.priority,
@@ -125,9 +135,10 @@ async function fetchItemsForDeliveries(deliveryIds: string[]): Promise<Map<strin
         di.id, di.delivery_id, di.issue_id, di.added_by, di.added_by_name, di.added_at,
         di.status, di.status_comment, di.status_set_by, di.status_set_by_name, di.status_set_at,
         ji.jira_key, ji.summary, ji.status AS jira_status, ji.priority,
-        ji.assignee_email, ji.assignee_name
+        ji.assignee_email, ji.assignee_name, jp.jira_base_url AS jira_base_url
       FROM delivery_items di
       JOIN jira_issues ji ON ji.id = di.issue_id
+      JOIN jira_projects jp ON jp.id = ji.project_id
       WHERE di.delivery_id IN (${sql.join(deliveryIds.map((id) => sql`${id}`), sql`, `)})
       ORDER BY ji.jira_key ASC
     `)
@@ -156,17 +167,24 @@ function headerToDelivery(h: DeliveryHeaderRow, items: DeliveryItemRow[]): Deliv
     createdByName: h.created_by_name,
     createdAt: h.created_at,
     updatedAt: h.updated_at,
+    completedAt: h.completed_at,
+    completedByName: h.completed_by_name,
     items,
     rollup,
   };
 }
 
-/** Every active delivery for a project, with its items and rollup counts, ordered by date ascending ("date-wise" scheduling view). */
+const DELIVERY_HEADER_COLUMNS = sql`
+  id, project_id, name, delivery_date, notify_days_before,
+  responsible_emails, responsible_names, created_by, created_by_name, created_at, updated_at,
+  completed_at, completed_by_name
+`;
+
+/** Every active delivery for a project, with its items and rollup counts, ordered by date ascending ("date-wise" scheduling view). Includes completed deliveries — the client filters those out by default with a "Show completed" toggle. */
 export async function fetchProjectDeliveries(projectId: string): Promise<DeliveryWithItems[]> {
   const headers = (
     await db.execute(sql`
-      SELECT id, project_id, name, delivery_date, notify_days_before,
-        responsible_emails, responsible_names, created_by, created_by_name, created_at, updated_at
+      SELECT ${DELIVERY_HEADER_COLUMNS}
       FROM deliveries
       WHERE project_id = ${projectId} AND deleted_at IS NULL
       ORDER BY delivery_date ASC, created_at ASC
@@ -179,13 +197,13 @@ export async function fetchProjectDeliveries(projectId: string): Promise<Deliver
 
 export type DeliveryOption = { id: string; name: string; deliveryDate: string };
 
-/** Light {id, name, deliveryDate} list for a project — backs the "add to existing delivery" picker without pulling every item's Jira fields. */
+/** Light {id, name, deliveryDate} list for a project — backs the "add to existing delivery" / "migrate to" pickers without pulling every item's Jira fields. Excludes completed deliveries: they're done, not a place to keep adding work. */
 export async function fetchProjectDeliveryOptions(projectId: string): Promise<DeliveryOption[]> {
   const rows = (
     await db.execute(sql`
       SELECT id, name, delivery_date
       FROM deliveries
-      WHERE project_id = ${projectId} AND deleted_at IS NULL
+      WHERE project_id = ${projectId} AND deleted_at IS NULL AND completed_at IS NULL
       ORDER BY delivery_date ASC
     `)
   ).rows as unknown as { id: string; name: string; delivery_date: string }[];
@@ -196,8 +214,7 @@ export async function fetchProjectDeliveryOptions(projectId: string): Promise<De
 export async function fetchDeliveryById(deliveryId: string): Promise<DeliveryWithItems | null> {
   const headers = (
     await db.execute(sql`
-      SELECT id, project_id, name, delivery_date, notify_days_before,
-        responsible_emails, responsible_names, created_by, created_by_name, created_at, updated_at
+      SELECT ${DELIVERY_HEADER_COLUMNS}
       FROM deliveries
       WHERE id = ${deliveryId} AND deleted_at IS NULL
       LIMIT 1

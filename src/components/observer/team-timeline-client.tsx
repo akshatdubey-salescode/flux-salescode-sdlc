@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
+import { subscribeToDeliveryListChanges } from "@/components/delivery-tracker/delivery-summary-cache";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -59,7 +60,8 @@ import type { AtRiskResponse, AtRiskPersonGroup, AtRiskIssueItem } from "@/app/a
 import type { MeetingEvent, MeetingsResponse } from "@/app/api/observer/boards/[boardId]/meetings/route";
 import { statusCategoryStyles, priorityStyles, issueTypeStyles } from "@/components/project-tracking/helpers";
 import { TeamGanttClient } from "@/components/observer/team-gantt-client";
-import { currentFiscalQuarterChip, localDateStr } from "@/lib/date-utils";
+import { currentFiscalQuarterChip, getQuarterChips, localDateStr } from "@/lib/date-utils";
+import { nearestDeliveryColorClass } from "@/lib/deliveries/status";
 
 // ---------------------------------------------------------------------------
 // Hooks
@@ -514,6 +516,8 @@ function DateFilterBar({
     },
   ];
 
+  const quarterChips = getQuarterChips();
+
   return (
     <div className="flex flex-col gap-3 mb-6">
       <div className="flex items-center gap-x-6 gap-y-3 flex-wrap">
@@ -644,6 +648,30 @@ function DateFilterBar({
           </div>
         </div>
 
+        {/* Quarter chips — always visible regardless of Single Date / Date
+            Range mode (picking one switches to Date Range), matching every
+            other quarter filter in the app (Delivery Tracking, Bug Summary,
+            the Org dashboard) instead of being hidden a click deep. */}
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest mr-0.5">
+            Quarter
+          </span>
+          {quarterChips.map((q) => (
+            <button
+              key={q.label}
+              onClick={() => onChange({ mode: "range", start: q.start, end: q.end })}
+              className={`px-2.5 py-1 text-xs rounded-md border font-medium transition-colors ${
+                filter.mode === "range" &&
+                filter.start === q.start &&
+                filter.end === q.end
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "border-input bg-background text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              {q.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Active range label */}
@@ -872,6 +900,16 @@ function TimelineTableRow({ issue, estimateThreshold }: { issue: TimelineIssue; 
       {/* Days remaining */}
       <td className="px-3 py-2.5 text-right whitespace-nowrap text-xs">
         {daysText ? <span className={daysColor}>{daysText}</span> : <span className="text-muted-foreground/30">—</span>}
+      </td>
+      {/* Delivery — nearest active delivery's date, colored the same way the cross-surface badge is. */}
+      <td className="px-3 py-2.5 whitespace-nowrap text-xs tabular-nums">
+        {issue.deliveryDate ? (
+          <span className={`font-medium ${nearestDeliveryColorClass(issue.deliveryStatus ?? "pending", issue.deliveryDate < todayStr())}`}>
+            {issue.deliveryDate}
+          </span>
+        ) : (
+          <span className="text-muted-foreground/30">—</span>
+        )}
       </td>
       <td className="px-2 py-2.5">
         <DelayLogButton issueId={issue.id} />
@@ -1294,6 +1332,7 @@ function MemberTimelineCard({
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-36">Dates</th>
                   <th className="px-3 py-2.5 text-right font-medium text-muted-foreground w-20">Est</th>
                   <th className="px-3 py-2.5 text-right font-medium text-muted-foreground w-32">Remaining</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-28">Delivery</th>
                   <th className="w-10 px-2 py-2.5" />
                 </tr>
               </thead>
@@ -1509,6 +1548,15 @@ function UnplannedTableRow({ issue, preview }: { issue: UnplannedIssue; preview?
                 </span>
               );
             })()}
+          </td>
+          <td className="px-3 py-2 whitespace-nowrap tabular-nums">
+            {issue.deliveryDate ? (
+              <span className={`font-medium ${nearestDeliveryColorClass(issue.deliveryStatus ?? "pending", issue.deliveryDate < todayStr())}`}>
+                {issue.deliveryDate}
+              </span>
+            ) : (
+              <span className="text-muted-foreground/30">—</span>
+            )}
           </td>
           <td className="px-2 py-2">
             <DelayLogButton issueId={issue.id} />
@@ -1857,13 +1905,14 @@ function UnplannedPersonTable({
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-24">Start</th>
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-24">Due</th>
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-28">Assigned</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-24">Delivery</th>
                   <th className="w-10 px-2 py-2.5" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {pageItems.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-6 text-center text-xs text-muted-foreground">
+                    <td colSpan={10} className="px-4 py-6 text-center text-xs text-muted-foreground">
                       No issues match your search.
                     </td>
                   </tr>
@@ -1935,7 +1984,8 @@ function UnplannedWithDateFilter({ apiBase, start, end }: { apiBase: string; sta
     setLoading(true);
     try {
       const res = await fetch(
-        `${apiBase}/unplanned?start=${s}&end=${e}`
+        `${apiBase}/unplanned?start=${s}&end=${e}`,
+        { cache: "no-store" }
       );
       if (res.ok) setData(await res.json());
     } catch {
@@ -2157,6 +2207,15 @@ function AtRiskIssueRow({ issue, estimateThreshold }: { issue: AtRiskIssueItem; 
         <span className={urgencyColor}>{formatHoursRemaining(issue.remainingWorkingHours)}</span>
         <span className="ml-1 text-muted-foreground">({Math.round(issue.percentRemaining)}%)</span>
       </td>
+      <td className="px-3 py-2.5 whitespace-nowrap text-xs tabular-nums">
+        {issue.deliveryDate ? (
+          <span className={`font-medium ${nearestDeliveryColorClass(issue.deliveryStatus ?? "pending", issue.deliveryDate < todayStr())}`}>
+            {issue.deliveryDate}
+          </span>
+        ) : (
+          <span className="text-muted-foreground/30">—</span>
+        )}
+      </td>
       <td className="px-2 py-2.5">
         <DelayLogButton issueId={issue.id} />
         <DeliveryBadge issueId={issue.id} />
@@ -2217,6 +2276,7 @@ function AtRiskPersonCard({ person, estimateThreshold }: { person: AtRiskPersonG
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date Range</th>
                 <th className="px-3 py-2 text-right font-medium text-muted-foreground w-20">Est</th>
                 <th className="px-3 py-2 text-right font-medium text-muted-foreground">Time Left</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground w-24">Delivery</th>
                 <th className="w-10 px-2 py-2" />
               </tr>
             </thead>
@@ -2253,7 +2313,8 @@ function AtRiskTab({
     try {
       const now = encodeURIComponent(localNowStr());
       const res = await fetch(
-        `${apiBase}/at-risk?now=${now}&qstart=${qs}&qend=${qe}`
+        `${apiBase}/at-risk?now=${now}&qstart=${qs}&qend=${qe}`,
+        { cache: "no-store" }
       );
       if (res.ok) setData(await res.json());
     } catch {
@@ -2403,6 +2464,7 @@ function ActivePersonCard({ member, estimateThreshold }: { member: TimelineMembe
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date Range</th>
                 <th className="px-3 py-2 text-right font-medium text-muted-foreground w-20">Est</th>
                 <th className="px-3 py-2 text-right font-medium text-muted-foreground">Time</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground w-28">Delivery</th>
                 <th className="w-10 px-2 py-2" />
               </tr>
             </thead>
@@ -2612,6 +2674,7 @@ function CompletedPersonCard({ member, estimateThreshold }: { member: TimelineMe
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Priority</th>
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date Range</th>
                 <th className="px-3 py-2 text-right font-medium text-muted-foreground w-20">Est</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground w-28">Delivery</th>
                 <th className="w-10 px-2 py-2" />
               </tr>
             </thead>
@@ -2691,6 +2754,15 @@ function OverdueIssueRow({ issue, estimateThreshold }: { issue: OverdueIssueItem
       <td className="px-3 py-2.5 text-right whitespace-nowrap text-xs font-semibold text-red-600 dark:text-red-400">
         {issue.daysOverdue}d overdue
       </td>
+      <td className="px-3 py-2.5 whitespace-nowrap text-xs tabular-nums">
+        {issue.deliveryDate ? (
+          <span className={`font-medium ${nearestDeliveryColorClass(issue.deliveryStatus ?? "pending", issue.deliveryDate < todayStr())}`}>
+            {issue.deliveryDate}
+          </span>
+        ) : (
+          <span className="text-muted-foreground/30">—</span>
+        )}
+      </td>
       <td className="px-2 py-2.5">
         <DelayLogButton issueId={issue.id} />
         <DeliveryBadge issueId={issue.id} />
@@ -2750,6 +2822,7 @@ function OverduePersonCard({ person, estimateThreshold }: { person: OverduePerso
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Due Date</th>
                 <th className="px-3 py-2 text-right font-medium text-muted-foreground w-20">Est</th>
                 <th className="px-3 py-2 text-right font-medium text-muted-foreground">Overdue By</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground w-24">Delivery</th>
                 <th className="w-10 px-2 py-2" />
               </tr>
             </thead>
@@ -2808,7 +2881,8 @@ function OverdueTab({
     setLoading(true);
     try {
       const res = await fetch(
-        `${apiBase}/overdue?qstart=${qs}&qend=${qe}&today=${todayStr()}`
+        `${apiBase}/overdue?qstart=${qs}&qend=${qe}&today=${todayStr()}`,
+        { cache: "no-store" }
       );
       if (res.ok) setData(await res.json());
     } catch {
@@ -3129,7 +3203,7 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(buildUrl(f));
+        const res = await fetch(buildUrl(f), { cache: "no-store" });
         if (res.ok) {
           setData(await res.json());
         } else {
@@ -3149,13 +3223,19 @@ export function TeamTimelineClient({ boardId, name, onRemoveMember, addTarget }:
     load(dataFilter);
   }, [dataFilter, load]);
 
+  // See project-tracking/index.tsx's identical hook: a delivery mutation
+  // made through the cross-surface badge (or the Delivery Tracking tab on
+  // a project page) has no other way to reach this already-loaded board.
+  useEffect(() => subscribeToDeliveryListChanges(() => load(dataFilter)), [load, dataFilter]);
+
   useEffect(() => {
     const start = dataFilter.mode === "single" ? dataFilter.date : dataFilter.start;
     const end = dataFilter.mode === "single" ? dataFilter.date : dataFilter.end;
     let cancelled = false;
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     fetch(
-      `/api/observer/boards/${boardId}/meetings?start=${start}&end=${end}&tz=${encodeURIComponent(tz)}`
+      `/api/observer/boards/${boardId}/meetings?start=${start}&end=${end}&tz=${encodeURIComponent(tz)}`,
+      { cache: "no-store" }
     )
       .then((r) => (r.ok ? (r.json() as Promise<MeetingsResponse>) : null))
       .then((body) => {
@@ -3360,7 +3440,7 @@ function UnassignedTab({ projectId, filterStart, filterEnd }: { projectId: strin
   const load = useCallback(async (qs: string, qe: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/team/unassigned?qstart=${qs}&qend=${qe}`);
+      const res = await fetch(`/api/projects/${projectId}/team/unassigned?qstart=${qs}&qend=${qe}`, { cache: "no-store" });
       if (res.ok) setData(await res.json());
     } catch { /* network failure */ }
     finally { setLoading(false); }
@@ -3427,6 +3507,7 @@ function UnassignedTab({ projectId, filterStart, filterEnd }: { projectId: strin
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">Status</th>
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">Priority</th>
                   <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">Created</th>
+                  <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-24">Delivery</th>
                   <th className="w-10 px-2 py-2.5" />
                 </tr>
               </thead>
@@ -3465,6 +3546,15 @@ function UnassignedTab({ projectId, filterStart, filterEnd }: { projectId: strin
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">
                         {issue.createdAt ? formatDisplayDate(issue.createdAt.slice(0, 10)) : "—"}
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap tabular-nums">
+                        {issue.deliveryDate ? (
+                          <span className={`font-medium ${nearestDeliveryColorClass(issue.deliveryStatus ?? "pending", issue.deliveryDate < todayStr())}`}>
+                            {issue.deliveryDate}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground/30">—</span>
+                        )}
                       </td>
                       <td className="px-2 py-2.5">
                         <DelayLogButton issueId={issue.id} />
@@ -3566,7 +3656,7 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
   const load = useCallback(async (f: DateFilter) => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch(buildUrl(f));
+      const res = await fetch(buildUrl(f), { cache: "no-store" });
       if (res.ok) setData(await res.json());
       else { const body = await res.json().catch(() => ({})); setError(body.error ?? `Server error (${res.status})`); }
     } catch { setError("Failed to load team data."); }
@@ -3575,8 +3665,11 @@ export function ProjectTeamClient({ projectId, name }: { projectId: string; name
 
   useEffect(() => { load(dataFilter); }, [dataFilter, load]);
 
+  // See project-tracking/index.tsx's identical hook.
+  useEffect(() => subscribeToDeliveryListChanges(() => load(dataFilter)), [load, dataFilter]);
+
   useEffect(() => {
-    fetch(`/api/projects/${projectId}/team/unassigned?qstart=${selectedStart}&qend=${selectedEnd}`)
+    fetch(`/api/projects/${projectId}/team/unassigned?qstart=${selectedStart}&qend=${selectedEnd}`, { cache: "no-store" })
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d) setUnassignedCount(d.totalCount); })
       .catch(() => {});

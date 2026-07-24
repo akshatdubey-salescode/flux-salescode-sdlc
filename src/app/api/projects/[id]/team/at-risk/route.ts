@@ -10,6 +10,7 @@ import {
   totalWorkingHours,
   workingHoursRemaining,
 } from "@/lib/jira/estimate";
+import { nearestDeliveryDateSql, nearestDeliveryStatusSql } from "@/lib/deliveries/entries";
 
 export type {
   AtRiskIssueItem,
@@ -27,6 +28,7 @@ type IssueRow = {
   assignee_email: string; custom_fields: Record<string, unknown>;
   project_name: string; jira_base_url: string;
   end_date_field_ids: string[] | null; start_date_field_ids: string[] | null;
+  delivery_date: string | null; delivery_status: string | null;
 };
 
 // Working-day helpers imported from @/lib/jira/estimate.
@@ -81,7 +83,9 @@ async function fetchProjectAtRisk(projectId: string, nowStr: string, today: stri
     )
     SELECT ji.id, ji.jira_key, ji.summary, ji.status, ji.status_category, ji.priority, ji.issue_type,
       mie.effective_email AS assignee_email, ji.custom_fields,
-      jp.name AS project_name, jp.jira_base_url, jp.end_date_field_ids, jp.start_date_field_ids
+      jp.name AS project_name, jp.jira_base_url, jp.end_date_field_ids, jp.start_date_field_ids,
+      ${nearestDeliveryDateSql(sql`ji.id`)} AS delivery_date,
+      ${nearestDeliveryStatusSql(sql`ji.id`)} AS delivery_status
     FROM mie JOIN jira_issues ji ON ji.id = mie.id JOIN jira_projects jp ON jp.id = ji.project_id
     ORDER BY mie.effective_email, ji.jira_key
   `);
@@ -107,6 +111,7 @@ async function fetchProjectAtRisk(projectId: string, nowStr: string, today: stri
       startDate, dueDate, totalWorkingHours: total, remainingWorkingHours: remaining,
       percentRemaining, projectName: raw.project_name, jiraBaseUrl: raw.jira_base_url,
       estWorkingDays: workingDaysBetween(startDate, dueDate),
+      deliveryDate: raw.delivery_date, deliveryStatus: raw.delivery_status,
     });
     byEmail.set(raw.assignee_email, list);
   }

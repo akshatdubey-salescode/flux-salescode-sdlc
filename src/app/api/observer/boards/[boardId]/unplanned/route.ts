@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
+import { nearestDeliveryDateSql, nearestDeliveryStatusSql } from "@/lib/deliveries/entries";
 
 type Params = { params: Promise<{ boardId: string }> };
 
@@ -23,6 +24,8 @@ export type UnplannedIssueItem = {
   missingDue: boolean;
   createdAt: string | null;
   assignedAt: string | null;
+  deliveryDate: string | null;
+  deliveryStatus: string | null;
 };
 
 export type UnplannedPersonGroup = {
@@ -55,6 +58,8 @@ type IssueRow = {
   assignee_since: string | null;
   end_date_field_ids: string[] | null;
   start_date_field_ids: string[] | null;
+  delivery_date: string | null;
+  delivery_status: string | null;
 };
 
 export async function GET(req: Request, { params }: Params) {
@@ -143,7 +148,9 @@ async function fetchBoardUnplanned(boardId: string, start: string, end: string) 
       jp.name          AS project_name,
       jp.jira_base_url AS jira_base_url,
       jp.end_date_field_ids,
-      jp.start_date_field_ids
+      jp.start_date_field_ids,
+      ${nearestDeliveryDateSql(sql`ji.id`)} AS delivery_date,
+      ${nearestDeliveryStatusSql(sql`ji.id`)} AS delivery_status
     FROM member_issue_emails mie
     JOIN jira_issues ji ON ji.id = mie.id
     JOIN jira_projects jp ON jp.id = ji.project_id
@@ -178,6 +185,8 @@ async function fetchBoardUnplanned(boardId: string, start: string, end: string) 
       missingDue: !dueDate,
       createdAt: raw.jira_created_at ? raw.jira_created_at.slice(0, 10) : null,
       assignedAt: raw.assignee_since ?? null,
+      deliveryDate: raw.delivery_date,
+      deliveryStatus: raw.delivery_status,
     });
     byEmail.set(email, list);
   }

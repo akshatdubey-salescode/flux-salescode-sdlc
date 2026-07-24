@@ -1442,11 +1442,21 @@ export const deliveries = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     deletedBy: text("deleted_by").references(() => users.id),
     deletedByName: text("deleted_by_name"),
+    // Marked complete once every item in the delivery is "delivered" — the
+    // server gate lives in the PATCH route, not here. Distinct from
+    // deletedAt: a completed delivery is a success, not a removal, and stays
+    // fully counted in history/exports; it just default-hides from the
+    // active list (a "Show completed" toggle reveals it) the way a done
+    // checklist collapses rather than disappears.
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    completedBy: text("completed_by").references(() => users.id),
+    completedByName: text("completed_by_name"),
   },
   (t) => [
     index("deliveries_project_idx").on(t.projectId),
     index("deliveries_date_idx").on(t.deliveryDate),
     index("deliveries_active_idx").on(t.deletedAt),
+    index("deliveries_completed_idx").on(t.completedAt),
     index("deliveries_responsible_emails_gin_idx").using("gin", t.responsibleEmails),
   ]
 );

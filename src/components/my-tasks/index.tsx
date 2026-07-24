@@ -20,6 +20,7 @@ import { MyMeetings } from "./my-meetings";
 import { BugTracker } from "@/components/bug-summary";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
+import { subscribeToDeliveryListChanges } from "@/components/delivery-tracker/delivery-summary-cache";
 import { usePinnedTasks } from "./use-pinned-tasks";
 import {
   useColumnVisibility,
@@ -303,6 +304,11 @@ export function MyTasksView({
   useEffect(() => {
     loadTasks();
   }, [loadTasks]);
+
+  // See project-tracking/index.tsx's identical hook: a delivery mutation on
+  // a different, still-mounted tab has to explicitly poke this page's own
+  // already-fetched rows to pick up the change.
+  useEffect(() => subscribeToDeliveryListChanges(loadTasks), [loadTasks]);
 
   const resolvedRenderIssueActions =
     renderIssueActions ??

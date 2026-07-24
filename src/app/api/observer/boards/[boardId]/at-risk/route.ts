@@ -10,6 +10,7 @@ import {
   totalWorkingHours,
   workingHoursRemaining,
 } from "@/lib/jira/estimate";
+import { nearestDeliveryDateSql, nearestDeliveryStatusSql } from "@/lib/deliveries/entries";
 
 type Params = { params: Promise<{ boardId: string }> };
 
@@ -29,6 +30,8 @@ export type AtRiskIssueItem = {
   projectName: string;
   jiraBaseUrl: string;
   estWorkingDays: number;
+  deliveryDate: string | null;
+  deliveryStatus: string | null;
 };
 
 export type AtRiskPersonGroup = {
@@ -61,6 +64,8 @@ type IssueRow = {
   jira_base_url: string;
   end_date_field_ids: string[] | null;
   start_date_field_ids: string[] | null;
+  delivery_date: string | null;
+  delivery_status: string | null;
 };
 
 // Working-day helpers imported from @/lib/jira/estimate.
@@ -156,7 +161,9 @@ async function fetchBoardAtRisk(
       jp.name          AS project_name,
       jp.jira_base_url AS jira_base_url,
       jp.end_date_field_ids,
-      jp.start_date_field_ids
+      jp.start_date_field_ids,
+      ${nearestDeliveryDateSql(sql`ji.id`)} AS delivery_date,
+      ${nearestDeliveryStatusSql(sql`ji.id`)} AS delivery_status
     FROM member_issue_emails mie
     JOIN jira_issues ji ON ji.id = mie.id
     JOIN jira_projects jp ON jp.id = ji.project_id
@@ -208,6 +215,8 @@ async function fetchBoardAtRisk(
       projectName: raw.project_name,
       jiraBaseUrl: raw.jira_base_url,
       estWorkingDays: workingDaysBetween(startDate, dueDate),
+      deliveryDate: raw.delivery_date,
+      deliveryStatus: raw.delivery_status,
     });
     byEmail.set(email, list);
   }

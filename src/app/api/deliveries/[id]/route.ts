@@ -80,6 +80,32 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     updates.responsibleNames = body.responsibleNames;
   }
 
+  if (body.completed !== undefined) {
+    if (typeof body.completed !== "boolean") {
+      return NextResponse.json({ error: "completed must be a boolean" }, { status: 400 });
+    }
+    if (body.completed) {
+      // Gate: can only mark a delivery complete once every item in it has
+      // actually been marked Delivered — completing is a statement of fact
+      // ("this shipped"), not just a filing action.
+      const current = await fetchDeliveryById(id);
+      if (!current || current.rollup.total === 0 || current.rollup.delivered !== current.rollup.total) {
+        return NextResponse.json(
+          { error: "Every item must be marked Delivered before this delivery can be marked complete." },
+          { status: 400 }
+        );
+      }
+      const session = await getServerSession(authOptions);
+      updates.completedAt = new Date();
+      updates.completedBy = user.id;
+      updates.completedByName = session?.user?.name?.trim() || null;
+    } else {
+      updates.completedAt = null;
+      updates.completedBy = null;
+      updates.completedByName = null;
+    }
+  }
+
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }

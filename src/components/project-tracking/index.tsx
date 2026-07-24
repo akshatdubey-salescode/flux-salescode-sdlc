@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
 import { AddToDeliveryMenu } from "@/components/delivery-tracker/add-to-delivery-menu";
+import { subscribeToDeliveryListChanges } from "@/components/delivery-tracker/delivery-summary-cache";
 import { FilterBar } from "./filter-bar";
 import { BoardView, BoardViewSkeleton } from "./board-view";
 import { ListView } from "./list-view";
@@ -141,7 +142,11 @@ export function ProjectTrackingTab({ projectId, canManageDeliveries }: Props) {
   // (reactCompiler: true in next.config.ts) infers stable memoization for
   // plain functions itself, and a hand-written dependency array here
   // disagrees with what it infers (setState setters are already stable),
-  // which makes the compiler skip optimizing the whole component.
+  // which makes the compiler skip optimizing the whole component. The
+  // delivery-list subscription effect below is a second consumer the plain
+  // lint rule can't reconcile with the compiler's inference — safe to
+  // disable, same reasoning as above.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   function loadIssues() {
     const parsed: FilterState = JSON.parse(filterKey);
     const isBoard = parsed.view === "board";
@@ -186,6 +191,14 @@ export function ProjectTrackingTab({ projectId, canManageDeliveries }: Props) {
     loadIssues();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadIssues reads filterKey/projectId from closure; those are the real deps
   }, [projectId, filterKey]);
+
+  // Radix Tabs keeps every project tab mounted at once (no unmount on
+  // switch), so this tab's already-fetched rows never noticed a delivery
+  // mutation made on the sibling Delivery Tracking tab — the Delivery
+  // column stayed stale until something else changed filterKey. Re-run the
+  // same load on any delivery mutation anywhere, not just this component's
+  // own add/remove/status actions.
+  useEffect(() => subscribeToDeliveryListChanges(loadIssues), [loadIssues]);
 
   return (
     <div className="space-y-4">
