@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
 import { AddToDeliveryMenu } from "@/components/delivery-tracker/add-to-delivery-menu";
+import { subscribeToDeliveryListChanges } from "@/components/delivery-tracker/delivery-summary-cache";
 import {
   TrackingIssue,
   FilterState,
@@ -136,7 +137,12 @@ function BoardColumn({
   // wrapped in useCallback: React Compiler (reactCompiler: true) infers
   // memoization for plain functions itself, and a hand-written dependency
   // array here would disagree with its inference and make it skip
-  // optimizing the component (setState setters are already stable).
+  // optimizing the component (setState setters are already stable). Now
+  // that a second effect (the delivery-list subscription below) also
+  // depends on it, the plain lint rule can't see the compiler's inference
+  // and flags it — safe to disable, it's the same stable-per-render
+  // function the effect above already relies on.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   function loadColumn() {
     const requestId = ++requestIdRef.current;
     setLoading(true);
@@ -160,6 +166,11 @@ function BoardColumn({
     // boardFilterKey encodes all filter fields that affect per-column queries
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, status, boardFilterKey]);
+
+  // See project-tracking/index.tsx's identical hook: sibling project tabs
+  // (Delivery Tracking) stay mounted, so a delivery mutation there has to
+  // reach this already-loaded column explicitly.
+  useEffect(() => subscribeToDeliveryListChanges(loadColumn), [loadColumn]);
 
   function handleLoadMore() {
     const nextPage = page + 1;

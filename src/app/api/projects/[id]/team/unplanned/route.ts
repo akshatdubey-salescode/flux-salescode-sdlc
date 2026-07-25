@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
+import { nearestDeliveryDateSql, nearestDeliveryStatusSql } from "@/lib/deliveries/entries";
 
 export type {
   UnplannedIssueItem,
@@ -23,6 +24,7 @@ type IssueRow = {
   project_name: string; jira_base_url: string; jira_created_at: string | null;
   assignee_since: string | null;
   end_date_field_ids: string[] | null; start_date_field_ids: string[] | null;
+  delivery_date: string | null; delivery_status: string | null;
 };
 
 export async function GET(req: Request, { params }: Params) {
@@ -75,7 +77,9 @@ async function fetchProjectUnplanned(projectId: string, start: string, end: stri
     )
     SELECT ji.id, ji.jira_key, ji.summary, ji.status, ji.status_category, ji.priority, ji.issue_type,
       mie.effective_email AS assignee_email, ji.custom_fields, ji.jira_created_at, ji.assignee_since,
-      jp.name AS project_name, jp.jira_base_url, jp.end_date_field_ids, jp.start_date_field_ids
+      jp.name AS project_name, jp.jira_base_url, jp.end_date_field_ids, jp.start_date_field_ids,
+      ${nearestDeliveryDateSql(sql`ji.id`)} AS delivery_date,
+      ${nearestDeliveryStatusSql(sql`ji.id`)} AS delivery_status
     FROM mie JOIN jira_issues ji ON ji.id = mie.id JOIN jira_projects jp ON jp.id = ji.project_id
     WHERE ji.jira_created_at IS NOT NULL
       AND ji.jira_created_at::date >= ${start}::date
@@ -96,6 +100,7 @@ async function fetchProjectUnplanned(projectId: string, start: string, end: stri
       projectName: raw.project_name, jiraBaseUrl: raw.jira_base_url,
       missingStart: !startDate, missingDue: !dueDate, createdAt: raw.jira_created_at ?? null,
       assignedAt: raw.assignee_since ?? null,
+      deliveryDate: raw.delivery_date, deliveryStatus: raw.delivery_status,
     });
     byEmail.set(raw.assignee_email, list);
   }

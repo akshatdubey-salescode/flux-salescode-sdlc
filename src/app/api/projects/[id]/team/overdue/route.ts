@@ -6,6 +6,7 @@ import { jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
 import { workingDaysBetween } from "@/lib/jira/estimate";
+import { nearestDeliveryDateSql, nearestDeliveryStatusSql } from "@/lib/deliveries/entries";
 
 export type {
   OverdueIssueItem,
@@ -24,6 +25,7 @@ type IssueRow = {
   assignee_email: string; custom_fields: Record<string, unknown>;
   project_name: string; jira_base_url: string;
   end_date_field_ids: string[] | null; start_date_field_ids: string[] | null;
+  delivery_date: string | null; delivery_status: string | null;
 };
 
 // workingDaysBetween imported from @/lib/jira/estimate.
@@ -78,7 +80,9 @@ async function fetchProjectOverdue(projectId: string, today: string, quarterStar
     SELECT ji.id, ji.jira_key, ji.summary, ji.status, ji.status_category,
       psm.canonical_status AS canonical_status, ji.priority, ji.issue_type,
       mie.effective_email AS assignee_email, ji.custom_fields,
-      jp.name AS project_name, jp.jira_base_url, jp.end_date_field_ids, jp.start_date_field_ids
+      jp.name AS project_name, jp.jira_base_url, jp.end_date_field_ids, jp.start_date_field_ids,
+      ${nearestDeliveryDateSql(sql`ji.id`)} AS delivery_date,
+      ${nearestDeliveryStatusSql(sql`ji.id`)} AS delivery_status
     FROM mie JOIN jira_issues ji ON ji.id = mie.id JOIN jira_projects jp ON jp.id = ji.project_id
     LEFT JOIN project_status_mappings psm
       ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
@@ -104,6 +108,7 @@ async function fetchProjectOverdue(projectId: string, today: string, quarterStar
       startDate: startDate ?? "", dueDate, daysOverdue,
       projectName: raw.project_name, jiraBaseUrl: raw.jira_base_url,
       estWorkingDays: startDate ? workingDaysBetween(startDate, dueDate) : null,
+      deliveryDate: raw.delivery_date, deliveryStatus: raw.delivery_status,
     });
     byEmail.set(raw.assignee_email, list);
   }

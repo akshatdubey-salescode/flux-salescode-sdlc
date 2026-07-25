@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ListView } from "../project-tracking/list-view";
 import { SearchFilterBar } from "./filter-bar";
+import { subscribeToDeliveryListChanges } from "@/components/delivery-tracker/delivery-summary-cache";
 import type { GlobalSearchFields, GlobalSearchFilterState, TrackingIssue } from "./helpers";
 
 function readFilters(
@@ -78,7 +79,14 @@ export function SearchView() {
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
+  // Not wrapped in useCallback: React Compiler (reactCompiler: true) infers
+  // stable memoization for plain functions itself — a hand-written
+  // useCallback here actively conflicts with it ("Compilation Skipped:
+  // Existing memoization could not be preserved"), so the second effect
+  // below (the delivery-list subscription) trips the plain exhaustive-deps
+  // lint rule, which can't see the compiler's inference. Safe to disable.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  function loadIssues() {
     const params = new URLSearchParams();
     const parsed: GlobalSearchFilterState = JSON.parse(filterKey);
 
@@ -109,7 +117,17 @@ export function SearchView() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    loadIssues();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadIssues reads filterKey from closure, the real dep
   }, [filterKey]);
+
+  // See project-tracking/index.tsx's identical hook: a delivery mutation
+  // made on a completely different page still needs to reach this one if
+  // it's the tab the user switches back to.
+  useEffect(() => subscribeToDeliveryListChanges(loadIssues), [loadIssues]);
 
   return (
     <div className="space-y-4">

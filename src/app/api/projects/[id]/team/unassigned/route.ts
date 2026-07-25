@@ -4,6 +4,7 @@ import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import { jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
+import { nearestDeliveryDateSql, nearestDeliveryStatusSql } from "@/lib/deliveries/entries";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -18,6 +19,8 @@ export type UnassignedIssueItem = {
   projectName: string;
   jiraBaseUrl: string;
   createdAt: string | null;
+  deliveryDate: string | null;
+  deliveryStatus: string | null;
 };
 
 export type UnassignedResponse = {
@@ -36,6 +39,8 @@ type IssueRow = {
   project_name: string;
   jira_base_url: string;
   jira_created_at: string | null;
+  delivery_date: string | null;
+  delivery_status: string | null;
 };
 
 const PRIORITY_ORDER: Record<string, number> = {
@@ -76,7 +81,9 @@ async function fetchUnassigned(projectId: string, qstart: string, qend: string) 
     SELECT
       ji.id, ji.jira_key, ji.summary, ji.status, ji.status_category,
       ji.priority, ji.issue_type, ji.jira_created_at,
-      jp.name AS project_name, jp.jira_base_url
+      jp.name AS project_name, jp.jira_base_url,
+      ${nearestDeliveryDateSql(sql`ji.id`)} AS delivery_date,
+      ${nearestDeliveryStatusSql(sql`ji.id`)} AS delivery_status
     FROM jira_issues ji
     JOIN jira_projects jp ON jp.id = ji.project_id
     WHERE ji.project_id = ${projectId}
@@ -99,6 +106,8 @@ async function fetchUnassigned(projectId: string, qstart: string, qend: string) 
     projectName: raw.project_name,
     jiraBaseUrl: raw.jira_base_url,
     createdAt: raw.jira_created_at ?? null,
+    deliveryDate: raw.delivery_date,
+    deliveryStatus: raw.delivery_status,
   }));
 
   // Sort: priority first, then by creation date descending

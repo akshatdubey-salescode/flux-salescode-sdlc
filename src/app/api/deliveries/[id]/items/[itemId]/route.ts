@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
 import { deliveries, deliveryItems } from "@/lib/db/schema";
@@ -66,21 +66,42 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   const session = await getServerSession(authOptions);
   const statusSetByName = session?.user?.name?.trim() || null;
+  const statusSetAt = new Date();
 
-  await db
+  // Delivery status describes the ISSUE ("was this actually delivered"), not
+  // the batch it happens to be viewed through — an item committed to two
+  // deliveries at once can't be genuinely Delivered in one and Pending in
+  // the other, so every delivery_items row for this issue mirrors the same
+  // outcome. Matching `issueId` alone (not deliveryId) reaches every sibling.
+  const updatedRows = await db
     .update(deliveryItems)
     .set({
       status: body.status,
       statusComment,
       statusSetBy: user.id,
       statusSetByName,
-      statusSetAt: new Date(),
+      statusSetAt,
     })
-    .where(eq(deliveryItems.id, itemId));
+    .where(eq(deliveryItems.issueId, existing.issueId))
+    .returning({ deliveryId: deliveryItems.deliveryId });
 
   const delivery = await fetchDeliveryById(deliveryId);
   if (!delivery) {
     return NextResponse.json({ error: "Delivery could not be loaded" }, { status: 500 });
+  }
+
+  // Mirroring can touch sibling deliveries in a different project than the
+  // one this request came in through — revalidate every project actually
+  // affected, not just this one, so their Delivery columns/badges don't
+  // stay stale for the rest of the cacheLife window.
+  const affectedDeliveryIds = [...new Set(updatedRows.map((r) => r.deliveryId))];
+  const affectedProjectIds = new Set([delivery.projectId]);
+  if (affectedDeliveryIds.length > 1) {
+    const rows = await db
+      .select({ projectId: deliveries.projectId })
+      .from(deliveries)
+      .where(inArray(deliveries.id, affectedDeliveryIds));
+    for (const r of rows) affectedProjectIds.add(r.projectId);
   }
 
   // "deliveries" alone doesn't reach the two OTHER cached routes that embed
@@ -88,7 +109,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   // Tasks) — without these, their "use cache" responses stay stale for the
   // full cacheLife regardless of client-side reloads.
   revalidateTag("deliveries", "max");
-  revalidateTag(`project:${delivery.projectId}`, "max");
+  for (const projectId of affectedProjectIds) revalidateTag(`project:${projectId}`, "max");
   revalidateTag("my-tasks", "max");
 
   return NextResponse.json({ delivery } satisfies DeliveryItemResponse);

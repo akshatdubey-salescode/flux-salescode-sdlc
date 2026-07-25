@@ -14,6 +14,7 @@ import {
   workingHoursRemaining,
   classifyIssue as classifyIssueFn,
 } from "@/lib/jira/estimate";
+import { nearestDeliveryDateSql, nearestDeliveryStatusSql } from "@/lib/deliveries/entries";
 
 // Re-export the same types as the board timeline so client components are interchangeable.
 export type {
@@ -51,6 +52,8 @@ type IssueRow = {
   assignee_since: string | null;
   end_date_field_ids: string[] | null;
   start_date_field_ids: string[] | null;
+  delivery_date: string | null;
+  delivery_status: string | null;
 };
 
 // All working-day / classification helpers imported from @/lib/jira/estimate.
@@ -134,7 +137,9 @@ async function fetchProjectTeamTimeline(
       ji.id, ji.jira_key, ji.summary, ji.status, ji.status_category,
       ji.priority, ji.issue_type, mie.effective_email AS assignee_email,
       ji.custom_fields, jp.name AS project_name, jp.jira_base_url,
-      ji.jira_created_at, ji.assignee_since, jp.end_date_field_ids, jp.start_date_field_ids
+      ji.jira_created_at, ji.assignee_since, jp.end_date_field_ids, jp.start_date_field_ids,
+      ${nearestDeliveryDateSql(sql`ji.id`)} AS delivery_date,
+      ${nearestDeliveryStatusSql(sql`ji.id`)} AS delivery_status
     FROM member_issue_emails mie
     JOIN jira_issues ji ON ji.id = mie.id
     JOIN jira_projects jp ON jp.id = ji.project_id
@@ -165,6 +170,8 @@ async function fetchProjectTeamTimeline(
         missingStart: !startDate, missingDue: !dueDate,
         createdAt: raw.jira_created_at ?? null,
         assignedAt: raw.assignee_since ?? null,
+        deliveryDate: raw.delivery_date,
+        deliveryStatus: raw.delivery_status,
       });
       unplannedByEmail.set(email, list);
       continue;
@@ -187,6 +194,8 @@ async function fetchProjectTeamTimeline(
           workingDaysRemaining: workingDaysRemainingFromToday(today, dueDate),
           label: "overdue", projectName: raw.project_name, jiraBaseUrl: raw.jira_base_url,
           estWorkingDays: startDate ? workingDaysBetween(startDate, dueDate) : null,
+          deliveryDate: raw.delivery_date,
+          deliveryStatus: raw.delivery_status,
         });
         overdueByEmail.set(email, list);
       }
@@ -212,6 +221,8 @@ async function fetchProjectTeamTimeline(
       label,
       projectName: raw.project_name, jiraBaseUrl: raw.jira_base_url,
       estWorkingDays: workingDaysBetween(startDate, dueDate),
+      deliveryDate: raw.delivery_date,
+      deliveryStatus: raw.delivery_status,
     });
     timelineByEmail.set(email, list);
   }

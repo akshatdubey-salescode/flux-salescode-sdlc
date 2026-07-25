@@ -35,6 +35,27 @@ function notify(issueId: string) {
   for (const cb of subscribers.get(issueId) ?? []) cb();
 }
 
+// Separate from the per-issue `subscribers` above: issue-list pages (Project
+// Tracking, My Tasks, Global Search, Team Pulse, board columns) render a
+// Delivery column baked into their own fetched row data, not through
+// useDeliverySummary — so patching the per-issue cache alone never touches
+// them. Next.js Tabs keeps every project tab mounted at once (no unmount on
+// switch), so a mutation made on the Delivery Tracking tab previously had no
+// way to reach an already-mounted Project Tracking tab's stale rows at all,
+// even after switching to it. Any real mutation notifies this list too, so
+// every subscribed page just re-runs its own load function.
+const listChangeSubscribers = new Set<() => void>();
+
+/** Subscribe to "some delivery's data changed somewhere" — call your existing load/refetch function. Returns an unsubscribe function. */
+export function subscribeToDeliveryListChanges(callback: () => void): () => void {
+  listChangeSubscribers.add(callback);
+  return () => listChangeSubscribers.delete(callback);
+}
+
+function notifyListChanged() {
+  for (const cb of listChangeSubscribers) cb();
+}
+
 function scheduleFlush() {
   if (flushTimer !== null) return;
   flushTimer = setTimeout(flush, 0);
@@ -112,6 +133,7 @@ export function patchDeliverySummary(
     cache.set(issueId, null);
     bump(issueId);
     notify(issueId);
+    notifyListChanged();
     return;
   }
   const today = new Date().toISOString().slice(0, 10);
@@ -129,6 +151,7 @@ export function patchDeliverySummary(
   });
   bump(issueId);
   notify(issueId);
+  notifyListChanged();
 }
 
 /**

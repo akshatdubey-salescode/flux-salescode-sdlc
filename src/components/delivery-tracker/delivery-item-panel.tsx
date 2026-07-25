@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { RiExternalLinkLine, RiCloseLine } from "@remixicon/react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,7 +13,7 @@ import {
   deliveryStatusStyles,
   type DeliveryStatusValue,
 } from "@/lib/deliveries/status";
-import type { IssueDeliveriesDetail, IssueDeliveryMembership, DeliveryWithItems } from "@/lib/deliveries/entries";
+import type { IssueDeliveriesDetail, IssueDeliveryMembership } from "@/lib/deliveries/entries";
 import { patchDeliverySummary } from "./delivery-summary-cache";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 
@@ -37,32 +37,40 @@ export function DeliveryItemPanel({
   const [detail, setDetail] = useState<IssueDeliveriesDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const loadDetail = useCallback(
+    (signal?: AbortSignal) => {
+      // no-store: see delivery-summary-cache.ts's refreshDeliverySummary for
+      // why — the browser's default fetch cache can serve a stale response
+      // for this exact URL even when the server-side data is already fresh.
+      return fetch(`/api/deliveries/for-issue/${issueId}`, { signal, cache: "no-store" })
+        .then((r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        })
+        .then((d: IssueDeliveriesDetail) => {
+          setDetail(d);
+          patchDeliverySummary(issueId, d.memberships);
+        })
+        .catch((e: unknown) => {
+          if (e instanceof DOMException && e.name === "AbortError") return;
+          setError(e instanceof Error ? e.message : "Failed to load");
+        });
+    },
+    [issueId]
+  );
+
   useEffect(() => {
     const controller = new AbortController();
-    // no-store: see delivery-summary-cache.ts's refreshDeliverySummary for why
-    // — the browser's default fetch cache can serve a stale response for
-    // this exact URL even when the server-side data is already fresh.
-    fetch(`/api/deliveries/for-issue/${issueId}`, { signal: controller.signal, cache: "no-store" })
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((d: IssueDeliveriesDetail) => {
-        setDetail(d);
-        patchDeliverySummary(issueId, d.memberships);
-      })
-      .catch((e: unknown) => {
-        if (e instanceof DOMException && e.name === "AbortError") return;
-        setError(e instanceof Error ? e.message : "Failed to load");
-      });
+    loadDetail(controller.signal);
     return () => controller.abort();
-  }, [issueId]);
+  }, [loadDetail]);
 
-  function handleUpdated(updated: IssueDeliveryMembership) {
-    if (!detail) return;
-    const memberships = detail.memberships.map((m) => (m.itemId === updated.itemId ? updated : m));
-    setDetail({ ...detail, memberships });
-    patchDeliverySummary(issueId, memberships);
+  // A status change on ONE membership mirrors server-side to every other
+  // delivery this issue belongs to (see the PATCH route) — a full refetch
+  // is the only way every membership row in THIS SAME popup picks up that
+  // mirrored status too, not just the one that was just edited.
+  async function handleSaved() {
+    await loadDetail();
     onChanged?.();
   }
 
@@ -118,7 +126,7 @@ export function DeliveryItemPanel({
                     key={m.itemId}
                     membership={m}
                     canManage={canManage}
-                    onUpdated={handleUpdated}
+                    onSaved={handleSaved}
                     onRemoved={handleRemoved}
                   />
                 ))}
@@ -150,12 +158,13 @@ function PanelSkeleton() {
 function MembershipRow({
   membership,
   canManage,
-  onUpdated,
+  onSaved,
   onRemoved,
 }: {
   membership: IssueDeliveryMembership;
   canManage: boolean;
-  onUpdated: (m: IssueDeliveryMembership) => void;
+  /** A status change here mirrors server-side to every other delivery this issue belongs to — this asks the parent to refetch the full list rather than patching just this one row. */
+  onSaved: () => Promise<void>;
   onRemoved: (itemId: string) => void;
 }) {
   const [status, setStatus] = useState<DeliveryStatusValue>(membership.status);
@@ -198,15 +207,7 @@ function MembershipRow({
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? `HTTP ${res.status}`);
       }
-      const { delivery } = (await res.json()) as { delivery: DeliveryWithItems };
-      const updatedItem = delivery.items.find((i) => i.id === membership.itemId);
-      onUpdated({
-        ...membership,
-        status: updatedItem?.status ?? status,
-        statusComment: updatedItem?.statusComment ?? (comment.trim() || null),
-        statusSetByName: updatedItem?.statusSetByName ?? membership.statusSetByName,
-        statusSetAt: updatedItem?.statusSetAt ?? membership.statusSetAt,
-      });
+      await onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
     } finally {

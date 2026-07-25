@@ -10,6 +10,11 @@ import {
   RiExternalLinkLine,
   RiSearchLine,
   RiChat3Line,
+  RiFileCopyLine,
+  RiCheckLine,
+  RiArrowRightLine,
+  RiCheckboxCircleLine,
+  RiHistoryLine,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,16 +34,27 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { localDateStr, getQuarterChips } from "@/lib/date-utils";
 import { statusCategoryStyles, priorityStyles } from "@/components/project-tracking/helpers";
-import { DELIVERY_STATUSES, deliveryStatusStyles, type DeliveryStatusValue } from "@/lib/deliveries/status";
+import {
+  DELIVERY_STATUSES,
+  deliveryStatusStyles,
+  deliveryStatusLabel,
+  type DeliveryStatusValue,
+} from "@/lib/deliveries/status";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import { DeliveryBadge } from "./delivery-badge";
-import { refreshDeliverySummary } from "./delivery-summary-cache";
+import { refreshDeliverySummary, subscribeToDeliveryListChanges } from "./delivery-summary-cache";
 import { CreateDeliveryForm } from "./create-delivery-form";
 import { IssueMultiPicker, type IssueResult } from "./issue-multi-picker";
-import type { DeliveryWithItems, DeliveryItemRow, DeliveryRollup } from "@/lib/deliveries/entries";
+import type { DeliveryWithItems, DeliveryItemRow, DeliveryRollup, DeliveryOption } from "@/lib/deliveries/entries";
 
 type DeliveriesResponse = { deliveries: DeliveryWithItems[] };
 
@@ -51,6 +67,18 @@ function deliveryMatchesSearch(delivery: DeliveryWithItems, query: string): bool
   return false;
 }
 
+/** Plain-text summary of ONE delivery's (currently-filtered) items — for pasting into Slack/email. Mirrors team-timeline-client's buildAlertMessage shape. */
+function buildDeliveryAlertMessage(delivery: DeliveryWithItems, items: DeliveryItemRow[]): string {
+  const dateLabel = new Date().toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" });
+  const lines: string[] = [
+    `📦 ${delivery.name} — ${delivery.deliveryDate} (${delivery.rollup.delivered}/${delivery.rollup.total} delivered) — as of ${dateLabel}`,
+  ];
+  for (const item of items) {
+    lines.push(`  • ${item.jiraKey} — ${item.summary} [${deliveryStatusLabel(item.status)}]`);
+  }
+  return lines.join("\n");
+}
+
 export function DeliveryTrackerTab({ projectId, canManage }: { projectId: string; canManage: boolean }) {
   const [deliveries, setDeliveries] = useState<DeliveryWithItems[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +86,8 @@ export function DeliveryTrackerTab({ projectId, canManage }: { projectId: string
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState<string | null>(null);
   const [dateTo, setDateTo] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<Set<DeliveryStatusValue>>(() => new Set());
+  const [showCompleted, setShowCompleted] = useState(false);
 
   const load = useCallback(() => {
     // no-store: same browser-fetch-cache staleness this feature hit
@@ -77,18 +107,66 @@ export function DeliveryTrackerTab({ projectId, canManage }: { projectId: string
     load();
   }, [load]);
 
+  // Radix Tabs keeps every project tab mounted at once, so Project
+  // Tracking's "+" add-to-delivery menu (or its "New delivery" dialog) can
+  // mutate this exact data while this tab sits hidden but mounted — without
+  // this, switching back to Delivery Tracking showed whatever was fetched
+  // at initial mount, not the item that was just attached elsewhere.
+  useEffect(() => subscribeToDeliveryListChanges(load), [load]);
+
+  // Every OTHER active (non-completed) delivery an issue already belongs to
+  // — computed from data already in memory so the "migrate to" picker can
+  // exclude a guaranteed-conflict target without an extra fetch per row.
+  const deliveriesByIssue = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const d of deliveries ?? []) {
+      for (const item of d.items) {
+        const set = map.get(item.issueId) ?? new Set<string>();
+        set.add(d.id);
+        map.set(item.issueId, set);
+      }
+    }
+    return map;
+  }, [deliveries]);
+
+  const migrationTargets: DeliveryOption[] = useMemo(
+    () =>
+      (deliveries ?? [])
+        .filter((d) => !d.completedAt)
+        .map((d) => ({ id: d.id, name: d.name, deliveryDate: d.deliveryDate })),
+    [deliveries]
+  );
+
+  const completedCount = useMemo(() => (deliveries ?? []).filter((d) => d.completedAt).length, [deliveries]);
+
   const filteredDeliveries = useMemo(() => {
     if (!deliveries) return null;
     const query = search.trim();
-    return deliveries.filter((d) => {
-      if (dateFrom && d.deliveryDate < dateFrom) return false;
-      if (dateTo && d.deliveryDate > dateTo) return false;
-      if (query && !deliveryMatchesSearch(d, query)) return false;
-      return true;
-    });
-  }, [deliveries, search, dateFrom, dateTo]);
+    return deliveries
+      .filter((d) => {
+        if (!showCompleted && d.completedAt) return false;
+        if (dateFrom && d.deliveryDate < dateFrom) return false;
+        if (dateTo && d.deliveryDate > dateTo) return false;
+        if (query && !deliveryMatchesSearch(d, query)) return false;
+        return true;
+      })
+      .map((d) => ({
+        ...d,
+        visibleItems: statusFilter.size === 0 ? d.items : d.items.filter((i) => statusFilter.has(i.status)),
+      }))
+      .filter((d) => statusFilter.size === 0 || d.visibleItems.length > 0);
+  }, [deliveries, search, dateFrom, dateTo, statusFilter, showCompleted]);
 
-  const hasActiveFilter = !!search.trim() || !!dateFrom || !!dateTo;
+  const hasActiveFilter = !!search.trim() || !!dateFrom || !!dateTo || statusFilter.size > 0;
+
+  function toggleStatusFilter(value: DeliveryStatusValue) {
+    setStatusFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  }
 
   return (
     <div className="space-y-4">
@@ -167,10 +245,44 @@ export function DeliveryTrackerTab({ projectId, canManage }: { projectId: string
               setSearch("");
               setDateFrom(null);
               setDateTo(null);
+              setStatusFilter(new Set());
             }}
           >
             Clear filters
           </Button>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Item status</span>
+        <div className="flex items-center gap-1">
+          {DELIVERY_STATUSES.map((s) => {
+            const active = statusFilter.has(s.value);
+            const styles = deliveryStatusStyles(s.value);
+            return (
+              <button
+                key={s.value}
+                type="button"
+                onClick={() => toggleStatusFilter(s.value)}
+                className={cn(
+                  "h-6 rounded-full px-2.5 text-[10px] font-semibold transition-colors",
+                  active ? styles.badge : "bg-muted/40 text-muted-foreground hover:bg-muted"
+                )}
+              >
+                {s.label}
+              </button>
+            );
+          })}
+        </div>
+        {completedCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowCompleted((v) => !v)}
+            className="ml-auto flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <RiHistoryLine className="size-3.5" />
+            {showCompleted ? "Hide completed" : `Show completed (${completedCount})`}
+          </button>
         )}
       </div>
 
@@ -189,11 +301,23 @@ export function DeliveryTrackerTab({ projectId, canManage }: { projectId: string
       )}
       {deliveries && deliveries.length > 0 && filteredDeliveries?.length === 0 && (
         <div className="rounded-lg border border-dashed border-border py-10 text-center">
-          <p className="text-xs text-muted-foreground">No deliveries match these filters.</p>
+          <p className="text-xs text-muted-foreground">
+            {!showCompleted && completedCount > 0 && deliveries.every((d) => d.completedAt)
+              ? `All ${completedCount} deliveries are completed.`
+              : "No deliveries match these filters."}
+          </p>
         </div>
       )}
       {filteredDeliveries?.map((delivery) => (
-        <DeliveryCard key={delivery.id} delivery={delivery} canManage={canManage} onChanged={load} />
+        <DeliveryCard
+          key={delivery.id}
+          delivery={delivery}
+          visibleItems={delivery.visibleItems}
+          canManage={canManage}
+          onChanged={load}
+          migrationTargets={migrationTargets.filter((o) => o.id !== delivery.id)}
+          deliveriesByIssue={deliveriesByIssue}
+        />
       ))}
     </div>
   );
@@ -220,20 +344,39 @@ function RollupCounts({ rollup }: { rollup: DeliveryRollup }) {
 
 function DeliveryCard({
   delivery,
+  visibleItems,
   canManage,
   onChanged,
+  migrationTargets,
+  deliveriesByIssue,
 }: {
   delivery: DeliveryWithItems;
+  /** Items after the item-status filter (a subset of delivery.items) — what the table actually renders. */
+  visibleItems: DeliveryItemRow[];
   canManage: boolean;
   onChanged: () => void;
+  /** Other active deliveries an item in this card could migrate to. */
+  migrationTargets: DeliveryOption[];
+  /** issueId → set of delivery ids it's already in — used to hide guaranteed-conflict migration targets. */
+  deliveriesByIssue: Map<string, Set<string>>;
 }) {
   const [addingIssues, setAddingIssues] = useState<IssueResult[]>([]);
   const [adding, setAdding] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [completing, setCompleting] = useState(false);
+  const [alertCopied, setAlertCopied] = useState(false);
 
   const today = localDateStr(new Date());
   const daysToGo = daysBetween(delivery.deliveryDate, today);
   const overdue = daysToGo < 0;
+  const isComplete = !!delivery.completedAt;
+  const canComplete = delivery.rollup.total > 0 && delivery.rollup.delivered === delivery.rollup.total;
+
+  function handleCopySummary() {
+    navigator.clipboard.writeText(buildDeliveryAlertMessage(delivery, visibleItems));
+    setAlertCopied(true);
+    setTimeout(() => setAlertCopied(false), 2000);
+  }
 
   async function handleAddIssues() {
     if (addingIssues.length === 0) return;
@@ -269,8 +412,45 @@ function DeliveryCard({
     onChanged();
   }
 
+  async function handleToggleComplete(next: boolean) {
+    setCompleting(true);
+    try {
+      const res = await fetch(`/api/deliveries/${delivery.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed: next }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update delivery");
+    } finally {
+      setCompleting(false);
+    }
+  }
+
+  async function handleMigrate(itemId: string, targetDeliveryId: string): Promise<boolean> {
+    const issueId = delivery.items.find((i) => i.id === itemId)?.issueId;
+    const res = await fetch(`/api/deliveries/${delivery.id}/items/${itemId}/migrate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetDeliveryId }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      toast.error(body.error ?? "Failed to migrate item");
+      return false;
+    }
+    if (issueId) await refreshDeliverySummary(issueId);
+    onChanged();
+    return true;
+  }
+
   return (
-    <div className="rounded-lg border border-border overflow-hidden">
+    <div className={cn("rounded-lg border border-border overflow-hidden", isComplete && "opacity-80")}>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 p-3">
         <div>
           <div className="flex items-center gap-2">
@@ -278,20 +458,64 @@ function DeliveryCard({
             <Badge variant="outline" className="text-[10px] tabular-nums">
               {delivery.deliveryDate}
             </Badge>
-            <span className={cn("text-[11px] font-medium", overdue ? "text-red-600 dark:text-red-400" : "text-muted-foreground")}>
-              {overdue ? `Overdue by ${Math.abs(daysToGo)}d` : daysToGo === 0 ? "Due today" : `${daysToGo}d to go`}
-            </span>
+            {isComplete ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                <RiCheckboxCircleLine className="size-3" />
+                Completed
+              </span>
+            ) : (
+              <span className={cn("text-[11px] font-medium", overdue ? "text-red-600 dark:text-red-400" : "text-muted-foreground")}>
+                {overdue ? `Overdue by ${Math.abs(daysToGo)}d` : daysToGo === 0 ? "Due today" : `${daysToGo}d to go`}
+              </span>
+            )}
           </div>
           {delivery.responsibleNames.length > 0 && (
             <p className="mt-0.5 text-[11px] text-muted-foreground">
               Responsible: {delivery.responsibleNames.join(", ")}
             </p>
           )}
+          {isComplete && delivery.completedByName && (
+            <p className="mt-0.5 text-[11px] text-muted-foreground">Marked complete by {delivery.completedByName}</p>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <RollupCounts rollup={delivery.rollup} />
+          {visibleItems.length > 0 && (
+            <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={handleCopySummary}>
+              {alertCopied ? (
+                <>
+                  <RiCheckLine className="size-3.5" /> Copied!
+                </>
+              ) : (
+                <>
+                  <RiFileCopyLine className="size-3.5" /> Copy
+                </>
+              )}
+            </Button>
+          )}
           {canManage && (
             <div className="flex items-center gap-1">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Button
+                        variant={isComplete ? "ghost" : "outline"}
+                        size="sm"
+                        className="h-7 text-[11px]"
+                        disabled={completing || (!isComplete && !canComplete)}
+                        onClick={() => handleToggleComplete(!isComplete)}
+                      >
+                        <RiCheckboxCircleLine className="size-3.5" />
+                        {isComplete ? "Reopen" : "Mark complete"}
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  {!isComplete && !canComplete && (
+                    <TooltipContent>Every item must be Delivered first.</TooltipContent>
+                  )}
+                </Tooltip>
+              </TooltipProvider>
               <CreateDeliveryForm
                 projectId={delivery.projectId}
                 delivery={delivery}
@@ -327,7 +551,7 @@ function DeliveryCard({
         </div>
       </div>
 
-      {canManage && (
+      {canManage && !isComplete && (
         <div className="flex items-center gap-2 border-b border-border p-2.5">
           <div className="flex-1">
             <IssueMultiPicker projectId={delivery.projectId} value={addingIssues} onChange={setAddingIssues} />
@@ -340,12 +564,26 @@ function DeliveryCard({
         </div>
       )}
 
-      {delivery.items.length === 0 ? (
+      {visibleItems.length === 0 ? (
         <div className="p-6 text-center">
-          <p className="text-xs text-muted-foreground">No issues committed to this delivery yet.</p>
+          <p className="text-xs text-muted-foreground">
+            {delivery.items.length === 0
+              ? "No issues committed to this delivery yet."
+              : "No items match the current status filter."}
+          </p>
         </div>
       ) : (
-        <DeliveryItemsTable deliveryId={delivery.id} items={delivery.items} canManage={canManage} onRemoveItem={handleRemoveItem} onChanged={onChanged} />
+        <DeliveryItemsTable
+          deliveryId={delivery.id}
+          items={visibleItems}
+          canManage={canManage}
+          onRemoveItem={handleRemoveItem}
+          onChanged={onChanged}
+          onMigrate={handleMigrate}
+          migrationTargetsByIssue={(issueId) =>
+            migrationTargets.filter((o) => !deliveriesByIssue.get(issueId)?.has(o.id))
+          }
+        />
       )}
     </div>
   );
@@ -357,12 +595,16 @@ function DeliveryItemsTable({
   canManage,
   onRemoveItem,
   onChanged,
+  onMigrate,
+  migrationTargetsByIssue,
 }: {
   deliveryId: string;
   items: DeliveryItemRow[];
   canManage: boolean;
   onRemoveItem: (itemId: string) => void;
   onChanged: () => void;
+  onMigrate: (itemId: string, targetDeliveryId: string) => Promise<boolean>;
+  migrationTargetsByIssue: (issueId: string) => DeliveryOption[];
 }) {
   return (
     <div className="overflow-x-auto">
@@ -376,7 +618,7 @@ function DeliveryItemsTable({
             <th className="px-3 py-2 text-left font-medium text-muted-foreground">Assignee</th>
             <th className="px-3 py-2 text-left font-medium text-muted-foreground">Delivery</th>
             <th className="px-2 py-2" />
-            {canManage && <th className="w-8 px-2 py-2" />}
+            {canManage && <th className="w-16 px-2 py-2" />}
           </tr>
         </thead>
         <tbody className="divide-y divide-border/50">
@@ -386,10 +628,15 @@ function DeliveryItemsTable({
             return (
               <tr key={item.id} className="hover:bg-muted/20 transition-colors">
                 <td className="px-3 py-2 whitespace-nowrap">
-                  <span className="inline-flex items-center gap-1 font-mono font-medium text-foreground">
+                  <a
+                    href={`${item.jiraBaseUrl.replace(/\/$/, "")}/browse/${item.jiraKey}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 font-mono font-medium text-foreground hover:text-primary transition-colors"
+                  >
                     {item.jiraKey}
                     <RiExternalLinkLine className="size-3 opacity-40" />
-                  </span>
+                  </a>
                 </td>
                 <td className="px-3 py-2 max-w-[240px]">
                   <span className="block truncate" title={item.summary}>{item.summary}</span>
@@ -417,14 +664,21 @@ function DeliveryItemsTable({
                 </td>
                 {canManage && (
                   <td className="px-2 py-2">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      title="Remove from delivery"
-                      onClick={() => onRemoveItem(item.id)}
-                    >
-                      <RiCloseLine className="size-3.5" />
-                    </Button>
+                    <div className="flex items-center gap-0.5">
+                      <MigrateButton
+                        itemId={item.id}
+                        targets={migrationTargetsByIssue(item.issueId)}
+                        onMigrate={onMigrate}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        title="Remove from delivery"
+                        onClick={() => onRemoveItem(item.id)}
+                      >
+                        <RiCloseLine className="size-3.5" />
+                      </Button>
+                    </div>
                   </td>
                 )}
               </tr>
@@ -436,6 +690,65 @@ function DeliveryItemsTable({
   );
 }
 
+/** Re-home one item to a different active delivery — a pure move (see the migrate route): removed from here, added there, status/comment carried over untouched. */
+function MigrateButton({
+  itemId,
+  targets,
+  onMigrate,
+}: {
+  itemId: string;
+  targets: DeliveryOption[];
+  onMigrate: (itemId: string, targetDeliveryId: string) => Promise<boolean>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [target, setTarget] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  if (targets.length === 0) return null;
+
+  async function handleMigrate() {
+    if (!target) return;
+    setSaving(true);
+    try {
+      const ok = await onMigrate(itemId, target);
+      if (ok) {
+        setOpen(false);
+        setTarget("");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="icon-sm" title="Migrate to another delivery">
+          <RiArrowRightLine className="size-3.5" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 space-y-2" align="start">
+        <p className="text-xs font-medium text-foreground">Migrate to delivery</p>
+        <Select value={target} onValueChange={setTarget}>
+          <SelectTrigger size="sm" className="w-full">
+            <SelectValue placeholder="Choose delivery…" />
+          </SelectTrigger>
+          <SelectContent>
+            {targets.map((d) => (
+              <SelectItem key={d.id} value={d.id}>
+                {d.name} · {d.deliveryDate}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button size="sm" className="w-full" onClick={handleMigrate} disabled={!target || saving}>
+          {saving ? "Migrating…" : "Migrate"}
+        </Button>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 /**
  * Inline status + comment editor for one item's delivery outcome — this is
  * the primary place to mark Delivered/Partially/Not Delivered (any
@@ -444,7 +757,10 @@ function DeliveryItemsTable({
  * popover since it's optional and multi-line. Both PATCH the same endpoint
  * the DeliveryItemPanel uses, and both refresh the shared summary cache so
  * badges everywhere else this issue appears (My Tasks, dashboards, etc.)
- * recolor immediately too — the "vice versa" of attaching an issue.
+ * recolor immediately too — the "vice versa" of attaching an issue. The
+ * server also mirrors this status to every OTHER delivery containing the
+ * same issue; onUpdated triggers a full reload of every delivery card so
+ * those mirrored siblings show up-to-date too.
  */
 function DeliveryStatusCell({
   deliveryId,
