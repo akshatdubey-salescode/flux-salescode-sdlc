@@ -1,6 +1,9 @@
 import { eq } from "drizzle-orm";
 import { requireAuth } from "@/lib/auth/server";
-import { getValidCredentials } from "@/lib/atlassian/oauth";
+import {
+  getCloudIdForJiraSite,
+  getValidCredentials,
+} from "@/lib/atlassian/oauth";
 import { decrypt } from "@/lib/crypto";
 import { db } from "@/lib/db";
 import { jiraProjects } from "@/lib/db/schema";
@@ -45,6 +48,31 @@ export async function GET(request: Request) {
 
   if (!project || !project.isActive) {
     return Response.json({ error: "Jira project not found" }, { status: 404 });
+  }
+
+  let projectCloudId: string | null;
+  try {
+    projectCloudId = await getCloudIdForJiraSite(
+      credentials.accessToken,
+      project.jiraBaseUrl
+    );
+  } catch (error) {
+    console.error("[create-jira-options] Could not resolve Jira site:", error);
+    return Response.json(
+      { error: "Could not verify access to this Jira site. Please try again." },
+      { status: 502 }
+    );
+  }
+
+  if (!projectCloudId) {
+    return Response.json(
+      {
+        error:
+          "Your connected Atlassian account does not have access to this Jira site. Reconnect it from Settings and select the correct site.",
+        code: "ATLASSIAN_SITE_ACCESS_REQUIRED",
+      },
+      { status: 403 }
+    );
   }
 
   const client = new JiraClient({

@@ -159,6 +159,36 @@ export async function getAccessibleResources(accessToken: string): Promise<Atlas
   return res.json() as Promise<AtlassianResource[]>;
 }
 
+/**
+ * Resolves the OAuth cloudId for a specific Jira site.
+ *
+ * Atlassian can return every site an account has previously authorized, and
+ * the order is not guaranteed to match the site selected on the latest consent
+ * screen. Match by URL instead of relying on resources[0].
+ */
+export async function getCloudIdForJiraSite(
+  accessToken: string,
+  jiraBaseUrl: string
+): Promise<string | null> {
+  let expectedOrigin: string;
+  try {
+    expectedOrigin = new URL(jiraBaseUrl).origin.toLowerCase();
+  } catch {
+    return null;
+  }
+
+  const resources = await getAccessibleResources(accessToken);
+  const match = resources.find((resource) => {
+    try {
+      return new URL(resource.url).origin.toLowerCase() === expectedOrigin;
+    } catch {
+      return false;
+    }
+  });
+
+  return match?.id ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Persist tokens for a user (upsert)
 // ---------------------------------------------------------------------------

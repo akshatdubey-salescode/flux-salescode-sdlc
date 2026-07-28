@@ -1,6 +1,9 @@
 import { eq } from "drizzle-orm";
 import { requireAuth } from "@/lib/auth/server";
-import { getValidCredentials } from "@/lib/atlassian/oauth";
+import {
+  getCloudIdForJiraSite,
+  getValidCredentials,
+} from "@/lib/atlassian/oauth";
 import { decrypt } from "@/lib/crypto";
 import { db } from "@/lib/db";
 import { jiraProjects } from "@/lib/db/schema";
@@ -144,10 +147,38 @@ export async function POST(request: Request) {
     return Response.json({ error: "Jira project not found." }, { status: 404 });
   }
 
+  let projectCloudId: string | null;
+  try {
+    projectCloudId = await getCloudIdForJiraSite(
+      credentials.accessToken,
+      project.jiraBaseUrl
+    );
+  } catch (error) {
+    console.error("[create-jira] Could not resolve Jira site:", error);
+    return Response.json(
+      { error: "Could not verify access to this Jira site. Please try again." },
+      { status: 502 }
+    );
+  }
+
+  if (!projectCloudId) {
+    return Response.json(
+      {
+        error:
+          "Your connected Atlassian account does not have access to this Jira site. Reconnect it from Settings and select the correct site.",
+        code: "ATLASSIAN_SITE_ACCESS_REQUIRED",
+      },
+      { status: 403 }
+    );
+  }
+
   const fields: Record<string, unknown> = {
     project: { key: project.jiraProjectKey },
     summary,
-    issuetype: { id: issueTypeId },
+    // Requirement Builder uses the issue type name successfully with OAuth.
+    // The ID is loaded through the site-admin metadata client and may belong to
+    // a different Jira site, so it must not be sent in the user's write call.
+    issuetype: { name: issueTypeName },
     priority: { name: priorityName },
   };
 
@@ -206,7 +237,7 @@ export async function POST(request: Request) {
   );
 
   const jiraResponse = await fetch(
-    `${JIRA_API_BASE}/${credentials.cloudId}/rest/api/3/issue`,
+    `${JIRA_API_BASE}/${projectCloudId}/rest/api/3/issue`,
     {
       method: "POST",
       headers: {
