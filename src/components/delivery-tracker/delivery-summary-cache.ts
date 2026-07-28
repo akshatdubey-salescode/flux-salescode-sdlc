@@ -56,6 +56,25 @@ function notifyListChanged() {
   for (const cb of listChangeSubscribers) cb();
 }
 
+// patchDeliverySummary runs on every passive reconciliation too (e.g. the
+// item panel's loadDetail fires it on every open, not just after a real
+// mutation) — without this check, opening the panel on a page that's ALSO
+// subscribed to list changes (e.g. Project Tracking, My Tasks) touches off
+// notifyListChanged → that page's own loadIssues refetch → the panel
+// remounts → loadDetail fires again → patchDeliverySummary again →
+// notifyListChanged again, forever. Only notify the wider list when the
+// computed summary actually differs from what's already cached.
+function summaryEquals(a: DeliverySummary | null, b: DeliverySummary | null): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  return (
+    a.deliveryId === b.deliveryId &&
+    a.status === b.status &&
+    a.deliveryDate === b.deliveryDate &&
+    a.totalDeliveries === b.totalDeliveries
+  );
+}
+
 function scheduleFlush() {
   if (flushTimer !== null) return;
   flushTimer = setTimeout(flush, 0);
@@ -129,29 +148,31 @@ export function patchDeliverySummary(
   issueId: string,
   memberships: { deliveryId: string; deliveryName: string; deliveryDate: string; projectId: string; status: DeliverySummary["status"] }[]
 ) {
+  const prev = cache.get(issueId) ?? null;
+  let next: DeliverySummary | null;
+
   if (memberships.length === 0) {
-    cache.set(issueId, null);
-    bump(issueId);
-    notify(issueId);
-    notifyListChanged();
-    return;
+    next = null;
+  } else {
+    const today = new Date().toISOString().slice(0, 10);
+    const upcoming = memberships.filter((m) => m.deliveryDate >= today).sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate));
+    const overdue = memberships.filter((m) => m.deliveryDate < today).sort((a, b) => b.deliveryDate.localeCompare(a.deliveryDate));
+    const nearest = upcoming[0] ?? overdue[0];
+    next = {
+      deliveryId: nearest.deliveryId,
+      deliveryName: nearest.deliveryName,
+      deliveryDate: nearest.deliveryDate,
+      projectId: nearest.projectId,
+      status: nearest.status,
+      isOverdue: nearest.deliveryDate < today,
+      totalDeliveries: memberships.length,
+    };
   }
-  const today = new Date().toISOString().slice(0, 10);
-  const upcoming = memberships.filter((m) => m.deliveryDate >= today).sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate));
-  const overdue = memberships.filter((m) => m.deliveryDate < today).sort((a, b) => b.deliveryDate.localeCompare(a.deliveryDate));
-  const nearest = upcoming[0] ?? overdue[0];
-  cache.set(issueId, {
-    deliveryId: nearest.deliveryId,
-    deliveryName: nearest.deliveryName,
-    deliveryDate: nearest.deliveryDate,
-    projectId: nearest.projectId,
-    status: nearest.status,
-    isOverdue: nearest.deliveryDate < today,
-    totalDeliveries: memberships.length,
-  });
+
+  cache.set(issueId, next);
   bump(issueId);
   notify(issueId);
-  notifyListChanged();
+  if (!summaryEquals(prev, next)) notifyListChanged();
 }
 
 /**

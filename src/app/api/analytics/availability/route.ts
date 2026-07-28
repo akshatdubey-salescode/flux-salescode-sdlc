@@ -394,6 +394,27 @@ function nextFreeSlot(
 
 // ── People resolution per scope ───────────────────────────────────────────────
 
+/**
+ * Resolve display names for an explicit list of emails (board members ∪
+ * Jira assignees, same as the old People-scope lookup), keeping every
+ * requested email even if no display name was found for it. Shared by the
+ * People scope and the Team scope's client-resolved-tree path.
+ */
+async function resolvePeopleByEmails(emails: string[]): Promise<Person[]> {
+  const list = sql.join(emails.map((e) => sql`${e}`), sql`, `);
+  const res = await db.execute(sql`
+    SELECT lower(email) AS email, name FROM observer_board_members WHERE lower(email) IN (${list})
+    UNION
+    SELECT lower(assignee_email) AS email, MIN(assignee_name) AS name
+    FROM jira_issues
+    WHERE lower(assignee_email) IN (${list})
+    GROUP BY lower(assignee_email)
+  `);
+  const named = toPeople(res.rows as { email: string; name: string | null }[]);
+  const haveName = new Map(named.map((p) => [p.email, p]));
+  return emails.map((e) => haveName.get(e) ?? { email: e, name: e.split("@")[0] });
+}
+
 async function resolvePeople(
   scope: AvailabilityScope,
   projectId: string | null,
@@ -414,6 +435,13 @@ async function resolvePeople(
 
   if (scope === "team") {
     if (!boardId) return [];
+    // The Availability Finder's Team tab resolves the board's manager's full
+    // Keka org subtree client-side and sends the checked emails directly —
+    // trust that over-the-wire selection instead of re-deriving from the
+    // board's own flat member list. Only fall back to the old board-members
+    // query when no emails were supplied (older/bookmarked callers, or a
+    // board whose manager isn't a current Keka employee).
+    if (emails.length > 0) return resolvePeopleByEmails(emails);
     const [members, board] = await Promise.all([
       db.execute(sql`
         SELECT lower(email) AS email, name FROM observer_board_members WHERE board_id = ${boardId}
@@ -431,21 +459,7 @@ async function resolvePeople(
 
   if (scope === "people") {
     if (emails.length === 0) return [];
-    const list = sql.join(emails.map((e) => sql`${e}`), sql`, `);
-    const res = await db.execute(sql`
-      SELECT lower(email) AS email, name FROM observer_board_members WHERE lower(email) IN (${list})
-      UNION
-      SELECT lower(assignee_email) AS email, MIN(assignee_name) AS name
-      FROM jira_issues
-      WHERE lower(assignee_email) IN (${list})
-      GROUP BY lower(assignee_email)
-    `);
-    const named = toPeople(res.rows as { email: string; name: string | null }[]);
-    const haveName = new Map(named.map((p) => [p.email, p]));
-    // Keep every requested email even if we found no display name for it.
-    return emails.map(
-      (e) => haveName.get(e) ?? { email: e, name: e.split("@")[0] }
-    );
+    return resolvePeopleByEmails(emails);
   }
 
   // global — every assignee across active projects + all board members

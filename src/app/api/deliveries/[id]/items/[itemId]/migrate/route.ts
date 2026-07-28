@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
 import { and, eq } from "drizzle-orm";
 import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
-import { deliveries, deliveryItems } from "@/lib/db/schema";
+import { deliveries, deliveryItems, deliveryTransfers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
+import { authOptions } from "@/lib/auth/nextauth-options";
 import { canManageDeliveries } from "@/lib/auth/types";
 import { isValidUuid } from "@/lib/validation";
 
@@ -52,6 +54,8 @@ export async function POST(req: NextRequest, { params }: Params) {
     .select({
       id: deliveries.id,
       projectId: deliveries.projectId,
+      name: deliveries.name,
+      deliveryDate: deliveries.deliveryDate,
       deletedAt: deliveries.deletedAt,
       completedAt: deliveries.completedAt,
     })
@@ -65,32 +69,57 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Can't migrate an item into a completed delivery" }, { status: 400 });
   }
 
-  const [inserted] = await db
-    .insert(deliveryItems)
-    .values({
-      deliveryId: targetDeliveryId,
-      issueId: source.issueId,
-      addedBy: user.id,
-      addedByName: source.addedByName,
-      status: source.status,
-      statusComment: source.statusComment,
-      statusSetBy: source.statusSetBy,
-      statusSetByName: source.statusSetByName,
-      statusSetAt: source.statusSetAt,
-    })
-    .onConflictDoNothing()
-    .returning({ id: deliveryItems.id });
-  if (!inserted) {
-    return NextResponse.json({ error: "That issue is already in the target delivery" }, { status: 409 });
-  }
-
-  await db.delete(deliveryItems).where(eq(deliveryItems.id, itemId));
-
   const [sourceDelivery] = await db
-    .select({ projectId: deliveries.projectId })
+    .select({ projectId: deliveries.projectId, name: deliveries.name, deliveryDate: deliveries.deliveryDate })
     .from(deliveries)
     .where(eq(deliveries.id, sourceDeliveryId))
     .limit(1);
+
+  const session = await getServerSession(authOptions);
+  const movedByName = session?.user?.name?.trim() || null;
+
+  // Insert-into-target, log-the-transfer, delete-from-source as one unit:
+  // once a transfer log write sits between the two moves, a crash halfway
+  // through could otherwise leave an untracked move (no log) or a phantom
+  // transfer paired with a duplicated item still sitting in both deliveries.
+  const result = await db.transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(deliveryItems)
+      .values({
+        deliveryId: targetDeliveryId,
+        issueId: source.issueId,
+        addedBy: user.id,
+        addedByName: source.addedByName,
+        status: source.status,
+        statusComment: source.statusComment,
+        statusSetBy: source.statusSetBy,
+        statusSetByName: source.statusSetByName,
+        statusSetAt: source.statusSetAt,
+      })
+      .onConflictDoNothing()
+      .returning({ id: deliveryItems.id });
+    if (!inserted) return null;
+
+    await tx.insert(deliveryTransfers).values({
+      issueId: source.issueId,
+      newItemId: inserted.id,
+      fromDeliveryId: sourceDeliveryId,
+      fromDeliveryName: sourceDelivery?.name ?? "Unknown delivery",
+      fromDeliveryDate: sourceDelivery?.deliveryDate ?? target.deliveryDate,
+      toDeliveryId: targetDeliveryId,
+      toDeliveryName: target.name,
+      toDeliveryDate: target.deliveryDate,
+      movedBy: user.id,
+      movedByName,
+    });
+
+    await tx.delete(deliveryItems).where(eq(deliveryItems.id, itemId));
+    return inserted;
+  });
+
+  if (!result) {
+    return NextResponse.json({ error: "That issue is already in the target delivery" }, { status: 409 });
+  }
 
   revalidateTag("deliveries", "max");
   const projectIds = new Set([target.projectId, sourceDelivery?.projectId].filter(Boolean) as string[]);
