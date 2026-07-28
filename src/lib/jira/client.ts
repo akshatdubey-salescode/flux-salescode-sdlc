@@ -89,6 +89,18 @@ export type JiraFieldDef = {
   };
 };
 
+export type JiraCreateField = {
+  fieldId: string;
+  key: string;
+  name: string;
+  required: boolean;
+  operations?: string[];
+  schema?: {
+    type?: string;
+    custom?: string;
+  };
+};
+
 type JiraSearchResult = {
   issues: JiraIssueRaw[];
   nextPageToken?: string; // present when more pages exist; absent on last page
@@ -301,6 +313,53 @@ export class JiraClient {
     return (data.issueTypes ?? [])
       .filter((t) => !t.subtask)
       .map(({ id, name, description, iconUrl }) => ({ id, name, description, iconUrl }));
+  }
+
+  /**
+   * Returns the fields present on a project's create screen for one issue type.
+   * Jira exposes this through the replacement for the deprecated broad
+   * createmeta endpoint.
+   */
+  async fetchCreateFields(
+    projectKey: string,
+    issueTypeId: string
+  ): Promise<JiraCreateField[]> {
+    const pageSize = 100;
+    const fields: JiraCreateField[] = [];
+    let startAt = 0;
+
+    while (true) {
+      const res = await this.get(
+        `${this.baseUrl}/rest/api/3/issue/createmeta/` +
+          `${encodeURIComponent(projectKey)}/issuetypes/` +
+          `${encodeURIComponent(issueTypeId)}` +
+          `?startAt=${startAt}&maxResults=${pageSize}`
+      );
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(
+          `Failed to fetch create fields for "${projectKey}" (${res.status}): ${body}`
+        );
+      }
+
+      const data = (await res.json()) as {
+        fields?: JiraCreateField[];
+        total?: number;
+      };
+      const page = Array.isArray(data.fields) ? data.fields : [];
+      fields.push(...page);
+
+      if (
+        page.length < pageSize ||
+        (typeof data.total === "number" && fields.length >= data.total)
+      ) {
+        break;
+      }
+      startAt += page.length;
+    }
+
+    return fields;
   }
 
   /**

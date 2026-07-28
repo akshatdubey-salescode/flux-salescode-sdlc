@@ -2,9 +2,35 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { userIntegrations } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
+import { getValidCredentials } from "@/lib/atlassian/oauth";
 
 export async function GET() {
   const user = await requireAuth();
+
+  const [existingRow] = await db
+    .select({
+      atlassianAccountId: userIntegrations.atlassianAccountId,
+      atlassianEmail: userIntegrations.atlassianEmail,
+      tokenExpiresAt: userIntegrations.tokenExpiresAt,
+      updatedAt: userIntegrations.updatedAt,
+    })
+    .from(userIntegrations)
+    .where(
+      and(
+        eq(userIntegrations.userId, user.id),
+        eq(userIntegrations.provider, "atlassian")
+      )
+    )
+    .limit(1);
+
+  if (!existingRow) {
+    return Response.json({ connected: false });
+  }
+
+  const credentials = await getValidCredentials(user.id);
+  if (!credentials) {
+    return Response.json({ connected: false, reason: "expired" });
+  }
 
   const [row] = await db
     .select({
@@ -23,7 +49,7 @@ export async function GET() {
     .limit(1);
 
   if (!row) {
-    return Response.json({ connected: false });
+    return Response.json({ connected: false, reason: "expired" });
   }
 
   return Response.json({

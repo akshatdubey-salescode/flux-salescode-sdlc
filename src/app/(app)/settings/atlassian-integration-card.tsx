@@ -9,7 +9,7 @@ import {
 } from "@remixicon/react";
 
 type IntegrationStatus =
-  | { connected: false }
+  | { connected: false; reason?: "expired" }
   | {
       connected: true;
       accountId: string;
@@ -92,13 +92,23 @@ export function AtlassianIntegrationCard() {
             </button>
           </div>
         ) : (
-          <a
-            href="/api/atlassian/connect?redirectBack=/settings"
-            className="inline-flex items-center gap-2 rounded-lg bg-[#0052CC] hover:bg-[#0747A6] px-4 py-2 text-sm font-semibold text-white transition-colors"
-          >
-            <RiExternalLinkLine size={14} />
-            Connect Atlassian account
-          </a>
+          <div className="space-y-3">
+            {status.reason === "expired" && (
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                Your Atlassian session expired. Reconnect to keep creating
+                Jiras from the portal.
+              </p>
+            )}
+            <a
+              href="/api/atlassian/connect?redirectBack=/settings"
+              className="inline-flex items-center gap-2 rounded-lg bg-[#0052CC] hover:bg-[#0747A6] px-4 py-2 text-sm font-semibold text-white transition-colors"
+            >
+              <RiExternalLinkLine size={14} />
+              {status.reason === "expired"
+                ? "Reconnect Atlassian account"
+                : "Connect Atlassian account"}
+            </a>
+          </div>
         )}
       </div>
     </div>

@@ -27,6 +27,7 @@ import {
   RiUserUnfollowLine,
   RiMedalLine,
   RiBugLine,
+  RiAddBoxLine,
 } from "@remixicon/react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -96,6 +97,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "My Work",
     items: [
       { label: "My Tasks", href: "/my-tasks", icon: RiTaskLine },
+      { label: "Create Jira", href: "/create-jira", icon: RiAddBoxLine },
       { label: "Requirement Builder", href: "/requirements", icon: RiFileList3Line },
     ],
   },

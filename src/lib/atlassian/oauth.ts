@@ -213,6 +213,122 @@ export type AtlassianCredentials = {
   accountId: string;
 };
 
+// Coalesce refreshes within a server process. Atlassian rotates refresh tokens,
+// so two requests must never try to redeem the same token concurrently.
+const pendingRefreshes = new Map<
+  string,
+  Promise<AtlassianCredentials | null>
+>();
+
+async function clearIntegrationIfUnchanged(
+  userId: string,
+  refreshToken: string | null,
+  accessToken: string
+): Promise<void> {
+  const conditions = [
+    eq(userIntegrations.userId, userId),
+    eq(userIntegrations.provider, "atlassian"),
+    eq(userIntegrations.accessToken, accessToken),
+  ];
+
+  if (refreshToken) {
+    conditions.push(eq(userIntegrations.refreshToken, refreshToken));
+  }
+
+  await db.delete(userIntegrations).where(and(...conditions));
+}
+
+async function refreshCredentials(
+  userId: string,
+  row: typeof userIntegrations.$inferSelect
+): Promise<AtlassianCredentials | null> {
+  if (
+    !row.refreshToken ||
+    !row.atlassianCloudId ||
+    !row.atlassianAccountId
+  ) {
+    await clearIntegrationIfUnchanged(
+      userId,
+      row.refreshToken,
+      row.accessToken
+    );
+    return null;
+  }
+
+  try {
+    const refreshed = await refreshAccessToken(row.refreshToken);
+    const tokenExpiresAt = new Date(Date.now() + refreshed.expires_in * 1000);
+
+    // Update only if this is still the refresh token we redeemed. This avoids
+    // overwriting a newer rotating token persisted by another request.
+    const updated = await db
+      .update(userIntegrations)
+      .set({
+        accessToken: encrypt(refreshed.access_token),
+        refreshToken: refreshed.refresh_token
+          ? encrypt(refreshed.refresh_token)
+          : row.refreshToken,
+        tokenExpiresAt,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(userIntegrations.userId, userId),
+          eq(userIntegrations.provider, "atlassian"),
+          eq(userIntegrations.refreshToken, row.refreshToken)
+        )
+      )
+      .returning({ userId: userIntegrations.userId });
+
+    if (updated.length === 0) {
+      // A concurrent request changed the integration. Read its result instead
+      // of returning credentials that may not have been persisted.
+      const [latest] = await db
+        .select()
+        .from(userIntegrations)
+        .where(
+          and(
+            eq(userIntegrations.userId, userId),
+            eq(userIntegrations.provider, "atlassian")
+          )
+        )
+        .limit(1);
+
+      if (
+        latest?.atlassianCloudId &&
+        latest.atlassianAccountId &&
+        latest.tokenExpiresAt &&
+        latest.tokenExpiresAt.getTime() - 60_000 >= Date.now()
+      ) {
+        return {
+          accessToken: decrypt(latest.accessToken),
+          cloudId: latest.atlassianCloudId,
+          accountId: latest.atlassianAccountId,
+        };
+      }
+      return null;
+    }
+
+    return {
+      accessToken: refreshed.access_token,
+      cloudId: row.atlassianCloudId,
+      accountId: row.atlassianAccountId,
+    };
+  } catch (err) {
+    console.error("[atlassian-oauth] Token refresh failed:", err);
+
+    // An invalid refresh token means this is no longer a usable connection.
+    // Delete only the row that still contains the failed token; a concurrent
+    // successful refresh must remain connected.
+    await clearIntegrationIfUnchanged(
+      userId,
+      row.refreshToken,
+      row.accessToken
+    );
+    return null;
+  }
+}
+
 export async function getValidCredentials(userId: string): Promise<AtlassianCredentials | null> {
   const [row] = await db
     .select()
@@ -240,38 +356,12 @@ export async function getValidCredentials(userId: string): Promise<AtlassianCred
     };
   }
 
-  // Token expired — try to refresh
-  if (!row.refreshToken) return null;
+  const existingRefresh = pendingRefreshes.get(userId);
+  if (existingRefresh) return existingRefresh;
 
-  try {
-    const refreshed = await refreshAccessToken(row.refreshToken);
-    const tokenExpiresAt = new Date(Date.now() + refreshed.expires_in * 1000);
-
-    // Always persist the new refresh token — Atlassian rotates them on each use
-    await db
-      .update(userIntegrations)
-      .set({
-        accessToken: encrypt(refreshed.access_token),
-        refreshToken: refreshed.refresh_token
-          ? encrypt(refreshed.refresh_token)
-          : row.refreshToken,
-        tokenExpiresAt,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(userIntegrations.userId, userId),
-          eq(userIntegrations.provider, "atlassian")
-        )
-      );
-
-    return {
-      accessToken: refreshed.access_token,
-      cloudId: row.atlassianCloudId,
-      accountId: row.atlassianAccountId,
-    };
-  } catch (err) {
-    console.error("[atlassian-oauth] Token refresh failed:", err);
-    return null;
-  }
+  const refresh = refreshCredentials(userId, row).finally(() => {
+    pendingRefreshes.delete(userId);
+  });
+  pendingRefreshes.set(userId, refresh);
+  return refresh;
 }
