@@ -21,7 +21,11 @@ export default async function AvailabilityPage() {
       .where(eq(jiraProjects.isActive, true))
       .orderBy(asc(jiraProjects.name)),
     db
-      .select({ id: observerBoards.id, name: observerBoards.name })
+      .select({
+        id: observerBoards.id,
+        name: observerBoards.name,
+        managerEmail: observerBoards.managerEmail,
+      })
       .from(observerBoards)
       .orderBy(asc(observerBoards.name)),
     db.execute(sql`

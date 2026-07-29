@@ -1495,8 +1495,53 @@ export const deliveryItems = pgTable(
   ]
 );
 
+// ---------------------------------------------------------------------------
+// Delivery Transfers — permanent record of every time an item was migrated
+// from one delivery to another. Unlike delivery_items itself (deliberately
+// current-state only, see its comment above), a transfer is an event, not
+// ongoing state, so it's never edited or soft-deleted once written — the
+// append-only audit trail delivery_items intentionally doesn't keep for its
+// own status changes.
+// ---------------------------------------------------------------------------
+
+export const deliveryTransfers = pgTable(
+  "delivery_transfers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    issueId: uuid("issue_id")
+      .notNull()
+      .references(() => jiraIssues.id, { onDelete: "cascade" }),
+    // The delivery_items row this transfer created in the target delivery.
+    // Set null (not cascade) on delete: if that row is later removed or
+    // migrated again, the fact "X moved this from A to B on this date" is
+    // still true and still worth showing.
+    newItemId: uuid("new_item_id").references(() => deliveryItems.id, { onDelete: "set null" }),
+    // Denormalized name+date on both sides (same idiom as responsibleNames/
+    // completedByName above) — history stays readable even if a delivery is
+    // later renamed. FK is set null, not cascade: a transfer record must
+    // never be destroyed by anything happening to the delivery it references.
+    fromDeliveryId: uuid("from_delivery_id").references(() => deliveries.id, { onDelete: "set null" }),
+    fromDeliveryName: text("from_delivery_name").notNull(),
+    fromDeliveryDate: date("from_delivery_date").notNull(),
+    toDeliveryId: uuid("to_delivery_id").references(() => deliveries.id, { onDelete: "set null" }),
+    toDeliveryName: text("to_delivery_name").notNull(),
+    toDeliveryDate: date("to_delivery_date").notNull(),
+    movedBy: text("moved_by")
+      .notNull()
+      .references(() => users.id),
+    movedByName: text("moved_by_name"),
+    movedAt: timestamp("moved_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("delivery_transfers_issue_idx").on(t.issueId),
+    index("delivery_transfers_issue_moved_at_idx").on(t.issueId, t.movedAt),
+  ]
+);
+
 export type Delivery = typeof deliveries.$inferSelect;
 export type NewDelivery = typeof deliveries.$inferInsert;
 export type DeliveryItem = typeof deliveryItems.$inferSelect;
 export type NewDeliveryItem = typeof deliveryItems.$inferInsert;
 export type DeliveryStatus = (typeof deliveryStatusEnum.enumValues)[number];
+export type DeliveryTransfer = typeof deliveryTransfers.$inferSelect;
+export type NewDeliveryTransfer = typeof deliveryTransfers.$inferInsert;

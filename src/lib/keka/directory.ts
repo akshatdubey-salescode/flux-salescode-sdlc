@@ -36,6 +36,14 @@ export type KekaDirectoryEntry = {
 
 type GraphRow = { id: string; managerId: string | null; managerName: string | null };
 
+export type TeamTreeNode = {
+  email: string;
+  name: string;
+  jobTitle: string | null;
+  department: string | null;
+  children: TeamTreeNode[];
+};
+
 /**
  * Walk Keka's reportsTo chain from a person's direct manager up to the top,
  * returning [directManager, theirManager, …]. Guards against self-reports and
@@ -175,6 +183,42 @@ export class KekaDirectory {
   /** Emails that are the direct manager of at least one active employee. */
   managerEmails(): string[] {
     return [...this.reportsByManagerEmail.keys()];
+  }
+
+  /**
+   * Full downward org subtree rooted at `rootEmail` (the root itself plus
+   * every direct/indirect report), built by walking `directReports()`
+   * recursively. Mirrors `buildManagerChain`'s defensive shape (a shared
+   * `visited` set guards self-reports/cycles, a depth cap bounds runaway
+   * chains) but walks down instead of up — this is the one recursive
+   * downward walk in the codebase; `directReports()` itself only ever
+   * returns one level. Returns null if `rootEmail` doesn't resolve to a
+   * current (active) Keka employee — callers must treat that as "no org
+   * context", never as an error (same rule as every other lookup here).
+   */
+  subtree(rootEmail: string | null | undefined): TeamTreeNode | null {
+    const root = this.get(rootEmail);
+    if (!root?.email) return null;
+
+    const visited = new Set<string>([root.email.toLowerCase()]);
+    const build = (entry: KekaDirectoryEntry, depth: number): TeamTreeNode => {
+      const node: TeamTreeNode = {
+        email: entry.email!.toLowerCase(),
+        name: entry.displayName?.trim() || entry.email!.split("@")[0],
+        jobTitle: entry.jobTitle,
+        department: entry.department,
+        children: [],
+      };
+      if (depth >= 20) return node; // runaway-chain guard, generous margin over managerChain's depth<15
+      for (const report of this.directReports(entry.email)) {
+        const key = report.email?.toLowerCase();
+        if (!key || visited.has(key)) continue; // cycle guard
+        visited.add(key);
+        node.children.push(build(report, depth + 1));
+      }
+      return node;
+    };
+    return build(root, 0);
   }
 
   get size(): number {

@@ -437,6 +437,49 @@ export async function fetchIssueDeliveriesDetail(issueId: string): Promise<Issue
   };
 }
 
+export type DeliveryTransferEntry = {
+  id: string;
+  fromDeliveryId: string | null;
+  fromDeliveryName: string;
+  fromDeliveryDate: string;
+  toDeliveryId: string | null;
+  toDeliveryName: string;
+  toDeliveryDate: string;
+  movedBy: string;
+  movedByName: string | null;
+  movedAt: string;
+};
+
+/**
+ * Every time this issue was migrated between deliveries, most recent first.
+ * Unlike fetchIssueDeliveriesDetail's memberships (current-state, excludes
+ * soft-deleted deliveries), this keeps showing an entry even if the delivery
+ * it names was later soft-deleted — the denormalized name/date on
+ * delivery_transfers is exactly what keeps that history readable.
+ */
+export async function fetchDeliveryTransferHistory(issueId: string): Promise<DeliveryTransferEntry[]> {
+  const res = await db.execute(sql`
+    SELECT id, from_delivery_id, from_delivery_name, from_delivery_date,
+      to_delivery_id, to_delivery_name, to_delivery_date,
+      moved_by, moved_by_name, moved_at
+    FROM delivery_transfers
+    WHERE issue_id = ${issueId}
+    ORDER BY moved_at DESC
+  `);
+  return (res.rows as Record<string, unknown>[]).map((r) => ({
+    id: r.id as string,
+    fromDeliveryId: (r.from_delivery_id as string | null) ?? null,
+    fromDeliveryName: r.from_delivery_name as string,
+    fromDeliveryDate: r.from_delivery_date as string,
+    toDeliveryId: (r.to_delivery_id as string | null) ?? null,
+    toDeliveryName: r.to_delivery_name as string,
+    toDeliveryDate: r.to_delivery_date as string,
+    movedBy: r.moved_by as string,
+    movedByName: (r.moved_by_name as string | null) ?? null,
+    movedAt: r.moved_at as string,
+  }));
+}
+
 export type UpcomingDelivery = {
   id: string;
   name: string;

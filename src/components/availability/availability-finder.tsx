@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/select";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import type {
   AvailabilityResponse,
   PersonAvailability,
@@ -41,10 +42,13 @@ import type {
 } from "@/app/api/analytics/availability/route";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
+import { TeamTreeSelect, collectSubtreeEmails } from "@/components/availability/team-tree-select";
+import type { TeamTreeNode } from "@/lib/keka/directory";
+import type { TeamTreeResponse } from "@/app/api/keka/team-tree/route";
 
 type Props = {
   projects: { id: string; name: string }[];
-  boards: { id: string; name: string }[];
+  boards: { id: string; name: string; managerEmail: string | null }[];
   people: { email: string; name: string }[];
 };
 
@@ -104,6 +108,19 @@ export function AvailabilityFinder({ projects, boards, people }: Props) {
   const [boardId, setBoardId] = useState("");
   const [emails, setEmails] = useState<string[]>([]);
 
+  // Team tab: the board dropdown above stays the entry point, but who
+  // actually gets queried is resolved from that board manager's full Keka
+  // org subtree (every direct/indirect report), not the board's own flat
+  // member list — see team-tree-select.tsx.
+  const [teamTree, setTeamTree] = useState<TeamTreeNode | null>(null);
+  // false ⇒ the board's manager isn't a current Keka employee; fall back to
+  // the board's own member list exactly as before this feature existed.
+  const [teamTreeFound, setTeamTreeFound] = useState(true);
+  const [teamTreeLoading, setTeamTreeLoading] = useState(false);
+  const [teamChecked, setTeamChecked] = useState<Set<string>>(new Set());
+  const [teamCascade, setTeamCascade] = useState(true);
+  const teamTreeReqId = useRef(0);
+
   const [mode, setMode] = useState<AvailabilityMode>("duration");
   const [start, setStart] = useState(t);
   const [end, setEnd] = useState(offset(t, 6));
@@ -127,12 +144,54 @@ export function AvailabilityFinder({ projects, boards, people }: Props) {
   // result into a scope the user has since switched away from.
   const reqId = useRef(0);
 
+  // Fetch the selected board's manager's Keka subtree whenever the board
+  // changes. A monotonic request id (mirroring run()'s reqId) stops a slow
+  // fetch for a previously-selected board from clobbering the tree for the
+  // board the user has since switched to.
+  useEffect(() => {
+    const board = boards.find((b) => b.id === boardId);
+    if (!board) {
+      setTeamTree(null);
+      setTeamTreeFound(true);
+      setTeamChecked(new Set());
+      return;
+    }
+    const myId = ++teamTreeReqId.current;
+    setTeamTreeLoading(true);
+    fetch(`/api/keka/team-tree?rootEmail=${encodeURIComponent(board.managerEmail ?? "")}`)
+      .then((r) => r.json())
+      .then((d: TeamTreeResponse) => {
+        if (teamTreeReqId.current !== myId) return;
+        if (d.found) {
+          setTeamTree(d.root);
+          setTeamTreeFound(true);
+          // Default to the whole subtree checked — this is what makes
+          // "select the entire team" the zero-effort default.
+          setTeamChecked(new Set(collectSubtreeEmails(d.root)));
+        } else {
+          setTeamTree(null);
+          setTeamTreeFound(false);
+          setTeamChecked(new Set());
+        }
+      })
+      .catch(() => {
+        if (teamTreeReqId.current !== myId) return;
+        setTeamTree(null);
+        setTeamTreeFound(false);
+        setTeamChecked(new Set());
+      })
+      .finally(() => {
+        if (teamTreeReqId.current === myId) setTeamTreeLoading(false);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- boards is stable server-fetched data, re-running on it would refetch every render
+  }, [boardId]);
+
   const peopleOptions = people.map((p) => ({ value: p.email, label: `${p.name} · ${p.email}` }));
 
   const canRun =
     scope === "global" ||
     (scope === "project" && !!projectId) ||
-    (scope === "team" && !!boardId) ||
+    (scope === "team" && (teamTreeFound ? teamChecked.size > 0 : !!boardId)) ||
     (scope === "people" && emails.length > 0);
 
   // One-line description of the current search, shown on the collapsed bar so
@@ -143,7 +202,11 @@ export function AvailabilityFinder({ projects, boards, people }: Props) {
       : scope === "project"
       ? projects.find((p) => p.id === projectId)?.name ?? "Pick a project"
       : scope === "team"
-      ? boards.find((b) => b.id === boardId)?.name ?? "Pick a team"
+      ? !boardId
+        ? "Pick a team"
+        : teamTreeFound
+        ? `${teamChecked.size} of ${teamTree ? collectSubtreeEmails(teamTree).length : 0} people`
+        : boards.find((b) => b.id === boardId)?.name ?? "Pick a team"
       : emails.length > 0
       ? `${emails.length} ${emails.length === 1 ? "person" : "people"}`
       : "Pick people";
@@ -164,7 +227,10 @@ export function AvailabilityFinder({ projects, boards, people }: Props) {
     const nowStr = `${todayStr()}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
     const params = new URLSearchParams({ now: nowStr, scope, mode });
     if (scope === "project") params.set("projectId", projectId);
-    if (scope === "team") params.set("boardId", boardId);
+    if (scope === "team") {
+      params.set("boardId", boardId);
+      if (teamTreeFound) params.set("emails", [...teamChecked].join(","));
+    }
     if (scope === "people") params.set("emails", emails.join(","));
     if (mode === "range") {
       params.set("start", start);
@@ -292,22 +358,50 @@ export function AvailabilityFinder({ projects, boards, people }: Props) {
             </Select>
           )}
           {scope === "team" && (
-            <Select value={boardId} onValueChange={setBoardId}>
-              <SelectTrigger className="w-full sm:w-80">
-                <SelectValue placeholder="Choose a team / board…" />
-              </SelectTrigger>
-              <SelectContent>
-                {boards.length === 0 ? (
-                  <div className="px-2 py-1.5 text-xs text-muted-foreground">No boards yet</div>
-                ) : (
-                  boards.map((b) => (
-                    <SelectItem key={b.id} value={b.id}>
-                      {b.name}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
+            <div className="space-y-2.5">
+              <Select value={boardId} onValueChange={setBoardId}>
+                <SelectTrigger className="w-full sm:w-80">
+                  <SelectValue placeholder="Choose a team / board…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {boards.length === 0 ? (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">No boards yet</div>
+                  ) : (
+                    boards.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.name}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+
+              {boardId && teamTreeLoading && (
+                <Skeleton className="h-16 w-full sm:w-80" />
+              )}
+              {boardId && !teamTreeLoading && !teamTreeFound && (
+                <p className="text-xs text-muted-foreground">
+                  This board&rsquo;s manager isn&rsquo;t a current Keka employee — using the board&rsquo;s listed members instead.
+                </p>
+              )}
+              {boardId && !teamTreeLoading && teamTree && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Switch checked={teamCascade} onCheckedChange={setTeamCascade} />
+                    <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      Selecting a person also selects everyone under them
+                      <ChartInfo description="On: checking/unchecking anyone in the tree does the same to everyone below them. Off: checking/unchecking a person only affects that individual — their reports keep whatever selection they already had." />
+                    </Label>
+                  </div>
+                  <TeamTreeSelect
+                    root={teamTree}
+                    checked={teamChecked}
+                    onCheckedChange={setTeamChecked}
+                    cascade={teamCascade}
+                  />
+                </div>
+              )}
+            </div>
           )}
           {scope === "people" && (
             <MultiSelect

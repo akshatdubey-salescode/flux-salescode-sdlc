@@ -16,6 +16,7 @@ import {
 import type { IssueDeliveriesDetail, IssueDeliveryMembership } from "@/lib/deliveries/entries";
 import { patchDeliverySummary } from "./delivery-summary-cache";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
+import { DeliveryTransferHistory } from "./delivery-transfer-history";
 
 /**
  * Jira details + every active delivery this issue belongs to (an issue can
@@ -132,6 +133,13 @@ export function DeliveryItemPanel({
                 ))}
               </div>
             )}
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+              Delivery history
+            </p>
+            <DeliveryTransferHistory issueId={issueId} />
           </div>
         </div>
       )}
