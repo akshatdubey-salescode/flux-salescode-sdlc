@@ -1091,10 +1091,10 @@ export const jiraIssueLoc = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// Loc Sync Jobs — tracks a single loc-sync run (manual trigger or cron), one
-// quarter at a time. Mirrors github_sync_jobs' shape; rateLimited marks a run
-// that stopped early because GitHub's remaining quota dropped below the
-// safety floor, so the next trigger (cron or manual) picks up the rest.
+// Loc Sync Jobs — tracks a single loc-sync run (manual trigger only, no
+// cron), one quarter at a time. Mirrors github_sync_jobs' shape; rateLimited
+// marks a run that stopped early because GitHub's remaining quota dropped
+// below the safety floor, so the next manual trigger picks up the rest.
 // ---------------------------------------------------------------------------
 
 export const locSyncJobs = pgTable(

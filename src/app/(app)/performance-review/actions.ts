@@ -43,10 +43,10 @@ export type LocSyncActionResult = {
 };
 
 /**
- * Trigger a loc-sync run for the given quarter — the same core job the
- * `loc-sync` cron calls. Superuser-only. Dedup'd against an already-running
- * job for the quarter (enqueueLocSyncJob), so a double-click doesn't race
- * GitHub twice. Recompute scorecards afterward to pick up the fresh LOC.
+ * Trigger a loc-sync run for the given quarter — manual-only, no cron.
+ * Superuser-only. Dedup'd against an already-running job for the quarter
+ * (enqueueLocSyncJob), so a double-click doesn't race GitHub twice. Recompute
+ * scorecards afterward to pick up the fresh LOC.
  */
 export async function syncJiraLoc(quarterKey: string): Promise<LocSyncActionResult> {
   await requireRole("SUPERUSER");

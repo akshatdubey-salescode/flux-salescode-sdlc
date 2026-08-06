@@ -51,8 +51,8 @@ export function ReviewControls({
     });
   }
 
-  // Manual trigger for the same job the loc-sync cron runs — pulls fresh PR
-  // data, matches it to Jiras, and recomputes scorecards with the new LOC.
+  // Manual-only trigger (no cron) — pulls fresh PR data, matches it to
+  // Jiras, and recomputes scorecards with the new LOC.
   function onSyncLoc() {
     startLocSync(async () => {
       const res = await syncJiraLoc(selectedKey);

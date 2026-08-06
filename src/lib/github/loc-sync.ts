@@ -1,8 +1,8 @@
 // Computes lines-of-code per Jira per quarter and caches it in jira_issue_loc,
 // so the scorecard build (build.ts) never has to hit GitHub itself — it only
-// reads the cache. Triggered two ways, both calling runLocSyncJob directly:
-// a manual superuser action (performance-review/actions.ts) and a cron route
-// (api/cron/loc-sync). Same core function either way.
+// reads the cache. Manual-only: a superuser action (performance-review/
+// actions.ts, "Sync LOC" button) calls runLocSyncJob directly. No cron —
+// deliberately dropped in favor of running it on demand.
 //
 // Matching rule per Jira: a PR counts when (a) its author resolves to the
 // same person as the Jira's assignee, (b) the Jira key appears — case-
