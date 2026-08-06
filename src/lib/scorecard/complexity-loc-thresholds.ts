@@ -3,7 +3,9 @@
 // build.ts. LOC here means additions + deletions summed across every PR
 // matched to a Jira for its scoring quarter (see loc-sync.ts) — a proxy for
 // how much code a task actually took to ship, used only to flag suspiciously
-// small C4/C5 tasks for manual review, never to auto-downgrade a score.
+// small C4/C5 tasks for manual review, never to auto-downgrade a score. A
+// Jira with no matched PR at all (loc: null) is treated as 0 LOC throughout
+// this file — no observed code change predicts the lowest complexity, C1.
 
 export type ComplexityLocRange = {
   complexity: number;
@@ -37,11 +39,18 @@ function floorFor(complexity: number): number | null {
   return row ? row.minLoc : null;
 }
 
-/** The highest complexity level whose floor the given LOC clears. 1 for loc=0. */
-export function expectedComplexityForLoc(loc: number): number {
+/**
+ * The highest complexity level whose floor the given LOC clears. `loc: null`
+ * (no PR matched to the Jira at all) is treated the same as loc=0 — no
+ * observed code changes predicts the lowest complexity, C1 — consistent with
+ * how a missing/unset marked complexity already defaults to C1 elsewhere
+ * (COMPLEXITY_WEIGHTS / DEFAULT_COMPLEXITY_WEIGHT in config.ts).
+ */
+export function expectedComplexityForLoc(loc: number | null): number {
+  const effectiveLoc = loc ?? 0;
   let expected = COMPLEXITY_LOC_RANGES[0].complexity;
   for (const r of COMPLEXITY_LOC_RANGES) {
-    if (loc >= r.minLoc) expected = r.complexity;
+    if (effectiveLoc >= r.minLoc) expected = r.complexity;
   }
   return expected;
 }
@@ -49,33 +58,33 @@ export function expectedComplexityForLoc(loc: number): number {
 /**
  * Whether a task's marked complexity matches what its LOC would predict —
  * the basis for the "Complexity Accuracy" rating (correct / checked, shown as
- * a %). Null (not "checked") when either input is missing — a task with no
- * matched PR contributes to neither the numerator nor the denominator.
+ * a %). Never excludes a task: an unset marked complexity defaults to C1 (the
+ * same convention complexityWeight() already uses in build.ts), and a task
+ * with no matched PR predicts C1 too (see expectedComplexityForLoc) — so
+ * every complexity-bearing task is "checked" against something, none dropped.
  */
-export function isComplexityCorrect(
-  complexity: number | null,
-  loc: number | null
-): boolean | null {
-  if (complexity == null || loc == null) return null;
-  const capped = Math.min(5, Math.max(1, Math.round(complexity)));
+export function isComplexityCorrect(complexity: number | null, loc: number | null): boolean {
+  const capped = Math.min(5, Math.max(1, Math.round(complexity ?? 1)));
   return capped === expectedComplexityForLoc(loc);
 }
 
 /**
  * True when a C4/C5 task's total LOC falls below that complexity's expected
  * floor. Complexities below FLAGGABLE_COMPLEXITY_THRESHOLD are never flagged —
- * only high-complexity, suspiciously-small tasks matter here. `loc` is null
- * when no PR has been matched to the Jira yet (nothing to compare, no flag).
+ * only high-complexity, suspiciously-small tasks matter here. `loc: null` (no
+ * PR matched at all) is treated as 0 — the most extreme case of "claimed
+ * complex, no evidence of it" — so it flags too, not just a low-but-nonzero
+ * matched LOC.
  */
 export function isComplexityLocMismatch(
   complexity: number | null,
   loc: number | null
 ): boolean {
-  if (complexity == null || loc == null) return false;
+  if (complexity == null) return false;
   const capped = Math.min(5, Math.max(1, Math.round(complexity)));
   if (capped < FLAGGABLE_COMPLEXITY_THRESHOLD) return false;
   const floor = floorFor(capped);
-  return floor != null && loc < floor;
+  return floor != null && (loc ?? 0) < floor;
 }
 
 /** Suggestion text for a flagged complexity, or null when not flaggable. */

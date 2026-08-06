@@ -8,7 +8,7 @@ import {
   ATTRIBUTION_NOTE,
   SCOPE_NOTE,
   BOARD_NOTE,
-  ADJUSTED_SCORE_NOTE,
+  COMPLEXITY_LOC_NOTE,
 } from "@/lib/scorecard/metric-descriptions";
 import type { MetricKey } from "@/lib/scorecard/config";
 
@@ -28,7 +28,7 @@ const NOTES = [
   ATTRIBUTION_NOTE,
   SCOPE_NOTE,
   BOARD_NOTE,
-  ADJUSTED_SCORE_NOTE,
+  COMPLEXITY_LOC_NOTE,
 ];
 
 export function ScoringGuide() {

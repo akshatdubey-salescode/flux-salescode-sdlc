@@ -6,10 +6,18 @@
 //
 // Matching rule per Jira: a PR counts when (a) its author resolves to the
 // same person as the Jira's assignee, (b) the Jira key appears — case-
-// insensitively — in the PR's title or branch name, and (c) either the PR's
-// created or merged date falls inside the quarter. LOC = code-only (whole-
-// line comments excluded, see comment-lines.ts) additions + deletions, summed
+// insensitively — in the PR's title or branch name, and (c) the PR was
+// created on/after the Jira itself was created. LOC = code-only (whole-line
+// comments excluded, see comment-lines.ts) additions + deletions, summed
 // across every qualifying PR for that Jira.
+//
+// (c) is deliberately lenient — no upper bound, no requirement that the PR
+// falls inside the Jira's own scoring quarter. A ticket completed in Q1 can
+// still have a legitimate trailing PR merged in Q2 (a late fix, a follow-up)
+// and it counts: it would be unfair to permanently strip that credit just
+// because the ticket's own quarter already closed. The only real requirement
+// is temporal sanity — a PR can't be for work on a ticket that didn't exist
+// yet.
 //
 // Rate-limit guard: stops early once the acting client's remaining quota
 // drops below RATE_LIMIT_FLOOR, marking the job rate-limited rather than
@@ -224,10 +232,11 @@ async function ensurePrStats(
 /**
  * Run one loc-sync pass for a quarter, updating job progress as it goes.
  * Scans every tracked repo's PRs (bounded per-repo by listPullRequests'
- * updated_at floor), matches qualifying PRs to Jiras, and upserts
- * jira_issue_loc per matched Jira. Idempotent and safe to re-run — see the
- * "known gap" note above for the one edge case that isn't fully merged
- * across runs.
+ * updated_at floor — the earliest creation date among this quarter's
+ * candidate Jiras, not quarter.start, since a ticket can predate its own
+ * quarter), matches qualifying PRs to Jiras, and upserts jira_issue_loc per
+ * matched Jira. Idempotent and safe to re-run — see the "known gap" note
+ * above for the one edge case that isn't fully merged across runs.
  */
 export async function runLocSyncJob(jobId: string, quarterKey: string): Promise<LocSyncResult> {
   const quarter = quarterFromKey(quarterKey);
@@ -251,15 +260,28 @@ export async function runLocSyncJob(jobId: string, quarterKey: string): Promise<
         jiraKey: jiraIssues.jiraKey,
         assigneeEmail: jiraIssues.assigneeEmail,
         completedAt: jiraIssues.completedAt,
+        jiraCreatedAt: jiraIssues.jiraCreatedAt,
       })
       .from(jiraIssues);
-    const jiraMap = new Map<string, string>();
+    const jiraMap = new Map<string, { assigneeEmail: string; createdAt: Date | null }>();
     for (const r of issueRows) {
       if (!r.completedAt) continue;
       const day = r.completedAt.toISOString().slice(0, 10);
       if (day < quarter.start || day > quarter.end) continue;
       const email = normalizeEmail(r.assigneeEmail);
-      if (email) jiraMap.set(r.jiraKey.toUpperCase(), email);
+      if (email) jiraMap.set(r.jiraKey.toUpperCase(), { assigneeEmail: email, createdAt: r.jiraCreatedAt });
+    }
+
+    // Listing floor: the earliest of this quarter's candidate Jiras' own
+    // creation dates, not quarter.start — a ticket completed this quarter can
+    // have been created (and had PRs raised against it) well before the
+    // quarter began. Falls back to quarter.start when there are no candidates
+    // or none have a known creation date, so the scan still has a bound.
+    let listingFloor = quarter.start;
+    for (const v of jiraMap.values()) {
+      if (!v.createdAt) continue;
+      const day = v.createdAt.toISOString().slice(0, 10);
+      if (day < listingFloor) listingFloor = day;
     }
 
     const loginEmailMap = await loadGithubLoginEmailMap();
@@ -285,7 +307,7 @@ export async function runLocSyncJob(jobId: string, quarterKey: string): Promise<
 
       let prs: PullRequestRaw[];
       try {
-        const result = await client.listPullRequests(repo.fullName, { updatedSince: quarter.start });
+        const result = await client.listPullRequests(repo.fullName, { updatedSince: listingFloor });
         prs = result.prs;
         if (result.truncated) {
           // More in-quarter PRs than the page ceiling covers — this repo's
@@ -313,21 +335,21 @@ export async function runLocSyncJob(jobId: string, quarterKey: string): Promise<
         const authorEmail = authorLogin ? loginEmailMap.get(authorLogin) : undefined;
         if (!authorEmail) continue;
 
-        const createdDay = pr.created_at.slice(0, 10);
-        const mergedDay = pr.merged_at ? pr.merged_at.slice(0, 10) : null;
-        const inQuarter =
-          (createdDay >= quarter.start && createdDay <= quarter.end) ||
-          (mergedDay != null && mergedDay >= quarter.start && mergedDay <= quarter.end);
-        if (!inQuarter) continue;
-
         const candidateKeys = new Set<string>();
         for (const m of `${pr.title} ${pr.head.ref}`.matchAll(JIRA_KEY_REGEX)) {
           candidateKeys.add(`${m[1]}-${m[2]}`.toUpperCase());
         }
         if (candidateKeys.size === 0) continue;
 
+        const prCreatedAt = new Date(pr.created_at);
+
         for (const key of candidateKeys) {
-          if (jiraMap.get(key) !== authorEmail) continue;
+          const candidate = jiraMap.get(key);
+          if (!candidate || candidate.assigneeEmail !== authorEmail) continue;
+          // Lenient floor only — no quarter-alignment requirement. A PR
+          // created before the Jira itself existed can't be legitimate work
+          // on it; anything after (no matter how much later) counts.
+          if (candidate.createdAt && prCreatedAt < candidate.createdAt) continue;
 
           const stats = await ensurePrStats(repo.id, repo.fullName, pr.number, cached, client);
           if (!stats) continue;

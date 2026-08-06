@@ -1428,15 +1428,20 @@ export const performanceScorecards = pgTable(
       .default(0),
     underestimatedTasksPoints: doublePrecision("underestimated_tasks_points"),
 
-    // Weighted sum of sub-scores (§6.2).
+    // Weighted sum of sub-scores (§6.2). Every metric already excludes
+    // self-assigned Jiras (reporter === credited person) at attribution time
+    // in build.ts — there is no separate "raw, self-assigned included" score
+    // to compare against.
     finalScore: doublePrecision("final_score").notNull().default(0),
 
-    // Same formula, but every metric excludes issues the developer both
-    // reported AND owns the work on (self-assigned Jiras) — a fairness view a
-    // manager can compare the raw score against. Null before this exclusion
-    // pass existed for a row (backfilled rows), so callers must not assume
-    // non-null.
-    adjustedFinalScore: doublePrecision("adjusted_final_score"),
+    // Second, independent rating: identical to finalScore except the Complex
+    // Tasks metric is weighted by LOC-predicted complexity instead of the
+    // marked value (see expectedComplexWeightedTotal in build.ts). Bug
+    // Quality / MTTR / Sprint Commitment are complexity-agnostic, so this
+    // only ever differs from finalScore via the Complex Tasks contribution.
+    expectedComplexityScore: doublePrecision("expected_complexity_score")
+      .notNull()
+      .default(0),
 
     // Complexity Accuracy rating: of the developer's tasks with a matched PR
     // (checked), how many had marked complexity equal to what the LOC
@@ -1452,10 +1457,7 @@ export const performanceScorecards = pgTable(
       .default(0),
 
     // Full §6.4-style contribution breakdown (per-metric raw → points → weight
-    // → contribution) plus display metadata, for the drill-down view. Also
-    // carries an "adjusted" twin of the same shape (self-assigned Jiras
-    // excluded) under breakdown.adjusted, so the drill-down doesn't need a
-    // second column.
+    // → contribution) plus display metadata, for the drill-down view.
     breakdown: jsonb("breakdown").$type<Record<string, unknown>>().default({}),
   },
   (t) => [

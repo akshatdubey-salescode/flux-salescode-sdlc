@@ -9,15 +9,15 @@ export type ScorecardRow = {
   rank: number;
   email: string;
   name: string;
-  /** Reporting manager's name (from Keka), or null when unmatched/unmanaged. */
-  manager: string | null;
   /** Department (from Keka), or null when unmatched. Drives the dept filter. */
   department: string | null;
+  // Every metric already excludes self-assigned Jiras (reporter === credited
+  // person) at attribution time in build.ts. Rated marked-complexity-wise.
   finalScore: number;
-  // Same formula with self-assigned Jiras (reporter === credited person)
-  // excluded from every metric. Null only for rows scored before this
-  // exclusion pass existed.
-  adjustedFinalScore: number | null;
+  // Identical rating, but the Complex Tasks metric is weighted by
+  // LOC-predicted complexity instead of the marked value — the same score
+  // formula, purely expected-complexity-wise.
+  expectedComplexityScore: number;
   // Complexity Accuracy: correct/checked tasks (LOC-vs-marked-complexity
   // agreement), rendered as "correct/checked (pct%)". checked=0 → no PRs
   // matched yet, render as "—".
@@ -37,7 +37,6 @@ export type ScorecardBugItem = {
   summary: string;
   priority: string | null;
   weight: number;
-  selfAssigned: boolean;
   /** Deep link to the issue in Jira; absent if the project base URL is unknown. */
   url?: string;
 };
@@ -45,9 +44,10 @@ export type ScorecardFeatureItem = {
   key: string;
   summary: string;
   complexity: number | null;
-  selfAssigned: boolean;
   /** Additions + deletions summed across matched PRs; null when none matched yet. */
   loc: number | null;
+  /** What complexity the matched LOC predicts; null when loc is null. */
+  expectedComplexity: number | null;
   /** True when a C4/C5 task's LOC is suspiciously low for its claimed complexity. */
   complexityMismatch: boolean;
   mismatchSuggestion: string | null;
@@ -90,7 +90,7 @@ export type ScorecardDetail = {
   email: string;
   name: string;
   finalScore: number;
-  adjustedFinalScore: number | null;
+  expectedComplexityScore: number;
   complexityAccuracyCorrect: number;
   complexityAccuracyChecked: number;
   computedAt: string | null;
@@ -159,29 +159,24 @@ function isInactive(
 }
 
 /**
- * Per-person department + reporting manager from Keka, keyed by lower-cased
- * email. Drives the leaderboard's Manager column and the business-team filter.
+ * Per-person department from Keka, keyed by lower-cased email. Drives the
+ * business-team filter and the department dropdown.
  */
 async function kekaMap(): Promise<
-  Map<string, { department: string | null; manager: string | null; exitDate: Date | null }>
+  Map<string, { department: string | null; exitDate: Date | null }>
 > {
   const rows = await db
     .select({
       email: kekaEmployees.email,
       department: kekaEmployees.department,
-      managerName: kekaEmployees.managerName,
       exitDate: kekaEmployees.exitDate,
     })
     .from(kekaEmployees);
-  const map = new Map<
-    string,
-    { department: string | null; manager: string | null; exitDate: Date | null }
-  >();
+  const map = new Map<string, { department: string | null; exitDate: Date | null }>();
   for (const r of rows) {
     if (!r.email) continue;
     map.set(r.email.toLowerCase(), {
       department: r.department,
-      manager: r.managerName?.trim() || null,
       exitDate: r.exitDate,
     });
   }
@@ -219,7 +214,7 @@ export async function fetchScorecards(quarterKey: string): Promise<ScorecardRow[
     .select({
       userEmail: performanceScorecards.userEmail,
       finalScore: performanceScorecards.finalScore,
-      adjustedFinalScore: performanceScorecards.adjustedFinalScore,
+      expectedComplexityScore: performanceScorecards.expectedComplexityScore,
       complexityAccuracyCorrect: performanceScorecards.complexityAccuracyCorrect,
       complexityAccuracyChecked: performanceScorecards.complexityAccuracyChecked,
       bugQualityPoints: performanceScorecards.bugQualityPoints,
@@ -251,10 +246,9 @@ export async function fetchScorecards(quarterKey: string): Promise<ScorecardRow[
       rank: i + 1,
       email: r.userEmail,
       name: names.get(r.userEmail) ?? r.userEmail,
-      manager: keka.get(r.userEmail.toLowerCase())?.manager ?? null,
       department: keka.get(r.userEmail.toLowerCase())?.department ?? null,
       finalScore: r.finalScore,
-      adjustedFinalScore: r.adjustedFinalScore,
+      expectedComplexityScore: r.expectedComplexityScore,
       complexityAccuracyCorrect: r.complexityAccuracyCorrect,
       complexityAccuracyChecked: r.complexityAccuracyChecked,
       bugQualityPoints: r.bugQualityPoints,
@@ -325,7 +319,7 @@ export async function fetchScorecardDetail(
     email: r.userEmail,
     name: names.get(r.userEmail) ?? r.userEmail,
     finalScore: r.finalScore,
-    adjustedFinalScore: r.adjustedFinalScore,
+    expectedComplexityScore: r.expectedComplexityScore,
     complexityAccuracyCorrect: r.complexityAccuracyCorrect,
     complexityAccuracyChecked: r.complexityAccuracyChecked,
     computedAt: r.computedAt ? r.computedAt.toISOString() : null,

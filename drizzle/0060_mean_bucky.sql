@@ -1,0 +1,1 @@
+ALTER TABLE "performance_scorecards" DROP COLUMN "adjusted_final_score";
