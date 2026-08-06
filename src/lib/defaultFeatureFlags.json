@@ -1,3 +1,10 @@
 {
-  "enableRequirementBuilder": true
+  "enableRequirementBuilder": true,
+  "complexityLocRanges": [
+    { "complexity": 1, "minLoc": 0 },
+    { "complexity": 2, "minLoc": 15 },
+    { "complexity": 3, "minLoc": 40 },
+    { "complexity": 4, "minLoc": 100 },
+    { "complexity": 5, "minLoc": 250 }
+  ]
 }

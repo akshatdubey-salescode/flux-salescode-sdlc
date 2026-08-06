@@ -43,6 +43,7 @@ import {
   mismatchSuggestion,
   isComplexityCorrect,
   expectedComplexityForLoc,
+  getComplexityLocRanges,
 } from "./complexity-loc-thresholds";
 import {
   BUG_INVALID_STATUSES,
@@ -283,6 +284,11 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
   const quarter = quarterFromKey(quarterKey);
   if (!quarter) throw new Error(`Invalid quarter key: ${quarterKey}`);
 
+  // Fetched fresh every run — a database config (feature_flags), never
+  // cached, so an edit to the thresholds takes effect on the very next
+  // Recompute/Sync LOC, not after some cache TTL lapses.
+  const complexityLocRanges = await getComplexityLocRanges();
+
   const accountIdEmailMap = await loadAccountIdEmailMap();
 
   // Candidate issues: completed within the quarter (must be Done), with their
@@ -483,14 +489,14 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
     // Computed once and reused for both the drill-down display and the
     // expected-complexity rating below — same "no PR → 0 LOC → predicts C1"
     // rule as everywhere else in this file.
-    const expectedComplexity = expectedComplexityForLoc(loc);
+    const expectedComplexity = expectedComplexityForLoc(loc, complexityLocRanges);
     a.complexityChecked += 1;
-    if (isComplexityCorrect(rawComplexity, loc)) a.complexityCorrect += 1;
+    if (isComplexityCorrect(rawComplexity, loc, complexityLocRanges)) a.complexityCorrect += 1;
 
     // Feature count — a task counts unless it matches a bug this user owns.
     if (!a.ownedBugKeys.has(t.jiraKey)) {
       a.features += 1;
-      const flagged = isComplexityLocMismatch(rawComplexity, loc);
+      const flagged = isComplexityLocMismatch(rawComplexity, loc, complexityLocRanges);
       a.featureItems.push({
         key: t.jiraKey,
         summary: t.summary,
