@@ -66,11 +66,49 @@ const RATE_LIMIT_FLOOR = 200;
 // prefix and number separately so callers can reassemble the canonical
 // "PREFIX-123" form regardless of how the PR author actually wrote it (people
 // use dashes, underscores, dots, spaces, or nothing — "SC-123", "SC_123",
-// "sc.123", "SC 123", "sc123" should all resolve). A permissive regex here is
-// safe: a spurious match only "hits" if it happens to equal a real Jira key
-// AND that Jira's assignee matches the PR author AND the dates are in-quarter
-// — real false positives are effectively impossible.
-const JIRA_KEY_REGEX = /([A-Za-z][A-Za-z0-9]{1,9})[-_.\s]*(\d{1,6})/g;
+// "sc.123", "SC 123", "sc123" should all resolve). The prefix group is lazy
+// ({1,9}?), not greedy — with no separator to mark the split, a greedy prefix
+// over-consumes digits before backtracking to satisfy the number group,
+// landing on the wrong split (e.g. "sc3940" greedy-first would backtrack to
+// prefix "sc394" + number "0" instead of prefix "sc" + number "3940"). Lazy
+// expansion stops at the first split that lets the number group match,
+// which is the correct one. A permissive regex here is safe regardless: a
+// spurious match only "hits" if it happens to equal a real Jira key AND that
+// Jira's assignee matches the PR author AND the dates align — real false
+// positives are effectively impossible.
+const JIRA_KEY_REGEX = /([A-Za-z][A-Za-z0-9]{1,9}?)[-_.\s]*(\d{1,6})/g;
+
+/**
+ * Every distinct, canonicalized ("PREFIX-123", upper-cased) Jira key found in
+ * `text` (a PR's title + branch name, concatenated). Pure and exported so the
+ * regex's separator-generosity can be unit-tested directly, without a live
+ * GitHub call. A single PR can yield more than one key — see the "known gap"
+ * module note about what that means for LOC attribution when it happens.
+ */
+export function extractCandidateJiraKeys(text: string): string[] {
+  const keys = new Set<string>();
+  for (const m of text.matchAll(JIRA_KEY_REGEX)) {
+    keys.add(`${m[1]}-${m[2]}`.toUpperCase());
+  }
+  return [...keys];
+}
+
+/**
+ * Whether a PR qualifies as a match for one candidate Jira: the PR's author
+ * must be that Jira's assignee, and the PR must have been created on/after
+ * the Jira itself was created (the lenient floor — see the module header).
+ * Pure and exported so this decision can be unit-tested against fixture data
+ * without a live GitHub/DB call.
+ */
+export function isPrEligibleForJira(
+  candidate: { assigneeEmail: string; createdAt: Date | null } | undefined,
+  authorEmail: string | undefined,
+  prCreatedAt: Date
+): boolean {
+  if (!candidate || !authorEmail || candidate.assigneeEmail !== authorEmail) return false;
+  if (candidate.createdAt && prCreatedAt < candidate.createdAt) return false;
+  return true;
+}
 
 export type LocSyncResult = {
   quarterKey: string;
@@ -335,21 +373,13 @@ export async function runLocSyncJob(jobId: string, quarterKey: string): Promise<
         const authorEmail = authorLogin ? loginEmailMap.get(authorLogin) : undefined;
         if (!authorEmail) continue;
 
-        const candidateKeys = new Set<string>();
-        for (const m of `${pr.title} ${pr.head.ref}`.matchAll(JIRA_KEY_REGEX)) {
-          candidateKeys.add(`${m[1]}-${m[2]}`.toUpperCase());
-        }
-        if (candidateKeys.size === 0) continue;
+        const candidateKeys = extractCandidateJiraKeys(`${pr.title} ${pr.head.ref}`);
+        if (candidateKeys.length === 0) continue;
 
         const prCreatedAt = new Date(pr.created_at);
 
         for (const key of candidateKeys) {
-          const candidate = jiraMap.get(key);
-          if (!candidate || candidate.assigneeEmail !== authorEmail) continue;
-          // Lenient floor only — no quarter-alignment requirement. A PR
-          // created before the Jira itself existed can't be legitimate work
-          // on it; anything after (no matter how much later) counts.
-          if (candidate.createdAt && prCreatedAt < candidate.createdAt) continue;
+          if (!isPrEligibleForJira(jiraMap.get(key), authorEmail, prCreatedAt)) continue;
 
           const stats = await ensurePrStats(repo.id, repo.fullName, pr.number, cached, client);
           if (!stats) continue;

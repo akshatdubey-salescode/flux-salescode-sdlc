@@ -176,7 +176,7 @@ function emptyAcc(): Acc {
 // bug credit, Dev Owner ?? Assignee for tasks) — i.e. they created their own
 // ticket. Excluded entirely: skipped before any accumulation, so it never
 // reaches a metric, an item list, or the score.
-function isSelfAssigned(
+export function isSelfAssigned(
   reporterEmail: string | null | undefined,
   creditedEmail: string
 ): boolean {

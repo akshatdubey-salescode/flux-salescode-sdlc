@@ -12,12 +12,19 @@
 // end). A trailing inline comment on a code line (`doThing(); // note`) is
 // left counted as code — splitting code from a same-line trailing comment
 // reliably needs a real per-language tokenizer, which is exactly the
-// full-fidelity option this heuristic was chosen over.
+// full-fidelity option this heuristic was chosen over. The mirror case (a
+// block comment that closes mid-line with real code following, e.g.
+// `/* TODO */ doThing();`) is handled: the line counts as code, not comment,
+// once anything follows the close marker.
 
 type CommentStyle = {
   lineTokens: string[];
   blockStart?: string;
   blockEnd?: string;
+  // Prefixes that look like a lineTokens match but aren't a comment in this
+  // language — checked before the lineTokens match wins. Currently only PHP
+  // needs this (`#[Attribute]` vs a bare `#` comment).
+  lineExceptions?: string[];
 };
 
 const C_STYLE: CommentStyle = { lineTokens: ["//"], blockStart: "/*", blockEnd: "*/" };
@@ -25,8 +32,15 @@ const HASH_STYLE: CommentStyle = { lineTokens: ["#"] };
 const SQL_STYLE: CommentStyle = { lineTokens: ["--"], blockStart: "/*", blockEnd: "*/" };
 const HTML_STYLE: CommentStyle = { lineTokens: [], blockStart: "<!--", blockEnd: "-->" };
 const CSS_STYLE: CommentStyle = { lineTokens: [], blockStart: "/*", blockEnd: "*/" };
-const PHP_STYLE: CommentStyle = { lineTokens: ["//", "#"], blockStart: "/*", blockEnd: "*/" };
-const SCSS_STYLE: CommentStyle = { lineTokens: ["//"], blockStart: "/*", blockEnd: "*/" };
+// PHP 8+ attributes (`#[Route(...)]`) start with `#[`, not a `#` comment —
+// PHP's own lexer treats the two differently, so a bare `#` exception list
+// keeps attribute lines from being misclassified as comments.
+const PHP_STYLE: CommentStyle = {
+  lineTokens: ["//", "#"],
+  blockStart: "/*",
+  blockEnd: "*/",
+  lineExceptions: ["#["],
+};
 const LUA_STYLE: CommentStyle = { lineTokens: ["--"], blockStart: "--[[", blockEnd: "]]" };
 
 // File extension (lower-cased, no dot) → comment style. Unmapped extensions
@@ -41,7 +55,7 @@ const STYLE_BY_EXT: Record<string, CommentStyle> = {
   sql: SQL_STYLE,
   html: HTML_STYLE, htm: HTML_STYLE, xml: HTML_STYLE, vue: HTML_STYLE, svelte: HTML_STYLE,
   css: CSS_STYLE,
-  scss: SCSS_STYLE, less: SCSS_STYLE,
+  scss: C_STYLE, less: C_STYLE,
   php: PHP_STYLE,
   lua: LUA_STYLE,
 };
@@ -65,22 +79,37 @@ function classifyLine(
   const trimmed = content.trim();
 
   if (inBlockComment) {
-    const endIdx = style.blockEnd ? trimmed.indexOf(style.blockEnd) : -1;
+    if (!style.blockEnd) return { isComment: true, nextInBlockComment: true };
+    const endIdx = trimmed.indexOf(style.blockEnd);
     if (endIdx === -1) return { isComment: true, nextInBlockComment: true };
-    return { isComment: true, nextInBlockComment: false };
+    // Block closes on this line — if real content follows the close marker,
+    // count the whole line as code rather than discarding it, consistent
+    // with how a trailing "// note" on a code line is already left as code.
+    const trailing = trimmed.slice(endIdx + style.blockEnd.length).trim();
+    return trailing === ""
+      ? { isComment: true, nextInBlockComment: false }
+      : { isComment: false, nextInBlockComment: false };
   }
 
   if (trimmed === "") return { isComment: false, nextInBlockComment: false };
 
-  if (style.lineTokens.some((t) => trimmed.startsWith(t))) {
-    return { isComment: true, nextInBlockComment: false };
+  // Block-start checked before lineTokens: for Lua, the line token "--" is a
+  // literal prefix of the block-start "--[[", so checking lineTokens first
+  // would always misclassify a block-open as a line comment and never track
+  // block state at all.
+  if (style.blockStart && trimmed.startsWith(style.blockStart)) {
+    if (!style.blockEnd) return { isComment: true, nextInBlockComment: true };
+    const endIdx = trimmed.indexOf(style.blockEnd, style.blockStart.length);
+    if (endIdx === -1) return { isComment: true, nextInBlockComment: true };
+    const trailing = trimmed.slice(endIdx + style.blockEnd.length).trim();
+    return trailing === ""
+      ? { isComment: true, nextInBlockComment: false }
+      : { isComment: false, nextInBlockComment: false };
   }
 
-  if (style.blockStart && trimmed.startsWith(style.blockStart)) {
-    const closesOnSameLine = style.blockEnd
-      ? trimmed.slice(style.blockStart.length).includes(style.blockEnd)
-      : false;
-    return { isComment: true, nextInBlockComment: !closesOnSameLine };
+  const isException = style.lineExceptions?.some((e) => trimmed.startsWith(e)) ?? false;
+  if (!isException && style.lineTokens.some((t) => trimmed.startsWith(t))) {
+    return { isComment: true, nextInBlockComment: false };
   }
 
   return { isComment: false, nextInBlockComment: false };
