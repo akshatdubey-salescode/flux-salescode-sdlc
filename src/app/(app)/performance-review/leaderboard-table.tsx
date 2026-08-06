@@ -69,7 +69,11 @@ export function LeaderboardTable({
     return rows.filter((r) => {
       if (dept !== "all" && r.department !== dept) return false;
       if (!q) return true;
-      return r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q);
+      return (
+        r.name.toLowerCase().includes(q) ||
+        r.email.toLowerCase().includes(q) ||
+        (r.manager?.toLowerCase().includes(q) ?? false)
+      );
     });
   }, [rows, query, dept]);
 
@@ -119,17 +123,20 @@ export function LeaderboardTable({
               <th className="whitespace-nowrap px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 Developer
               </th>
+              <th className="whitespace-nowrap px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Manager
+              </th>
               <th
                 className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
                 title="Rated by each task's marked complexity. Self-assigned Jiras (reporter === credited person) are excluded from every metric"
               >
-                Score (Marked)
+                Complexity Rating (Marked)
               </th>
               <th
                 className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
                 title="Same formula, but the Complex Tasks metric uses the LOC-predicted complexity instead of the marked value — everything else (Bug Quality, Sprint, MTTR) is identical"
               >
-                Score (Expected)
+                Complexity Rating (Expected)
               </th>
               <th
                 className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
@@ -180,6 +187,9 @@ export function LeaderboardTable({
                       {row.email}
                     </span>
                   </Link>
+                </td>
+                <td className="px-4 py-3 align-top text-sm text-zinc-600 dark:text-zinc-400">
+                  {row.manager ?? "—"}
                 </td>
                 <td className="px-4 py-3 text-right align-top text-base font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
                   {row.finalScore.toFixed(1)}
@@ -254,7 +264,7 @@ export function LeaderboardTable({
             {rows.length === 0 && (
               <tr>
                 <td
-                  colSpan={10}
+                  colSpan={11}
                   className="px-4 py-8 text-center text-sm text-zinc-400"
                 >
                   No scorecards for {quarterLabel} yet. Click{" "}
@@ -267,7 +277,7 @@ export function LeaderboardTable({
             {rows.length > 0 && filtered.length === 0 && (
               <tr>
                 <td
-                  colSpan={10}
+                  colSpan={11}
                   className="px-4 py-8 text-center text-sm text-zinc-400"
                 >
                   No developers match the current filters.

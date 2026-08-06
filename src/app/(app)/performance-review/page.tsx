@@ -803,12 +803,12 @@ export default async function PerformanceReviewPage({
               Sprint Commitment ({WEIGHTS.sprintCommitment}), and MTTR ({WEIGHTS.mttr}).
               Self-assigned Jiras (reporter === credited person) are excluded
               from every metric. Two ratings are shown side by side —{" "}
-              <strong>Score (Marked)</strong> uses each task&apos;s marked
-              complexity, <strong>Score (Expected)</strong> uses the same
-              formula with the LOC-predicted complexity instead — everything
-              else is identical between them. Scores are a decision aid, not
-              a verdict. Click a name, or the details icon, for the full
-              Jira Complexity Rating breakdown.
+              <strong>Complexity Rating (Marked)</strong> uses each task&apos;s
+              marked complexity, <strong>Complexity Rating (Expected)</strong>{" "}
+              uses the same formula with the LOC-predicted complexity instead
+              — everything else is identical between them. Ratings are a
+              decision aid, not a verdict. Click a name, or the details icon,
+              for the full Jira Complexity Rating breakdown.
             </p>
           </div>
 
