@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { RiSearchLine } from "@remixicon/react";
+import { RiSearchLine, RiInformationLine } from "@remixicon/react";
 import { WEIGHTS, SCORE_SCALE } from "@/lib/scorecard/config";
 import {
   Select,
@@ -108,32 +108,59 @@ export function LeaderboardTable({
       </div>
 
       <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        {/* Inner overflow-x-auto (not the outer, rounded-corner-clipping div)
+            so wide tables scroll horizontally instead of just clipping
+            off-screen columns — nowrap on every header keeps labels from
+            wrapping into two lines, which would otherwise let the browser
+            squeeze columns down instead of triggering the scrollbar. */}
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/80">
-              <th className="w-12 px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              <th className="w-12 whitespace-nowrap px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 #
               </th>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              <th className="whitespace-nowrap px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 Developer
               </th>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              <th className="whitespace-nowrap px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 Manager
               </th>
-              <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Score
+              <th
+                className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
+                title="Rated by each task's marked complexity. Self-assigned Jiras (reporter === credited person) are excluded from every metric"
+              >
+                Complexity Rating (Marked)
               </th>
-              <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              <th
+                className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
+                title="Same formula, but the Complex Tasks metric uses the LOC-predicted complexity instead of the marked value — everything else (Bug Quality, Sprint, MTTR) is identical"
+              >
+                Complexity Rating (Expected)
+              </th>
+              <th
+                className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
+                title="Tasks whose marked complexity agrees with what the LOC predicts"
+              >
+                Complexity Acc.
+              </th>
+              <th className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 Bug Qual.
               </th>
-              <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              <th className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 Sprint
               </th>
-              <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              <th className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 Complex
               </th>
-              <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              <th className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 MTTR
+              </th>
+              <th
+                className="w-12 whitespace-nowrap px-4 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-zinc-500"
+                title="Jira Complexity Rating — full per-Jira breakdown"
+              >
+                Details
               </th>
             </tr>
           </thead>
@@ -171,6 +198,33 @@ export function LeaderboardTable({
                     / {MAX_SCORE.toFixed(0)}
                   </span>
                 </td>
+                <td className="px-4 py-3 text-right align-top text-base font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                  {row.expectedComplexityScore.toFixed(1)}
+                  <span className="text-xs font-normal text-zinc-400">
+                    {" "}
+                    / {MAX_SCORE.toFixed(0)}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
+                  {row.complexityAccuracyChecked > 0 ? (
+                    <>
+                      {row.complexityAccuracyCorrect}/{row.complexityAccuracyChecked}
+                      <span className="text-xs font-normal text-zinc-400">
+                        {" "}
+                        (
+                        {(
+                          (row.complexityAccuracyCorrect / row.complexityAccuracyChecked) *
+                          100
+                        ).toFixed(0)}
+                        %)
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-zinc-400" title="No matched PRs yet — run Sync LOC">
+                      —
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
                   <Contribution
                     points={row.bugQualityPoints}
@@ -192,13 +246,25 @@ export function LeaderboardTable({
                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
                   <Contribution points={row.mttrPoints} weight={WEIGHTS.mttr} />
                 </td>
+                <td className="px-4 py-3 text-center align-top">
+                  <Link
+                    href={`/performance-review?quarter=${quarterKey}&person=${encodeURIComponent(
+                      row.email,
+                    )}`}
+                    title="Jira Complexity Rating — full per-Jira breakdown"
+                    aria-label={`View Jira Complexity Rating for ${row.name}`}
+                    className="inline-flex text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                  >
+                    <RiInformationLine size={18} />
+                  </Link>
+                </td>
               </tr>
             ))}
 
             {rows.length === 0 && (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={11}
                   className="px-4 py-8 text-center text-sm text-zinc-400"
                 >
                   No scorecards for {quarterLabel} yet. Click{" "}
@@ -211,7 +277,7 @@ export function LeaderboardTable({
             {rows.length > 0 && filtered.length === 0 && (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={11}
                   className="px-4 py-8 text-center text-sm text-zinc-400"
                 >
                   No developers match the current filters.
@@ -220,6 +286,7 @@ export function LeaderboardTable({
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

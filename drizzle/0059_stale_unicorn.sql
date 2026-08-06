@@ -1,0 +1,1 @@
+ALTER TABLE "github_pull_requests" ADD COLUMN "stats_method" text;

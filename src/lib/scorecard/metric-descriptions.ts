@@ -139,3 +139,17 @@ export const BOARD_NOTE = {
     "People who have left the org are removed — a Keka exit date on or before today (people on notice still appear).",
   ],
 } as const;
+
+// Self-assigned exclusion + the two Complexity Rating columns + "Complexity
+// Acc." + the C4/C5-vs-LOC flag. All LOC-based, all baked into both ratings.
+export const COMPLEXITY_LOC_NOTE = {
+  title: "Self-assigned exclusion, the two ratings, complexity accuracy & flags",
+  intro: "Every rating already reflects these — not optional second opinions:",
+  steps: [
+    "Self-assigned Jiras — issues where the reporter is also the person credited for the work — are excluded entirely, at attribution time, from every metric, in both ratings. They never reach either one, or any drill-down list.",
+    "Two ratings, same formula, neither is \"the total score\": Complexity Rating (Marked) weights the Complex Tasks metric by each task's marked complexity — the actual rating. Complexity Rating (Expected) uses the identical formula but weights it by the LOC-predicted complexity instead. Bug Quality, Sprint Commitment, and MTTR are complexity-agnostic, so they're always the same between the two — only the Complex Tasks contribution (and therefore the total) can differ.",
+    "Complexity Accuracy is correct/checked tasks, shown as a % — of every complexity-bearing task, how many had marked complexity match what the LOC predicts. Nothing is excluded: an unmarked complexity, or a task with no matched PR, both default to C1 rather than being dropped from the count.",
+    "Feature tasks marked Complexity 4-5 are additionally flagged ⚠ when their LOC falls well below what that complexity usually takes (including no matched PR at all) — a nudge to double-check the rating, not an automatic downgrade.",
+    "LOC is matched by finding the Jira key in a PR's title or branch (generously — dash, underscore, dot, space, or no separator all resolve), requiring the PR author to be the same person as the Jira's assignee, and requiring the PR to have been created or merged inside the quarter. Run \"Sync LOC\" to (re)compute it — it's cached, not recalculated on every view. Editing a Jira's complexity in Jira and hitting Recompute re-derives everything fresh, nothing here is a stale snapshot.",
+  ],
+} as const;

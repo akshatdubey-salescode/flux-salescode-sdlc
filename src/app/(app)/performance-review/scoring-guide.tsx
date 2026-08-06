@@ -8,6 +8,7 @@ import {
   ATTRIBUTION_NOTE,
   SCOPE_NOTE,
   BOARD_NOTE,
+  COMPLEXITY_LOC_NOTE,
 } from "@/lib/scorecard/metric-descriptions";
 import type { MetricKey } from "@/lib/scorecard/config";
 
@@ -22,7 +23,13 @@ const ORDER: { key: MetricKey; label: string }[] = [
   { key: "effort", label: "Effort" },
 ];
 
-const NOTES = [DATE_CAPTURE_NOTE, ATTRIBUTION_NOTE, SCOPE_NOTE, BOARD_NOTE];
+const NOTES = [
+  DATE_CAPTURE_NOTE,
+  ATTRIBUTION_NOTE,
+  SCOPE_NOTE,
+  BOARD_NOTE,
+  COMPLEXITY_LOC_NOTE,
+];
 
 export function ScoringGuide() {
   return (
