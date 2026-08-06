@@ -139,3 +139,15 @@ export const BOARD_NOTE = {
     "People who have left the org are removed — a Keka exit date on or before today (people on notice still appear).",
   ],
 } as const;
+
+// The "Adj. Score" / "Complexity Acc." columns and the C4/C5-vs-LOC flag.
+export const ADJUSTED_SCORE_NOTE = {
+  title: "Adjusted score, complexity accuracy & flags",
+  intro: "Two second opinions alongside the raw score, both LOC-based:",
+  steps: [
+    "Adjusted score excludes self-assigned Jiras — issues where the reporter is also the person credited for the work — from every metric.",
+    "Complexity Accuracy is correct/checked tasks, shown as a % — of the tasks with a matched PR, how many had marked complexity match what the LOC predicts. Tasks with no matched PR aren't checked at all (not counted as wrong).",
+    "Feature tasks marked Complexity 4-5 are additionally flagged ⚠ when their LOC falls well below what that complexity usually takes — a nudge to double-check the rating, not an automatic downgrade.",
+    "LOC is matched by finding the Jira key in a PR's title or branch (generously — dash, underscore, dot, space, or no separator all resolve), requiring the PR author to be the same person as the Jira's assignee, and requiring the PR to have been created or merged inside the quarter. Run \"Sync LOC\" to (re)compute it — it's cached, not recalculated on every view. Editing a Jira's complexity in Jira and hitting Recompute re-derives both metrics fresh, nothing here is a stale snapshot.",
+  ],
+} as const;

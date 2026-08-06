@@ -1,0 +1,2 @@
+ALTER TABLE "performance_scorecards" ADD COLUMN "complexity_accuracy_correct" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "performance_scorecards" ADD COLUMN "complexity_accuracy_checked" integer DEFAULT 0 NOT NULL;

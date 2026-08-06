@@ -1012,6 +1012,121 @@ export const githubSyncJobs = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// GitHub Pull Requests — one row per (repo, PR number). List-endpoint fields
+// (title, branch, author, dates) are cheap and always upserted; additions/
+// deletions require fetching the PR's changed-file diffs (to strip whole-line
+// comments — see comment-lines.ts), so they're fetched only for PRs that
+// already pass the cheap Jira-key/author/quarter filters in loc-sync (see
+// statsFetchedAt) — keeps GitHub API cost proportional to real matches, not
+// total PR volume.
+// ---------------------------------------------------------------------------
+
+export const githubPullRequests = pgTable(
+  "github_pull_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repoId: uuid("repo_id")
+      .notNull()
+      .references(() => githubRepos.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    title: text("title").notNull(),
+    headRef: text("head_ref").notNull(), // branch name
+    authorLogin: text("author_login"),
+    state: text("state").notNull(), // open | closed
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    mergedAt: timestamp("merged_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+    // Code-only (whole-line comments excluded) when statsMethod = "code_only";
+    // GitHub's raw diff counts (comments included) for any file whose patch
+    // wasn't available to classify (binary / too-large diff).
+    additions: integer("additions"),
+    deletions: integer("deletions"),
+    // Set once the diff-stats fetch has run, so a re-sync doesn't re-fetch
+    // stats for a PR already priced out. Distinct from "raw" so a row fetched
+    // before comment-exclusion shipped is correctly treated as stale and
+    // refetched, rather than silently reused under different semantics.
+    statsMethod: text("stats_method"), // "code_only" | null (not yet fetched, or fetched pre-comment-exclusion)
+    statsFetchedAt: timestamp("stats_fetched_at", { withTimezone: true }),
+    syncedAt: timestamp("synced_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("github_pull_requests_repo_number_idx").on(t.repoId, t.number),
+    index("github_pull_requests_updated_idx").on(t.updatedAt),
+    index("github_pull_requests_author_idx").on(t.authorLogin),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Jira Issue LOC — precomputed, cached lines-of-code total per (Jira key,
+// quarter), summed across every qualifying PR (same assignee as the issue,
+// Jira key found case-insensitively in the PR title or branch, and either the
+// PR's created or merged date falls inside the quarter). Written only by
+// loc-sync's periodic/manual job — the scorecard build reads this table, it
+// never recomputes LOC itself.
+// ---------------------------------------------------------------------------
+
+export const jiraIssueLoc = pgTable(
+  "jira_issue_loc",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    jiraKey: text("jira_key").notNull(), // upper-cased, e.g. "SC-123"
+    quarterKey: text("quarter_key").notNull(),
+    totalAdditions: integer("total_additions").notNull().default(0),
+    totalDeletions: integer("total_deletions").notNull().default(0),
+    prCount: integer("pr_count").notNull().default(0),
+    prNumbers: integer("pr_numbers")
+      .array()
+      .notNull()
+      .default(sql`'{}'::integer[]`),
+    computedAt: timestamp("computed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("jira_issue_loc_key_quarter_idx").on(t.jiraKey, t.quarterKey),
+    index("jira_issue_loc_quarter_idx").on(t.quarterKey),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Loc Sync Jobs — tracks a single loc-sync run (manual trigger or cron), one
+// quarter at a time. Mirrors github_sync_jobs' shape; rateLimited marks a run
+// that stopped early because GitHub's remaining quota dropped below the
+// safety floor, so the next trigger (cron or manual) picks up the rest.
+// ---------------------------------------------------------------------------
+
+export const locSyncJobs = pgTable(
+  "loc_sync_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quarterKey: text("quarter_key").notNull(),
+    // pending | running | completed | failed
+    status: text("status").notNull().default("pending"),
+    totalRepos: integer("total_repos"),
+    syncedRepos: integer("synced_repos").notNull().default(0),
+    prsScanned: integer("prs_scanned").notNull().default(0),
+    matchesFound: integer("matches_found").notNull().default(0),
+    rateLimited: boolean("rate_limited").notNull().default(false),
+    errorCount: integer("error_count").notNull().default(0),
+    errorMessages: text("error_messages")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("loc_sync_jobs_status_idx").on(t.status),
+    index("loc_sync_jobs_quarter_idx").on(t.quarterKey),
+  ]
+);
+
+// ---------------------------------------------------------------------------
 // Keka Employees — synced mirror of the Keka HR employee directory. One row per
 // employee (keyed by Keka's stable GUID). `userId` bridges to an app user by
 // work email (resolved_via='email_auto'), mirroring github_accounts. The
@@ -1316,8 +1431,31 @@ export const performanceScorecards = pgTable(
     // Weighted sum of sub-scores (§6.2).
     finalScore: doublePrecision("final_score").notNull().default(0),
 
+    // Same formula, but every metric excludes issues the developer both
+    // reported AND owns the work on (self-assigned Jiras) — a fairness view a
+    // manager can compare the raw score against. Null before this exclusion
+    // pass existed for a row (backfilled rows), so callers must not assume
+    // non-null.
+    adjustedFinalScore: doublePrecision("adjusted_final_score"),
+
+    // Complexity Accuracy rating: of the developer's tasks with a matched PR
+    // (checked), how many had marked complexity equal to what the LOC
+    // predicts (correct) — e.g. correct=9, checked=30 renders as "9/30 (30%)".
+    // Re-derived fresh on every recompute from live complexity + LOC data, so
+    // an edited Jira complexity is reflected the next time someone hits
+    // Recompute — nothing here is a point-in-time snapshot.
+    complexityAccuracyCorrect: integer("complexity_accuracy_correct")
+      .notNull()
+      .default(0),
+    complexityAccuracyChecked: integer("complexity_accuracy_checked")
+      .notNull()
+      .default(0),
+
     // Full §6.4-style contribution breakdown (per-metric raw → points → weight
-    // → contribution) plus display metadata, for the drill-down view.
+    // → contribution) plus display metadata, for the drill-down view. Also
+    // carries an "adjusted" twin of the same shape (self-assigned Jiras
+    // excluded) under breakdown.adjusted, so the drill-down doesn't need a
+    // second column.
     breakdown: jsonb("breakdown").$type<Record<string, unknown>>().default({}),
   },
   (t) => [

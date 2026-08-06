@@ -123,6 +123,18 @@ export function LeaderboardTable({
               <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 Score
               </th>
+              <th
+                className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
+                title="Same formula, self-assigned Jiras (reporter === credited person) excluded"
+              >
+                Adj. Score
+              </th>
+              <th
+                className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
+                title="Tasks with a matched PR whose marked complexity agrees with what the LOC predicts"
+              >
+                Complexity Acc.
+              </th>
               <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 Bug Qual.
               </th>
@@ -172,6 +184,35 @@ export function LeaderboardTable({
                   </span>
                 </td>
                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
+                  {row.adjustedFinalScore != null ? (
+                    row.adjustedFinalScore.toFixed(1)
+                  ) : (
+                    <span className="text-zinc-400" title="Run Sync LOC / Recompute to populate">
+                      —
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
+                  {row.complexityAccuracyChecked > 0 ? (
+                    <>
+                      {row.complexityAccuracyCorrect}/{row.complexityAccuracyChecked}
+                      <span className="text-xs font-normal text-zinc-400">
+                        {" "}
+                        (
+                        {(
+                          (row.complexityAccuracyCorrect / row.complexityAccuracyChecked) *
+                          100
+                        ).toFixed(0)}
+                        %)
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-zinc-400" title="No matched PRs yet — run Sync LOC">
+                      —
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
                   <Contribution
                     points={row.bugQualityPoints}
                     weight={WEIGHTS.bugQuality}
@@ -198,7 +239,7 @@ export function LeaderboardTable({
             {rows.length === 0 && (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={10}
                   className="px-4 py-8 text-center text-sm text-zinc-400"
                 >
                   No scorecards for {quarterLabel} yet. Click{" "}
@@ -211,7 +252,7 @@ export function LeaderboardTable({
             {rows.length > 0 && filtered.length === 0 && (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={10}
                   className="px-4 py-8 text-center text-sm text-zinc-400"
                 >
                   No developers match the current filters.

@@ -118,6 +118,33 @@ export default async function PerformanceReviewPage({
                     </span>{" "}
                     / 100
                   </p>
+                  <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                    Adjusted (self-assigned Jiras excluded):{" "}
+                    <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                      {detail.adjustedFinalScore != null
+                        ? detail.adjustedFinalScore.toFixed(1)
+                        : "— (run Sync LOC / Recompute)"}
+                    </span>
+                    {detail.adjustedFinalScore != null && " / 100"}
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                    Complexity Accuracy (marked complexity vs. LOC-predicted):{" "}
+                    <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                      {detail.complexityAccuracyChecked > 0 ? (
+                        <>
+                          {detail.complexityAccuracyCorrect}/{detail.complexityAccuracyChecked} (
+                          {(
+                            (detail.complexityAccuracyCorrect /
+                              detail.complexityAccuracyChecked) *
+                            100
+                          ).toFixed(0)}
+                          %)
+                        </>
+                      ) : (
+                        "— (run Sync LOC)"
+                      )}
+                    </span>
+                  </p>
                 </div>
 
                 <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -285,7 +312,12 @@ export default async function PerformanceReviewPage({
                   </h2>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
                     Non-bug tasks the developer completed this quarter, counted as
-                    feature output for the Bug Quality score.
+                    feature output for the Bug Quality score.{" "}
+                    <span className="font-medium text-amber-600 dark:text-amber-400">
+                      ⚠ flagged
+                    </span>{" "}
+                    rows are Complexity 4-5 tasks whose matched LOC is suspiciously
+                    low — worth a quick look, not an automatic downgrade.
                   </p>
                   <div className="max-h-96 overflow-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
                     <table className="w-full text-sm">
@@ -300,19 +332,41 @@ export default async function PerformanceReviewPage({
                           <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
                             Complexity
                           </th>
+                          <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            LOC
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {detail.featureItems.map((t) => (
                           <tr
                             key={t.key}
-                            className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60"
+                            className={
+                              "border-b border-zinc-100 last:border-0 dark:border-zinc-800/60 " +
+                              (t.complexityMismatch ? "bg-amber-50 dark:bg-amber-950/20" : "")
+                            }
                           >
                             <td className="whitespace-nowrap px-4 py-2.5 align-top font-mono text-xs text-zinc-600 dark:text-zinc-300">
                               <JiraKeyLink item={t} />
+                              {t.selfAssigned && (
+                                <span
+                                  className="ml-1.5 rounded bg-zinc-100 px-1 py-0.5 text-[10px] font-sans font-medium uppercase text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                                  title="Reporter and credited developer are the same person — excluded from the adjusted score"
+                                >
+                                  self
+                                </span>
+                              )}
                             </td>
                             <td className="px-4 py-2.5 align-top text-zinc-700 dark:text-zinc-300">
                               {t.summary}
+                              {t.complexityMismatch && (
+                                <span
+                                  className="ml-1.5 text-amber-600 dark:text-amber-400"
+                                  title={t.mismatchSuggestion ?? undefined}
+                                >
+                                  ⚠ flagged
+                                </span>
+                              )}
                             </td>
                             <td className="px-4 py-2.5 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
                               {t.complexity != null ? (
@@ -326,12 +380,21 @@ export default async function PerformanceReviewPage({
                                 </span>
                               )}
                             </td>
+                            <td className="px-4 py-2.5 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
+                              {t.loc != null ? (
+                                t.loc
+                              ) : (
+                                <span className="text-zinc-400" title="No PR matched yet">
+                                  —
+                                </span>
+                              )}
+                            </td>
                           </tr>
                         ))}
                         {detail.featureItems.length === 0 && (
                           <tr>
                             <td
-                              colSpan={3}
+                              colSpan={4}
                               className="px-4 py-8 text-center text-sm text-zinc-400"
                             >
                               No feature tasks completed this quarter.

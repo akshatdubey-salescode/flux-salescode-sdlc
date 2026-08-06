@@ -14,6 +14,15 @@ export type ScorecardRow = {
   /** Department (from Keka), or null when unmatched. Drives the dept filter. */
   department: string | null;
   finalScore: number;
+  // Same formula with self-assigned Jiras (reporter === credited person)
+  // excluded from every metric. Null only for rows scored before this
+  // exclusion pass existed.
+  adjustedFinalScore: number | null;
+  // Complexity Accuracy: correct/checked tasks (LOC-vs-marked-complexity
+  // agreement), rendered as "correct/checked (pct%)". checked=0 → no PRs
+  // matched yet, render as "—".
+  complexityAccuracyCorrect: number;
+  complexityAccuracyChecked: number;
   bugQualityPoints: number | null;
   mttrPoints: number | null;
   sprintCommitmentPoints: number | null;
@@ -28,6 +37,7 @@ export type ScorecardBugItem = {
   summary: string;
   priority: string | null;
   weight: number;
+  selfAssigned: boolean;
   /** Deep link to the issue in Jira; absent if the project base URL is unknown. */
   url?: string;
 };
@@ -35,6 +45,12 @@ export type ScorecardFeatureItem = {
   key: string;
   summary: string;
   complexity: number | null;
+  selfAssigned: boolean;
+  /** Additions + deletions summed across matched PRs; null when none matched yet. */
+  loc: number | null;
+  /** True when a C4/C5 task's LOC is suspiciously low for its claimed complexity. */
+  complexityMismatch: boolean;
+  mismatchSuggestion: string | null;
   url?: string;
 };
 export type ScorecardMttrItem = {
@@ -74,6 +90,9 @@ export type ScorecardDetail = {
   email: string;
   name: string;
   finalScore: number;
+  adjustedFinalScore: number | null;
+  complexityAccuracyCorrect: number;
+  complexityAccuracyChecked: number;
   computedAt: string | null;
   weightedBugs: number;
   featureCount: number;
@@ -200,6 +219,9 @@ export async function fetchScorecards(quarterKey: string): Promise<ScorecardRow[
     .select({
       userEmail: performanceScorecards.userEmail,
       finalScore: performanceScorecards.finalScore,
+      adjustedFinalScore: performanceScorecards.adjustedFinalScore,
+      complexityAccuracyCorrect: performanceScorecards.complexityAccuracyCorrect,
+      complexityAccuracyChecked: performanceScorecards.complexityAccuracyChecked,
       bugQualityPoints: performanceScorecards.bugQualityPoints,
       mttrPoints: performanceScorecards.mttrPoints,
       sprintCommitmentPoints: performanceScorecards.sprintCommitmentPoints,
@@ -232,6 +254,9 @@ export async function fetchScorecards(quarterKey: string): Promise<ScorecardRow[
       manager: keka.get(r.userEmail.toLowerCase())?.manager ?? null,
       department: keka.get(r.userEmail.toLowerCase())?.department ?? null,
       finalScore: r.finalScore,
+      adjustedFinalScore: r.adjustedFinalScore,
+      complexityAccuracyCorrect: r.complexityAccuracyCorrect,
+      complexityAccuracyChecked: r.complexityAccuracyChecked,
       bugQualityPoints: r.bugQualityPoints,
       mttrPoints: r.mttrPoints,
       sprintCommitmentPoints: r.sprintCommitmentPoints,
@@ -300,6 +325,9 @@ export async function fetchScorecardDetail(
     email: r.userEmail,
     name: names.get(r.userEmail) ?? r.userEmail,
     finalScore: r.finalScore,
+    adjustedFinalScore: r.adjustedFinalScore,
+    complexityAccuracyCorrect: r.complexityAccuracyCorrect,
+    complexityAccuracyChecked: r.complexityAccuracyChecked,
     computedAt: r.computedAt ? r.computedAt.toISOString() : null,
     weightedBugs: r.weightedBugs,
     featureCount: r.featureCount,
