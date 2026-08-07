@@ -1,9 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import type { ScorecardFeatureItem } from "./data";
 import { filterFeatureTasks } from "./feature-tasks-filter";
+import { setSelfAssignedOverride, clearSelfAssignedOverride } from "./actions";
 
 /**
  * Renders a Jira issue key. When the issue's instance URL is known it links to
@@ -46,13 +49,50 @@ function InfoBadge({ text }: { text: string }) {
  * rows client-side, it never changes what's fetched or scored. Nobody who
  * doesn't touch the toggle sees any different behavior than before.
  */
-export function FeatureTasksTable({ items }: { items: ScorecardFeatureItem[] }) {
+export function FeatureTasksTable({
+  items,
+  isSuperuser,
+  quarterKey,
+}: {
+  items: ScorecardFeatureItem[];
+  /** Gates the override controls — everyone else just sees the badge, same
+   * as before this existed. */
+  isSuperuser: boolean;
+  quarterKey: string;
+}) {
   const [nonSelfAssignedOnly, setNonSelfAssignedOnly] = useState(false);
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const router = useRouter();
 
   const visible = useMemo(
     () => filterFeatureTasks(items, nonSelfAssignedOnly),
     [items, nonSelfAssignedOnly],
   );
+
+  // Persists a superuser's correction (jira_self_assigned_overrides) and
+  // recomputes this quarter immediately, rather than requiring a separate
+  // manual Recompute click — the correction is what the superuser came here
+  // to make, so it should take effect right away.
+  async function handleOverride(
+    jiraKey: string,
+    action: "markSelf" | "markNot" | "clear",
+  ) {
+    setPendingKey(jiraKey);
+    try {
+      const res =
+        action === "clear"
+          ? await clearSelfAssignedOverride(jiraKey, quarterKey)
+          : await setSelfAssignedOverride(jiraKey, action === "markSelf", quarterKey);
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(`${jiraKey} updated — recomputed for this quarter.`);
+      router.refresh();
+    } finally {
+      setPendingKey(null);
+    }
+  }
 
   return (
     <section className="space-y-3">
@@ -150,6 +190,40 @@ export function FeatureTasksTable({ items }: { items: ScorecardFeatureItem[] }) 
                     >
                       self-assigned
                     </span>
+                  )}
+                  {t.selfAssignedOverridden && (
+                    <span
+                      className="ml-1.5 rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:bg-blue-950/40 dark:text-blue-400"
+                      title="A superuser manually overrode this Jira's self-assigned status"
+                    >
+                      overridden
+                    </span>
+                  )}
+                  {isSuperuser && (
+                    <button
+                      type="button"
+                      disabled={pendingKey === t.key}
+                      onClick={() =>
+                        handleOverride(
+                          t.key,
+                          t.selfAssignedOverridden ? "clear" : t.selfAssigned ? "markNot" : "markSelf",
+                        )
+                      }
+                      title={
+                        t.selfAssignedOverridden
+                          ? "Revert to the computed reporter === credited-person comparison"
+                          : `Force this Jira to count as ${t.selfAssigned ? "NOT " : ""}self-assigned`
+                      }
+                      className="ml-1.5 text-[10px] font-medium text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
+                    >
+                      {pendingKey === t.key
+                        ? "Saving…"
+                        : t.selfAssignedOverridden
+                          ? "Clear override"
+                          : t.selfAssigned
+                            ? "Mark not self-assigned"
+                            : "Mark self-assigned"}
+                    </button>
                   )}
                 </td>
                 <td className="px-4 py-2.5 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">

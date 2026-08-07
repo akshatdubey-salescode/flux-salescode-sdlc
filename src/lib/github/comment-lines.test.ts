@@ -111,8 +111,8 @@ test("SQL: -- comment excluded, code counted", () => {
   assert.deepEqual(countPatchCodeLines("q.sql", p), { additions: 1, deletions: 0 });
 });
 
-test("Lua: -- comment excluded, --[[ ]] block excluded", () => {
-  const p = patch(["+-- a note", "+--[[ block", "+   comment ]]", "+print('x')"]);
+test("Lua: -- comment excluded, --[[ ]] block excluded, print() now also excluded as a log call", () => {
+  const p = patch(["+-- a note", "+--[[ block", "+   comment ]]", "+print('x')", "+local y = 2"]);
   assert.deepEqual(countPatchCodeLines("a.lua", p), { additions: 1, deletions: 0 });
 });
 
@@ -131,6 +131,58 @@ test("CSS: /* */ comment excluded, rule counted", () => {
 test("SCSS: // line comment excluded (uses C_STYLE, not a separate duplicate style)", () => {
   const p = patch(["+// note", "+.a { color: red; }"]);
   assert.deepEqual(countPatchCodeLines("a.scss", p), { additions: 1, deletions: 0 });
+});
+
+// --- Log statement stripping ---------------------------------------------------
+
+test("TypeScript: console.log excluded, logger.* excluded, real code counted", () => {
+  const p = patch(["+console.log(\"x\");", "+logger.info(\"y\");", "+this.logger.debug(\"z\");", "+const x = 1;"]);
+  assert.deepEqual(countPatchCodeLines("a.ts", p), { additions: 1, deletions: 0 });
+});
+
+test("TypeScript: an awaited/returned log call is still recognized as a log statement", () => {
+  const p = patch(["+await logger.flush();", "+return console.log(x);"]);
+  assert.deepEqual(countPatchCodeLines("a.ts", p), { additions: 0, deletions: 0 });
+});
+
+test("TypeScript: a variable merely named logger/log is not mistaken for a call (no trailing dot)", () => {
+  const p = patch(["+const logger = createLogger();", "+logCount++;"]);
+  assert.deepEqual(countPatchCodeLines("a.ts", p), { additions: 2, deletions: 0 });
+});
+
+test("Java: System.out.println and Log.d excluded, real code counted", () => {
+  const p = patch(["+System.out.println(\"x\");", "+Log.d(TAG, \"y\");", "+int total = a + b;"]);
+  assert.deepEqual(countPatchCodeLines("a.java", p), { additions: 1, deletions: 0 });
+});
+
+test("Go: fmt.Println/log.Printf excluded, fmt.Sprintf is NOT excluded (returns a string, doesn't print)", () => {
+  const p = patch(["+fmt.Println(x)", "+log.Printf(\"%d\", x)", "+s := fmt.Sprintf(\"%d\", x)"]);
+  assert.deepEqual(countPatchCodeLines("a.go", p), { additions: 1, deletions: 0 });
+});
+
+test("Python: print() and logging.* excluded, code counted", () => {
+  const p = patch(["+print(x)", "+logging.info(\"y\")", "+self.logger.warning(\"z\")", "+x = 1"]);
+  assert.deepEqual(countPatchCodeLines("a.py", p), { additions: 1, deletions: 0 });
+});
+
+test("Rust: println!/debug!/dbg! excluded, code counted", () => {
+  const p = patch(["+println!(\"{}\", x);", "+debug!(\"y\");", "+dbg!(x);", "+let y = x + 1;"]);
+  assert.deepEqual(countPatchCodeLines("a.rs", p), { additions: 1, deletions: 0 });
+});
+
+test("C#: Console.WriteLine and _logger excluded, code counted", () => {
+  const p = patch(["+Console.WriteLine(x);", "+_logger.LogInformation(\"y\");", "+var total = a + b;"]);
+  assert.deepEqual(countPatchCodeLines("a.cs", p), { additions: 1, deletions: 0 });
+});
+
+test("unmapped extension: no log prefixes defined, nothing is stripped as a log call", () => {
+  const p = patch(["+print(x)"]);
+  assert.deepEqual(countPatchCodeLines("data.proto", p), { additions: 1, deletions: 0 });
+});
+
+test("a log call and a whole-line comment on the same patch are both excluded independently", () => {
+  const p = patch(["+// a comment", "+console.log(x);", "+const y = 2;"]);
+  assert.deepEqual(countPatchCodeLines("a.ts", p), { additions: 1, deletions: 0 });
 });
 
 // --- Multi-file aggregation (caller sums across files; verify per-call purity) -

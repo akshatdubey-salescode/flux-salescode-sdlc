@@ -4,10 +4,11 @@
 
 import type { ScorecardRow } from "./data";
 
-// "score" reads finalScore (the full 0-100 composite); "m"/"e"/"nsaM"/"nsaE"
-// each read a dedicated 0-30 Complex Tasks-only field — see build.ts file
-// header. They're on different scales and no longer share a field.
-export type SortKey = "score" | "m" | "e" | "nsaM" | "nsaE";
+// "score" and "scoreNsaE" both read a full 0-100 composite (finalScore and
+// scoreNsaExpected respectively); "m"/"e"/"nsaM"/"nsaE" each read a dedicated
+// 0-30 Complex Tasks-only field — see build.ts file header. They're on
+// different scales and no longer share a field.
+export type SortKey = "score" | "m" | "e" | "nsaM" | "nsaE" | "scoreNsaE";
 
 type SortableRow = Pick<
   ScorecardRow,
@@ -16,6 +17,7 @@ type SortableRow = Pick<
   | "expectedComplexityScoreAll"
   | "markedComplexityScore"
   | "expectedComplexityScore"
+  | "scoreNsaExpected"
 >;
 
 export function ratingValueForSortKey(row: SortableRow, key: SortKey): number {
@@ -30,5 +32,7 @@ export function ratingValueForSortKey(row: SortableRow, key: SortKey): number {
       return row.markedComplexityScore;
     case "nsaE":
       return row.expectedComplexityScore;
+    case "scoreNsaE":
+      return row.scoreNsaExpected;
   }
 }

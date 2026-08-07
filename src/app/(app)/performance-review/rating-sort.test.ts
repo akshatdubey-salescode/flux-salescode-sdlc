@@ -13,6 +13,7 @@ const row = {
   expectedComplexityScoreAll: 21.0,
   markedComplexityScore: 16.7,
   expectedComplexityScore: 15.9,
+  scoreNsaExpected: 71.2,
 };
 
 test("score reads finalScore (the 0-100 composite)", () => {
@@ -35,8 +36,16 @@ test("nsaE reads expectedComplexityScore", () => {
   assert.equal(ratingValueForSortKey(row, "nsaE"), 15.9);
 });
 
+test("scoreNsaE reads scoreNsaExpected (a full 0-100 composite, not the 0-30 nsaE field)", () => {
+  assert.equal(ratingValueForSortKey(row, "scoreNsaE"), 71.2);
+});
+
 test("score and m are on unrelated scales — neither is derived from the other", () => {
   assert.notEqual(ratingValueForSortKey(row, "score"), ratingValueForSortKey(row, "m"));
+});
+
+test("score and scoreNsaE are both 0-100 composites but read independent fields", () => {
+  assert.notEqual(ratingValueForSortKey(row, "score"), ratingValueForSortKey(row, "scoreNsaE"));
 });
 
 test("m and nsaM diverge whenever self-assigned Jiras exist", () => {
@@ -46,6 +55,7 @@ test("m and nsaM diverge whenever self-assigned Jiras exist", () => {
     expectedComplexityScoreAll: 26,
     markedComplexityScore: 14,
     expectedComplexityScore: 12,
+    scoreNsaExpected: 82,
   };
   assert.notEqual(
     ratingValueForSortKey(withSelfAssigned, "m"),

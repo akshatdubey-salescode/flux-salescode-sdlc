@@ -65,6 +65,62 @@ function styleForFile(filename: string): CommentStyle | null {
   return ext ? (STYLE_BY_EXT[ext] ?? null) : null;
 }
 
+const JS_LOG = ["console.", "logger.", "this.logger.", "this.log."];
+const JVM_LOG = ["System.out.println(", "System.err.println(", "logger.", "log.", "this.logger.", "this.log.", "Log.d(", "Log.i(", "Log.e(", "Log.w(", "Log.v(", "LOGGER.", "Timber."];
+const GO_LOG = ["fmt.Println(", "fmt.Printf(", "fmt.Print(", "log.Println(", "log.Printf(", "log.Print("];
+const SWIFT_LOG = ["print(", "NSLog(", "os_log("];
+const C_LOG = ["printf(", "fprintf(", "puts(", "perror(", "std::cout", "std::cerr"];
+const CSHARP_LOG = ["Console.WriteLine(", "Console.Write(", "Debug.WriteLine(", "Trace.WriteLine(", "_logger.", "logger.", "Log."];
+const RUST_LOG = ["println!(", "print!(", "eprintln!(", "eprint!(", "dbg!(", "debug!(", "info!(", "warn!(", "error!(", "trace!("];
+const DART_LOG = ["print(", "debugPrint("];
+const PYTHON_LOG = ["print(", "logging.", "logger.", "self.logger.", "self.log."];
+const RUBY_LOG = ["puts ", "puts(", "p ", "pp ", "logger.", "Rails.logger."];
+const PHP_LOG = ["error_log(", "var_dump(", "print_r(", "Log::"];
+const LUA_LOG = ["print("];
+
+const LOG_PREFIXES_BY_EXT: Record<string, string[]> = {
+  ts: JS_LOG, tsx: JS_LOG, js: JS_LOG, jsx: JS_LOG, mjs: JS_LOG, cjs: JS_LOG,
+  java: JVM_LOG, kt: JVM_LOG, kts: JVM_LOG, scala: JVM_LOG,
+  go: GO_LOG,
+  swift: SWIFT_LOG,
+  c: C_LOG, cc: C_LOG, cpp: C_LOG, h: C_LOG, hpp: C_LOG,
+  cs: CSHARP_LOG,
+  rs: RUST_LOG,
+  dart: DART_LOG,
+  py: PYTHON_LOG,
+  rb: RUBY_LOG,
+  php: PHP_LOG,
+  lua: LUA_LOG,
+};
+
+function logPrefixesForFile(filename: string): string[] {
+  const ext = filename.split(".").pop()?.toLowerCase();
+  return ext ? (LOG_PREFIXES_BY_EXT[ext] ?? []) : [];
+}
+
+const LOG_WRAPPER_PREFIXES = ["await ", "return ", "yield ", "void "];
+
+function stripLogWrappers(trimmed: string): string {
+  let result = trimmed;
+  let strippedSomething = true;
+  while (strippedSomething) {
+    strippedSomething = false;
+    for (const prefix of LOG_WRAPPER_PREFIXES) {
+      if (result.startsWith(prefix)) {
+        result = result.slice(prefix.length);
+        strippedSomething = true;
+      }
+    }
+  }
+  return result;
+}
+
+function isLogStatement(content: string, logPrefixes: string[]): boolean {
+  if (logPrefixes.length === 0) return false;
+  const trimmed = stripLogWrappers(content.trim());
+  return logPrefixes.some((prefix) => trimmed.startsWith(prefix));
+}
+
 /**
  * True when `content` (a patch line with its +/-/space marker already
  * stripped) is a whole-line comment under `style`, given whether we're
@@ -116,17 +172,18 @@ function classifyLine(
 }
 
 /**
- * Code-only (comments excluded) added/removed line counts for one file's
- * unified-diff patch. Block-comment state is carried sequentially through the
- * whole patch (context, added, and removed lines all update it) and does NOT
- * reset between hunks — a deliberate simplification; see the module header
- * for its known limitation.
+ * Code-only (comments and log statements excluded) added/removed line counts
+ * for one file's unified-diff patch. Block-comment state is carried
+ * sequentially through the whole patch (context, added, and removed lines all
+ * update it) and does NOT reset between hunks — a deliberate simplification;
+ * see the module header for its known limitation.
  */
 export function countPatchCodeLines(
   filename: string,
   patch: string
 ): { additions: number; deletions: number } {
   const style = styleForFile(filename);
+  const logPrefixes = logPrefixesForFile(filename);
   let additions = 0;
   let deletions = 0;
   let inBlockComment = false;
@@ -139,18 +196,14 @@ export function countPatchCodeLines(
     if (marker !== "+" && marker !== "-" && marker !== " ") continue;
     const content = line.slice(1);
 
-    // No known comment style for this extension — count every changed line
-    // as code rather than guessing at a syntax we don't recognize.
-    if (!style) {
-      if (marker === "+") additions++;
-      else if (marker === "-") deletions++;
-      continue;
+    let isComment = false;
+    if (style) {
+      const classified = classifyLine(content, style, inBlockComment);
+      isComment = classified.isComment;
+      inBlockComment = classified.nextInBlockComment;
     }
 
-    const { isComment, nextInBlockComment } = classifyLine(content, style, inBlockComment);
-    inBlockComment = nextInBlockComment;
-
-    if (isComment) continue;
+    if (isComment || isLogStatement(content, logPrefixes)) continue;
     if (marker === "+") additions++;
     else if (marker === "-") deletions++;
   }

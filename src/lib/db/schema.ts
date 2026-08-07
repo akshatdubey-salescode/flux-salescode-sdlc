@@ -1462,6 +1462,14 @@ export const performanceScorecards = pgTable(
       .notNull()
       .default(0),
 
+    // SCORE NSA. (E) — unlike the four COMPLEX columns above (Complex Tasks
+    // contribution alone, 0-30), this is the full four-metric composite
+    // (0-100), same formula as finalScore, but computed over the
+    // self-assigned-excluded population with Complex Tasks weighted by
+    // LOC-predicted complexity instead of marked. Directly comparable to
+    // finalScore, not to the COMPLEX columns.
+    scoreNsaExpected: doublePrecision("score_nsa_expected").notNull().default(0),
+
     // Complexity Accuracy, all-Jiras: of every task (checked), how many had
     // marked complexity equal to what the LOC predicts (correct) — e.g.
     // correct=9, checked=30 renders as "9/30 (30%)". Shown in the Details
@@ -1501,6 +1509,37 @@ export const performanceScorecards = pgTable(
 
 export type PerformanceScorecard = typeof performanceScorecards.$inferSelect;
 export type NewPerformanceScorecard = typeof performanceScorecards.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Jira Self-Assigned Overrides — a superuser's manual correction of whether a
+// specific Jira counts as self-assigned (reporter === credited person) for
+// scoring purposes. Keyed by jiraKey alone (not per-quarter): a Jira is the
+// same issue regardless of which quarter it's scored in, so one override
+// applies everywhere that key is ever encountered. Persists across
+// Recompute — build.ts checks this table before falling back to the computed
+// reporter === credited-person comparison (isSelfAssigned).
+// ---------------------------------------------------------------------------
+
+export const jiraSelfAssignedOverrides = pgTable("jira_self_assigned_overrides", {
+  jiraKey: text("jira_key").primaryKey(), // upper-cased, e.g. "CAV-2245"
+  // true = force this Jira to count as self-assigned regardless of what
+  // reporter/credited-person actually says; false = force it to NOT count as
+  // self-assigned.
+  selfAssigned: boolean("self_assigned").notNull(),
+  note: text("note"),
+  setBy: text("set_by")
+    .notNull()
+    .references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type JiraSelfAssignedOverride = typeof jiraSelfAssignedOverrides.$inferSelect;
+export type NewJiraSelfAssignedOverride = typeof jiraSelfAssignedOverrides.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // Delay Logs — recorded reasons for why a task/bug is delayed. An issue can
