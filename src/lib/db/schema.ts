@@ -1428,37 +1428,36 @@ export const performanceScorecards = pgTable(
       .default(0),
     underestimatedTasksPoints: doublePrecision("underestimated_tasks_points"),
 
-    // The 2x2 Jira Complexity Rating grid — {all-Jiras, self-assigned-
-    // excluded (NSA)} x {marked complexity, LOC-predicted ("expected")
-    // complexity}. See build.ts file header for the full explanation.
-
-    // COMPLEX. (M) — weighted sum of sub-scores (§6.2), the original
-    // Performance Review Score. Every completed Jira counts, including
-    // self-created-and-assigned ones; this is deliberately the unfiltered
-    // rating and must stay that way (see build.ts file header).
+    // Weighted sum of sub-scores (§6.2), the original Performance Review
+    // Score. Every completed Jira counts, including self-created-and-assigned
+    // ones; this is deliberately the unfiltered rating and must stay that way
+    // (see build.ts file header). 0-100.
     finalScore: doublePrecision("final_score").notNull().default(0),
 
-    // COMPLEX. (E) — same all-Jiras population as finalScore, but the
-    // Complex Tasks metric is weighted by LOC-predicted complexity instead of
-    // the marked value.
+    // The 2x2 Jira Complexity Rating grid — {all-Jiras, self-assigned-
+    // excluded (NSA)} x {marked complexity, LOC-predicted ("expected")
+    // complexity}. Unlike finalScore above, each of these four is ONLY the
+    // Complex Tasks metric's own contribution (0-30), not the full four-metric
+    // composite — see build.ts file header for why.
+
+    // COMPLEX. (M) — all-Jiras, marked complexity.
+    markedComplexityScoreAll: doublePrecision("marked_complexity_score_all")
+      .notNull()
+      .default(0),
+
+    // COMPLEX. (E) — all-Jiras, LOC-predicted complexity.
     expectedComplexityScoreAll: doublePrecision("expected_complexity_score_all")
       .notNull()
       .default(0),
 
-    // COMPLEX NSA. (M) — identical formula to finalScore, but self-assigned
-    // Jiras (reporter === credited person) are excluded entirely at
-    // attribution time (build.ts). A genuinely additional rating, not a
-    // replacement for finalScore.
+    // COMPLEX NSA. (M) — self-assigned Jiras (reporter === credited person)
+    // excluded entirely at attribution time (build.ts), marked complexity.
     markedComplexityScore: doublePrecision("marked_complexity_score")
       .notNull()
       .default(0),
 
-    // COMPLEX NSA. (E) — identical to markedComplexityScore except the
-    // Complex Tasks metric is weighted by LOC-predicted complexity instead of
-    // the marked value (see expectedComplexWeightedTotal in build.ts). Bug
-    // Quality / MTTR / Sprint Commitment are complexity-agnostic, so this
-    // only ever differs from markedComplexityScore via the Complex Tasks
-    // contribution.
+    // COMPLEX NSA. (E) — same self-assigned exclusion as NSA (M), LOC-
+    // predicted complexity instead of marked.
     expectedComplexityScore: doublePrecision("expected_complexity_score")
       .notNull()
       .default(0),

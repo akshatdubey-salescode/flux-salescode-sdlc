@@ -19,7 +19,7 @@ import { LeaderboardTable } from "./leaderboard-table";
 import { ScoringGuide } from "./scoring-guide";
 import { FeatureTasksTable } from "./feature-tasks-table";
 import { formatComplexityAccuracy } from "./complexity-accuracy-stat";
-import { ratingCalc, ratingCalcExpected } from "./rating-calc";
+import { complexTasksCalc, findComplexTasksMetric } from "./rating-calc";
 
 type SearchParams = Promise<{ quarter?: string; person?: string }>;
 
@@ -67,9 +67,9 @@ const ALL_JIRAS_INFO =
 const NSA_INFO =
   "Excludes self-assigned Jiras — issues where the reporter is also the person credited for the work. Score is unaffected; only this reading reflects that exclusion.";
 const MARKED_FORMULA =
-  "Calculated exactly like Score: Σ (weight × points) × 20 across Bug Quality, MTTR, Sprint Commitment, and Complex Tasks — Complex Tasks weighted by each task's marked complexity.";
+  "The Complex Tasks metric's own contribution only (weight 0.30 × points × scale 20, so 0-30) — weighted by each task's marked complexity. Bug Quality/MTTR/Sprint Commitment (the other 70 points of Score) are deliberately left out, so this column isn't diluted by metrics that don't vary with complexity.";
 const EXPECTED_FORMULA =
-  "Same formula as the Marked rating in this population, except Complex Tasks is weighted by each task's LOC-predicted complexity instead of the marked value.";
+  "Same as the Marked rating in this population, except weighted by each task's LOC-predicted complexity instead of the marked value.";
 
 /** One Complexity Accuracy reading: correct/checked (pct%), or a dash. */
 function ComplexityAccuracyStat({
@@ -208,10 +208,13 @@ export default async function PerformanceReviewPage({
                                   Complex. (M)
                                 </td>
                                 <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
-                                  {ratingCalc(detail.breakdown.metrics, detail.finalScore)}
+                                  {(() => {
+                                    const cm = findComplexTasksMetric(detail.breakdown.metrics);
+                                    return cm ? complexTasksCalc(cm) : "Recompute to see the breakdown";
+                                  })()}
                                 </td>
                                 <td className="px-4 py-3 text-right align-top tabular-nums">
-                                  {detail.finalScore.toFixed(1)} / 100
+                                  {detail.markedComplexityScoreAll.toFixed(1)} / 30
                                 </td>
                                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">—</td>
                                 <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">—</td>
@@ -221,10 +224,13 @@ export default async function PerformanceReviewPage({
                                   Complex. (E)
                                 </td>
                                 <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
-                                  {ratingCalcExpected(detail.breakdown.metrics, detail.expectedComplexityScoreAll)}
+                                  {(() => {
+                                    const ce = findComplexTasksMetric(detail.breakdown.expectedAllMetrics);
+                                    return ce ? complexTasksCalc(ce) : "Recompute to see the breakdown";
+                                  })()}
                                 </td>
                                 <td className="px-4 py-3 text-right align-top tabular-nums">
-                                  {detail.expectedComplexityScoreAll.toFixed(1)} / 100
+                                  {detail.expectedComplexityScoreAll.toFixed(1)} / 30
                                 </td>
                                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">—</td>
                                 <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">—</td>
@@ -234,12 +240,13 @@ export default async function PerformanceReviewPage({
                                   Complex. NSA. (M)
                                 </td>
                                 <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
-                                  {detail.breakdown.nsaMetrics
-                                    ? ratingCalc(detail.breakdown.nsaMetrics, detail.markedComplexityScore)
-                                    : "Recompute to see the breakdown"}
+                                  {(() => {
+                                    const nm = findComplexTasksMetric(detail.breakdown.nsaMetrics);
+                                    return nm ? complexTasksCalc(nm) : "Recompute to see the breakdown";
+                                  })()}
                                 </td>
                                 <td className="px-4 py-3 text-right align-top tabular-nums">
-                                  {detail.markedComplexityScore.toFixed(1)} / 100
+                                  {detail.markedComplexityScore.toFixed(1)} / 30
                                 </td>
                                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">—</td>
                                 <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">—</td>
@@ -249,12 +256,13 @@ export default async function PerformanceReviewPage({
                                   Complex. NSA. (E)
                                 </td>
                                 <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
-                                  {detail.breakdown.nsaMetrics
-                                    ? ratingCalcExpected(detail.breakdown.nsaMetrics, detail.expectedComplexityScore)
-                                    : "Recompute to see the breakdown"}
+                                  {(() => {
+                                    const ne = findComplexTasksMetric(detail.breakdown.nsaExpectedMetrics);
+                                    return ne ? complexTasksCalc(ne) : "Recompute to see the breakdown";
+                                  })()}
                                 </td>
                                 <td className="px-4 py-3 text-right align-top tabular-nums">
-                                  {detail.expectedComplexityScore.toFixed(1)} / 100
+                                  {detail.expectedComplexityScore.toFixed(1)} / 30
                                 </td>
                                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">—</td>
                                 <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">—</td>
@@ -746,7 +754,7 @@ export default async function PerformanceReviewPage({
                                 <dd className="mt-2 text-xs text-zinc-500 dark:text-zinc-500">
                                   This developer:{" "}
                                   <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                                    {detail.finalScore.toFixed(1)} / 100
+                                    {detail.markedComplexityScoreAll.toFixed(1)} / 30
                                   </span>
                                 </dd>
                               </div>
@@ -768,7 +776,7 @@ export default async function PerformanceReviewPage({
                                 <dd className="mt-2 text-xs text-zinc-500 dark:text-zinc-500">
                                   This developer:{" "}
                                   <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                                    {detail.expectedComplexityScoreAll.toFixed(1)} / 100
+                                    {detail.expectedComplexityScoreAll.toFixed(1)} / 30
                                   </span>
                                 </dd>
                               </div>
@@ -790,7 +798,7 @@ export default async function PerformanceReviewPage({
                                 <dd className="mt-2 text-xs text-zinc-500 dark:text-zinc-500">
                                   This developer:{" "}
                                   <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                                    {detail.markedComplexityScore.toFixed(1)} / 100
+                                    {detail.markedComplexityScore.toFixed(1)} / 30
                                   </span>
                                 </dd>
                               </div>
@@ -812,7 +820,7 @@ export default async function PerformanceReviewPage({
                                 <dd className="mt-2 text-xs text-zinc-500 dark:text-zinc-500">
                                   This developer:{" "}
                                   <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                                    {detail.expectedComplexityScore.toFixed(1)} / 100
+                                    {detail.expectedComplexityScore.toFixed(1)} / 30
                                   </span>
                                 </dd>
                               </div>
@@ -991,9 +999,11 @@ export default async function PerformanceReviewPage({
               Quality ({WEIGHTS.bugQuality}), Complex Tasks ({WEIGHTS.complexTasks}),
               Sprint Commitment ({WEIGHTS.sprintCommitment}), and MTTR ({WEIGHTS.mttr}).{" "}
               <strong>Score</strong> counts every completed Jira, unfiltered.
-              Alongside it, four Jira Complexity Rating columns break the same
-              rating down by population and by which complexity feeds Complex
-              Tasks: <strong>Complex. (M)</strong> and{" "}
+              Alongside it, four Jira Complexity Rating columns isolate just
+              the Complex Tasks contribution (out of 30 — the other 70 points
+              of Score are the same regardless of complexity source or
+              self-assignment, so they&apos;re left out to keep the comparison
+              clean): <strong>Complex. (M)</strong> and{" "}
               <strong>Complex. (E)</strong> keep every Jira (identical
               population to Score — marked vs. LOC-predicted complexity);{" "}
               <strong>Complex. NSA. (M)</strong> and{" "}

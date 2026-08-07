@@ -2,35 +2,36 @@
 // doc §5), runs the pure engine (engine.ts), and persists one
 // performance_scorecards row per developer. Overwrites the quarter on each run.
 //
-// Four Jira Complexity Rating numbers are computed and persisted per
-// developer, a 2×2 grid of {all-Jiras, self-assigned-excluded} ×
-// {marked complexity, LOC-predicted ("expected") complexity}:
-//   finalScore                 — COMPLEX. (M): all-Jiras, marked complexity.
-//                                 This IS the original Performance Review
-//                                 score — every completed Jira counts,
-//                                 including self-created-and-assigned ones.
-//                                 Unchanged from how this metric has always
-//                                 worked; this file's job is to never alter
-//                                 its scope.
-//   expectedComplexityScoreAll — COMPLEX. (E): all-Jiras, LOC-predicted
-//                                 complexity. Same population as finalScore,
-//                                 differing only in the Complex Tasks input.
-//   markedComplexityScore      — COMPLEX NSA. (M): identical formula to
-//                                 finalScore, but self-assigned Jiras
-//                                 (reporter === credited person) are excluded
-//                                 entirely, at the point of attribution,
-//                                 before anything is accumulated.
-//   expectedComplexityScore    — COMPLEX NSA. (E): same self-assigned
-//                                 exclusion as markedComplexityScore, except
-//                                 Complex Tasks is weighted by LOC-predicted
-//                                 complexity instead of the marked value.
+// finalScore is Score — the original, untouched Performance Review composite
+// (Bug Quality + MTTR + Sprint Commitment + Complex Tasks, 0-100). Nothing in
+// this file alters its scope; every completed Jira counts, including
+// self-created-and-assigned ones.
 //
-// Bug Quality, MTTR, and Sprint Commitment are complexity-agnostic, so within
-// each population (all-Jiras / NSA) the Marked and Expected readings are
-// identical apart from the Complex Tasks contribution. Complexity Accuracy is
-// tallied BOTH ways too (complexityAccuracyAllCorrect/Checked over every
-// task, complexityAccuracyCorrect/Checked over the NSA population only) —
-// shown in the drill-down, not the leaderboard.
+// Four Jira Complexity Rating numbers are ALSO computed and persisted, a 2×2
+// grid of {all-Jiras, self-assigned-excluded} x {marked complexity,
+// LOC-predicted ("expected") complexity} — but unlike Score, each of these
+// four is ONLY the Complex Tasks metric's own contribution (weight 0.30 x
+// points x scale 20, so 0-30), not the full four-metric composite. Bug
+// Quality/MTTR/Sprint Commitment don't vary with marked-vs-expected
+// complexity or with self-assigned exclusion in a way that matters for
+// validating a complexity rating, so folding all 100 points in just diluted
+// the one number these four columns exist to compare:
+//   markedComplexityScoreAll   — COMPLEX. (M): all-Jiras, Complex Tasks
+//                                 contribution using marked complexity.
+//   expectedComplexityScoreAll — COMPLEX. (E): all-Jiras, Complex Tasks
+//                                 contribution using LOC-predicted complexity.
+//   markedComplexityScore      — COMPLEX NSA. (M): same as (M) above, but
+//                                 self-assigned Jiras (reporter === credited
+//                                 person) are excluded entirely, at the point
+//                                 of attribution, before anything is
+//                                 accumulated.
+//   expectedComplexityScore    — COMPLEX NSA. (E): same self-assigned
+//                                 exclusion as NSA (M), but LOC-predicted
+//                                 complexity instead of marked.
+//
+// Complexity Accuracy is tallied BOTH ways too (complexityAccuracyAllCorrect/
+// Checked over every task, complexityAccuracyCorrect/Checked over the NSA
+// population only) — shown in the drill-down, not the leaderboard.
 
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -74,7 +75,7 @@ import {
   AI_TASK_MAX_ESTIMATE_HOURS,
   normalizeStatus,
 } from "./config";
-import { computeScorecard, type ScorecardInputs } from "./engine";
+import { computeScorecard, type ScorecardInputs, type ScorecardResult } from "./engine";
 import { quarterFromKey } from "./quarter";
 
 // Issue-level detail kept for the drill-down's "weighted bugs" / "feature
@@ -261,6 +262,17 @@ export function buildComplexityBuckets(counts: Map<string, number>): ComplexityB
     });
   }
   return buckets;
+}
+
+/**
+ * The Complex Tasks metric's own contribution (weight x points x scale, so
+ * 0-30) out of a full computeScorecard() result — exported so the four Jira
+ * Complexity Rating numbers (each of which IS this value, not the full
+ * four-metric composite) can be pulled the same way regardless of which
+ * population/complexity-source produced the result.
+ */
+export function complexTasksContribution(result: ScorecardResult): number {
+  return result.breakdown.metrics.find((m) => m.key === "complexTasks")!.contribution;
 }
 
 function isP1OrP2(priority: string | null): boolean {
@@ -718,16 +730,16 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
     );
     const breakdown = {
       ...r.breakdown,
-      // The NSA population's own per-metric contributions (Bug Quality, MTTR,
-      // Sprint Commitment, Complex Tasks-marked) — same shape as the main
-      // metrics array above, but computed over excl (self-assigned excluded).
-      // Bug Quality/MTTR/Sprint Commitment are identical between
-      // markedComplexityScore and expectedComplexityScore (only Complex Tasks
-      // differs, see file header), so this one array is enough to build an
-      // accurate employee-specific breakdown for both Complex. NSA. (M) and
-      // Complex. NSA. (E) in the Details drill-down — no separate persistence
-      // needed for the Expected variant.
+      // The other three populations' own per-metric breakdowns — same shape
+      // as the main metrics array above (r.breakdown.metrics, all-Jiras
+      // marked), computed over the other three {population, complexity
+      // source} combinations. Each exists so the Details drill-down can show
+      // that combination's own Complex Tasks raw text (e.g. "12 task(s), 45
+      // complexity-pts") next to its contribution, rather than only ever
+      // showing the all-Jiras-marked one.
+      expectedAllMetrics: allExpectedR.breakdown.metrics,
       nsaMetrics: markedR.breakdown.metrics,
+      nsaExpectedMetrics: expectedR.breakdown.metrics,
       items: {
         weightedBugs: bugItems,
         bugsResolved: resolvedBugItems,
@@ -756,9 +768,10 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
       underestimatedTasksCount: r.underestimatedTasksCount,
       underestimatedTasksPoints: r.underestimatedTasksPoints,
       finalScore: r.finalScore,
-      expectedComplexityScoreAll: allExpectedR.finalScore,
-      markedComplexityScore: markedR.finalScore,
-      expectedComplexityScore: expectedR.finalScore,
+      markedComplexityScoreAll: complexTasksContribution(r),
+      expectedComplexityScoreAll: complexTasksContribution(allExpectedR),
+      markedComplexityScore: complexTasksContribution(markedR),
+      expectedComplexityScore: complexTasksContribution(expectedR),
       complexityAccuracyAllCorrect: raw.complexityCorrect,
       complexityAccuracyAllChecked: raw.complexityChecked,
       complexityAccuracyCorrect: excl.complexityCorrect,

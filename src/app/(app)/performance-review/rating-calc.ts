@@ -1,46 +1,38 @@
 // Pure formatters for the Details drill-down's employee-specific rating
-// calcs — extracted from page.tsx so the arithmetic (especially the
-// subtraction-derived Expected variant) can be unit-tested without a DOM/
-// React runtime.
+// calcs — extracted from page.tsx so the arithmetic can be unit-tested
+// without a DOM/React runtime.
+//
+// Each of the four Complex./Complex. NSA. ratings is ONLY the Complex Tasks
+// metric's own contribution (0-30), not a sum across Bug Quality/MTTR/Sprint
+// Commitment — see build.ts file header for why. So there's nothing to sum
+// here; the calc is just that one metric's own raw input -> points ->
+// contribution chain.
 
 import type { MetricBreakdown } from "@/lib/scorecard/engine";
+import { WEIGHTS, SCORE_SCALE } from "@/lib/scorecard/config";
 
-/** The metrics that actually feed a rating's total — Code Churn/AI Tasks/
- * Effort carry weight 0 and are never tracked on this platform, so they never
- * appear in a rating's calc breakdown. */
-export function activeContributions(metrics: MetricBreakdown[]): MetricBreakdown[] {
-  return metrics.filter((m) => m.available && m.weight > 0);
+/** Pulls the Complex Tasks entry out of a metrics array — undefined when the
+ * array itself is undefined (a row computed before that population's
+ * breakdown was persisted; see ScorecardBreakdown's own comments). */
+export function findComplexTasksMetric(
+  metrics: MetricBreakdown[] | undefined,
+): MetricBreakdown | undefined {
+  return metrics?.find((m) => m.key === "complexTasks");
 }
 
 /**
- * "Bug Quality 1.26 + MTTR 0.75 + Sprint Commitment 1.00 + Complex Tasks 0.68
- * = 78.5" — the employee-specific calc behind a Marked rating (Complex. (M)
- * or Complex. NSA. (M)), built straight from that population's own
- * per-metric contributions.
+ * "59 task(s), 254 complexity-pts → 4.11 points × 0.30 × 20 = 24.63 / 30" —
+ * the employee-specific calc behind one of the four Complex./Complex. NSA.
+ * columns. Takes the Complex Tasks MetricBreakdown from whichever
+ * population/complexity-source array applies (detail.breakdown.metrics,
+ * .expectedAllMetrics, .nsaMetrics, or .nsaExpectedMetrics).
  */
-export function ratingCalc(metrics: MetricBreakdown[], total: number): string {
-  const parts = activeContributions(metrics).map(
-    (m) => `${m.label} ${m.contribution.toFixed(2)}`,
+export function complexTasksCalc(metric: MetricBreakdown): string {
+  const denom = WEIGHTS.complexTasks * SCORE_SCALE;
+  const points = denom > 0 ? metric.contribution / denom : 0;
+  const max = WEIGHTS.complexTasks * 5 * SCORE_SCALE;
+  return (
+    `${metric.raw} → ${points.toFixed(2)} points × ${WEIGHTS.complexTasks.toFixed(2)} × ` +
+    `${SCORE_SCALE} = ${metric.contribution.toFixed(2)} / ${max.toFixed(0)}`
   );
-  return `${parts.join(" + ")} = ${total.toFixed(1)}`;
-}
-
-/**
- * Same as ratingCalc, but for an Expected rating (Complex. (E) or Complex.
- * NSA. (E)). Bug Quality/MTTR/Sprint Commitment are identical to the Marked
- * rating within the same population (only Complex Tasks differs — see
- * build.ts file header), so Complex Tasks' own contribution is derived by
- * subtraction from the known total rather than needing its own persisted
- * breakdown.
- */
-export function ratingCalcExpected(metrics: MetricBreakdown[], expectedTotal: number): string {
-  const active = activeContributions(metrics);
-  const others = active.filter((m) => m.key !== "complexTasks");
-  const othersSum = others.reduce((s, m) => s + m.contribution, 0);
-  const complexTasksExpected = expectedTotal - othersSum;
-  const parts = [
-    ...others.map((m) => `${m.label} ${m.contribution.toFixed(2)}`),
-    `Complex Tasks ${complexTasksExpected.toFixed(2)}`,
-  ];
-  return `${parts.join(" + ")} = ${expectedTotal.toFixed(1)}`;
 }

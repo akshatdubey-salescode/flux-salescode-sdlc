@@ -21,6 +21,13 @@ const MAX_POINTS = 5;
 const MAX_SCORE =
   Object.values(WEIGHTS).reduce((s, w) => s + w, 0) * MAX_POINTS * SCORE_SCALE;
 
+/** Max Complex Tasks contribution alone (weight 0.30 × 5 × 20 → 30) — what
+ * each of the four Complex./Complex. NSA. columns is out of. Deliberately not
+ * MAX_SCORE: Bug Quality/MTTR/Sprint Commitment (the other 70 points) are the
+ * same regardless of marked-vs-expected or self-assigned exclusion, so
+ * they're left out of these four so the comparison isn't diluted. */
+const MAX_COMPLEX_CONTRIBUTION = WEIGHTS.complexTasks * MAX_POINTS * SCORE_SCALE;
+
 /**
  * A metric's contribution to the 0–100 final score (points × weight × scale)
  * rendered as `value / max`, so the per-metric columns are on the same scale as
@@ -44,12 +51,14 @@ function Contribution({
   );
 }
 
-/** A 0–100 rating rendered as `value / max`, e.g. every Complex. column. */
-function RatingCell({ value }: { value: number }) {
+/** A rating rendered as `value / max`. Score uses MAX_SCORE (100); the four
+ * Complex./Complex. NSA. columns use MAX_COMPLEX_CONTRIBUTION (30) — they're
+ * on different scales, so max is always passed explicitly, never assumed. */
+function RatingCell({ value, max }: { value: number; max: number }) {
   return (
     <>
       {value.toFixed(1)}
-      <span className="font-normal text-zinc-400"> / {MAX_SCORE.toFixed(0)}</span>
+      <span className="font-normal text-zinc-400"> / {max.toFixed(0)}</span>
     </>
   );
 }
@@ -209,7 +218,7 @@ export function LeaderboardTable({
               </th>
               <th
                 className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                title="Rated by each task's marked complexity, every completed Jira included. Click to sort"
+                title="Complex Tasks contribution only (out of 30), rated by each task's marked complexity, every completed Jira included. Bug Quality/MTTR/Sprint Commitment aren't part of this — see Score for those. Click to sort"
               >
                 <span className="inline-flex items-center gap-1">
                   <button
@@ -225,7 +234,7 @@ export function LeaderboardTable({
               </th>
               <th
                 className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                title="Same formula as Complex. (M), but the Complex Tasks metric uses the LOC-predicted complexity instead of the marked value. Click to sort"
+                title="Same as Complex. (M) (out of 30), but using the LOC-predicted complexity instead of the marked value. Click to sort"
               >
                 <span className="inline-flex items-center gap-1">
                   <button
@@ -241,7 +250,7 @@ export function LeaderboardTable({
               </th>
               <th
                 className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                title="Same as Complex. (M), but self-assigned Jiras are excluded entirely. Click to sort"
+                title="Same as Complex. (M) (out of 30), but self-assigned Jiras are excluded entirely. Click to sort"
               >
                 <span className="inline-flex items-center gap-1">
                   <button
@@ -257,7 +266,7 @@ export function LeaderboardTable({
               </th>
               <th
                 className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                title="Same as Complex. (E), but self-assigned Jiras are excluded entirely. Click to sort"
+                title="Same as Complex. (E) (out of 30), but self-assigned Jiras are excluded entirely. Click to sort"
               >
                 <span className="inline-flex items-center gap-1">
                   <button
@@ -319,19 +328,19 @@ export function LeaderboardTable({
                   {row.manager ?? "—"}
                 </td>
                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  <RatingCell value={row.finalScore} />
+                  <RatingCell value={row.finalScore} max={MAX_SCORE} />
                 </td>
                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  <RatingCell value={row.finalScore} />
+                  <RatingCell value={row.markedComplexityScoreAll} max={MAX_COMPLEX_CONTRIBUTION} />
                 </td>
                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  <RatingCell value={row.expectedComplexityScoreAll} />
+                  <RatingCell value={row.expectedComplexityScoreAll} max={MAX_COMPLEX_CONTRIBUTION} />
                 </td>
                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  <RatingCell value={row.markedComplexityScore} />
+                  <RatingCell value={row.markedComplexityScore} max={MAX_COMPLEX_CONTRIBUTION} />
                 </td>
                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  <RatingCell value={row.expectedComplexityScore} />
+                  <RatingCell value={row.expectedComplexityScore} max={MAX_COMPLEX_CONTRIBUTION} />
                 </td>
                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
                   <Contribution

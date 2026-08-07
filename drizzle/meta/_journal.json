@@ -442,6 +442,13 @@
       "when": 1786082508687,
       "tag": "0063_classy_wendigo",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1786095819283,
+      "tag": "0064_perpetual_namor",
+      "breakpoints": true
     }
   ]
 }

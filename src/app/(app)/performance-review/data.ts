@@ -13,21 +13,24 @@ export type ScorecardRow = {
   manager: string | null;
   /** Department (from Keka), or null when unmatched. Drives the dept filter. */
   department: string | null;
-  // The 2x2 Jira Complexity Rating grid — see build.ts file header.
-  // COMPLEX. (M) — the original Performance Review score. Every completed
-  // Jira counts, including self-created-and-assigned ones.
+  // The original Performance Review score — every completed Jira counts,
+  // including self-created-and-assigned ones. Full four-metric composite,
+  // 0-100. Unrelated in scale to the four ratings below.
   finalScore: number;
-  // COMPLEX. (E) — same all-Jiras population as finalScore, but the
-  // Complex Tasks metric is weighted by LOC-predicted complexity instead of
-  // the marked value.
+  // The 2x2 Jira Complexity Rating grid — see build.ts file header. Each of
+  // these four is ONLY the Complex Tasks metric's own contribution (0-30),
+  // not a full composite — Bug Quality/MTTR/Sprint Commitment are the same
+  // 70 points regardless of marked-vs-expected or self-assigned exclusion,
+  // so they're deliberately left out of what these four columns compare.
+  // COMPLEX. (M) — all-Jiras, marked complexity.
+  markedComplexityScoreAll: number;
+  // COMPLEX. (E) — all-Jiras, LOC-predicted complexity.
   expectedComplexityScoreAll: number;
-  // COMPLEX NSA. (M) — identical formula to finalScore, but self-assigned
-  // Jiras (reporter === credited person) are excluded entirely at
-  // attribution time in build.ts.
+  // COMPLEX NSA. (M) — self-assigned Jiras excluded entirely at attribution
+  // time in build.ts, marked complexity.
   markedComplexityScore: number;
-  // COMPLEX NSA. (E) — identical to markedComplexityScore, but the
-  // Complex Tasks metric is weighted by LOC-predicted complexity instead of
-  // the marked value.
+  // COMPLEX NSA. (E) — same self-assigned exclusion as NSA (M), LOC-predicted
+  // complexity instead of marked.
   expectedComplexityScore: number;
   bugQualityPoints: number | null;
   mttrPoints: number | null;
@@ -87,12 +90,15 @@ export type ScorecardMissingActualDateItem = {
 export type ScorecardBreakdown = {
   metrics: MetricBreakdown[];
   finalScore: number;
-  // The NSA (self-assigned-excluded) population's own per-metric contributions
-  // — same shape as metrics above, computed over excl instead of raw. Powers
-  // an accurate employee-specific breakdown for Complex. NSA. (M)/(E) in the
-  // Details drill-down. Absent on any row computed before this field was
-  // added — not backfilled until the next Recompute.
+  // The other three {population, complexity source} combinations' own
+  // per-metric breakdowns — same shape as metrics above (all-Jiras marked).
+  // Each powers that combination's own Complex Tasks raw text (e.g. "12
+  // task(s), 45 complexity-pts") in the Details drill-down. Absent on any row
+  // computed before these fields were added — not backfilled until the next
+  // Recompute.
+  expectedAllMetrics?: MetricBreakdown[];
   nsaMetrics?: MetricBreakdown[];
+  nsaExpectedMetrics?: MetricBreakdown[];
   items?: {
     weightedBugs: ScorecardBugItem[];
     features: ScorecardFeatureItem[];
@@ -110,6 +116,7 @@ export type ScorecardDetail = {
   email: string;
   name: string;
   finalScore: number;
+  markedComplexityScoreAll: number;
   expectedComplexityScoreAll: number;
   markedComplexityScore: number;
   expectedComplexityScore: number;
@@ -248,6 +255,7 @@ export async function fetchScorecards(quarterKey: string): Promise<ScorecardRow[
     .select({
       userEmail: performanceScorecards.userEmail,
       finalScore: performanceScorecards.finalScore,
+      markedComplexityScoreAll: performanceScorecards.markedComplexityScoreAll,
       expectedComplexityScoreAll: performanceScorecards.expectedComplexityScoreAll,
       markedComplexityScore: performanceScorecards.markedComplexityScore,
       expectedComplexityScore: performanceScorecards.expectedComplexityScore,
@@ -283,6 +291,7 @@ export async function fetchScorecards(quarterKey: string): Promise<ScorecardRow[
       manager: keka.get(r.userEmail.toLowerCase())?.manager ?? null,
       department: keka.get(r.userEmail.toLowerCase())?.department ?? null,
       finalScore: r.finalScore,
+      markedComplexityScoreAll: r.markedComplexityScoreAll,
       expectedComplexityScoreAll: r.expectedComplexityScoreAll,
       markedComplexityScore: r.markedComplexityScore,
       expectedComplexityScore: r.expectedComplexityScore,
@@ -354,6 +363,7 @@ export async function fetchScorecardDetail(
     email: r.userEmail,
     name: names.get(r.userEmail) ?? r.userEmail,
     finalScore: r.finalScore,
+    markedComplexityScoreAll: r.markedComplexityScoreAll,
     expectedComplexityScoreAll: r.expectedComplexityScoreAll,
     markedComplexityScore: r.markedComplexityScore,
     expectedComplexityScore: r.expectedComplexityScore,
