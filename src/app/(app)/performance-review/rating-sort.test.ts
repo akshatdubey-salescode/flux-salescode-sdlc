@@ -17,23 +17,23 @@ test("score reads finalScore", () => {
   assert.equal(ratingValueForSortKey(row, "score"), 78.5);
 });
 
-test("mar reads finalScore too — same population and formula as Score", () => {
-  assert.equal(ratingValueForSortKey(row, "mar"), row.finalScore);
+test("m reads finalScore too — same population and formula as Score", () => {
+  assert.equal(ratingValueForSortKey(row, "m"), row.finalScore);
 });
 
-test("exp reads expectedComplexityScoreAll", () => {
-  assert.equal(ratingValueForSortKey(row, "exp"), 71.0);
+test("e reads expectedComplexityScoreAll", () => {
+  assert.equal(ratingValueForSortKey(row, "e"), 71.0);
 });
 
-test("nsaMar reads markedComplexityScore", () => {
-  assert.equal(ratingValueForSortKey(row, "nsaMar"), 45);
+test("nsaM reads markedComplexityScore", () => {
+  assert.equal(ratingValueForSortKey(row, "nsaM"), 45);
 });
 
-test("nsaExp reads expectedComplexityScore", () => {
-  assert.equal(ratingValueForSortKey(row, "nsaExp"), 45);
+test("nsaE reads expectedComplexityScore", () => {
+  assert.equal(ratingValueForSortKey(row, "nsaE"), 45);
 });
 
-test("score and mar diverge from the NSA readings whenever self-assigned Jiras exist", () => {
+test("score and m diverge from the NSA readings whenever self-assigned Jiras exist", () => {
   const withSelfAssigned = {
     finalScore: 100,
     expectedComplexityScoreAll: 90,
@@ -42,10 +42,10 @@ test("score and mar diverge from the NSA readings whenever self-assigned Jiras e
   };
   assert.notEqual(
     ratingValueForSortKey(withSelfAssigned, "score"),
-    ratingValueForSortKey(withSelfAssigned, "nsaMar"),
+    ratingValueForSortKey(withSelfAssigned, "nsaM"),
   );
   assert.notEqual(
-    ratingValueForSortKey(withSelfAssigned, "exp"),
-    ratingValueForSortKey(withSelfAssigned, "nsaExp"),
+    ratingValueForSortKey(withSelfAssigned, "e"),
+    ratingValueForSortKey(withSelfAssigned, "nsaE"),
   );
 });

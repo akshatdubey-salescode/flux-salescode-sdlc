@@ -214,59 +214,59 @@ export function LeaderboardTable({
                 <span className="inline-flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => toggleSort("mar")}
+                    onClick={() => toggleSort("m")}
                     className="inline-flex items-center uppercase hover:text-zinc-700 dark:hover:text-zinc-300"
                   >
-                    Complex. (Mar)
-                    <SortIndicator active={sortKey === "mar"} dir={sortDir} />
+                    Complex. (M)
+                    <SortIndicator active={sortKey === "m"} dir={sortDir} />
                   </button>
                   <HeaderInfoBadge text={ALL_JIRAS_INFO} />
                 </span>
               </th>
               <th
                 className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                title="Same formula as Complex. (Mar), but the Complex Tasks metric uses the LOC-predicted complexity instead of the marked value. Click to sort"
+                title="Same formula as Complex. (M), but the Complex Tasks metric uses the LOC-predicted complexity instead of the marked value. Click to sort"
               >
                 <span className="inline-flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => toggleSort("exp")}
+                    onClick={() => toggleSort("e")}
                     className="inline-flex items-center uppercase hover:text-zinc-700 dark:hover:text-zinc-300"
                   >
-                    Complex. (Exp)
-                    <SortIndicator active={sortKey === "exp"} dir={sortDir} />
+                    Complex. (E)
+                    <SortIndicator active={sortKey === "e"} dir={sortDir} />
                   </button>
                   <HeaderInfoBadge text={ALL_JIRAS_INFO} />
                 </span>
               </th>
               <th
                 className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                title="Same as Complex. (Mar), but self-assigned Jiras are excluded entirely. Click to sort"
+                title="Same as Complex. (M), but self-assigned Jiras are excluded entirely. Click to sort"
               >
                 <span className="inline-flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => toggleSort("nsaMar")}
+                    onClick={() => toggleSort("nsaM")}
                     className="inline-flex items-center uppercase hover:text-zinc-700 dark:hover:text-zinc-300"
                   >
-                    Complex. NSA. (Mar)
-                    <SortIndicator active={sortKey === "nsaMar"} dir={sortDir} />
+                    Complex. NSA. (M)
+                    <SortIndicator active={sortKey === "nsaM"} dir={sortDir} />
                   </button>
                   <HeaderInfoBadge text={NSA_INFO} />
                 </span>
               </th>
               <th
                 className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                title="Same as Complex. (Exp), but self-assigned Jiras are excluded entirely. Click to sort"
+                title="Same as Complex. (E), but self-assigned Jiras are excluded entirely. Click to sort"
               >
                 <span className="inline-flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => toggleSort("nsaExp")}
+                    onClick={() => toggleSort("nsaE")}
                     className="inline-flex items-center uppercase hover:text-zinc-700 dark:hover:text-zinc-300"
                   >
-                    Complex. NSA. (Exp)
-                    <SortIndicator active={sortKey === "nsaExp"} dir={sortDir} />
+                    Complex. NSA. (E)
+                    <SortIndicator active={sortKey === "nsaE"} dir={sortDir} />
                   </button>
                   <HeaderInfoBadge text={NSA_INFO} />
                 </span>

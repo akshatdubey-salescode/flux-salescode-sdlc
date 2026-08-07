@@ -1,5 +1,5 @@
 // Unit tests for the complexity <-> LOC threshold logic that drives the
-// Complexity Rating (Expected) score, the Complexity Accuracy tally, and the
+// Complexity Rating (E) score, the Complexity Accuracy tally, and the
 // C4/C5 mismatch flag. The ranges themselves live in feature_flags (fetched
 // fresh, never cached, via getComplexityLocRanges) — these tests exercise
 // the pure logic with an explicit fixture array, not the DB fetch itself.

@@ -5,22 +5,22 @@
 // Four Jira Complexity Rating numbers are computed and persisted per
 // developer, a 2×2 grid of {all-Jiras, self-assigned-excluded} ×
 // {marked complexity, LOC-predicted ("expected") complexity}:
-//   finalScore                 — COMPLEX. (MAR): all-Jiras, marked complexity.
+//   finalScore                 — COMPLEX. (M): all-Jiras, marked complexity.
 //                                 This IS the original Performance Review
 //                                 score — every completed Jira counts,
 //                                 including self-created-and-assigned ones.
 //                                 Unchanged from how this metric has always
 //                                 worked; this file's job is to never alter
 //                                 its scope.
-//   expectedComplexityScoreAll — COMPLEX. (EXP): all-Jiras, LOC-predicted
+//   expectedComplexityScoreAll — COMPLEX. (E): all-Jiras, LOC-predicted
 //                                 complexity. Same population as finalScore,
 //                                 differing only in the Complex Tasks input.
-//   markedComplexityScore      — COMPLEX NSA. (MAR): identical formula to
+//   markedComplexityScore      — COMPLEX NSA. (M): identical formula to
 //                                 finalScore, but self-assigned Jiras
 //                                 (reporter === credited person) are excluded
 //                                 entirely, at the point of attribution,
 //                                 before anything is accumulated.
-//   expectedComplexityScore    — COMPLEX NSA. (EXP): same self-assigned
+//   expectedComplexityScore    — COMPLEX NSA. (E): same self-assigned
 //                                 exclusion as markedComplexityScore, except
 //                                 Complex Tasks is weighted by LOC-predicted
 //                                 complexity instead of the marked value.
@@ -108,8 +108,8 @@ type FeatureItem = {
   mismatchSuggestion: string | null;
   // True when the reporter is also the person credited for this task — it
   // still counts toward Score (this list is Score's own breakdown, unfiltered
-  // — see file header), but is excluded from Complex. (Marked), Complex.
-  // (Expected), and Complexity Accuracy. Surfaced here so a reviewer can see
+  // — see file header), but is excluded from Complex. (M), Complex.
+  // (E), and Complexity Accuracy. Surfaced here so a reviewer can see
   // *why* a task doesn't show up in those three, without guessing.
   selfAssigned: boolean;
 };
@@ -146,8 +146,8 @@ type Acc = {
   complexWeightedTotal: number;
   // Same tasks, weighted by LOC-predicted complexity instead of the marked
   // value. Accumulated on both raw and excl — feeds expectedComplexityScoreAll
-  // (COMPLEX. (EXP), all-Jiras) on raw and expectedComplexityScore (COMPLEX
-  // NSA. (EXP)) on excl.
+  // (COMPLEX. (E), all-Jiras) on raw and expectedComplexityScore (COMPLEX
+  // NSA. (E)) on excl.
   expectedComplexWeightedTotal: number;
   complexTotalTasks: number;
   aiTaskCount: number;
@@ -547,8 +547,8 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
 
     raw.complexWeightedTotal += complexityWeight(rawComplexity);
     // All-Jiras counterpart of excl.expectedComplexWeightedTotal below — feeds
-    // expectedComplexityScoreAll (COMPLEX. (EXP) — the all-Jiras sibling of
-    // COMPLEX NSA. (EXP)).
+    // expectedComplexityScoreAll (COMPLEX. (E) — the all-Jiras sibling of
+    // COMPLEX NSA. (E)).
     raw.expectedComplexWeightedTotal += complexityWeight(expectedComplexity);
     raw.complexTotalTasks += 1;
     const bucketKey =
@@ -627,11 +627,11 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
       effort: null, // no dev-hours data on this platform (weight 0)
     };
     // The original, unmodified Score — every Jira this developer touched.
-    // Also COMPLEX. (MAR): the all-Jiras Jira Complexity Rating using marked
+    // Also COMPLEX. (M): the all-Jiras Jira Complexity Rating using marked
     // complexity — identical formula and inputs to Score, so identical value;
     // exposed as its own field for the leaderboard's 2×2 rating grid.
     const r = computeScorecard(rawInputs);
-    // COMPLEX. (EXP): the all-Jiras counterpart of COMPLEX NSA. (EXP) below —
+    // COMPLEX. (E): the all-Jiras counterpart of COMPLEX NSA. (E) below —
     // same population as Score, but Complex Tasks weighted by LOC-predicted
     // complexity instead of marked.
     const allExpectedR = computeScorecard({
@@ -653,9 +653,9 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
       churn: null,
       effort: null,
     };
-    // COMPLEX NSA. (MAR) — Jira Complexity Rating, self-assigned excluded.
+    // COMPLEX NSA. (M) — Jira Complexity Rating, self-assigned excluded.
     const markedR = computeScorecard(exclInputs);
-    // COMPLEX NSA. (EXP) — identical, but Complex Tasks is weighted by
+    // COMPLEX NSA. (E) — identical, but Complex Tasks is weighted by
     // LOC-predicted complexity instead of the marked value.
     const expectedR = computeScorecard({
       ...exclInputs,

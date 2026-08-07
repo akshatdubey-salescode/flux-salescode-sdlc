@@ -153,7 +153,7 @@ export default async function PerformanceReviewPage({
                     Jira Complexity Rating
                   </h2>
                   <p className="mt-1 text-sm text-zinc-500">
-                    Complex. (Mar)
+                    Complex. (M)
                     <InfoBadge text={ALL_JIRAS_INFO} />:{" "}
                     <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
                       {detail.finalScore.toFixed(1)}
@@ -161,7 +161,7 @@ export default async function PerformanceReviewPage({
                     / 100
                   </p>
                   <p className="mt-1 text-sm text-zinc-500">
-                    Complex. (Exp)
+                    Complex. (E)
                     <InfoBadge text={ALL_JIRAS_INFO} />:{" "}
                     <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
                       {detail.expectedComplexityScoreAll.toFixed(1)}
@@ -169,7 +169,7 @@ export default async function PerformanceReviewPage({
                     / 100
                   </p>
                   <p className="mt-1 text-sm text-zinc-500">
-                    Complex. NSA. (Mar)
+                    Complex. NSA. (M)
                     <InfoBadge text={NSA_INFO} />:{" "}
                     <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
                       {detail.markedComplexityScore.toFixed(1)}
@@ -177,7 +177,7 @@ export default async function PerformanceReviewPage({
                     / 100
                   </p>
                   <p className="mt-1 text-sm text-zinc-500">
-                    Complex. NSA. (Exp)
+                    Complex. NSA. (E)
                     <InfoBadge text={NSA_INFO} />:{" "}
                     <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
                       {detail.expectedComplexityScore.toFixed(1)}
@@ -724,11 +724,11 @@ export default async function PerformanceReviewPage({
               <strong>Score</strong> counts every completed Jira, unfiltered.
               Alongside it, four Jira Complexity Rating columns break the same
               rating down by population and by which complexity feeds Complex
-              Tasks: <strong>Complex. (Mar)</strong> and{" "}
-              <strong>Complex. (Exp)</strong> keep every Jira (identical
+              Tasks: <strong>Complex. (M)</strong> and{" "}
+              <strong>Complex. (E)</strong> keep every Jira (identical
               population to Score — marked vs. LOC-predicted complexity);{" "}
-              <strong>Complex. NSA. (Mar)</strong> and{" "}
-              <strong>Complex. NSA. (Exp)</strong> exclude self-assigned Jiras
+              <strong>Complex. NSA. (M)</strong> and{" "}
+              <strong>Complex. NSA. (E)</strong> exclude self-assigned Jiras
               (reporter === credited person) entirely. Complexity Accuracy —
               both an all-Jiras and a non-self-assigned reading — moved into
               the per-developer breakdown; use the details icon to see it.

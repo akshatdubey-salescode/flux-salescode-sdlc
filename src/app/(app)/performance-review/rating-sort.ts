@@ -4,12 +4,12 @@
 
 import type { ScorecardRow } from "./data";
 
-// "score" and "mar" intentionally read the same field (finalScore) — see
-// build.ts file header: Complex. (Mar) is the identical formula and value as
+// "score" and "m" intentionally read the same field (finalScore) — see
+// build.ts file header: Complex. (M) is the identical formula and value as
 // Score, just labeled for the 2x2 rating grid. Kept as separate keys so each
 // column's header highlights independently of the other's, even though they
 // always sort identically.
-export type SortKey = "score" | "mar" | "exp" | "nsaMar" | "nsaExp";
+export type SortKey = "score" | "m" | "e" | "nsaM" | "nsaE";
 
 type SortableRow = Pick<
   ScorecardRow,
@@ -22,13 +22,13 @@ type SortableRow = Pick<
 export function ratingValueForSortKey(row: SortableRow, key: SortKey): number {
   switch (key) {
     case "score":
-    case "mar":
+    case "m":
       return row.finalScore;
-    case "exp":
+    case "e":
       return row.expectedComplexityScoreAll;
-    case "nsaMar":
+    case "nsaM":
       return row.markedComplexityScore;
-    case "nsaExp":
+    case "nsaE":
       return row.expectedComplexityScore;
   }
 }

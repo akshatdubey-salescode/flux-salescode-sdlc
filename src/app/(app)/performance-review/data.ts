@@ -14,18 +14,18 @@ export type ScorecardRow = {
   /** Department (from Keka), or null when unmatched. Drives the dept filter. */
   department: string | null;
   // The 2x2 Jira Complexity Rating grid — see build.ts file header.
-  // COMPLEX. (MAR) — the original Performance Review score. Every completed
+  // COMPLEX. (M) — the original Performance Review score. Every completed
   // Jira counts, including self-created-and-assigned ones.
   finalScore: number;
-  // COMPLEX. (EXP) — same all-Jiras population as finalScore, but the
+  // COMPLEX. (E) — same all-Jiras population as finalScore, but the
   // Complex Tasks metric is weighted by LOC-predicted complexity instead of
   // the marked value.
   expectedComplexityScoreAll: number;
-  // COMPLEX NSA. (MAR) — identical formula to finalScore, but self-assigned
+  // COMPLEX NSA. (M) — identical formula to finalScore, but self-assigned
   // Jiras (reporter === credited person) are excluded entirely at
   // attribution time in build.ts.
   markedComplexityScore: number;
-  // COMPLEX NSA. (EXP) — identical to markedComplexityScore, but the
+  // COMPLEX NSA. (E) — identical to markedComplexityScore, but the
   // Complex Tasks metric is weighted by LOC-predicted complexity instead of
   // the marked value.
   expectedComplexityScore: number;
@@ -58,7 +58,7 @@ export type ScorecardFeatureItem = {
   complexityMismatch: boolean;
   mismatchSuggestion: string | null;
   /** Reporter is also the credited person — still counts toward Score, but
-   * excluded from Complex. (Marked), Complex. (Expected), and Complexity
+   * excluded from Complex. (M), Complex. (E), and Complexity
    * Accuracy. */
   selfAssigned: boolean;
   url?: string;

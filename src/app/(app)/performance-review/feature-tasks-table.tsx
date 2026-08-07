@@ -94,7 +94,7 @@ export function FeatureTasksTable({ items }: { items: ScorecardFeatureItem[] }) 
           self-assigned
         </span>{" "}
         still count here and toward Score, but are excluded from
-        Complex. (Marked), Complex. (Expected), and Complexity
+        Complex. (M), Complex. (E), and Complexity
         Accuracy — use the toggle above to hide them.
       </p>
       <div className="max-h-96 overflow-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -146,7 +146,7 @@ export function FeatureTasksTable({ items }: { items: ScorecardFeatureItem[] }) 
                   {t.selfAssigned && (
                     <span
                       className="ml-1.5 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
-                      title="Reporter is also the credited person — counts toward Score, excluded from Complex. (Marked), Complex. (Expected), and Complexity Accuracy"
+                      title="Reporter is also the credited person — counts toward Score, excluded from Complex. (M), Complex. (E), and Complexity Accuracy"
                     >
                       self-assigned
                     </span>

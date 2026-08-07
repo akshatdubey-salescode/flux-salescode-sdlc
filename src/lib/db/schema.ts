@@ -1432,20 +1432,20 @@ export const performanceScorecards = pgTable(
     // excluded (NSA)} x {marked complexity, LOC-predicted ("expected")
     // complexity}. See build.ts file header for the full explanation.
 
-    // COMPLEX. (MAR) — weighted sum of sub-scores (§6.2), the original
+    // COMPLEX. (M) — weighted sum of sub-scores (§6.2), the original
     // Performance Review Score. Every completed Jira counts, including
     // self-created-and-assigned ones; this is deliberately the unfiltered
     // rating and must stay that way (see build.ts file header).
     finalScore: doublePrecision("final_score").notNull().default(0),
 
-    // COMPLEX. (EXP) — same all-Jiras population as finalScore, but the
+    // COMPLEX. (E) — same all-Jiras population as finalScore, but the
     // Complex Tasks metric is weighted by LOC-predicted complexity instead of
     // the marked value.
     expectedComplexityScoreAll: doublePrecision("expected_complexity_score_all")
       .notNull()
       .default(0),
 
-    // COMPLEX NSA. (MAR) — identical formula to finalScore, but self-assigned
+    // COMPLEX NSA. (M) — identical formula to finalScore, but self-assigned
     // Jiras (reporter === credited person) are excluded entirely at
     // attribution time (build.ts). A genuinely additional rating, not a
     // replacement for finalScore.
@@ -1453,7 +1453,7 @@ export const performanceScorecards = pgTable(
       .notNull()
       .default(0),
 
-    // COMPLEX NSA. (EXP) — identical to markedComplexityScore except the
+    // COMPLEX NSA. (E) — identical to markedComplexityScore except the
     // Complex Tasks metric is weighted by LOC-predicted complexity instead of
     // the marked value (see expectedComplexWeightedTotal in build.ts). Bug
     // Quality / MTTR / Sprint Commitment are complexity-agnostic, so this
