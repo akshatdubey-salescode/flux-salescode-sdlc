@@ -411,7 +411,11 @@ export default async function PerformanceReviewPage({
                   </div>
                 </section>
 
-                <FeatureTasksTable items={detail.featureItems} />
+                <FeatureTasksTable
+                  items={detail.featureItems}
+                  isSuperuser={canRecompute}
+                  quarterKey={quarterKey}
+                />
 
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">

@@ -1503,6 +1503,37 @@ export type PerformanceScorecard = typeof performanceScorecards.$inferSelect;
 export type NewPerformanceScorecard = typeof performanceScorecards.$inferInsert;
 
 // ---------------------------------------------------------------------------
+// Jira Self-Assigned Overrides — a superuser's manual correction of whether a
+// specific Jira counts as self-assigned (reporter === credited person) for
+// scoring purposes. Keyed by jiraKey alone (not per-quarter): a Jira is the
+// same issue regardless of which quarter it's scored in, so one override
+// applies everywhere that key is ever encountered. Persists across
+// Recompute — build.ts checks this table before falling back to the computed
+// reporter === credited-person comparison (isSelfAssigned).
+// ---------------------------------------------------------------------------
+
+export const jiraSelfAssignedOverrides = pgTable("jira_self_assigned_overrides", {
+  jiraKey: text("jira_key").primaryKey(), // upper-cased, e.g. "CAV-2245"
+  // true = force this Jira to count as self-assigned regardless of what
+  // reporter/credited-person actually says; false = force it to NOT count as
+  // self-assigned.
+  selfAssigned: boolean("self_assigned").notNull(),
+  note: text("note"),
+  setBy: text("set_by")
+    .notNull()
+    .references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type JiraSelfAssignedOverride = typeof jiraSelfAssignedOverrides.$inferSelect;
+export type NewJiraSelfAssignedOverride = typeof jiraSelfAssignedOverrides.$inferInsert;
+
+// ---------------------------------------------------------------------------
 // Delay Logs — recorded reasons for why a task/bug is delayed. An issue can
 // accrue many editable entries over its lifetime, one per delay event, rather
 // than a single open/resolve flag. `linkedProjectId`/

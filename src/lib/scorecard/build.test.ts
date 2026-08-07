@@ -1,14 +1,21 @@
 // Unit tests for isSelfAssigned (the gate that excludes self-created-and-
-// assigned Jiras from every metric), buildComplexityBuckets (the
-// distribution-table bucketing shared by the marked and expected complexity
-// distributions), and complexTasksContribution (the extraction behind all
-// four Complex./Complex. NSA. leaderboard columns). The rest of build.ts is
-// DB-driven (buildScorecards itself) and isn't unit-tested here; these are
-// the pure functions it exports.
+// assigned Jiras from every metric), resolveSelfAssigned (the same decision,
+// but a superuser's jira_self_assigned_overrides entry wins outright when one
+// exists), buildComplexityBuckets (the distribution-table bucketing shared by
+// the marked and expected complexity distributions), and
+// complexTasksContribution (the extraction behind all four Complex./Complex.
+// NSA. leaderboard columns). The rest of build.ts is DB-driven
+// (buildScorecards itself) and isn't unit-tested here; these are the pure
+// functions it exports.
 // Run: ./node_modules/.bin/tsx --test src/lib/scorecard/build.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isSelfAssigned, buildComplexityBuckets, complexTasksContribution } from "./build";
+import {
+  isSelfAssigned,
+  resolveSelfAssigned,
+  buildComplexityBuckets,
+  complexTasksContribution,
+} from "./build";
 import { computeScorecard, type ScorecardInputs } from "./engine";
 import { WEIGHTS, SCORE_SCALE } from "./config";
 
@@ -38,6 +45,52 @@ test("undefined reporter → not self-assigned", () => {
 
 test("empty-string reporter → not self-assigned", () => {
   assert.equal(isSelfAssigned("", "dev@salescode.ai"), false);
+});
+
+// --- resolveSelfAssigned: superuser override wins outright -------------------
+
+test("no override for this jiraKey → falls back to the computed comparison", () => {
+  const overrides = new Map<string, boolean>();
+  assert.equal(
+    resolveSelfAssigned("CAV-2245", "dev@salescode.ai", "dev@salescode.ai", overrides),
+    true, // computed: reporter === credited person
+  );
+  assert.equal(
+    resolveSelfAssigned("CAV-2245", "manager@salescode.ai", "dev@salescode.ai", overrides),
+    false,
+  );
+});
+
+test("override forces NOT self-assigned even though the computed comparison says self-assigned", () => {
+  const overrides = new Map([["CAV-2245", false]]);
+  assert.equal(
+    resolveSelfAssigned("CAV-2245", "dev@salescode.ai", "dev@salescode.ai", overrides),
+    false,
+  );
+});
+
+test("override forces self-assigned even though the computed comparison says not self-assigned", () => {
+  const overrides = new Map([["CAV-2245", true]]);
+  assert.equal(
+    resolveSelfAssigned("CAV-2245", "manager@salescode.ai", "dev@salescode.ai", overrides),
+    true,
+  );
+});
+
+test("override lookup is case-insensitive on the Jira key", () => {
+  const overrides = new Map([["CAV-2245", false]]);
+  assert.equal(
+    resolveSelfAssigned("cav-2245", "dev@salescode.ai", "dev@salescode.ai", overrides),
+    false,
+  );
+});
+
+test("an override on a different jiraKey doesn't leak into this one", () => {
+  const overrides = new Map([["CAV-9999", false]]);
+  assert.equal(
+    resolveSelfAssigned("CAV-2245", "dev@salescode.ai", "dev@salescode.ai", overrides),
+    true, // no override for THIS key → falls back to computed
+  );
 });
 
 // --- buildComplexityBuckets --------------------------------------------------

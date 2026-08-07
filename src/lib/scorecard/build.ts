@@ -40,6 +40,7 @@ import {
   jiraProjects,
   jiraIssueLoc,
   performanceScorecards,
+  jiraSelfAssignedOverrides,
 } from "@/lib/db/schema";
 import { loadAccountIdEmailMap } from "@/lib/jira/identity";
 import {
@@ -112,8 +113,13 @@ type FeatureItem = {
   // still counts toward Score (this list is Score's own breakdown, unfiltered
   // — see file header), but is excluded from Complex. (M), Complex.
   // (E), and Complexity Accuracy. Surfaced here so a reviewer can see
-  // *why* a task doesn't show up in those three, without guessing.
+  // *why* a task doesn't show up in those three, without guessing. Reflects
+  // a superuser's manual override (jira_self_assigned_overrides) when one
+  // exists for this jiraKey, not just the computed reporter comparison.
   selfAssigned: boolean;
+  // True when a superuser override exists for this exact jiraKey — lets the
+  // UI show "clear override" instead of "set override".
+  selfAssignedOverridden: boolean;
 };
 type MttrItem = {
   key: string;
@@ -217,6 +223,25 @@ export function isSelfAssigned(
 ): boolean {
   const reporter = normalizeEmail(reporterEmail);
   return reporter != null && reporter === creditedEmail;
+}
+
+/**
+ * Same decision as isSelfAssigned, but a superuser's manual override for this
+ * exact Jira key (jira_self_assigned_overrides) wins outright when one
+ * exists — checked first, computed comparison used only as the fallback.
+ * Keyed case-insensitively (jiraKey is upper-cased by the caller's own
+ * convention elsewhere in this file, but this normalizes defensively rather
+ * than assume it).
+ */
+export function resolveSelfAssigned(
+  jiraKey: string,
+  reporterEmail: string | null | undefined,
+  creditedEmail: string,
+  overrides: Map<string, boolean>
+): boolean {
+  const override = overrides.get(jiraKey.toUpperCase());
+  if (override != null) return override;
+  return isSelfAssigned(reporterEmail, creditedEmail);
 }
 
 // Records an issue on the developer's "missing actual dates" list when either
@@ -339,6 +364,21 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
   // cached, so an edit to the thresholds takes effect on the very next
   // Recompute/Sync LOC, not after some cache TTL lapses.
   const complexityLocRanges = await getComplexityLocRanges();
+
+  // Superuser self-assigned overrides — also fetched fresh every run, no
+  // caching, same reasoning as complexityLocRanges: a correction takes effect
+  // on the very next Recompute. Keyed by jiraKey (already upper-cased in the
+  // table), consulted by resolveSelfAssigned before falling back to the
+  // computed reporter === credited-person comparison.
+  const selfAssignedOverrideRows = await db
+    .select({
+      jiraKey: jiraSelfAssignedOverrides.jiraKey,
+      selfAssigned: jiraSelfAssignedOverrides.selfAssigned,
+    })
+    .from(jiraSelfAssignedOverrides);
+  const selfAssignedOverrides = new Map<string, boolean>(
+    selfAssignedOverrideRows.map((r) => [r.jiraKey.toUpperCase(), r.selfAssigned])
+  );
 
   const accountIdEmailMap = await loadAccountIdEmailMap();
 
@@ -463,7 +503,7 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
         priority: b.priority,
         weight,
       });
-      if (!isSelfAssigned(b.reporterEmail, owner)) {
+      if (!resolveSelfAssigned(b.jiraKey, b.reporterEmail, owner, selfAssignedOverrides)) {
         const excl = getAcc(exclAccs, owner);
         excl.weightedBugs += weight;
         excl.ownedBugKeys.add(b.jiraKey);
@@ -519,7 +559,7 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
           }
         }
       }
-      if (!isSelfAssigned(b.reporterEmail, resolver)) {
+      if (!resolveSelfAssigned(b.jiraKey, b.reporterEmail, resolver, selfAssignedOverrides)) {
         const excl = getAcc(exclAccs, resolver);
         excl.bugsResolvedWeighted += weight;
         if (mttrMinutes != null) excl.mttrSamples.push(mttrMinutes);
@@ -566,7 +606,8 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
     // accumulator ends up using them.
     const expectedComplexity = expectedComplexityForLoc(loc, complexityLocRanges, rawComplexity);
     const flagged = isComplexityLocMismatch(rawComplexity, loc, complexityLocRanges);
-    const selfAssigned = isSelfAssigned(t.reporterEmail, owner);
+    const selfAssigned = resolveSelfAssigned(t.jiraKey, t.reporterEmail, owner, selfAssignedOverrides);
+    const selfAssignedOverridden = selfAssignedOverrides.has(t.jiraKey.toUpperCase());
 
     // Feature count — a task counts unless it matches a bug this user owns.
     if (!raw.ownedBugKeys.has(t.jiraKey)) {
@@ -580,6 +621,7 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
         complexityMismatch: flagged,
         mismatchSuggestion: flagged ? mismatchSuggestion(rawComplexity) : null,
         selfAssigned,
+        selfAssignedOverridden,
       });
     }
 

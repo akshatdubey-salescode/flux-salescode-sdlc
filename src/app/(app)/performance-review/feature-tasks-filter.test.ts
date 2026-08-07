@@ -17,6 +17,7 @@ function item(key: string, selfAssigned: boolean): ScorecardFeatureItem {
     complexityMismatch: false,
     mismatchSuggestion: null,
     selfAssigned,
+    selfAssignedOverridden: false,
   };
 }
 

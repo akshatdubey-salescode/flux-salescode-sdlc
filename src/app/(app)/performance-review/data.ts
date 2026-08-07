@@ -62,8 +62,11 @@ export type ScorecardFeatureItem = {
   mismatchSuggestion: string | null;
   /** Reporter is also the credited person — still counts toward Score, but
    * excluded from Complex. (M), Complex. (E), and Complexity
-   * Accuracy. */
+   * Accuracy. Reflects a superuser override when one exists for this Jira. */
   selfAssigned: boolean;
+  /** True when a superuser has manually overridden this Jira's self-assigned
+   * status — drives whether the drill-down offers "clear" vs. "set". */
+  selfAssignedOverridden: boolean;
   url?: string;
 };
 export type ScorecardMttrItem = {
