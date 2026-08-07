@@ -97,7 +97,8 @@ type FeatureItem = {
   // What complexity the matched LOC would predict (complexity-loc-thresholds.ts
   // §expectedComplexityForLoc), shown alongside the marked value so a reviewer
   // sees the actual gap, not just a flag. Always populated — a null loc (no
-  // matched PR) is treated as 0 LOC, predicting C1.
+  // matched PR at all) carries the marked complexity forward unchanged
+  // instead, since there's no evidence to contradict it with.
   expectedComplexity: number | null;
   // True when raw complexity is 4-5 but loc falls below that complexity's
   // expected floor (complexity-loc-thresholds.ts) — a possible over-rating.
@@ -163,9 +164,10 @@ type Acc = {
 
   // Complexity Accuracy tally — accumulated on both raw (every task, all
   // Jiras) and excl (non-self-assigned only), shown in the Details drill-down
-  // as two separate readings. Never excluded for having an unset complexity
-  // or no matched PR — both default to C1, see complexity-loc-thresholds.ts —
-  // only whether marked complexity matches what the LOC predicts.
+  // as two separate readings. Never excluded: an unset complexity defaults to
+  // C1, and a task with no matched PR is trivially "correct" (see
+  // isComplexityCorrect in complexity-loc-thresholds.ts) — every task is
+  // still counted, none dropped.
   complexityChecked: number;
   complexityCorrect: number;
 };
@@ -526,7 +528,7 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
     // complexity/self-assigned facts are the same regardless of which
     // accumulator ends up using them.
     const loc = locMap.get(t.jiraKey.toUpperCase()) ?? null;
-    const expectedComplexity = expectedComplexityForLoc(loc, complexityLocRanges);
+    const expectedComplexity = expectedComplexityForLoc(loc, complexityLocRanges, rawComplexity);
     const flagged = isComplexityLocMismatch(rawComplexity, loc, complexityLocRanges);
     const selfAssigned = isSelfAssigned(t.reporterEmail, owner);
 

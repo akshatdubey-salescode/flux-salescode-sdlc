@@ -6,9 +6,15 @@
 // lapses. LOC here means additions + deletions summed across every PR
 // matched to a Jira for its scoring quarter (see loc-sync.ts) — a proxy for
 // how much code a task actually took to ship, used only to flag suspiciously
-// small C4/C5 tasks for manual review, never to auto-downgrade a score. A
-// Jira with no matched PR at all (loc: null) is treated as 0 LOC throughout
-// this file — no observed code change predicts the lowest complexity, C1.
+// small C4/C5 tasks for manual review, never to auto-downgrade a score.
+//
+// A Jira with no matched PR at all (loc: null) means no evidence either way —
+// not evidence of C1 work. expectedComplexityForLoc (and isComplexityCorrect,
+// built on it) carry the marked complexity forward unchanged in that case,
+// rather than defaulting to the lowest tier and unfairly contradicting a
+// rating nobody could actually check. isComplexityLocMismatch (the ⚠ flag) is
+// the one exception: it still treats loc: null as 0 for C4/C5 tasks
+// specifically — see its own comment for why that one stays as-is.
 
 import { FEATURE_FLAGS, getFlagUncached } from "@/lib/feature-flags";
 import defaultFlags from "@/lib/defaultFeatureFlags.json";
@@ -87,22 +93,28 @@ function floorFor(complexity: number, ranges: ComplexityLocRange[]): number | nu
 
 /**
  * The highest complexity level whose floor the given LOC clears. `loc: null`
- * (no PR matched to the Jira at all) is treated the same as loc=0 — no
- * observed code changes predicts the lowest complexity, C1 — consistent with
- * how a missing/unset marked complexity already defaults to C1 elsewhere
- * (COMPLEXITY_WEIGHTS / DEFAULT_COMPLEXITY_WEIGHT in config.ts). `ranges` is
- * a required parameter, not an internal default — callers fetch it fresh via
- * getComplexityLocRanges() and thread it through, so it's never silently
+ * (no PR matched to the Jira at all) means there's no evidence either way, so
+ * rather than defaulting to the lowest tier and contradicting a rating
+ * nobody could actually check, it carries `markedComplexity` forward
+ * unchanged (rounded/clamped to 1-5, same convention as complexityWeight()
+ * in build.ts) — an unrated task with no matched PR still falls back to C1
+ * through that same clamp. `markedComplexity` is a required parameter, not
+ * optional, for the same reason `ranges` is: every caller must be explicit
+ * about it rather than risk silently omitting it. `ranges` is fetched fresh
+ * via getComplexityLocRanges() and threaded through, so it's never silently
  * stale nor silently hardcoded.
  */
 export function expectedComplexityForLoc(
   loc: number | null,
-  ranges: ComplexityLocRange[]
+  ranges: ComplexityLocRange[],
+  markedComplexity: number | null
 ): number {
-  const effectiveLoc = loc ?? 0;
+  if (loc == null) {
+    return Math.min(5, Math.max(1, Math.round(markedComplexity ?? 1)));
+  }
   let expected = ranges[0].complexity;
   for (const r of ranges) {
-    if (effectiveLoc >= r.minLoc) expected = r.complexity;
+    if (loc >= r.minLoc) expected = r.complexity;
   }
   return expected;
 }
@@ -111,9 +123,12 @@ export function expectedComplexityForLoc(
  * Whether a task's marked complexity matches what its LOC would predict —
  * the basis for the "Complexity Accuracy" rating (correct / checked, shown as
  * a %). Never excludes a task: an unset marked complexity defaults to C1 (the
- * same convention complexityWeight() already uses in build.ts), and a task
- * with no matched PR predicts C1 too (see expectedComplexityForLoc) — so
- * every complexity-bearing task is "checked" against something, none dropped.
+ * same convention complexityWeight() already uses in build.ts). A task with
+ * no matched PR at all is trivially "correct" — expectedComplexityForLoc
+ * carries the marked value forward when there's no LOC to compare against,
+ * so there's nothing to contradict it. Still "checked" either way — nothing
+ * here is dropped from the count, just not held against the rating without
+ * real evidence.
  */
 export function isComplexityCorrect(
   complexity: number | null,
@@ -121,7 +136,7 @@ export function isComplexityCorrect(
   ranges: ComplexityLocRange[]
 ): boolean {
   const capped = Math.min(5, Math.max(1, Math.round(complexity ?? 1)));
-  return capped === expectedComplexityForLoc(loc, ranges);
+  return capped === expectedComplexityForLoc(loc, ranges, complexity);
 }
 
 /**

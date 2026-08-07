@@ -86,10 +86,10 @@ export function FeatureTasksTable({ items }: { items: ScorecardFeatureItem[] }) 
         badge is narrower — only Complexity 4-5 tasks whose LOC is
         suspiciously low — worth a quick look, not an automatic
         downgrade. A task with no matched PR shows &ldquo;—&rdquo;
-        for LOC (nothing measured), but Expected still shows{" "}
-        <strong>1</strong> — no code found predicts the lowest
-        complexity, same convention as an unmarked Complexity
-        column defaulting to 1. Tasks marked{" "}
+        for LOC (nothing measured) — with no evidence either way,
+        Expected simply carries the marked value forward rather than
+        defaulting to <strong>1</strong>, so it never contradicts a
+        rating nobody could actually check. Tasks marked{" "}
         <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
           self-assigned
         </span>{" "}
@@ -176,8 +176,10 @@ export function FeatureTasksTable({ items }: { items: ScorecardFeatureItem[] }) 
                 {(() => {
                   // Same defaulting convention as the score itself
                   // (complexityWeight() in build.ts): unmarked
-                  // complexity → 1, no matched PR/LOC → 1. Never a
-                  // dash — always a number to compare against.
+                  // complexity → 1. t.expectedComplexity already carries the
+                  // marked value forward when there's no matched PR (see
+                  // expectedComplexityForLoc) — never a dash here, always a
+                  // number to compare against.
                   const marked =
                     t.complexity != null
                       ? Math.min(5, Math.max(1, Math.round(t.complexity)))

@@ -23,53 +23,49 @@ const RANGES = DEFAULT_COMPLEXITY_LOC_RANGES;
 // --- expectedComplexityForLoc: floor boundaries -----------------------------
 
 test("loc=0 predicts C1", () => {
-  assert.equal(expectedComplexityForLoc(0, RANGES), 1);
-});
-
-test("loc=null (no matched PR) is treated as 0 → predicts C1", () => {
-  assert.equal(expectedComplexityForLoc(null, RANGES), 1);
+  assert.equal(expectedComplexityForLoc(0, RANGES, null), 1);
 });
 
 test("one below the C2 floor still predicts C1", () => {
-  assert.equal(expectedComplexityForLoc(14, RANGES), 1);
+  assert.equal(expectedComplexityForLoc(14, RANGES, null), 1);
 });
 
 test("exactly at the C2 floor predicts C2 (inclusive)", () => {
-  assert.equal(expectedComplexityForLoc(15, RANGES), 2);
+  assert.equal(expectedComplexityForLoc(15, RANGES, null), 2);
 });
 
 test("one below the C3 floor predicts C2", () => {
-  assert.equal(expectedComplexityForLoc(39, RANGES), 2);
+  assert.equal(expectedComplexityForLoc(39, RANGES, null), 2);
 });
 
 test("exactly at the C3 floor predicts C3", () => {
-  assert.equal(expectedComplexityForLoc(40, RANGES), 3);
+  assert.equal(expectedComplexityForLoc(40, RANGES, null), 3);
 });
 
 test("one below the C4 floor predicts C3", () => {
-  assert.equal(expectedComplexityForLoc(99, RANGES), 3);
+  assert.equal(expectedComplexityForLoc(99, RANGES, null), 3);
 });
 
 test("exactly at the C4 floor predicts C4", () => {
-  assert.equal(expectedComplexityForLoc(100, RANGES), 4);
+  assert.equal(expectedComplexityForLoc(100, RANGES, null), 4);
 });
 
 test("one below the C5 floor predicts C4", () => {
-  assert.equal(expectedComplexityForLoc(249, RANGES), 4);
+  assert.equal(expectedComplexityForLoc(249, RANGES, null), 4);
 });
 
 test("exactly at the C5 floor predicts C5", () => {
-  assert.equal(expectedComplexityForLoc(250, RANGES), 5);
+  assert.equal(expectedComplexityForLoc(250, RANGES, null), 5);
 });
 
 test("well above the C5 floor still predicts C5 (no higher tier)", () => {
-  assert.equal(expectedComplexityForLoc(50_000, RANGES), 5);
+  assert.equal(expectedComplexityForLoc(50_000, RANGES, null), 5);
 });
 
 test("every configured range's floor round-trips to its own complexity", () => {
   for (const r of RANGES) {
     assert.equal(
-      expectedComplexityForLoc(r.minLoc, RANGES),
+      expectedComplexityForLoc(r.minLoc, RANGES, null),
       r.complexity,
       `floor ${r.minLoc} should predict C${r.complexity}`
     );
@@ -82,8 +78,33 @@ test("a custom (non-default) ranges array is honored, not the shipped default", 
     { complexity: 5, minLoc: 10 },
   ];
   // Only 10 loc, but with this custom config anything >= 10 predicts C5.
-  assert.equal(expectedComplexityForLoc(10, custom), 5);
-  assert.equal(expectedComplexityForLoc(9, custom), 1);
+  assert.equal(expectedComplexityForLoc(10, custom, null), 5);
+  assert.equal(expectedComplexityForLoc(9, custom, null), 1);
+});
+
+test("a given loc predicts the same tier no matter what marked complexity is passed — loc always wins when it's known", () => {
+  assert.equal(expectedComplexityForLoc(50, RANGES, 1), 3);
+  assert.equal(expectedComplexityForLoc(50, RANGES, 5), 3);
+});
+
+// --- expectedComplexityForLoc: loc=null (no matched PR at all) -------------
+// No evidence either way — carries the marked complexity forward instead of
+// defaulting to the lowest tier, so it never contradicts a rating nobody
+// could actually check.
+
+test("loc=null carries the marked complexity forward unchanged", () => {
+  assert.equal(expectedComplexityForLoc(null, RANGES, 5), 5);
+  assert.equal(expectedComplexityForLoc(null, RANGES, 3), 3);
+});
+
+test("loc=null with no marked complexity either falls back to C1", () => {
+  assert.equal(expectedComplexityForLoc(null, RANGES, null), 1);
+});
+
+test("loc=null rounds and clamps the marked complexity, same as everywhere else", () => {
+  assert.equal(expectedComplexityForLoc(null, RANGES, 2.6), 3);
+  assert.equal(expectedComplexityForLoc(null, RANGES, 0), 1);
+  assert.equal(expectedComplexityForLoc(null, RANGES, 9), 5);
 });
 
 // --- isComplexityCorrect -----------------------------------------------------
@@ -97,12 +118,24 @@ test("marked disagrees with expected → incorrect", () => {
 });
 
 test("unset marked complexity (null) defaults to C1, never excluded", () => {
-  // loc=null also predicts C1 → 1 === 1 → correct, and no null/undefined path exists
+  // marked defaults to 1; loc=null carries that same default forward → 1 === 1 → correct
   assert.equal(isComplexityCorrect(null, null, RANGES), true);
 });
 
 test("unset marked complexity vs nonzero loc predicting a higher tier → incorrect, not excluded", () => {
   assert.equal(isComplexityCorrect(null, 200, RANGES), false); // defaults marked to 1, loc predicts C4
+});
+
+test("no matched PR at all (loc=null) is trivially correct — nothing to contradict the marked value with", () => {
+  assert.equal(isComplexityCorrect(5, null, RANGES), true);
+  assert.equal(isComplexityCorrect(4, null, RANGES), true);
+  assert.equal(isComplexityCorrect(1, null, RANGES), true);
+});
+
+test("that trivial correctness is specific to loc=null, not to high complexity generally", () => {
+  // Same complexity (5), but now there IS a matched PR with low LOC — no
+  // longer trivially correct, since there's real evidence to compare against.
+  assert.equal(isComplexityCorrect(5, 10, RANGES), false);
 });
 
 test("marked complexity of 0 clamps up to C1", () => {
