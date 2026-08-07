@@ -6,7 +6,7 @@
 // Run: ./node_modules/.bin/tsx --test src/lib/github/loc-sync.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractCandidateJiraKeys, isPrEligibleForJira } from "./loc-sync";
+import { extractCandidateJiraKeys, isPrEligibleForJira, isJobStale } from "./loc-sync";
 
 // --- extractCandidateJiraKeys: separator generosity -------------------------
 
@@ -92,4 +92,31 @@ test("PR created well after the Jira, in a later quarter, is still eligible — 
 test("author matches but PR predates the Jira by years → not eligible", () => {
   const candidate = { assigneeEmail: "dev@salescode.ai", createdAt: day("2026-01-01") };
   assert.equal(isPrEligibleForJira(candidate, "dev@salescode.ai", day("2020-01-01")), false);
+});
+
+// --- isJobStale: the "dead process vs. still running" threshold ------------
+
+test("just started (0 minutes ago) is not stale", () => {
+  const now = day("2026-08-07T12:00:00Z");
+  assert.equal(isJobStale(day("2026-08-07T12:00:00Z"), now), false);
+});
+
+test("a real run's typical duration (~20 minutes) is not stale", () => {
+  const now = day("2026-08-07T12:20:00Z");
+  assert.equal(isJobStale(day("2026-08-07T12:00:00Z"), now), false);
+});
+
+test("just under the 2-hour threshold is not stale", () => {
+  const now = day("2026-08-07T13:59:59Z");
+  assert.equal(isJobStale(day("2026-08-07T12:00:00Z"), now), false);
+});
+
+test("just over the 2-hour threshold is stale", () => {
+  const now = day("2026-08-07T14:00:01Z");
+  assert.equal(isJobStale(day("2026-08-07T12:00:00Z"), now), true);
+});
+
+test("a job stuck since yesterday is stale — the orphaned-process case", () => {
+  const now = day("2026-08-07T12:00:00Z");
+  assert.equal(isJobStale(day("2026-08-06T18:03:58Z"), now), true);
 });

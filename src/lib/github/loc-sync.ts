@@ -61,6 +61,23 @@ import { countPatchCodeLines } from "./comment-lines";
 // left — leaves headroom for other jobs sharing the same token this hour.
 const RATE_LIMIT_FLOOR = 200;
 
+// A "running"/"pending" job stuck past this long almost certainly means the
+// process that owned it died mid-run (a killed/restarted dev server, a
+// redeployed instance) rather than a run genuinely still in progress — a
+// real full run over every tracked repo takes well under an hour. Generous
+// on purpose: never mistake a real, merely-slow run for a dead one.
+const STALE_JOB_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+/**
+ * Whether a job's reference time (startedAt if it ever started, else
+ * createdAt) is old enough that it must be dead rather than still running.
+ * Pure and exported so the threshold logic is unit-testable without a live
+ * DB/clock dependency.
+ */
+export function isJobStale(referenceTime: Date, now: Date): boolean {
+  return now.getTime() - referenceTime.getTime() > STALE_JOB_MS;
+}
+
 // Case-insensitive, separator-generous Jira key: project prefix + optional
 // dash/underscore/dot/space (or nothing at all) + issue number. Captures the
 // prefix and number separately so callers can reassemble the canonical
@@ -117,19 +134,49 @@ export type LocSyncResult = {
   rateLimited: boolean;
 };
 
-/** Active (pending/running) job for this quarter, if any — dedup guard. */
+/**
+ * Active (pending/running) job for this quarter, if any — dedup guard. A
+ * candidate stuck past STALE_JOB_MS is treated as dead rather than a real
+ * block: auto-marked failed here (so it stops shadowing future runs and
+ * stops rendering as misleadingly "running" forever) and skipped, rather
+ * than permanently wedging the Sync LOC button behind a crashed process.
+ */
 async function findActiveJob(quarterKey: string): Promise<string | null> {
-  const [existing] = await db
-    .select({ id: locSyncJobs.id })
+  const candidates = await db
+    .select({
+      id: locSyncJobs.id,
+      status: locSyncJobs.status,
+      startedAt: locSyncJobs.startedAt,
+      createdAt: locSyncJobs.createdAt,
+      errorMessages: locSyncJobs.errorMessages,
+    })
     .from(locSyncJobs)
     .where(
       and(
         eq(locSyncJobs.quarterKey, quarterKey),
         inArray(locSyncJobs.status, ["pending", "running"])
       )
-    )
-    .limit(1);
-  return existing?.id ?? null;
+    );
+
+  const now = new Date();
+  for (const job of candidates) {
+    if (isJobStale(job.startedAt ?? job.createdAt, now)) {
+      await db
+        .update(locSyncJobs)
+        .set({
+          status: "failed",
+          completedAt: now,
+          errorMessages: [
+            ...job.errorMessages,
+            `Auto-marked failed: stuck in "${job.status}" past the stale-job timeout — the owning process likely crashed or was restarted mid-run.`,
+          ],
+        })
+        .where(eq(locSyncJobs.id, job.id));
+      continue;
+    }
+    return job.id;
+  }
+  return null;
 }
 
 export type EnqueueLocSyncResult =
