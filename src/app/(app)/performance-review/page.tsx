@@ -16,6 +16,7 @@ import { fetchScorecards, fetchScorecardDetail } from "./data";
 import { ReviewControls } from "./controls";
 import { LeaderboardTable } from "./leaderboard-table";
 import { ScoringGuide } from "./scoring-guide";
+import { FeatureTasksTable } from "./feature-tasks-table";
 
 type SearchParams = Promise<{ quarter?: string; person?: string }>;
 
@@ -55,6 +56,40 @@ function JiraKeyLink({ item }: { item: { key: string; url?: string } }) {
     >
       {item.key}
     </a>
+  );
+}
+
+/** Small "i" badge — native title tooltip, no client JS needed. */
+function InfoBadge({ text }: { text: string }) {
+  return (
+    <span
+      tabIndex={0}
+      title={text}
+      className="ml-1 inline-flex cursor-help rounded-full border border-zinc-300 px-1 text-[10px] leading-4 text-zinc-400 hover:text-zinc-600 dark:border-zinc-700 dark:hover:text-zinc-300"
+    >
+      i
+    </span>
+  );
+}
+
+const ALL_JIRAS_INFO =
+  "Includes every completed Jira, including self-created-and-assigned ones — same population as Score.";
+const NSA_INFO =
+  "Excludes self-assigned Jiras — issues where the reporter is also the person credited for the work. Score is unaffected; only this reading reflects that exclusion.";
+
+/** One Complexity Accuracy reading: correct/checked (pct%), or a dash. */
+function ComplexityAccuracyStat({
+  correct,
+  checked,
+}: {
+  correct: number;
+  checked: number;
+}) {
+  if (checked === 0) return <>— (run Sync LOC)</>;
+  return (
+    <>
+      {correct}/{checked} ({((correct / checked) * 100).toFixed(0)}%)
+    </>
   );
 }
 
@@ -111,43 +146,66 @@ export default async function PerformanceReviewPage({
                   <p className="mt-1 font-mono text-xs text-zinc-500">
                     {detail.email}
                   </p>
+                  <p className="mt-4 text-sm text-zinc-500">
+                    Score for <strong>{quarterLabel}</strong>:{" "}
+                    <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                      {detail.finalScore.toFixed(1)}
+                    </span>{" "}
+                    / 100
+                  </p>
                   <h2 className="mt-4 text-xs font-semibold uppercase tracking-wide text-zinc-400">
                     Jira Complexity Rating
                   </h2>
                   <p className="mt-1 text-sm text-zinc-500">
-                    Suggested rating for <strong>{quarterLabel}</strong> — marked
-                    complexity:{" "}
+                    Complex. (Mar)
+                    <InfoBadge text={ALL_JIRAS_INFO} />:{" "}
                     <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
                       {detail.finalScore.toFixed(1)}
                     </span>{" "}
                     / 100
                   </p>
                   <p className="mt-1 text-sm text-zinc-500">
-                    Same, expected complexity:{" "}
+                    Complex. (Exp)
+                    <InfoBadge text={ALL_JIRAS_INFO} />:{" "}
+                    <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                      {detail.expectedComplexityScoreAll.toFixed(1)}
+                    </span>{" "}
+                    / 100
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-500">
+                    Complex. NSA. (Mar)
+                    <InfoBadge text={NSA_INFO} />:{" "}
+                    <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                      {detail.markedComplexityScore.toFixed(1)}
+                    </span>{" "}
+                    / 100
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-500">
+                    Complex. NSA. (Exp)
+                    <InfoBadge text={NSA_INFO} />:{" "}
                     <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
                       {detail.expectedComplexityScore.toFixed(1)}
                     </span>{" "}
                     / 100
-                    <span className="ml-1.5 text-xs text-zinc-400">
-                      (self-assigned Jiras excluded from both)
+                  </p>
+                  <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                    Complexity Accuracy, all Jiras
+                    <InfoBadge text={ALL_JIRAS_INFO} />:{" "}
+                    <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                      <ComplexityAccuracyStat
+                        correct={detail.complexityAccuracyAllCorrect}
+                        checked={detail.complexityAccuracyAllChecked}
+                      />
                     </span>
                   </p>
                   <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                    Complexity Accuracy (marked complexity vs. LOC-predicted):{" "}
+                    Complexity Accuracy, non-self-assigned only
+                    <InfoBadge text={NSA_INFO} />:{" "}
                     <span className="font-semibold text-zinc-700 dark:text-zinc-300">
-                      {detail.complexityAccuracyChecked > 0 ? (
-                        <>
-                          {detail.complexityAccuracyCorrect}/{detail.complexityAccuracyChecked} (
-                          {(
-                            (detail.complexityAccuracyCorrect /
-                              detail.complexityAccuracyChecked) *
-                            100
-                          ).toFixed(0)}
-                          %)
-                        </>
-                      ) : (
-                        "— (run Sync LOC)"
-                      )}
+                      <ComplexityAccuracyStat
+                        correct={detail.complexityAccuracyCorrect}
+                        checked={detail.complexityAccuracyChecked}
+                      />
                     </span>
                   </p>
                 </div>
@@ -311,141 +369,7 @@ export default async function PerformanceReviewPage({
                   </div>
                 </section>
 
-                <section className="space-y-3">
-                  <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-                    Feature tasks ({detail.featureItems.length})
-                  </h2>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    Non-bug tasks the developer completed this quarter, counted as
-                    feature output for the Bug Quality score.{" "}
-                    <strong>Expected</strong> is what complexity the task&apos;s
-                    matched LOC predicts — shown in{" "}
-                    <span className="font-semibold text-amber-700 dark:text-amber-400">
-                      amber
-                    </span>{" "}
-                    whenever it disagrees with the marked value, for any complexity
-                    level. The separate{" "}
-                    <span className="font-medium text-amber-600 dark:text-amber-400">
-                      ⚠ flagged
-                    </span>{" "}
-                    badge is narrower — only Complexity 4-5 tasks whose LOC is
-                    suspiciously low — worth a quick look, not an automatic
-                    downgrade. A task with no matched PR shows &ldquo;—&rdquo;
-                    for LOC (nothing measured), but Expected still shows{" "}
-                    <strong>1</strong> — no code found predicts the lowest
-                    complexity, same convention as an unmarked Complexity
-                    column defaulting to 1.
-                  </p>
-                  <div className="max-h-96 overflow-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0">
-                        <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/95">
-                          <th className="whitespace-nowrap px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                            Key
-                          </th>
-                          <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                            Summary
-                          </th>
-                          <th className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                            Complexity
-                          </th>
-                          <th className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                            LOC
-                          </th>
-                          <th
-                            className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                            title="What complexity the matched LOC predicts (complexity-loc-thresholds.ts), for comparison against the marked value"
-                          >
-                            Expected
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detail.featureItems.map((t) => (
-                          <tr
-                            key={t.key}
-                            className={
-                              "border-b border-zinc-100 last:border-0 dark:border-zinc-800/60 " +
-                              (t.complexityMismatch ? "bg-amber-50 dark:bg-amber-950/20" : "")
-                            }
-                          >
-                            <td className="whitespace-nowrap px-4 py-2.5 align-top font-mono text-xs text-zinc-600 dark:text-zinc-300">
-                              <JiraKeyLink item={t} />
-                            </td>
-                            <td className="px-4 py-2.5 align-top text-zinc-700 dark:text-zinc-300">
-                              {t.summary}
-                              {t.complexityMismatch && (
-                                <span
-                                  className="ml-1.5 text-amber-600 dark:text-amber-400"
-                                  title={t.mismatchSuggestion ?? undefined}
-                                >
-                                  ⚠ flagged
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-4 py-2.5 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                              {t.complexity != null ? (
-                                Math.min(5, Math.max(1, Math.round(t.complexity)))
-                              ) : (
-                                <span
-                                  title="Complexity not set in Jira — defaults to C1 (weight 1)"
-                                  className="text-zinc-400"
-                                >
-                                  1
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-4 py-2.5 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                              {t.loc != null ? (
-                                t.loc
-                              ) : (
-                                <span className="text-zinc-400" title="No PR matched yet">
-                                  —
-                                </span>
-                              )}
-                            </td>
-                            {(() => {
-                              // Same defaulting convention as the score itself
-                              // (complexityWeight() in build.ts): unmarked
-                              // complexity → 1, no matched PR/LOC → 1. Never a
-                              // dash — always a number to compare against.
-                              const marked =
-                                t.complexity != null
-                                  ? Math.min(5, Math.max(1, Math.round(t.complexity)))
-                                  : 1;
-                              const expected = t.expectedComplexity ?? 1;
-                              const matches = marked === expected;
-                              return (
-                                <td className="px-4 py-2.5 text-right align-top tabular-nums">
-                                  {matches ? (
-                                    <span className="text-zinc-600 dark:text-zinc-400">{expected}</span>
-                                  ) : (
-                                    <span
-                                      className="font-semibold text-amber-700 dark:text-amber-400"
-                                      title="Marked complexity doesn't match what the matched LOC predicts"
-                                    >
-                                      {expected}
-                                    </span>
-                                  )}
-                                </td>
-                              );
-                            })()}
-                          </tr>
-                        ))}
-                        {detail.featureItems.length === 0 && (
-                          <tr>
-                            <td
-                              colSpan={5}
-                              className="px-4 py-8 text-center text-sm text-zinc-400"
-                            >
-                              No feature tasks completed this quarter.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
+                <FeatureTasksTable items={detail.featureItems} />
 
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
@@ -800,15 +724,19 @@ export default async function PerformanceReviewPage({
               Suggested quarterly ratings for developers, scored out of 100 and
               derived from synced Jira data across four weighted metrics — Bug
               Quality ({WEIGHTS.bugQuality}), Complex Tasks ({WEIGHTS.complexTasks}),
-              Sprint Commitment ({WEIGHTS.sprintCommitment}), and MTTR ({WEIGHTS.mttr}).
-              Self-assigned Jiras (reporter === credited person) are excluded
-              from every metric. Two ratings are shown side by side —{" "}
-              <strong>Complexity Rating (Marked)</strong> uses each task&apos;s
-              marked complexity, <strong>Complexity Rating (Expected)</strong>{" "}
-              uses the same formula with the LOC-predicted complexity instead
-              — everything else is identical between them. Ratings are a
-              decision aid, not a verdict. Click a name, or the details icon,
-              for the full Jira Complexity Rating breakdown.
+              Sprint Commitment ({WEIGHTS.sprintCommitment}), and MTTR ({WEIGHTS.mttr}).{" "}
+              <strong>Score</strong> counts every completed Jira, unfiltered.
+              Alongside it, four Jira Complexity Rating columns break the same
+              rating down by population and by which complexity feeds Complex
+              Tasks: <strong>Complex. (Mar)</strong> and{" "}
+              <strong>Complex. (Exp)</strong> keep every Jira (identical
+              population to Score — marked vs. LOC-predicted complexity);{" "}
+              <strong>Complex. NSA. (Mar)</strong> and{" "}
+              <strong>Complex. NSA. (Exp)</strong> exclude self-assigned Jiras
+              (reporter === credited person) entirely. Complexity Accuracy —
+              both an all-Jiras and a non-self-assigned reading — moved into
+              the per-developer breakdown; use the details icon to see it.
+              Ratings are a decision aid, not a verdict.
             </p>
           </div>
 

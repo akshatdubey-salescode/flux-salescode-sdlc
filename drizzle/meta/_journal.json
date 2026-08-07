@@ -428,6 +428,20 @@
       "when": 1786032643967,
       "tag": "0061_melodic_puff_adder",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1786079431410,
+      "tag": "0062_left_power_pack",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1786082508687,
+      "tag": "0063_classy_wendigo",
+      "breakpoints": true
     }
   ]
 }

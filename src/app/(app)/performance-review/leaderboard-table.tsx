@@ -43,6 +43,52 @@ function Contribution({
   );
 }
 
+/** A 0–100 rating rendered as `value / max`, e.g. every Complex. column. */
+function RatingCell({ value }: { value: number }) {
+  return (
+    <>
+      {value.toFixed(1)}
+      <span className="font-normal text-zinc-400"> / {MAX_SCORE.toFixed(0)}</span>
+    </>
+  );
+}
+
+// Which rating column the leaderboard is currently sorted by. "score" is
+// the default — it matches the server's own order (fetchScorecards sorts by
+// finalScore), so the initial render needs no client-side re-sort at all.
+// "mar" shares finalScore's value (COMPLEX. (MAR) is the same formula, same
+// population, as Score — see build.ts file header) but gets its own key so
+// its header highlights independently of Score's.
+type SortKey = "score" | "mar" | "exp" | "nsaMar" | "nsaExp";
+
+/** Small sort-direction indicator next to a sortable column's label. */
+function SortIndicator({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
+  if (!active) return <span className="ml-1 text-zinc-300 dark:text-zinc-600">↕</span>;
+  return <span className="ml-1 text-zinc-700 dark:text-zinc-300">{dir === "desc" ? "↓" : "↑"}</span>;
+}
+
+/**
+ * Small "i" badge for a header, sitting next to (not inside) the sortable
+ * label button — a nested button-in-button isn't valid HTML, so this is a
+ * sibling span with its own hover/focus title, not a click target.
+ */
+function HeaderInfoBadge({ text }: { text: string }) {
+  return (
+    <span
+      tabIndex={0}
+      title={text}
+      className="inline-flex shrink-0 cursor-help text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+    >
+      <RiInformationLine size={13} />
+    </span>
+  );
+}
+
+const ALL_JIRAS_INFO =
+  "Includes every completed Jira, including self-created-and-assigned ones — same population as Score.";
+const NSA_INFO =
+  "Excludes self-assigned Jiras — issues where the reporter is also the person credited for the work. Score is unaffected; only this column reflects that exclusion.";
+
 export function LeaderboardTable({
   rows,
   quarterKey,
@@ -54,6 +100,20 @@ export function LeaderboardTable({
 }) {
   const [query, setQuery] = useState("");
   const [dept, setDept] = useState("all");
+  const [sortKey, setSortKey] = useState<SortKey>("score");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  // Clicking the column already being sorted flips direction; clicking a
+  // different rating column switches to it, defaulting to descending
+  // (highest rating first — the useful default for any of the five).
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  }
 
   // Distinct departments present in the list, for the filter dropdown.
   const departments = useMemo(
@@ -76,6 +136,28 @@ export function LeaderboardTable({
       );
     });
   }, [rows, query, dept]);
+
+  // Re-sorts on top of the filtered list — "#" below reflects position in
+  // this order, not the server-computed row.rank, so it always matches what
+  // the user is actually looking at.
+  const sorted = useMemo(() => {
+    const valueOf = (r: ScorecardRow) => {
+      switch (sortKey) {
+        case "score":
+        case "mar":
+          return r.finalScore;
+        case "exp":
+          return r.expectedComplexityScoreAll;
+        case "nsaMar":
+          return r.markedComplexityScore;
+        case "nsaExp":
+          return r.expectedComplexityScore;
+      }
+    };
+    return [...filtered].sort((a, b) =>
+      sortDir === "desc" ? valueOf(b) - valueOf(a) : valueOf(a) - valueOf(b),
+    );
+  }, [filtered, sortKey, sortDir]);
 
   return (
     <div className="space-y-3">
@@ -128,21 +210,80 @@ export function LeaderboardTable({
               </th>
               <th
                 className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                title="Rated by each task's marked complexity. Self-assigned Jiras (reporter === credited person) are excluded from every metric"
+                title="The original Performance Review score — every completed Jira counts, including self-created-and-assigned ones. Click to sort"
               >
-                Complexity Rating (Marked)
+                <button
+                  type="button"
+                  onClick={() => toggleSort("score")}
+                  className="inline-flex items-center uppercase hover:text-zinc-700 dark:hover:text-zinc-300"
+                >
+                  Score
+                  <SortIndicator active={sortKey === "score"} dir={sortDir} />
+                </button>
               </th>
               <th
                 className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                title="Same formula, but the Complex Tasks metric uses the LOC-predicted complexity instead of the marked value — everything else (Bug Quality, Sprint, MTTR) is identical"
+                title="Rated by each task's marked complexity, every completed Jira included. Click to sort"
               >
-                Complexity Rating (Expected)
+                <span className="inline-flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("mar")}
+                    className="inline-flex items-center uppercase hover:text-zinc-700 dark:hover:text-zinc-300"
+                  >
+                    Complex. (Mar)
+                    <SortIndicator active={sortKey === "mar"} dir={sortDir} />
+                  </button>
+                  <HeaderInfoBadge text={ALL_JIRAS_INFO} />
+                </span>
               </th>
               <th
                 className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                title="Tasks whose marked complexity agrees with what the LOC predicts"
+                title="Same formula as Complex. (Mar), but the Complex Tasks metric uses the LOC-predicted complexity instead of the marked value. Click to sort"
               >
-                Complexity Acc.
+                <span className="inline-flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("exp")}
+                    className="inline-flex items-center uppercase hover:text-zinc-700 dark:hover:text-zinc-300"
+                  >
+                    Complex. (Exp)
+                    <SortIndicator active={sortKey === "exp"} dir={sortDir} />
+                  </button>
+                  <HeaderInfoBadge text={ALL_JIRAS_INFO} />
+                </span>
+              </th>
+              <th
+                className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
+                title="Same as Complex. (Mar), but self-assigned Jiras are excluded entirely. Click to sort"
+              >
+                <span className="inline-flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("nsaMar")}
+                    className="inline-flex items-center uppercase hover:text-zinc-700 dark:hover:text-zinc-300"
+                  >
+                    Complex. NSA. (Mar)
+                    <SortIndicator active={sortKey === "nsaMar"} dir={sortDir} />
+                  </button>
+                  <HeaderInfoBadge text={NSA_INFO} />
+                </span>
+              </th>
+              <th
+                className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
+                title="Same as Complex. (Exp), but self-assigned Jiras are excluded entirely. Click to sort"
+              >
+                <span className="inline-flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("nsaExp")}
+                    className="inline-flex items-center uppercase hover:text-zinc-700 dark:hover:text-zinc-300"
+                  >
+                    Complex. NSA. (Exp)
+                    <SortIndicator active={sortKey === "nsaExp"} dir={sortDir} />
+                  </button>
+                  <HeaderInfoBadge text={NSA_INFO} />
+                </span>
               </th>
               <th className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 Bug Qual.
@@ -158,20 +299,20 @@ export function LeaderboardTable({
               </th>
               <th
                 className="w-12 whitespace-nowrap px-4 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                title="Jira Complexity Rating — full per-Jira breakdown"
+                title="Jira Complexity Rating — full per-Jira breakdown, including Complexity Accuracy"
               >
                 Details
               </th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((row) => (
+            {sorted.map((row, i) => (
               <tr
                 key={row.email}
                 className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60"
               >
                 <td className="px-4 py-3 align-top tabular-nums text-xs text-zinc-400">
-                  {row.rank}
+                  {i + 1}
                 </td>
                 <td className="px-4 py-3 align-top">
                   <Link
@@ -191,39 +332,20 @@ export function LeaderboardTable({
                 <td className="px-4 py-3 align-top text-sm text-zinc-600 dark:text-zinc-400">
                   {row.manager ?? "—"}
                 </td>
-                <td className="px-4 py-3 text-right align-top text-base font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
-                  {row.finalScore.toFixed(1)}
-                  <span className="text-xs font-normal text-zinc-400">
-                    {" "}
-                    / {MAX_SCORE.toFixed(0)}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-right align-top text-base font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
-                  {row.expectedComplexityScore.toFixed(1)}
-                  <span className="text-xs font-normal text-zinc-400">
-                    {" "}
-                    / {MAX_SCORE.toFixed(0)}
-                  </span>
+                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
+                  <RatingCell value={row.finalScore} />
                 </td>
                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  {row.complexityAccuracyChecked > 0 ? (
-                    <>
-                      {row.complexityAccuracyCorrect}/{row.complexityAccuracyChecked}
-                      <span className="text-xs font-normal text-zinc-400">
-                        {" "}
-                        (
-                        {(
-                          (row.complexityAccuracyCorrect / row.complexityAccuracyChecked) *
-                          100
-                        ).toFixed(0)}
-                        %)
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-zinc-400" title="No matched PRs yet — run Sync LOC">
-                      —
-                    </span>
-                  )}
+                  <RatingCell value={row.finalScore} />
+                </td>
+                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
+                  <RatingCell value={row.expectedComplexityScoreAll} />
+                </td>
+                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
+                  <RatingCell value={row.markedComplexityScore} />
+                </td>
+                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
+                  <RatingCell value={row.expectedComplexityScore} />
                 </td>
                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
                   <Contribution
@@ -251,7 +373,7 @@ export function LeaderboardTable({
                     href={`/performance-review?quarter=${quarterKey}&person=${encodeURIComponent(
                       row.email,
                     )}`}
-                    title="Jira Complexity Rating — full per-Jira breakdown"
+                    title="Jira Complexity Rating — full per-Jira breakdown, including Complexity Accuracy"
                     aria-label={`View Jira Complexity Rating for ${row.name}`}
                     className="inline-flex text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
                   >
@@ -264,7 +386,7 @@ export function LeaderboardTable({
             {rows.length === 0 && (
               <tr>
                 <td
-                  colSpan={11}
+                  colSpan={13}
                   className="px-4 py-8 text-center text-sm text-zinc-400"
                 >
                   No scorecards for {quarterLabel} yet. Click{" "}
@@ -277,7 +399,7 @@ export function LeaderboardTable({
             {rows.length > 0 && filtered.length === 0 && (
               <tr>
                 <td
-                  colSpan={11}
+                  colSpan={13}
                   className="px-4 py-8 text-center text-sm text-zinc-400"
                 >
                   No developers match the current filters.

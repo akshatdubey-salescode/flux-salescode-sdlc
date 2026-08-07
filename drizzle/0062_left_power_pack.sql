@@ -1,0 +1,1 @@
+ALTER TABLE "performance_scorecards" ADD COLUMN "marked_complexity_score" double precision DEFAULT 0 NOT NULL;

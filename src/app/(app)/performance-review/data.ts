@@ -13,18 +13,22 @@ export type ScorecardRow = {
   manager: string | null;
   /** Department (from Keka), or null when unmatched. Drives the dept filter. */
   department: string | null;
-  // Every metric already excludes self-assigned Jiras (reporter === credited
-  // person) at attribution time in build.ts. Rated marked-complexity-wise.
+  // The 2x2 Jira Complexity Rating grid — see build.ts file header.
+  // COMPLEX. (MAR) — the original Performance Review score. Every completed
+  // Jira counts, including self-created-and-assigned ones.
   finalScore: number;
-  // Identical rating, but the Complex Tasks metric is weighted by
-  // LOC-predicted complexity instead of the marked value — the same score
-  // formula, purely expected-complexity-wise.
+  // COMPLEX. (EXP) — same all-Jiras population as finalScore, but the
+  // Complex Tasks metric is weighted by LOC-predicted complexity instead of
+  // the marked value.
+  expectedComplexityScoreAll: number;
+  // COMPLEX NSA. (MAR) — identical formula to finalScore, but self-assigned
+  // Jiras (reporter === credited person) are excluded entirely at
+  // attribution time in build.ts.
+  markedComplexityScore: number;
+  // COMPLEX NSA. (EXP) — identical to markedComplexityScore, but the
+  // Complex Tasks metric is weighted by LOC-predicted complexity instead of
+  // the marked value.
   expectedComplexityScore: number;
-  // Complexity Accuracy: correct/checked tasks (LOC-vs-marked-complexity
-  // agreement), rendered as "correct/checked (pct%)". checked=0 → no PRs
-  // matched yet, render as "—".
-  complexityAccuracyCorrect: number;
-  complexityAccuracyChecked: number;
   bugQualityPoints: number | null;
   mttrPoints: number | null;
   sprintCommitmentPoints: number | null;
@@ -53,6 +57,10 @@ export type ScorecardFeatureItem = {
   /** True when a C4/C5 task's LOC is suspiciously low for its claimed complexity. */
   complexityMismatch: boolean;
   mismatchSuggestion: string | null;
+  /** Reporter is also the credited person — still counts toward Score, but
+   * excluded from Complex. (Marked), Complex. (Expected), and Complexity
+   * Accuracy. */
+  selfAssigned: boolean;
   url?: string;
 };
 export type ScorecardMttrItem = {
@@ -92,7 +100,15 @@ export type ScorecardDetail = {
   email: string;
   name: string;
   finalScore: number;
+  expectedComplexityScoreAll: number;
+  markedComplexityScore: number;
   expectedComplexityScore: number;
+  // Complexity Accuracy, both readings — correct/checked (LOC-vs-marked-
+  // complexity agreement), rendered as "correct/checked (pct%)". checked=0 →
+  // nothing to check yet (no tasks, or — for the NSA reading — every task
+  // this quarter was self-assigned), render as "—".
+  complexityAccuracyAllCorrect: number;
+  complexityAccuracyAllChecked: number;
   complexityAccuracyCorrect: number;
   complexityAccuracyChecked: number;
   computedAt: string | null;
@@ -221,9 +237,9 @@ export async function fetchScorecards(quarterKey: string): Promise<ScorecardRow[
     .select({
       userEmail: performanceScorecards.userEmail,
       finalScore: performanceScorecards.finalScore,
+      expectedComplexityScoreAll: performanceScorecards.expectedComplexityScoreAll,
+      markedComplexityScore: performanceScorecards.markedComplexityScore,
       expectedComplexityScore: performanceScorecards.expectedComplexityScore,
-      complexityAccuracyCorrect: performanceScorecards.complexityAccuracyCorrect,
-      complexityAccuracyChecked: performanceScorecards.complexityAccuracyChecked,
       bugQualityPoints: performanceScorecards.bugQualityPoints,
       mttrPoints: performanceScorecards.mttrPoints,
       sprintCommitmentPoints: performanceScorecards.sprintCommitmentPoints,
@@ -256,9 +272,9 @@ export async function fetchScorecards(quarterKey: string): Promise<ScorecardRow[
       manager: keka.get(r.userEmail.toLowerCase())?.manager ?? null,
       department: keka.get(r.userEmail.toLowerCase())?.department ?? null,
       finalScore: r.finalScore,
+      expectedComplexityScoreAll: r.expectedComplexityScoreAll,
+      markedComplexityScore: r.markedComplexityScore,
       expectedComplexityScore: r.expectedComplexityScore,
-      complexityAccuracyCorrect: r.complexityAccuracyCorrect,
-      complexityAccuracyChecked: r.complexityAccuracyChecked,
       bugQualityPoints: r.bugQualityPoints,
       mttrPoints: r.mttrPoints,
       sprintCommitmentPoints: r.sprintCommitmentPoints,
@@ -327,7 +343,11 @@ export async function fetchScorecardDetail(
     email: r.userEmail,
     name: names.get(r.userEmail) ?? r.userEmail,
     finalScore: r.finalScore,
+    expectedComplexityScoreAll: r.expectedComplexityScoreAll,
+    markedComplexityScore: r.markedComplexityScore,
     expectedComplexityScore: r.expectedComplexityScore,
+    complexityAccuracyAllCorrect: r.complexityAccuracyAllCorrect,
+    complexityAccuracyAllChecked: r.complexityAccuracyAllChecked,
     complexityAccuracyCorrect: r.complexityAccuracyCorrect,
     complexityAccuracyChecked: r.complexityAccuracyChecked,
     computedAt: r.computedAt ? r.computedAt.toISOString() : null,
