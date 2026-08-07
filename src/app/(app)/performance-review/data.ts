@@ -87,11 +87,21 @@ export type ScorecardMissingActualDateItem = {
 export type ScorecardBreakdown = {
   metrics: MetricBreakdown[];
   finalScore: number;
+  // The NSA (self-assigned-excluded) population's own per-metric contributions
+  // — same shape as metrics above, computed over excl instead of raw. Powers
+  // an accurate employee-specific breakdown for Complex. NSA. (M)/(E) in the
+  // Details drill-down. Absent on any row computed before this field was
+  // added — not backfilled until the next Recompute.
+  nsaMetrics?: MetricBreakdown[];
   items?: {
     weightedBugs: ScorecardBugItem[];
     features: ScorecardFeatureItem[];
     mttr?: ScorecardMttrItem[];
     complexity?: ScorecardComplexityBucket[];
+    /** Sibling of complexity, bucketed by LOC-predicted (expected) complexity
+     * instead of marked — no "Unset" bucket, since expectedComplexityForLoc
+     * always returns a concrete 1-5 value. */
+    expectedComplexity?: ScorecardComplexityBucket[];
     missingActualDates?: ScorecardMissingActualDateItem[];
   };
 };
@@ -124,6 +134,7 @@ export type ScorecardDetail = {
   featureItems: ScorecardFeatureItem[];
   mttrItems: ScorecardMttrItem[];
   complexityBuckets: ScorecardComplexityBucket[];
+  expectedComplexityBuckets: ScorecardComplexityBucket[];
   missingActualDateItems: ScorecardMissingActualDateItem[];
 };
 
@@ -363,6 +374,7 @@ export async function fetchScorecardDetail(
     featureItems: withUrl(breakdown.items?.features ?? []),
     mttrItems: withUrl(breakdown.items?.mttr ?? []),
     complexityBuckets: breakdown.items?.complexity ?? [],
+    expectedComplexityBuckets: breakdown.items?.expectedComplexity ?? [],
     missingActualDateItems: withUrl(breakdown.items?.missingActualDates ?? []),
   };
 }

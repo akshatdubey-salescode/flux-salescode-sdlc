@@ -120,7 +120,7 @@ type MttrItem = {
   priority: string | null;
   minutes: number;
 };
-type ComplexityBucket = {
+export type ComplexityBucket = {
   label: string;
   count: number;
   weightEach: number;
@@ -161,6 +161,12 @@ type Acc = {
   // Count of tasks per complexity bucket ("1".."5" or "unset"), for the
   // Complex-tasks distribution table.
   complexityCounts: Map<string, number>;
+  // Sibling of complexityCounts, bucketed by LOC-predicted (expected)
+  // complexity instead of marked — feeds the Expected Complexity distribution
+  // table. Never has an "unset" bucket: expectedComplexityForLoc always
+  // returns a concrete 1-5 value, unlike marked complexity which can be
+  // genuinely unset in Jira.
+  expectedComplexityCounts: Map<string, number>;
 
   // Complexity Accuracy tally — accumulated on both raw (every task, all
   // Jiras) and excl (non-self-assigned only), shown in the Details drill-down
@@ -192,6 +198,7 @@ function emptyAcc(): Acc {
     mttrItems: [],
     missingActualItems: [],
     complexityCounts: new Map(),
+    expectedComplexityCounts: new Map(),
     complexityChecked: 0,
     complexityCorrect: 0,
   };
@@ -230,7 +237,13 @@ function recordMissingActual(
   }
 }
 
-function buildComplexityBuckets(counts: Map<string, number>): ComplexityBucket[] {
+// Exported (not just used internally by buildScorecards) so the bucketing
+// rules — level 1-5 weights, the "Unset (→ C1)" catch-all, count===0 buckets
+// dropped rather than shown as zero — are unit-testable. Used for both the
+// marked (complexityCounts) and expected (expectedComplexityCounts)
+// distributions; the latter never actually has an "unset" key (see Acc's own
+// comment), but the function doesn't need to know that.
+export function buildComplexityBuckets(counts: Map<string, number>): ComplexityBucket[] {
   const buckets: ComplexityBucket[] = [];
   for (let level = 1; level <= 5; level++) {
     const count = counts.get(String(level)) ?? 0;
@@ -445,12 +458,16 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
       }
     }
 
-    // Resolution credit + MTTR → resolver (Dev Owner ?? Assignee).
+    // Resolution credit + MTTR → resolver (Dev Owner ?? Assignee, unless a
+    // matched PR makes Assignee the harder evidence — see
+    // resolveTaskOwnerEmail).
+    const bugHasMatchedLoc = locMap.get(b.jiraKey.toUpperCase()) != null;
     const resolver = resolveTaskOwnerEmail(
       b.customFields,
       b.devOwnerFieldIds,
       b.assigneeEmail,
-      accountIdEmailMap
+      accountIdEmailMap,
+      bugHasMatchedLoc
     );
     if (resolver) {
       const raw = getAcc(rawAccs, resolver);
@@ -499,17 +516,25 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
   }
 
   // Pass 2 — tasks: features, complexity, AI tasks, sprint commitment. Task
-  // credit goes to the Dev Owner when set, else the Assignee (§5.1); a task
-  // with neither is credited to nobody and dropped — this has nothing to do
-  // with self-assignment. Every remaining task counts toward the raw (Score)
-  // accumulator unconditionally; self-assigned ones simply don't also mirror
-  // into the excl accumulator below.
+  // credit goes to the Dev Owner when set, else the Assignee (§5.1) — unless
+  // the task has a matched PR, in which case Assignee wins outright (see
+  // resolveTaskOwnerEmail: loc-sync only matches a PR whose author resolves
+  // to the Assignee, so that's harder evidence than a Dev Owner field that
+  // can go stale after a handoff). A task with neither is credited to nobody
+  // and dropped — this has nothing to do with self-assignment. Every
+  // remaining task counts toward the raw (Score) accumulator unconditionally;
+  // self-assigned ones simply don't also mirror into the excl accumulator
+  // below.
   for (const t of tasks) {
+    // Looked up before owner resolution — a matched PR changes who counts as
+    // the owner (see resolveTaskOwnerEmail), so this has to come first.
+    const loc = locMap.get(t.jiraKey.toUpperCase()) ?? null;
     const owner = resolveTaskOwnerEmail(
       t.customFields,
       t.devOwnerFieldIds,
       t.assigneeEmail,
-      accountIdEmailMap
+      accountIdEmailMap,
+      loc != null
     );
     if (!owner) continue;
     const raw = getAcc(rawAccs, owner);
@@ -524,10 +549,9 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
     );
 
     const rawComplexity = extractComplexity(t.customFields, t.complexityFieldIds);
-    // Computed once per task and reused everywhere below — the LOC/expected-
+    // Computed once per task and reused everywhere below — the expected-
     // complexity/self-assigned facts are the same regardless of which
     // accumulator ends up using them.
-    const loc = locMap.get(t.jiraKey.toUpperCase()) ?? null;
     const expectedComplexity = expectedComplexityForLoc(loc, complexityLocRanges, rawComplexity);
     const flagged = isComplexityLocMismatch(rawComplexity, loc, complexityLocRanges);
     const selfAssigned = isSelfAssigned(t.reporterEmail, owner);
@@ -558,6 +582,13 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
         ? "unset"
         : String(Math.min(5, Math.max(1, Math.round(rawComplexity))));
     raw.complexityCounts.set(bucketKey, (raw.complexityCounts.get(bucketKey) ?? 0) + 1);
+    // expectedComplexity is always a concrete 1-5 value (see
+    // expectedComplexityForLoc) — never an "unset" bucket here.
+    const expectedBucketKey = String(Math.min(5, Math.max(1, Math.round(expectedComplexity))));
+    raw.expectedComplexityCounts.set(
+      expectedBucketKey,
+      (raw.expectedComplexityCounts.get(expectedBucketKey) ?? 0) + 1
+    );
 
     // All-Jiras Complexity Accuracy tally — the counterpart of excl's below,
     // over every task regardless of self-assignment. Shown in the Details
@@ -678,6 +709,7 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
     );
     const mttrItems = raw.mttrItems.sort((x, y) => y.minutes - x.minutes);
     const complexity = buildComplexityBuckets(raw.complexityCounts);
+    const expectedComplexityDistribution = buildComplexityBuckets(raw.expectedComplexityCounts);
     // Missing both fields first (fully fallen back), then by key.
     const missingActualDates = raw.missingActualItems.sort(
       (x, y) =>
@@ -686,12 +718,23 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
     );
     const breakdown = {
       ...r.breakdown,
+      // The NSA population's own per-metric contributions (Bug Quality, MTTR,
+      // Sprint Commitment, Complex Tasks-marked) — same shape as the main
+      // metrics array above, but computed over excl (self-assigned excluded).
+      // Bug Quality/MTTR/Sprint Commitment are identical between
+      // markedComplexityScore and expectedComplexityScore (only Complex Tasks
+      // differs, see file header), so this one array is enough to build an
+      // accurate employee-specific breakdown for both Complex. NSA. (M) and
+      // Complex. NSA. (E) in the Details drill-down — no separate persistence
+      // needed for the Expected variant.
+      nsaMetrics: markedR.breakdown.metrics,
       items: {
         weightedBugs: bugItems,
         bugsResolved: resolvedBugItems,
         features: featureItems,
         mttr: mttrItems,
         complexity,
+        expectedComplexity: expectedComplexityDistribution,
         missingActualDates,
       },
     };
