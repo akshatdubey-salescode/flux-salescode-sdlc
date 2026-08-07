@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { ScorecardRow } from "./data";
+import { ratingValueForSortKey, type SortKey } from "./rating-sort";
 
 /** Max points any metric can score; the final score scales this by weight. */
 const MAX_POINTS = 5;
@@ -53,13 +54,10 @@ function RatingCell({ value }: { value: number }) {
   );
 }
 
-// Which rating column the leaderboard is currently sorted by. "score" is
-// the default — it matches the server's own order (fetchScorecards sorts by
-// finalScore), so the initial render needs no client-side re-sort at all.
-// "mar" shares finalScore's value (COMPLEX. (MAR) is the same formula, same
-// population, as Score — see build.ts file header) but gets its own key so
-// its header highlights independently of Score's.
-type SortKey = "score" | "mar" | "exp" | "nsaMar" | "nsaExp";
+// SortKey and its value-selection logic live in ./rating-sort (unit-tested
+// there) — "score" is the default, matching the server's own order
+// (fetchScorecards sorts by finalScore), so the initial render needs no
+// client-side re-sort at all.
 
 /** Small sort-direction indicator next to a sortable column's label. */
 function SortIndicator({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
@@ -141,19 +139,7 @@ export function LeaderboardTable({
   // this order, not the server-computed row.rank, so it always matches what
   // the user is actually looking at.
   const sorted = useMemo(() => {
-    const valueOf = (r: ScorecardRow) => {
-      switch (sortKey) {
-        case "score":
-        case "mar":
-          return r.finalScore;
-        case "exp":
-          return r.expectedComplexityScoreAll;
-        case "nsaMar":
-          return r.markedComplexityScore;
-        case "nsaExp":
-          return r.expectedComplexityScore;
-      }
-    };
+    const valueOf = (r: ScorecardRow) => ratingValueForSortKey(r, sortKey);
     return [...filtered].sort((a, b) =>
       sortDir === "desc" ? valueOf(b) - valueOf(a) : valueOf(a) - valueOf(b),
     );

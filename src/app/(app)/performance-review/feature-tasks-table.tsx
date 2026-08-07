@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Switch } from "@/components/ui/switch";
 import type { ScorecardFeatureItem } from "./data";
+import { filterFeatureTasks } from "./feature-tasks-filter";
 
 /**
  * Renders a Jira issue key. When the issue's instance URL is known it links to
@@ -49,7 +50,7 @@ export function FeatureTasksTable({ items }: { items: ScorecardFeatureItem[] }) 
   const [nonSelfAssignedOnly, setNonSelfAssignedOnly] = useState(false);
 
   const visible = useMemo(
-    () => (nonSelfAssignedOnly ? items.filter((t) => !t.selfAssigned) : items),
+    () => filterFeatureTasks(items, nonSelfAssignedOnly),
     [items, nonSelfAssignedOnly],
   );
 

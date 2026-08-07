@@ -17,6 +17,7 @@ import { ReviewControls } from "./controls";
 import { LeaderboardTable } from "./leaderboard-table";
 import { ScoringGuide } from "./scoring-guide";
 import { FeatureTasksTable } from "./feature-tasks-table";
+import { formatComplexityAccuracy } from "./complexity-accuracy-stat";
 
 type SearchParams = Promise<{ quarter?: string; person?: string }>;
 
@@ -85,12 +86,7 @@ function ComplexityAccuracyStat({
   correct: number;
   checked: number;
 }) {
-  if (checked === 0) return <>— (run Sync LOC)</>;
-  return (
-    <>
-      {correct}/{checked} ({((correct / checked) * 100).toFixed(0)}%)
-    </>
-  );
+  return <>{formatComplexityAccuracy(correct, checked)}</>;
 }
 
 export default async function PerformanceReviewPage({
