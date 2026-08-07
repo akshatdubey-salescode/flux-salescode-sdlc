@@ -1,12 +1,16 @@
 // Unit tests for isSelfAssigned (the gate that excludes self-created-and-
-// assigned Jiras from every metric) and buildComplexityBuckets (the
+// assigned Jiras from every metric), buildComplexityBuckets (the
 // distribution-table bucketing shared by the marked and expected complexity
-// distributions). The rest of build.ts is DB-driven (buildScorecards itself)
-// and isn't unit-tested here; these are the pure functions it exports.
+// distributions), and complexTasksContribution (the extraction behind all
+// four Complex./Complex. NSA. leaderboard columns). The rest of build.ts is
+// DB-driven (buildScorecards itself) and isn't unit-tested here; these are
+// the pure functions it exports.
 // Run: ./node_modules/.bin/tsx --test src/lib/scorecard/build.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isSelfAssigned, buildComplexityBuckets } from "./build";
+import { isSelfAssigned, buildComplexityBuckets, complexTasksContribution } from "./build";
+import { computeScorecard, type ScorecardInputs } from "./engine";
+import { WEIGHTS, SCORE_SCALE } from "./config";
 
 test("reporter same as credited person → self-assigned", () => {
   assert.equal(isSelfAssigned("dev@salescode.ai", "dev@salescode.ai"), true);
@@ -81,4 +85,52 @@ test("expectedComplexityCounts never has an \"unset\" key in practice, but the f
   const buckets = buildComplexityBuckets(counts);
   assert.equal(buckets.some((b) => b.label.startsWith("Unset")), false);
   assert.equal(buckets.length, 5);
+});
+
+// --- complexTasksContribution -------------------------------------------------
+// The extraction behind markedComplexityScoreAll/expectedComplexityScoreAll/
+// markedComplexityScore/expectedComplexityScore — each is this value pulled
+// out of a different population's computeScorecard() result, not the result's
+// own .finalScore (the full four-metric composite).
+
+const BASE_INPUTS: ScorecardInputs = {
+  features: 0,
+  bugsResolvedWeighted: 0,
+  weightedBugs: 0,
+  mttrMinutesSamples: [],
+  sprintNotDelayed: 0,
+  sprintTotal: 0,
+  complexWeightedTotal: 0,
+  complexTotalTasks: 0,
+  aiTaskCount: 0,
+  totalComplex: 0,
+  churn: null,
+  effort: null,
+};
+
+test("equals weight x points x scale for Complex Tasks alone, not the full composite", () => {
+  const result = computeScorecard({ ...BASE_INPUTS, complexWeightedTotal: 150, complexTotalTasks: 20 });
+  const expected = WEIGHTS.complexTasks * (result.complexTasksPoints ?? 0) * SCORE_SCALE;
+  assert.ok(Math.abs(complexTasksContribution(result) - expected) < 1e-9);
+  // Sanity: this is meaningfully less than the full composite whenever the
+  // other metrics contribute anything (here, Bug Quality/MTTR/Sprint all
+  // default to full marks on no data, so finalScore > this alone).
+  assert.ok(complexTasksContribution(result) < result.finalScore);
+});
+
+test("zero complexWeightedTotal → zero contribution, not the no-data-defaults-to-5 behavior other metrics get", () => {
+  const result = computeScorecard(BASE_INPUTS);
+  assert.equal(complexTasksContribution(result), 0);
+});
+
+test("matches the same-key entry already exposed on breakdown.metrics — no independent computation, just extraction", () => {
+  const result = computeScorecard({ ...BASE_INPUTS, complexWeightedTotal: 42, complexTotalTasks: 5 });
+  const fromBreakdown = result.breakdown.metrics.find((m) => m.key === "complexTasks")!.contribution;
+  assert.equal(complexTasksContribution(result), fromBreakdown);
+});
+
+test("two different populations' results are extracted independently — one doesn't leak into the other", () => {
+  const low = computeScorecard({ ...BASE_INPUTS, complexWeightedTotal: 10, complexTotalTasks: 3 });
+  const high = computeScorecard({ ...BASE_INPUTS, complexWeightedTotal: 200, complexTotalTasks: 30 });
+  assert.notEqual(complexTasksContribution(low), complexTasksContribution(high));
 });
