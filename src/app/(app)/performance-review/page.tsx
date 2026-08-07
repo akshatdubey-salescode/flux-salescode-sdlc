@@ -849,7 +849,7 @@ export default async function PerformanceReviewPage({
                                   </span>
                                 </dd>
                               </div>
-                              <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-4 dark:border-blue-900/60 dark:bg-blue-950/20">
+                              <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
                                 <dt className="flex flex-wrap items-center gap-2">
                                   <span className="font-medium text-zinc-900 dark:text-zinc-100">
                                     Score NSA. (E)
