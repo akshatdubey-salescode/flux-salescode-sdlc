@@ -70,6 +70,8 @@ const MARKED_FORMULA =
   "The Complex Tasks metric's own contribution only (weight 0.30 × points × scale 20, so 0-30) — weighted by each task's marked complexity. Bug Quality/MTTR/Sprint Commitment (the other 70 points of Score) are deliberately left out, so this column isn't diluted by metrics that don't vary with complexity.";
 const EXPECTED_FORMULA =
   "Same as the Marked rating in this population, except weighted by each task's LOC-predicted complexity instead of the marked value.";
+const SCORE_NSA_E_INFO =
+  "Same formula as Score (Bug Quality + MTTR + Sprint Commitment + Complex Tasks), but computed with self-assigned Jiras excluded and Complex Tasks weighted by LOC-predicted complexity instead of marked. Unlike Complex. NSA. (E) below (Complex Tasks contribution alone, 0-30), this is the full four-metric composite, 0-100 — directly comparable to Score.";
 
 /** One Complexity Accuracy reading: correct/checked (pct%), or a dash. */
 function ComplexityAccuracyStat({
@@ -140,6 +142,13 @@ export default async function PerformanceReviewPage({
                     Score for <strong>{quarterLabel}</strong>:{" "}
                     <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
                       {detail.finalScore.toFixed(1)}
+                    </span>{" "}
+                    / 100
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-500" title={SCORE_NSA_E_INFO}>
+                    Score NSA. (E) for <strong>{quarterLabel}</strong>:{" "}
+                    <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                      {detail.scoreNsaExpected.toFixed(1)}
                     </span>{" "}
                     / 100
                   </p>
@@ -325,6 +334,18 @@ export default async function PerformanceReviewPage({
                               .reduce((s, m) => s + m.weight * 5 * SCORE_SCALE, 0)
                               .toFixed(0)}
                           </span>
+                        </td>
+                      </tr>
+                      <tr className="bg-zinc-50/60 dark:bg-zinc-900/40" title={SCORE_NSA_E_INFO}>
+                        <td
+                          colSpan={4}
+                          className="px-4 py-3 text-right text-sm font-semibold"
+                        >
+                          Score NSA. (E)
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-bold tabular-nums">
+                          {detail.scoreNsaExpected.toFixed(1)}
+                          <span className="font-normal text-zinc-400"> / 100</span>
                         </td>
                       </tr>
                     </tbody>
@@ -828,6 +849,25 @@ export default async function PerformanceReviewPage({
                                   </span>
                                 </dd>
                               </div>
+                              <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-4 dark:border-blue-900/60 dark:bg-blue-950/20">
+                                <dt className="flex flex-wrap items-center gap-2">
+                                  <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                                    Score NSA. (E)
+                                  </span>
+                                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                                    full composite, not Complex Tasks alone
+                                  </span>
+                                </dt>
+                                <dd className="mt-1.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                                  {SCORE_NSA_E_INFO}
+                                </dd>
+                                <dd className="mt-2 text-xs text-zinc-500 dark:text-zinc-500">
+                                  This developer:{" "}
+                                  <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                                    {detail.scoreNsaExpected.toFixed(1)} / 100
+                                  </span>
+                                </dd>
+                              </div>
                               <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
                                 <dt className="flex flex-wrap items-center gap-2">
                                   <span className="font-medium text-zinc-900 dark:text-zinc-100">
@@ -1002,10 +1042,14 @@ export default async function PerformanceReviewPage({
               derived from synced Jira data across four weighted metrics — Bug
               Quality ({WEIGHTS.bugQuality}), Complex Tasks ({WEIGHTS.complexTasks}),
               Sprint Commitment ({WEIGHTS.sprintCommitment}), and MTTR ({WEIGHTS.mttr}).{" "}
-              <strong>Score</strong> counts every completed Jira, unfiltered.
-              Alongside it, four Jira Complexity Rating columns isolate just
-              the Complex Tasks contribution (out of 30 — the other 70 points
-              of Score are the same regardless of complexity source or
+              <strong>Score</strong> counts every completed Jira, unfiltered.{" "}
+              <strong>Score NSA. (E)</strong> is the same formula and scale,
+              but self-assigned Jiras are excluded and Complex Tasks is
+              weighted by LOC-predicted complexity instead of marked — the
+              only other column directly comparable to Score. Alongside them,
+              four Jira Complexity Rating columns isolate just the Complex
+              Tasks contribution (out of 30 — the other 70 points of Score
+              are the same regardless of complexity source or
               self-assignment, so they&apos;re left out to keep the comparison
               clean): <strong>Complex. (M)</strong> and{" "}
               <strong>Complex. (E)</strong> keep every Jira (identical

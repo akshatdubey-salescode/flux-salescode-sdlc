@@ -95,6 +95,8 @@ const ALL_JIRAS_INFO =
   "Includes every completed Jira, including self-created-and-assigned ones — same population as Score.";
 const NSA_INFO =
   "Excludes self-assigned Jiras — issues where the reporter is also the person credited for the work. Score is unaffected; only this column reflects that exclusion.";
+const SCORE_NSA_E_INFO =
+  "Same formula as Score (Bug Quality + MTTR + Sprint Commitment + Complex Tasks), but computed with self-assigned Jiras excluded and Complex Tasks weighted by LOC-predicted complexity instead of marked. Unlike Complex. NSA. (E) (Complex Tasks contribution alone, out of 30), this is the full composite, out of 100 — directly comparable to Score.";
 
 export function LeaderboardTable({
   rows,
@@ -218,6 +220,22 @@ export function LeaderboardTable({
               </th>
               <th
                 className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
+                title="Same formula as Score, but self-assigned Jiras excluded and Complex Tasks weighted by LOC-predicted complexity. Click to sort"
+              >
+                <span className="inline-flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("scoreNsaE")}
+                    className="inline-flex items-center uppercase hover:text-zinc-700 dark:hover:text-zinc-300"
+                  >
+                    Score NSA. (E)
+                    <SortIndicator active={sortKey === "scoreNsaE"} dir={sortDir} />
+                  </button>
+                  <HeaderInfoBadge text={SCORE_NSA_E_INFO} />
+                </span>
+              </th>
+              <th
+                className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
                 title="Complex Tasks contribution only (out of 30), rated by each task's marked complexity, every completed Jira included. Bug Quality/MTTR/Sprint Commitment aren't part of this — see Score for those. Click to sort"
               >
                 <span className="inline-flex items-center gap-1">
@@ -331,6 +349,9 @@ export function LeaderboardTable({
                   <RatingCell value={row.finalScore} max={MAX_SCORE} />
                 </td>
                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
+                  <RatingCell value={row.scoreNsaExpected} max={MAX_SCORE} />
+                </td>
+                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
                   <RatingCell value={row.markedComplexityScoreAll} max={MAX_COMPLEX_CONTRIBUTION} />
                 </td>
                 <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
@@ -381,7 +402,7 @@ export function LeaderboardTable({
             {rows.length === 0 && (
               <tr>
                 <td
-                  colSpan={13}
+                  colSpan={14}
                   className="px-4 py-8 text-center text-sm text-zinc-400"
                 >
                   No scorecards for {quarterLabel} yet. Click{" "}
@@ -394,7 +415,7 @@ export function LeaderboardTable({
             {rows.length > 0 && filtered.length === 0 && (
               <tr>
                 <td
-                  colSpan={13}
+                  colSpan={14}
                   className="px-4 py-8 text-center text-sm text-zinc-400"
                 >
                   No developers match the current filters.

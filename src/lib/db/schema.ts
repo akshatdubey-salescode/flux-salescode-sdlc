@@ -1462,6 +1462,14 @@ export const performanceScorecards = pgTable(
       .notNull()
       .default(0),
 
+    // SCORE NSA. (E) — unlike the four COMPLEX columns above (Complex Tasks
+    // contribution alone, 0-30), this is the full four-metric composite
+    // (0-100), same formula as finalScore, but computed over the
+    // self-assigned-excluded population with Complex Tasks weighted by
+    // LOC-predicted complexity instead of marked. Directly comparable to
+    // finalScore, not to the COMPLEX columns.
+    scoreNsaExpected: doublePrecision("score_nsa_expected").notNull().default(0),
+
     // Complexity Accuracy, all-Jiras: of every task (checked), how many had
     // marked complexity equal to what the LOC predicts (correct) — e.g.
     // correct=9, checked=30 renders as "9/30 (30%)". Shown in the Details

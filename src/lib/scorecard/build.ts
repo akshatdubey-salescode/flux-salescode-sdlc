@@ -32,6 +32,12 @@
 // Complexity Accuracy is tallied BOTH ways too (complexityAccuracyAllCorrect/
 // Checked over every task, complexityAccuracyCorrect/Checked over the NSA
 // population only) — shown in the drill-down, not the leaderboard.
+//
+// scoreNsaExpected (SCORE NSA. (E)) is different from the four above: it's
+// the full four-metric composite, same formula as finalScore, just computed
+// over the self-assigned-excluded population with Complex Tasks weighted by
+// LOC-predicted complexity — expectedR's own finalScore, not just its Complex
+// Tasks contribution. Directly comparable to Score, unlike the 0-30 columns.
 
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -814,6 +820,10 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
       expectedComplexityScoreAll: complexTasksContribution(allExpectedR),
       markedComplexityScore: complexTasksContribution(markedR),
       expectedComplexityScore: complexTasksContribution(expectedR),
+      // SCORE NSA. (E) — expectedR's own finalScore, the full composite
+      // (same formula as Score) rather than just its Complex Tasks
+      // contribution above.
+      scoreNsaExpected: expectedR.finalScore,
       complexityAccuracyAllCorrect: raw.complexityCorrect,
       complexityAccuracyAllChecked: raw.complexityChecked,
       complexityAccuracyCorrect: excl.complexityCorrect,

@@ -32,6 +32,11 @@ export type ScorecardRow = {
   // COMPLEX NSA. (E) — same self-assigned exclusion as NSA (M), LOC-predicted
   // complexity instead of marked.
   expectedComplexityScore: number;
+  // SCORE NSA. (E) — unlike the four columns above, this is the full
+  // four-metric composite (0-100, same formula and scale as finalScore), just
+  // computed over the self-assigned-excluded population with Complex Tasks
+  // weighted by LOC-predicted complexity instead of marked.
+  scoreNsaExpected: number;
   bugQualityPoints: number | null;
   mttrPoints: number | null;
   sprintCommitmentPoints: number | null;
@@ -123,6 +128,7 @@ export type ScorecardDetail = {
   expectedComplexityScoreAll: number;
   markedComplexityScore: number;
   expectedComplexityScore: number;
+  scoreNsaExpected: number;
   // Complexity Accuracy, both readings — correct/checked (LOC-vs-marked-
   // complexity agreement), rendered as "correct/checked (pct%)". checked=0 →
   // nothing to check yet (no tasks, or — for the NSA reading — every task
@@ -262,6 +268,7 @@ export async function fetchScorecards(quarterKey: string): Promise<ScorecardRow[
       expectedComplexityScoreAll: performanceScorecards.expectedComplexityScoreAll,
       markedComplexityScore: performanceScorecards.markedComplexityScore,
       expectedComplexityScore: performanceScorecards.expectedComplexityScore,
+      scoreNsaExpected: performanceScorecards.scoreNsaExpected,
       bugQualityPoints: performanceScorecards.bugQualityPoints,
       mttrPoints: performanceScorecards.mttrPoints,
       sprintCommitmentPoints: performanceScorecards.sprintCommitmentPoints,
@@ -298,6 +305,7 @@ export async function fetchScorecards(quarterKey: string): Promise<ScorecardRow[
       expectedComplexityScoreAll: r.expectedComplexityScoreAll,
       markedComplexityScore: r.markedComplexityScore,
       expectedComplexityScore: r.expectedComplexityScore,
+      scoreNsaExpected: r.scoreNsaExpected,
       bugQualityPoints: r.bugQualityPoints,
       mttrPoints: r.mttrPoints,
       sprintCommitmentPoints: r.sprintCommitmentPoints,
@@ -370,6 +378,7 @@ export async function fetchScorecardDetail(
     expectedComplexityScoreAll: r.expectedComplexityScoreAll,
     markedComplexityScore: r.markedComplexityScore,
     expectedComplexityScore: r.expectedComplexityScore,
+    scoreNsaExpected: r.scoreNsaExpected,
     complexityAccuracyAllCorrect: r.complexityAccuracyAllCorrect,
     complexityAccuracyAllChecked: r.complexityAccuracyAllChecked,
     complexityAccuracyCorrect: r.complexityAccuracyCorrect,
