@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { requireAuth } from "@/lib/auth/server";
 import { PageHeader } from "@/components/page-header";
@@ -16,6 +17,9 @@ import { fetchScorecards, fetchScorecardDetail } from "./data";
 import { ReviewControls } from "./controls";
 import { LeaderboardTable } from "./leaderboard-table";
 import { ScoringGuide } from "./scoring-guide";
+import { FeatureTasksTable } from "./feature-tasks-table";
+import { formatComplexityAccuracy } from "./complexity-accuracy-stat";
+import { complexTasksCalc, findComplexTasksMetric } from "./rating-calc";
 
 type SearchParams = Promise<{ quarter?: string; person?: string }>;
 
@@ -57,6 +61,27 @@ function JiraKeyLink({ item }: { item: { key: string; url?: string } }) {
     </a>
   );
 }
+
+const ALL_JIRAS_INFO =
+  "Includes every completed Jira, including self-created-and-assigned ones — same population as Score.";
+const NSA_INFO =
+  "Excludes self-assigned Jiras — issues where the reporter is also the person credited for the work. Score is unaffected; only this reading reflects that exclusion.";
+const MARKED_FORMULA =
+  "The Complex Tasks metric's own contribution only (weight 0.30 × points × scale 20, so 0-30) — weighted by each task's marked complexity. Bug Quality/MTTR/Sprint Commitment (the other 70 points of Score) are deliberately left out, so this column isn't diluted by metrics that don't vary with complexity.";
+const EXPECTED_FORMULA =
+  "Same as the Marked rating in this population, except weighted by each task's LOC-predicted complexity instead of the marked value.";
+
+/** One Complexity Accuracy reading: correct/checked (pct%), or a dash. */
+function ComplexityAccuracyStat({
+  correct,
+  checked,
+}: {
+  correct: number;
+  checked: number;
+}) {
+  return <>{formatComplexityAccuracy(correct, checked)}</>;
+}
+
 
 export default async function PerformanceReviewPage({
   searchParams,
@@ -111,44 +136,12 @@ export default async function PerformanceReviewPage({
                   <p className="mt-1 font-mono text-xs text-zinc-500">
                     {detail.email}
                   </p>
-                  <h2 className="mt-4 text-xs font-semibold uppercase tracking-wide text-zinc-400">
-                    Jira Complexity Rating
-                  </h2>
-                  <p className="mt-1 text-sm text-zinc-500">
-                    Suggested rating for <strong>{quarterLabel}</strong> — marked
-                    complexity:{" "}
+                  <p className="mt-4 text-sm text-zinc-500">
+                    Score for <strong>{quarterLabel}</strong>:{" "}
                     <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
                       {detail.finalScore.toFixed(1)}
                     </span>{" "}
                     / 100
-                  </p>
-                  <p className="mt-1 text-sm text-zinc-500">
-                    Same, expected complexity:{" "}
-                    <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-                      {detail.expectedComplexityScore.toFixed(1)}
-                    </span>{" "}
-                    / 100
-                    <span className="ml-1.5 text-xs text-zinc-400">
-                      (self-assigned Jiras excluded from both)
-                    </span>
-                  </p>
-                  <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                    Complexity Accuracy (marked complexity vs. LOC-predicted):{" "}
-                    <span className="font-semibold text-zinc-700 dark:text-zinc-300">
-                      {detail.complexityAccuracyChecked > 0 ? (
-                        <>
-                          {detail.complexityAccuracyCorrect}/{detail.complexityAccuracyChecked} (
-                          {(
-                            (detail.complexityAccuracyCorrect /
-                              detail.complexityAccuracyChecked) *
-                            100
-                          ).toFixed(0)}
-                          %)
-                        </>
-                      ) : (
-                        "— (run Sync LOC)"
-                      )}
-                    </span>
                   </p>
                 </div>
 
@@ -175,39 +168,146 @@ export default async function PerformanceReviewPage({
                     </thead>
                     <tbody>
                       {detail.breakdown.metrics.map((m) => (
-                        <tr
-                          key={m.key}
-                          className={
-                            "border-b border-zinc-100 last:border-0 dark:border-zinc-800/60 " +
-                            (m.available ? "" : "opacity-50")
-                          }
-                        >
-                          <td className="px-4 py-3 align-top font-medium text-zinc-900 dark:text-zinc-100">
-                            {m.label}
-                          </td>
-                          <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
-                            {m.available ? m.raw : "N/A — not tracked"}
-                          </td>
-                          <td className="px-4 py-3 text-right align-top tabular-nums">
-                            {m.available ? fmtPoints(m.points) : "N/A"}
-                          </td>
-                          <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">
-                            {m.weight.toFixed(2)}
-                          </td>
-                          <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">
-                            {m.available ? (
-                              <>
-                                {m.contribution.toFixed(2)}
-                                <span className="font-normal text-zinc-400">
-                                  {" "}
-                                  / {(m.weight * 5 * SCORE_SCALE).toFixed(2)}
-                                </span>
-                              </>
-                            ) : (
-                              "—"
-                            )}
-                          </td>
-                        </tr>
+                        <Fragment key={m.key}>
+                          <tr
+                            className={
+                              "border-b border-zinc-100 last:border-0 dark:border-zinc-800/60 " +
+                              (m.available ? "" : "opacity-50")
+                            }
+                          >
+                            <td className="px-4 py-3 align-top font-medium text-zinc-900 dark:text-zinc-100">
+                              {m.label}
+                            </td>
+                            <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
+                              {m.available ? m.raw : "N/A — not tracked"}
+                            </td>
+                            <td className="px-4 py-3 text-right align-top tabular-nums">
+                              {m.available ? fmtPoints(m.points) : "N/A"}
+                            </td>
+                            <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">
+                              {m.weight.toFixed(2)}
+                            </td>
+                            <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">
+                              {m.available ? (
+                                <>
+                                  {m.contribution.toFixed(2)}
+                                  <span className="font-normal text-zinc-400">
+                                    {" "}
+                                    / {(m.weight * 5 * SCORE_SCALE).toFixed(2)}
+                                  </span>
+                                </>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                          </tr>
+                          {m.key === "codeChurn" && (
+                            <>
+                              <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60">
+                                <td className="px-4 py-3 align-top font-medium text-zinc-900 dark:text-zinc-100">
+                                  Complex. (M)
+                                </td>
+                                <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
+                                  {(() => {
+                                    const cm = findComplexTasksMetric(detail.breakdown.metrics);
+                                    return cm ? complexTasksCalc(cm) : "Recompute to see the breakdown";
+                                  })()}
+                                </td>
+                                <td className="px-4 py-3 text-right align-top tabular-nums">
+                                  {detail.markedComplexityScoreAll.toFixed(1)} / 30
+                                </td>
+                                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">—</td>
+                                <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">—</td>
+                              </tr>
+                              <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60">
+                                <td className="px-4 py-3 align-top font-medium text-zinc-900 dark:text-zinc-100">
+                                  Complex. (E)
+                                </td>
+                                <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
+                                  {(() => {
+                                    const ce = findComplexTasksMetric(detail.breakdown.expectedAllMetrics);
+                                    return ce ? complexTasksCalc(ce) : "Recompute to see the breakdown";
+                                  })()}
+                                </td>
+                                <td className="px-4 py-3 text-right align-top tabular-nums">
+                                  {detail.expectedComplexityScoreAll.toFixed(1)} / 30
+                                </td>
+                                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">—</td>
+                                <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">—</td>
+                              </tr>
+                              <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60">
+                                <td className="px-4 py-3 align-top font-medium text-zinc-900 dark:text-zinc-100">
+                                  Complex. NSA. (M)
+                                </td>
+                                <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
+                                  {(() => {
+                                    const nm = findComplexTasksMetric(detail.breakdown.nsaMetrics);
+                                    return nm ? complexTasksCalc(nm) : "Recompute to see the breakdown";
+                                  })()}
+                                </td>
+                                <td className="px-4 py-3 text-right align-top tabular-nums">
+                                  {detail.markedComplexityScore.toFixed(1)} / 30
+                                </td>
+                                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">—</td>
+                                <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">—</td>
+                              </tr>
+                              <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60">
+                                <td className="px-4 py-3 align-top font-medium text-zinc-900 dark:text-zinc-100">
+                                  Complex. NSA. (E)
+                                </td>
+                                <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
+                                  {(() => {
+                                    const ne = findComplexTasksMetric(detail.breakdown.nsaExpectedMetrics);
+                                    return ne ? complexTasksCalc(ne) : "Recompute to see the breakdown";
+                                  })()}
+                                </td>
+                                <td className="px-4 py-3 text-right align-top tabular-nums">
+                                  {detail.expectedComplexityScore.toFixed(1)} / 30
+                                </td>
+                                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">—</td>
+                                <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">—</td>
+                              </tr>
+                              <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60">
+                                <td className="px-4 py-3 align-top font-medium text-zinc-900 dark:text-zinc-100">
+                                  Complexity Accuracy (all Jiras)
+                                </td>
+                                <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
+                                  <ComplexityAccuracyStat
+                                    correct={detail.complexityAccuracyAllCorrect}
+                                    checked={detail.complexityAccuracyAllChecked}
+                                  />
+                                </td>
+                                <td className="px-4 py-3 text-right align-top tabular-nums">
+                                  <ComplexityAccuracyStat
+                                    correct={detail.complexityAccuracyAllCorrect}
+                                    checked={detail.complexityAccuracyAllChecked}
+                                  />
+                                </td>
+                                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">—</td>
+                                <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">—</td>
+                              </tr>
+                              <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60">
+                                <td className="px-4 py-3 align-top font-medium text-zinc-900 dark:text-zinc-100">
+                                  Complexity Accuracy (NSA only)
+                                </td>
+                                <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
+                                  <ComplexityAccuracyStat
+                                    correct={detail.complexityAccuracyCorrect}
+                                    checked={detail.complexityAccuracyChecked}
+                                  />
+                                </td>
+                                <td className="px-4 py-3 text-right align-top tabular-nums">
+                                  <ComplexityAccuracyStat
+                                    correct={detail.complexityAccuracyCorrect}
+                                    checked={detail.complexityAccuracyChecked}
+                                  />
+                                </td>
+                                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">—</td>
+                                <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">—</td>
+                              </tr>
+                            </>
+                          )}
+                        </Fragment>
                       ))}
                       <tr className="bg-zinc-50 dark:bg-zinc-900/60">
                         <td
@@ -311,141 +411,7 @@ export default async function PerformanceReviewPage({
                   </div>
                 </section>
 
-                <section className="space-y-3">
-                  <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-                    Feature tasks ({detail.featureItems.length})
-                  </h2>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    Non-bug tasks the developer completed this quarter, counted as
-                    feature output for the Bug Quality score.{" "}
-                    <strong>Expected</strong> is what complexity the task&apos;s
-                    matched LOC predicts — shown in{" "}
-                    <span className="font-semibold text-amber-700 dark:text-amber-400">
-                      amber
-                    </span>{" "}
-                    whenever it disagrees with the marked value, for any complexity
-                    level. The separate{" "}
-                    <span className="font-medium text-amber-600 dark:text-amber-400">
-                      ⚠ flagged
-                    </span>{" "}
-                    badge is narrower — only Complexity 4-5 tasks whose LOC is
-                    suspiciously low — worth a quick look, not an automatic
-                    downgrade. A task with no matched PR shows &ldquo;—&rdquo;
-                    for LOC (nothing measured), but Expected still shows{" "}
-                    <strong>1</strong> — no code found predicts the lowest
-                    complexity, same convention as an unmarked Complexity
-                    column defaulting to 1.
-                  </p>
-                  <div className="max-h-96 overflow-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0">
-                        <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/95">
-                          <th className="whitespace-nowrap px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                            Key
-                          </th>
-                          <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                            Summary
-                          </th>
-                          <th className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                            Complexity
-                          </th>
-                          <th className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                            LOC
-                          </th>
-                          <th
-                            className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                            title="What complexity the matched LOC predicts (complexity-loc-thresholds.ts), for comparison against the marked value"
-                          >
-                            Expected
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detail.featureItems.map((t) => (
-                          <tr
-                            key={t.key}
-                            className={
-                              "border-b border-zinc-100 last:border-0 dark:border-zinc-800/60 " +
-                              (t.complexityMismatch ? "bg-amber-50 dark:bg-amber-950/20" : "")
-                            }
-                          >
-                            <td className="whitespace-nowrap px-4 py-2.5 align-top font-mono text-xs text-zinc-600 dark:text-zinc-300">
-                              <JiraKeyLink item={t} />
-                            </td>
-                            <td className="px-4 py-2.5 align-top text-zinc-700 dark:text-zinc-300">
-                              {t.summary}
-                              {t.complexityMismatch && (
-                                <span
-                                  className="ml-1.5 text-amber-600 dark:text-amber-400"
-                                  title={t.mismatchSuggestion ?? undefined}
-                                >
-                                  ⚠ flagged
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-4 py-2.5 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                              {t.complexity != null ? (
-                                Math.min(5, Math.max(1, Math.round(t.complexity)))
-                              ) : (
-                                <span
-                                  title="Complexity not set in Jira — defaults to C1 (weight 1)"
-                                  className="text-zinc-400"
-                                >
-                                  1
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-4 py-2.5 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                              {t.loc != null ? (
-                                t.loc
-                              ) : (
-                                <span className="text-zinc-400" title="No PR matched yet">
-                                  —
-                                </span>
-                              )}
-                            </td>
-                            {(() => {
-                              // Same defaulting convention as the score itself
-                              // (complexityWeight() in build.ts): unmarked
-                              // complexity → 1, no matched PR/LOC → 1. Never a
-                              // dash — always a number to compare against.
-                              const marked =
-                                t.complexity != null
-                                  ? Math.min(5, Math.max(1, Math.round(t.complexity)))
-                                  : 1;
-                              const expected = t.expectedComplexity ?? 1;
-                              const matches = marked === expected;
-                              return (
-                                <td className="px-4 py-2.5 text-right align-top tabular-nums">
-                                  {matches ? (
-                                    <span className="text-zinc-600 dark:text-zinc-400">{expected}</span>
-                                  ) : (
-                                    <span
-                                      className="font-semibold text-amber-700 dark:text-amber-400"
-                                      title="Marked complexity doesn't match what the matched LOC predicts"
-                                    >
-                                      {expected}
-                                    </span>
-                                  )}
-                                </td>
-                              );
-                            })()}
-                          </tr>
-                        ))}
-                        {detail.featureItems.length === 0 && (
-                          <tr>
-                            <td
-                              colSpan={5}
-                              className="px-4 py-8 text-center text-sm text-zinc-400"
-                            >
-                              No feature tasks completed this quarter.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
+                <FeatureTasksTable items={detail.featureItems} />
 
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
@@ -609,6 +575,100 @@ export default async function PerformanceReviewPage({
 
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+                    Expected Complexity distribution ({detail.complexTasksCount} task
+                    {detail.complexTasksCount === 1 ? "" : "s"})
+                  </h2>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Sibling of the distribution above, using each task&apos;s
+                    LOC-predicted complexity instead of the marked value — same
+                    weights (C1 = 1, C2 = 3, C3 = 5, C4 = 7, C5 = 10), same
+                    tasks, just bucketed by what the code actually looked like
+                    rather than what was marked in Jira. Feeds Complex. (E) /
+                    Complex. NSA. (E) the same way the distribution above feeds
+                    Complex. (M) / Complex. NSA. (M).
+                  </p>
+                  <div className="overflow-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/95">
+                          <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            Complexity
+                          </th>
+                          <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            Tasks
+                          </th>
+                          <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            Weight each
+                          </th>
+                          <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            Total weight
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.expectedComplexityBuckets.map((c) => (
+                          <tr
+                            key={c.label}
+                            className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60"
+                          >
+                            <td className="whitespace-nowrap px-4 py-2.5 align-top font-medium text-zinc-900 dark:text-zinc-100">
+                              {c.label}
+                            </td>
+                            <td className="px-4 py-2.5 text-right align-top tabular-nums text-zinc-700 dark:text-zinc-300">
+                              {c.count}
+                            </td>
+                            <td className="px-4 py-2.5 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
+                              {c.weightEach}
+                            </td>
+                            <td className="px-4 py-2.5 text-right align-top font-semibold tabular-nums">
+                              {c.totalWeight}
+                            </td>
+                          </tr>
+                        ))}
+                        {detail.expectedComplexityBuckets.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={4}
+                              className="px-4 py-8 text-center text-sm text-zinc-400"
+                            >
+                              No tasks completed this quarter.
+                            </td>
+                          </tr>
+                        ) : (
+                          (() => {
+                            const tasks = detail.expectedComplexityBuckets.reduce(
+                              (s, c) => s + c.count,
+                              0
+                            );
+                            const weight = detail.expectedComplexityBuckets.reduce(
+                              (s, c) => s + c.totalWeight,
+                              0
+                            );
+                            return (
+                              <tr className="bg-zinc-50 dark:bg-zinc-900/60">
+                                <td className="px-4 py-2.5 text-sm font-semibold">
+                                  Total
+                                </td>
+                                <td className="px-4 py-2.5 text-right text-sm font-semibold tabular-nums">
+                                  {tasks}
+                                </td>
+                                <td className="px-4 py-2.5 text-right text-xs text-zinc-500">
+                                  avg {(weight / tasks).toFixed(2)}
+                                </td>
+                                <td className="px-4 py-2.5 text-right text-sm font-bold tabular-nums">
+                                  {weight}
+                                </td>
+                              </tr>
+                            );
+                          })()
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+
+                <section className="space-y-3">
+                  <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     What each metric means
                   </h2>
                   <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-4 dark:border-blue-900/60 dark:bg-blue-950/30">
@@ -628,52 +688,189 @@ export default async function PerformanceReviewPage({
                     {detail.breakdown.metrics.map((m) => {
                       const info = METRIC_INFO[m.key];
                       return (
-                        <div
-                          key={m.key}
-                          className={
-                            "rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 " +
-                            (m.available ? "" : "opacity-70")
-                          }
-                        >
-                          <dt className="flex flex-wrap items-center gap-2">
-                            <span className="font-medium text-zinc-900 dark:text-zinc-100">
-                              {m.label}
-                            </span>
-                            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                              weight {m.weight.toFixed(2)}
-                            </span>
-                            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                              range {info.range}
-                            </span>
-                            {m.weight === 0 && (
-                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-400">
-                                does not affect score
+                        <Fragment key={m.key}>
+                          <div
+                            className={
+                              "rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 " +
+                              (m.available ? "" : "opacity-70")
+                            }
+                          >
+                            <dt className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                                {m.label}
                               </span>
-                            )}
-                          </dt>
-                          <dd className="mt-1.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-                            {info.detail}
-                          </dd>
-                          <dd className="mt-2 text-xs text-zinc-500 dark:text-zinc-500">
-                            This developer:{" "}
-                            <span className="text-zinc-700 dark:text-zinc-300">
-                              {m.available ? m.raw : "N/A — not tracked"}
-                            </span>{" "}
-                            →{" "}
-                            <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                              {m.available
-                                ? `${fmtPoints(m.points)} points`
-                                : "no points"}
-                            </span>
-                            {m.available && m.weight > 0 && (
-                              <>
-                                {" "}
-                                (contributes {m.contribution.toFixed(2)} to the
-                                final score)
-                              </>
-                            )}
-                          </dd>
-                        </div>
+                              <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                                weight {m.weight.toFixed(2)}
+                              </span>
+                              <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                                range {info.range}
+                              </span>
+                              {m.weight === 0 && (
+                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-400">
+                                  does not affect score
+                                </span>
+                              )}
+                            </dt>
+                            <dd className="mt-1.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                              {info.detail}
+                            </dd>
+                            <dd className="mt-2 text-xs text-zinc-500 dark:text-zinc-500">
+                              This developer:{" "}
+                              <span className="text-zinc-700 dark:text-zinc-300">
+                                {m.available ? m.raw : "N/A — not tracked"}
+                              </span>{" "}
+                              →{" "}
+                              <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                                {m.available
+                                  ? `${fmtPoints(m.points)} points`
+                                  : "no points"}
+                              </span>
+                              {m.available && m.weight > 0 && (
+                                <>
+                                  {" "}
+                                  (contributes {m.contribution.toFixed(2)} to the
+                                  final score)
+                                </>
+                              )}
+                            </dd>
+                          </div>
+                          {m.key === "codeChurn" && (
+                            <>
+                              <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+                                <dt className="flex flex-wrap items-center gap-2">
+                                  <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                                    Complex. (M)
+                                  </span>
+                                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                                    all Jiras
+                                  </span>
+                                </dt>
+                                <dd className="mt-1.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                                  {ALL_JIRAS_INFO}
+                                </dd>
+                                <dd className="mt-1.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-500">
+                                  {MARKED_FORMULA}
+                                </dd>
+                                <dd className="mt-2 text-xs text-zinc-500 dark:text-zinc-500">
+                                  This developer:{" "}
+                                  <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                                    {detail.markedComplexityScoreAll.toFixed(1)} / 30
+                                  </span>
+                                </dd>
+                              </div>
+                              <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+                                <dt className="flex flex-wrap items-center gap-2">
+                                  <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                                    Complex. (E)
+                                  </span>
+                                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                                    all Jiras
+                                  </span>
+                                </dt>
+                                <dd className="mt-1.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                                  {ALL_JIRAS_INFO}
+                                </dd>
+                                <dd className="mt-1.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-500">
+                                  {EXPECTED_FORMULA}
+                                </dd>
+                                <dd className="mt-2 text-xs text-zinc-500 dark:text-zinc-500">
+                                  This developer:{" "}
+                                  <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                                    {detail.expectedComplexityScoreAll.toFixed(1)} / 30
+                                  </span>
+                                </dd>
+                              </div>
+                              <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+                                <dt className="flex flex-wrap items-center gap-2">
+                                  <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                                    Complex. NSA. (M)
+                                  </span>
+                                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                                    self-assigned excluded
+                                  </span>
+                                </dt>
+                                <dd className="mt-1.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                                  {NSA_INFO}
+                                </dd>
+                                <dd className="mt-1.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-500">
+                                  {MARKED_FORMULA}
+                                </dd>
+                                <dd className="mt-2 text-xs text-zinc-500 dark:text-zinc-500">
+                                  This developer:{" "}
+                                  <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                                    {detail.markedComplexityScore.toFixed(1)} / 30
+                                  </span>
+                                </dd>
+                              </div>
+                              <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+                                <dt className="flex flex-wrap items-center gap-2">
+                                  <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                                    Complex. NSA. (E)
+                                  </span>
+                                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                                    self-assigned excluded
+                                  </span>
+                                </dt>
+                                <dd className="mt-1.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                                  {NSA_INFO}
+                                </dd>
+                                <dd className="mt-1.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-500">
+                                  {EXPECTED_FORMULA}
+                                </dd>
+                                <dd className="mt-2 text-xs text-zinc-500 dark:text-zinc-500">
+                                  This developer:{" "}
+                                  <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                                    {detail.expectedComplexityScore.toFixed(1)} / 30
+                                  </span>
+                                </dd>
+                              </div>
+                              <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+                                <dt className="flex flex-wrap items-center gap-2">
+                                  <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                                    Complexity Accuracy (all Jiras)
+                                  </span>
+                                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                                    all Jiras
+                                  </span>
+                                </dt>
+                                <dd className="mt-1.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                                  {ALL_JIRAS_INFO}
+                                </dd>
+                                <dd className="mt-2 text-xs text-zinc-500 dark:text-zinc-500">
+                                  This developer:{" "}
+                                  <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                                    <ComplexityAccuracyStat
+                                      correct={detail.complexityAccuracyAllCorrect}
+                                      checked={detail.complexityAccuracyAllChecked}
+                                    />
+                                  </span>
+                                </dd>
+                              </div>
+                              <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+                                <dt className="flex flex-wrap items-center gap-2">
+                                  <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                                    Complexity Accuracy (NSA only)
+                                  </span>
+                                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                                    self-assigned excluded
+                                  </span>
+                                </dt>
+                                <dd className="mt-1.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                                  {NSA_INFO}
+                                </dd>
+                                <dd className="mt-2 text-xs text-zinc-500 dark:text-zinc-500">
+                                  This developer:{" "}
+                                  <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                                    <ComplexityAccuracyStat
+                                      correct={detail.complexityAccuracyCorrect}
+                                      checked={detail.complexityAccuracyChecked}
+                                    />
+                                  </span>
+                                </dd>
+                              </div>
+                            </>
+                          )}
+                        </Fragment>
                       );
                     })}
                   </dl>
@@ -800,15 +997,21 @@ export default async function PerformanceReviewPage({
               Suggested quarterly ratings for developers, scored out of 100 and
               derived from synced Jira data across four weighted metrics — Bug
               Quality ({WEIGHTS.bugQuality}), Complex Tasks ({WEIGHTS.complexTasks}),
-              Sprint Commitment ({WEIGHTS.sprintCommitment}), and MTTR ({WEIGHTS.mttr}).
-              Self-assigned Jiras (reporter === credited person) are excluded
-              from every metric. Two ratings are shown side by side —{" "}
-              <strong>Complexity Rating (Marked)</strong> uses each task&apos;s
-              marked complexity, <strong>Complexity Rating (Expected)</strong>{" "}
-              uses the same formula with the LOC-predicted complexity instead
-              — everything else is identical between them. Ratings are a
-              decision aid, not a verdict. Click a name, or the details icon,
-              for the full Jira Complexity Rating breakdown.
+              Sprint Commitment ({WEIGHTS.sprintCommitment}), and MTTR ({WEIGHTS.mttr}).{" "}
+              <strong>Score</strong> counts every completed Jira, unfiltered.
+              Alongside it, four Jira Complexity Rating columns isolate just
+              the Complex Tasks contribution (out of 30 — the other 70 points
+              of Score are the same regardless of complexity source or
+              self-assignment, so they&apos;re left out to keep the comparison
+              clean): <strong>Complex. (M)</strong> and{" "}
+              <strong>Complex. (E)</strong> keep every Jira (identical
+              population to Score — marked vs. LOC-predicted complexity);{" "}
+              <strong>Complex. NSA. (M)</strong> and{" "}
+              <strong>Complex. NSA. (E)</strong> exclude self-assigned Jiras
+              (reporter === credited person) entirely. Complexity Accuracy —
+              both an all-Jiras and a non-self-assigned reading — moved into
+              the per-developer breakdown; use the details icon to see it.
+              Ratings are a decision aid, not a verdict.
             </p>
           </div>
 

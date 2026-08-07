@@ -2,19 +2,36 @@
 // doc §5), runs the pure engine (engine.ts), and persists one
 // performance_scorecards row per developer. Overwrites the quarter on each run.
 //
-// Self-assigned Jiras — where the reporter is also the person credited for the
-// work (Issue Owner / resolver / Dev Owner ?? Assignee) — are excluded
-// entirely, at the point of attribution, before anything is accumulated. They
-// never reach any metric, any item list, or either score below.
+// finalScore is Score — the original, untouched Performance Review composite
+// (Bug Quality + MTTR + Sprint Commitment + Complex Tasks, 0-100). Nothing in
+// this file alters its scope; every completed Jira counts, including
+// self-created-and-assigned ones.
 //
-// Two independent ratings are computed and persisted per developer: finalScore
-// weights the Complex Tasks metric by each task's marked complexity (the
-// actual rating); expectedComplexityScore uses the identical formula but
-// weights it by the LOC-predicted complexity instead. Bug Quality, MTTR, and
-// Sprint Commitment are complexity-agnostic, so they're identical between the
-// two — only the Complex Tasks contribution (and therefore the total) can
-// differ. Neither is a "raw vs adjusted" pair — self-assigned exclusion
-// applies to both equally.
+// Four Jira Complexity Rating numbers are ALSO computed and persisted, a 2×2
+// grid of {all-Jiras, self-assigned-excluded} x {marked complexity,
+// LOC-predicted ("expected") complexity} — but unlike Score, each of these
+// four is ONLY the Complex Tasks metric's own contribution (weight 0.30 x
+// points x scale 20, so 0-30), not the full four-metric composite. Bug
+// Quality/MTTR/Sprint Commitment don't vary with marked-vs-expected
+// complexity or with self-assigned exclusion in a way that matters for
+// validating a complexity rating, so folding all 100 points in just diluted
+// the one number these four columns exist to compare:
+//   markedComplexityScoreAll   — COMPLEX. (M): all-Jiras, Complex Tasks
+//                                 contribution using marked complexity.
+//   expectedComplexityScoreAll — COMPLEX. (E): all-Jiras, Complex Tasks
+//                                 contribution using LOC-predicted complexity.
+//   markedComplexityScore      — COMPLEX NSA. (M): same as (M) above, but
+//                                 self-assigned Jiras (reporter === credited
+//                                 person) are excluded entirely, at the point
+//                                 of attribution, before anything is
+//                                 accumulated.
+//   expectedComplexityScore    — COMPLEX NSA. (E): same self-assigned
+//                                 exclusion as NSA (M), but LOC-predicted
+//                                 complexity instead of marked.
+//
+// Complexity Accuracy is tallied BOTH ways too (complexityAccuracyAllCorrect/
+// Checked over every task, complexityAccuracyCorrect/Checked over the NSA
+// population only) — shown in the drill-down, not the leaderboard.
 
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -43,6 +60,7 @@ import {
   mismatchSuggestion,
   isComplexityCorrect,
   expectedComplexityForLoc,
+  getComplexityLocRanges,
 } from "./complexity-loc-thresholds";
 import {
   BUG_INVALID_STATUSES,
@@ -57,13 +75,13 @@ import {
   AI_TASK_MAX_ESTIMATE_HOURS,
   normalizeStatus,
 } from "./config";
-import { computeScorecard, type ScorecardInputs } from "./engine";
+import { computeScorecard, type ScorecardInputs, type ScorecardResult } from "./engine";
 import { quarterFromKey } from "./quarter";
 
 // Issue-level detail kept for the drill-down's "weighted bugs" / "feature
 // tasks" tables, so the breakdown shows exactly which issues drove the
-// numbers. Self-assigned issues never appear here — they're filtered out
-// before attribution, not just hidden after the fact.
+// Score numbers. Sourced from the unfiltered (all-Jiras) population — see
+// file header — so this always matches what Score itself counted.
 type BugItem = {
   key: string;
   summary: string;
@@ -80,7 +98,8 @@ type FeatureItem = {
   // What complexity the matched LOC would predict (complexity-loc-thresholds.ts
   // §expectedComplexityForLoc), shown alongside the marked value so a reviewer
   // sees the actual gap, not just a flag. Always populated — a null loc (no
-  // matched PR) is treated as 0 LOC, predicting C1.
+  // matched PR at all) carries the marked complexity forward unchanged
+  // instead, since there's no evidence to contradict it with.
   expectedComplexity: number | null;
   // True when raw complexity is 4-5 but loc falls below that complexity's
   // expected floor (complexity-loc-thresholds.ts) — a possible over-rating.
@@ -89,6 +108,12 @@ type FeatureItem = {
   // mismatch is still visible via the Expected column, just not flagged.
   complexityMismatch: boolean;
   mismatchSuggestion: string | null;
+  // True when the reporter is also the person credited for this task — it
+  // still counts toward Score (this list is Score's own breakdown, unfiltered
+  // — see file header), but is excluded from Complex. (M), Complex.
+  // (E), and Complexity Accuracy. Surfaced here so a reviewer can see
+  // *why* a task doesn't show up in those three, without guessing.
+  selfAssigned: boolean;
 };
 type MttrItem = {
   key: string;
@@ -96,7 +121,7 @@ type MttrItem = {
   priority: string | null;
   minutes: number;
 };
-type ComplexityBucket = {
+export type ComplexityBucket = {
   label: string;
   count: number;
   weightEach: number;
@@ -122,9 +147,9 @@ type Acc = {
   sprintTotal: number;
   complexWeightedTotal: number;
   // Same tasks, weighted by LOC-predicted complexity instead of the marked
-  // value — feeds a second, independent "expected complexity" rating
-  // alongside the actual one. See complexTasksPoints() in engine.ts; both
-  // totals go through the exact same formula, just with a different input.
+  // value. Accumulated on both raw and excl — feeds expectedComplexityScoreAll
+  // (COMPLEX. (E), all-Jiras) on raw and expectedComplexityScore (COMPLEX
+  // NSA. (E)) on excl.
   expectedComplexWeightedTotal: number;
   complexTotalTasks: number;
   aiTaskCount: number;
@@ -137,11 +162,19 @@ type Acc = {
   // Count of tasks per complexity bucket ("1".."5" or "unset"), for the
   // Complex-tasks distribution table.
   complexityCounts: Map<string, number>;
+  // Sibling of complexityCounts, bucketed by LOC-predicted (expected)
+  // complexity instead of marked — feeds the Expected Complexity distribution
+  // table. Never has an "unset" bucket: expectedComplexityForLoc always
+  // returns a concrete 1-5 value, unlike marked complexity which can be
+  // genuinely unset in Jira.
+  expectedComplexityCounts: Map<string, number>;
 
-  // Complexity Accuracy tally: of every complexity-bearing task (never
-  // excluded — an unset marked complexity or a task with no matched PR both
-  // default to C1 rather than being dropped, see complexity-loc-thresholds.ts),
-  // how many had marked complexity match what the LOC predicts.
+  // Complexity Accuracy tally — accumulated on both raw (every task, all
+  // Jiras) and excl (non-self-assigned only), shown in the Details drill-down
+  // as two separate readings. Never excluded: an unset complexity defaults to
+  // C1, and a task with no matched PR is trivially "correct" (see
+  // isComplexityCorrect in complexity-loc-thresholds.ts) — every task is
+  // still counted, none dropped.
   complexityChecked: number;
   complexityCorrect: number;
 };
@@ -166,6 +199,7 @@ function emptyAcc(): Acc {
     mttrItems: [],
     missingActualItems: [],
     complexityCounts: new Map(),
+    expectedComplexityCounts: new Map(),
     complexityChecked: 0,
     complexityCorrect: 0,
   };
@@ -174,8 +208,9 @@ function emptyAcc(): Acc {
 // A Jira is "self-assigned" when the person who reported it is also the
 // person credited for the work (Issue Owner for a bug penalty, resolver for
 // bug credit, Dev Owner ?? Assignee for tasks) — i.e. they created their own
-// ticket. Excluded entirely: skipped before any accumulation, so it never
-// reaches a metric, an item list, or the score.
+// ticket. Feeds only markedComplexityScore / expectedComplexityScore /
+// Complexity Accuracy — the original Score (finalScore) counts every Jira
+// regardless.
 export function isSelfAssigned(
   reporterEmail: string | null | undefined,
   creditedEmail: string
@@ -203,7 +238,13 @@ function recordMissingActual(
   }
 }
 
-function buildComplexityBuckets(counts: Map<string, number>): ComplexityBucket[] {
+// Exported (not just used internally by buildScorecards) so the bucketing
+// rules — level 1-5 weights, the "Unset (→ C1)" catch-all, count===0 buckets
+// dropped rather than shown as zero — are unit-testable. Used for both the
+// marked (complexityCounts) and expected (expectedComplexityCounts)
+// distributions; the latter never actually has an "unset" key (see Acc's own
+// comment), but the function doesn't need to know that.
+export function buildComplexityBuckets(counts: Map<string, number>): ComplexityBucket[] {
   const buckets: ComplexityBucket[] = [];
   for (let level = 1; level <= 5; level++) {
     const count = counts.get(String(level)) ?? 0;
@@ -221,6 +262,17 @@ function buildComplexityBuckets(counts: Map<string, number>): ComplexityBucket[]
     });
   }
   return buckets;
+}
+
+/**
+ * The Complex Tasks metric's own contribution (weight x points x scale, so
+ * 0-30) out of a full computeScorecard() result — exported so the four Jira
+ * Complexity Rating numbers (each of which IS this value, not the full
+ * four-metric composite) can be pulled the same way regardless of which
+ * population/complexity-source produced the result.
+ */
+export function complexTasksContribution(result: ScorecardResult): number {
+  return result.breakdown.metrics.find((m) => m.key === "complexTasks")!.contribution;
 }
 
 function isP1OrP2(priority: string | null): boolean {
@@ -283,6 +335,11 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
   const quarter = quarterFromKey(quarterKey);
   if (!quarter) throw new Error(`Invalid quarter key: ${quarterKey}`);
 
+  // Fetched fresh every run — a database config (feature_flags), never
+  // cached, so an edit to the thresholds takes effect on the very next
+  // Recompute/Sync LOC, not after some cache TTL lapses.
+  const complexityLocRanges = await getComplexityLocRanges();
+
   const accountIdEmailMap = await loadAccountIdEmailMap();
 
   // Candidate issues: completed within the quarter (must be Done), with their
@@ -342,12 +399,21 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
     locMap.set(l.jiraKey.toUpperCase(), l.totalAdditions + l.totalDeletions);
   }
 
-  const accs = new Map<string, Acc>();
-  const getAcc = (email: string): Acc => {
-    let a = accs.get(email);
+  // Two parallel accumulators per developer:
+  //   rawAccs  — every Jira, including self-created-and-assigned. Feeds the
+  //              original, unmodified Score (finalScore) and every existing
+  //              sub-metric / drill-down list.
+  //   exclAccs — self-assigned Jiras excluded at attribution time, before
+  //              anything is accumulated. Feeds markedComplexityScore,
+  //              expectedComplexityScore, and Complexity Accuracy only — it
+  //              carries no breakdown of its own.
+  const rawAccs = new Map<string, Acc>();
+  const exclAccs = new Map<string, Acc>();
+  const getAcc = (map: Map<string, Acc>, email: string): Acc => {
+    let a = map.get(email);
     if (!a) {
       a = emptyAcc();
-      accs.set(email, a);
+      map.set(email, a);
     }
     return a;
   };
@@ -367,14 +433,14 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
   // Pass 1 — bugs, split two ways:
   //   • PENALTY (weighted bugs) → Issue Owner: accountability for the defect.
   //     Issue Owner field only; a bug with no Issue Owner is penalized to nobody,
-  //     matching the "Missing Issue Owner" bucket on the boards. Self-assigned
-  //     (reporter === Issue Owner) is excluded — the bug never reaches this
-  //     developer's penalty at all.
+  //     matching the "Missing Issue Owner" bucket on the boards.
   //   • RESOLUTION CREDIT (priority-weighted) + MTTR → Dev Owner ?? Assignee:
   //     the developer who actually fixed it. The Issue Owner field is unreliable
   //     as "who did the work" (often someone else resolves it), so resolution is
   //     credited the same way tasks are. Credit feeds the Bug Quality numerator.
-  //     Self-assigned (reporter === resolver) is excluded the same way.
+  // Both always count toward the raw (all-Jiras) accumulator; self-assigned
+  // (reporter === credited person) additionally mirrors into the excl
+  // accumulator only when it isn't self-assigned.
   for (const b of bugs) {
     // not a bug / couldn't reproduce → excluded from all scoring
     if (BUG_INVALID_STATUSES.has(normalizeStatus(b.status))) continue;
@@ -387,29 +453,38 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
       b.issueOwnerFieldIds,
       accountIdEmailMap
     );
-    if (owner && !isSelfAssigned(b.reporterEmail, owner)) {
-      const a = getAcc(owner);
-      a.weightedBugs += weight;
-      a.ownedBugKeys.add(b.jiraKey);
-      a.bugItems.push({
+    if (owner) {
+      const raw = getAcc(rawAccs, owner);
+      raw.weightedBugs += weight;
+      raw.ownedBugKeys.add(b.jiraKey);
+      raw.bugItems.push({
         key: b.jiraKey,
         summary: b.summary,
         priority: b.priority,
         weight,
       });
+      if (!isSelfAssigned(b.reporterEmail, owner)) {
+        const excl = getAcc(exclAccs, owner);
+        excl.weightedBugs += weight;
+        excl.ownedBugKeys.add(b.jiraKey);
+      }
     }
 
-    // Resolution credit + MTTR → resolver (Dev Owner ?? Assignee).
+    // Resolution credit + MTTR → resolver (Dev Owner ?? Assignee, unless a
+    // matched PR makes Assignee the harder evidence — see
+    // resolveTaskOwnerEmail).
+    const bugHasMatchedLoc = locMap.get(b.jiraKey.toUpperCase()) != null;
     const resolver = resolveTaskOwnerEmail(
       b.customFields,
       b.devOwnerFieldIds,
       b.assigneeEmail,
-      accountIdEmailMap
+      accountIdEmailMap,
+      bugHasMatchedLoc
     );
-    if (resolver && !isSelfAssigned(b.reporterEmail, resolver)) {
-      const a = getAcc(resolver);
-      a.bugsResolvedWeighted += weight;
-      a.resolvedBugItems.push({
+    if (resolver) {
+      const raw = getAcc(rawAccs, resolver);
+      raw.bugsResolvedWeighted += weight;
+      raw.resolvedBugItems.push({
         key: b.jiraKey,
         summary: b.summary,
         priority: b.priority,
@@ -420,20 +495,22 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
       // (see devWindow), not raw created→completed, so the resolver isn't
       // charged for backlog/QA time outside active development. P1/P2 only.
       recordMissingActual(
-        a,
+        raw,
         b.jiraKey,
         b.summary,
         b.customFields,
         b.actualStartFieldIds,
         b.actualEndFieldIds
       );
+      let mttrMinutes: number | null = null;
       if (isP1OrP2(b.priority)) {
         const { start, end } = devWindow(b);
         if (start && end) {
           const minutes = (end.getTime() - start.getTime()) / 60_000;
           if (minutes >= 0) {
-            a.mttrSamples.push(minutes);
-            a.mttrItems.push({
+            mttrMinutes = minutes;
+            raw.mttrSamples.push(minutes);
+            raw.mttrItems.push({
               key: b.jiraKey,
               summary: b.summary,
               priority: b.priority,
@@ -442,27 +519,40 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
           }
         }
       }
+      if (!isSelfAssigned(b.reporterEmail, resolver)) {
+        const excl = getAcc(exclAccs, resolver);
+        excl.bugsResolvedWeighted += weight;
+        if (mttrMinutes != null) excl.mttrSamples.push(mttrMinutes);
+      }
     }
   }
 
-  // Pass 2 — tasks: features, complexity, AI tasks, sprint commitment.
+  // Pass 2 — tasks: features, complexity, AI tasks, sprint commitment. Task
+  // credit goes to the Dev Owner when set, else the Assignee (§5.1) — unless
+  // the task has a matched PR, in which case Assignee wins outright (see
+  // resolveTaskOwnerEmail: loc-sync only matches a PR whose author resolves
+  // to the Assignee, so that's harder evidence than a Dev Owner field that
+  // can go stale after a handoff). A task with neither is credited to nobody
+  // and dropped — this has nothing to do with self-assignment. Every
+  // remaining task counts toward the raw (Score) accumulator unconditionally;
+  // self-assigned ones simply don't also mirror into the excl accumulator
+  // below.
   for (const t of tasks) {
-    // Task credit goes to the Dev Owner when set, else the Assignee (§5.1); a
-    // task with neither is credited to nobody and dropped. Self-assigned
-    // (reporter === owner) is excluded entirely too — the task contributes
-    // nothing for this developer, not even the Complexity Accuracy tally.
+    // Looked up before owner resolution — a matched PR changes who counts as
+    // the owner (see resolveTaskOwnerEmail), so this has to come first.
+    const loc = locMap.get(t.jiraKey.toUpperCase()) ?? null;
     const owner = resolveTaskOwnerEmail(
       t.customFields,
       t.devOwnerFieldIds,
       t.assigneeEmail,
-      accountIdEmailMap
+      accountIdEmailMap,
+      loc != null
     );
     if (!owner) continue;
-    if (isSelfAssigned(t.reporterEmail, owner)) continue;
-    const a = getAcc(owner);
+    const raw = getAcc(rawAccs, owner);
 
     recordMissingActual(
-      a,
+      raw,
       t.jiraKey,
       t.summary,
       t.customFields,
@@ -471,27 +561,17 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
     );
 
     const rawComplexity = extractComplexity(t.customFields, t.complexityFieldIds);
-    // Computed once per task (not just feature-counted ones) so the Complexity
-    // Accuracy tally covers every complexity-bearing task, and re-derives fresh
-    // on every recompute — if Jira's complexity value changes, or loc-sync
-    // matches a new PR, the next Recompute picks it up automatically; nothing
-    // here is cached from a prior run. isComplexityCorrect never excludes a
-    // task (unset complexity / no matched PR both default rather than drop),
-    // so complexityChecked increments unconditionally — every (non-self-
-    // assigned) task counts.
-    const loc = locMap.get(t.jiraKey.toUpperCase()) ?? null;
-    // Computed once and reused for both the drill-down display and the
-    // expected-complexity rating below — same "no PR → 0 LOC → predicts C1"
-    // rule as everywhere else in this file.
-    const expectedComplexity = expectedComplexityForLoc(loc);
-    a.complexityChecked += 1;
-    if (isComplexityCorrect(rawComplexity, loc)) a.complexityCorrect += 1;
+    // Computed once per task and reused everywhere below — the expected-
+    // complexity/self-assigned facts are the same regardless of which
+    // accumulator ends up using them.
+    const expectedComplexity = expectedComplexityForLoc(loc, complexityLocRanges, rawComplexity);
+    const flagged = isComplexityLocMismatch(rawComplexity, loc, complexityLocRanges);
+    const selfAssigned = isSelfAssigned(t.reporterEmail, owner);
 
     // Feature count — a task counts unless it matches a bug this user owns.
-    if (!a.ownedBugKeys.has(t.jiraKey)) {
-      a.features += 1;
-      const flagged = isComplexityLocMismatch(rawComplexity, loc);
-      a.featureItems.push({
+    if (!raw.ownedBugKeys.has(t.jiraKey)) {
+      raw.features += 1;
+      raw.featureItems.push({
         key: t.jiraKey,
         summary: t.summary,
         complexity: rawComplexity,
@@ -499,28 +579,43 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
         expectedComplexity,
         complexityMismatch: flagged,
         mismatchSuggestion: flagged ? mismatchSuggestion(rawComplexity) : null,
+        selfAssigned,
       });
     }
 
-    // Complexity weighting — every (non-self-assigned) task counts, twice:
-    // once by the marked complexity (the actual rating), once by the LOC-
-    // predicted complexity (a second, independent rating — see
-    // expectedComplexWeightedTotal below). Same task count feeds both.
-    a.complexWeightedTotal += complexityWeight(rawComplexity);
-    a.expectedComplexWeightedTotal += complexityWeight(expectedComplexity);
-    a.complexTotalTasks += 1;
+    raw.complexWeightedTotal += complexityWeight(rawComplexity);
+    // All-Jiras counterpart of excl.expectedComplexWeightedTotal below — feeds
+    // expectedComplexityScoreAll (COMPLEX. (E) — the all-Jiras sibling of
+    // COMPLEX NSA. (E)).
+    raw.expectedComplexWeightedTotal += complexityWeight(expectedComplexity);
+    raw.complexTotalTasks += 1;
     const bucketKey =
       rawComplexity == null
         ? "unset"
         : String(Math.min(5, Math.max(1, Math.round(rawComplexity))));
-    a.complexityCounts.set(bucketKey, (a.complexityCounts.get(bucketKey) ?? 0) + 1);
+    raw.complexityCounts.set(bucketKey, (raw.complexityCounts.get(bucketKey) ?? 0) + 1);
+    // expectedComplexity is always a concrete 1-5 value (see
+    // expectedComplexityForLoc) — never an "unset" bucket here.
+    const expectedBucketKey = String(Math.min(5, Math.max(1, Math.round(expectedComplexity))));
+    raw.expectedComplexityCounts.set(
+      expectedBucketKey,
+      (raw.expectedComplexityCounts.get(expectedBucketKey) ?? 0) + 1
+    );
+
+    // All-Jiras Complexity Accuracy tally — the counterpart of excl's below,
+    // over every task regardless of self-assignment. Shown in the Details
+    // drill-down as the "all Jiras" reading, alongside the NSA one.
+    raw.complexityChecked += 1;
+    if (isComplexityCorrect(rawComplexity, loc, complexityLocRanges)) {
+      raw.complexityCorrect += 1;
+    }
 
     // AI / underestimated tasks — complex tasks (raw complexity ≥ 3).
     if (rawComplexity != null && rawComplexity >= COMPLEX_THRESHOLD) {
-      a.totalComplex += 1;
+      raw.totalComplex += 1;
       const estSeconds = extractOriginalEstimateSeconds(t.customFields) ?? 0;
       const estHours = estSeconds / 3600;
-      if (estHours > 0 && estHours < AI_TASK_MAX_ESTIMATE_HOURS) a.aiTaskCount += 1;
+      if (estHours > 0 && estHours < AI_TASK_MAX_ESTIMATE_HOURS) raw.aiTaskCount += 1;
     }
 
     // Sprint commitment — needs a due date; the delivery date is the end of the
@@ -528,69 +623,130 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
     // so a ticket isn't marked late for QA time the developer doesn't control.
     const due = extractDueDate(t.customFields ?? {}, t.endDateFieldIds);
     const { end } = devWindow(t);
+    let onTime: boolean | null = null;
     if (due && end) {
-      a.sprintTotal += 1;
+      raw.sprintTotal += 1;
       const completedDate = end.toISOString().slice(0, 10);
-      if (completedDate <= due) a.sprintNotDelayed += 1;
+      onTime = completedDate <= due;
+      if (onTime) raw.sprintNotDelayed += 1;
+    }
+
+    // Self-assigned-excluded population — feeds markedComplexityScore,
+    // expectedComplexityScore, and Complexity Accuracy only. No item lists;
+    // it's numbers-only, mirroring the same per-task facts computed above.
+    if (!selfAssigned) {
+      const excl = getAcc(exclAccs, owner);
+      excl.complexityChecked += 1;
+      if (isComplexityCorrect(rawComplexity, loc, complexityLocRanges)) {
+        excl.complexityCorrect += 1;
+      }
+      if (!excl.ownedBugKeys.has(t.jiraKey)) excl.features += 1;
+      excl.complexWeightedTotal += complexityWeight(rawComplexity);
+      excl.expectedComplexWeightedTotal += complexityWeight(expectedComplexity);
+      excl.complexTotalTasks += 1;
+      if (due && end) {
+        excl.sprintTotal += 1;
+        if (onTime) excl.sprintNotDelayed += 1;
+      }
     }
   }
 
   const computedAt = new Date();
-  const records = [...accs.entries()].map(([email, a]) => {
-    const inputs: ScorecardInputs = {
-      features: a.features,
-      bugsResolvedWeighted: a.bugsResolvedWeighted,
-      weightedBugs: a.weightedBugs,
-      mttrMinutesSamples: a.mttrSamples,
-      sprintNotDelayed: a.sprintNotDelayed,
-      sprintTotal: a.sprintTotal,
-      complexWeightedTotal: a.complexWeightedTotal,
-      complexTotalTasks: a.complexTotalTasks,
-      aiTaskCount: a.aiTaskCount,
-      totalComplex: a.totalComplex,
+  const emails = new Set<string>([...rawAccs.keys(), ...exclAccs.keys()]);
+  const records = [...emails].map((email) => {
+    const raw = rawAccs.get(email) ?? emptyAcc();
+    const excl = exclAccs.get(email) ?? emptyAcc();
+
+    const rawInputs: ScorecardInputs = {
+      features: raw.features,
+      bugsResolvedWeighted: raw.bugsResolvedWeighted,
+      weightedBugs: raw.weightedBugs,
+      mttrMinutesSamples: raw.mttrSamples,
+      sprintNotDelayed: raw.sprintNotDelayed,
+      sprintTotal: raw.sprintTotal,
+      complexWeightedTotal: raw.complexWeightedTotal,
+      complexTotalTasks: raw.complexTotalTasks,
+      aiTaskCount: raw.aiTaskCount,
+      totalComplex: raw.totalComplex,
       churn: null, // no PR data on this platform (weight 0)
       effort: null, // no dev-hours data on this platform (weight 0)
     };
-    const r = computeScorecard(inputs);
+    // The original, unmodified Score — every Jira this developer touched.
+    // Also COMPLEX. (M): the all-Jiras Jira Complexity Rating using marked
+    // complexity — identical formula and inputs to Score, so identical value;
+    // exposed as its own field for the leaderboard's 2×2 rating grid.
+    const r = computeScorecard(rawInputs);
+    // COMPLEX. (E): the all-Jiras counterpart of COMPLEX NSA. (E) below —
+    // same population as Score, but Complex Tasks weighted by LOC-predicted
+    // complexity instead of marked.
+    const allExpectedR = computeScorecard({
+      ...rawInputs,
+      complexWeightedTotal: raw.expectedComplexWeightedTotal,
+    });
 
-    // Second, independent rating: identical inputs except the Complex Tasks
-    // metric is weighted by LOC-predicted complexity instead of the marked
-    // value. Bug Quality / MTTR / Sprint Commitment are complexity-agnostic,
-    // so they're unchanged — only complexTasksPoints (and therefore
-    // finalScore) can differ between the two.
-    const expectedInputs: ScorecardInputs = {
-      ...inputs,
-      complexWeightedTotal: a.expectedComplexWeightedTotal,
+    const exclInputs: ScorecardInputs = {
+      features: excl.features,
+      bugsResolvedWeighted: excl.bugsResolvedWeighted,
+      weightedBugs: excl.weightedBugs,
+      mttrMinutesSamples: excl.mttrSamples,
+      sprintNotDelayed: excl.sprintNotDelayed,
+      sprintTotal: excl.sprintTotal,
+      complexWeightedTotal: excl.complexWeightedTotal,
+      complexTotalTasks: excl.complexTotalTasks,
+      aiTaskCount: excl.aiTaskCount,
+      totalComplex: excl.totalComplex,
+      churn: null,
+      effort: null,
     };
-    const expectedR = computeScorecard(expectedInputs);
+    // COMPLEX NSA. (M) — Jira Complexity Rating, self-assigned excluded.
+    const markedR = computeScorecard(exclInputs);
+    // COMPLEX NSA. (E) — identical, but Complex Tasks is weighted by
+    // LOC-predicted complexity instead of the marked value.
+    const expectedR = computeScorecard({
+      ...exclInputs,
+      complexWeightedTotal: excl.expectedComplexWeightedTotal,
+    });
 
     // Sort item lists for a stable, readable drill-down: bugs by weight
     // (priority) desc, features by complexity desc, ties broken by key.
-    const bugItems = a.bugItems.sort(
+    // Sourced from raw — Score's own breakdown, unfiltered.
+    const bugItems = raw.bugItems.sort(
       (x, y) => y.weight - x.weight || x.key.localeCompare(y.key)
     );
-    const resolvedBugItems = a.resolvedBugItems.sort(
+    const resolvedBugItems = raw.resolvedBugItems.sort(
       (x, y) => y.weight - x.weight || x.key.localeCompare(y.key)
     );
-    const featureItems = a.featureItems.sort(
+    const featureItems = raw.featureItems.sort(
       (x, y) => (y.complexity ?? 0) - (x.complexity ?? 0) || x.key.localeCompare(y.key)
     );
-    const mttrItems = a.mttrItems.sort((x, y) => y.minutes - x.minutes);
-    const complexity = buildComplexityBuckets(a.complexityCounts);
+    const mttrItems = raw.mttrItems.sort((x, y) => y.minutes - x.minutes);
+    const complexity = buildComplexityBuckets(raw.complexityCounts);
+    const expectedComplexityDistribution = buildComplexityBuckets(raw.expectedComplexityCounts);
     // Missing both fields first (fully fallen back), then by key.
-    const missingActualDates = a.missingActualItems.sort(
+    const missingActualDates = raw.missingActualItems.sort(
       (x, y) =>
         Number(y.missingStart && y.missingEnd) -
           Number(x.missingStart && x.missingEnd) || x.key.localeCompare(y.key)
     );
     const breakdown = {
       ...r.breakdown,
+      // The other three populations' own per-metric breakdowns — same shape
+      // as the main metrics array above (r.breakdown.metrics, all-Jiras
+      // marked), computed over the other three {population, complexity
+      // source} combinations. Each exists so the Details drill-down can show
+      // that combination's own Complex Tasks raw text (e.g. "12 task(s), 45
+      // complexity-pts") next to its contribution, rather than only ever
+      // showing the all-Jiras-marked one.
+      expectedAllMetrics: allExpectedR.breakdown.metrics,
+      nsaMetrics: markedR.breakdown.metrics,
+      nsaExpectedMetrics: expectedR.breakdown.metrics,
       items: {
         weightedBugs: bugItems,
         bugsResolved: resolvedBugItems,
         features: featureItems,
         mttr: mttrItems,
         complexity,
+        expectedComplexity: expectedComplexityDistribution,
         missingActualDates,
       },
     };
@@ -612,9 +768,14 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
       underestimatedTasksCount: r.underestimatedTasksCount,
       underestimatedTasksPoints: r.underestimatedTasksPoints,
       finalScore: r.finalScore,
-      expectedComplexityScore: expectedR.finalScore,
-      complexityAccuracyCorrect: a.complexityCorrect,
-      complexityAccuracyChecked: a.complexityChecked,
+      markedComplexityScoreAll: complexTasksContribution(r),
+      expectedComplexityScoreAll: complexTasksContribution(allExpectedR),
+      markedComplexityScore: complexTasksContribution(markedR),
+      expectedComplexityScore: complexTasksContribution(expectedR),
+      complexityAccuracyAllCorrect: raw.complexityCorrect,
+      complexityAccuracyAllChecked: raw.complexityChecked,
+      complexityAccuracyCorrect: excl.complexityCorrect,
+      complexityAccuracyChecked: excl.complexityChecked,
       breakdown,
     };
   });

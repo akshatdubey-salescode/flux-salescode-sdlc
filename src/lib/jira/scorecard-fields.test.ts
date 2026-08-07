@@ -1,4 +1,7 @@
-// Unit tests for performance-review task attribution: Dev Owner ?? Assignee.
+// Unit tests for performance-review task attribution: Dev Owner ?? Assignee,
+// overridden by Assignee whenever hasMatchedLoc is true (a matched PR is
+// harder evidence than a Dev Owner field that can go stale — see
+// resolveTaskOwnerEmail's own comment for the CAV-2245 case this fixes).
 // Run: ./node_modules/.bin/tsx --test src/lib/jira/scorecard-fields.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -38,4 +41,32 @@ test("Dev Owner present but unresolvable (accountId, no map) → falls back to A
 
 test("neither Dev Owner nor Assignee → null (credited to nobody)", () => {
   assert.equal(resolveTaskOwnerEmail({}, DEV, null), null);
+});
+
+// --- hasMatchedLoc: Assignee wins outright, the CAV-2245 fix ----------------
+
+test("hasMatchedLoc=true overrides a set Dev Owner — Assignee wins", () => {
+  const cf = { customfield_10072: { emailAddress: "dev.owner@salescode.ai" } };
+  assert.equal(
+    resolveTaskOwnerEmail(cf, DEV, "assignee@salescode.ai", null, true),
+    "assignee@salescode.ai",
+  );
+});
+
+test("hasMatchedLoc=false (default) keeps Dev Owner priority — unchanged behavior", () => {
+  const cf = { customfield_10072: { emailAddress: "dev.owner@salescode.ai" } };
+  assert.equal(resolveTaskOwnerEmail(cf, DEV, "assignee@salescode.ai"), "dev.owner@salescode.ai");
+  assert.equal(
+    resolveTaskOwnerEmail(cf, DEV, "assignee@salescode.ai", null, false),
+    "dev.owner@salescode.ai",
+  );
+});
+
+test("hasMatchedLoc=true with no Assignee falls back to Dev Owner — never credits nobody just because Assignee is blank", () => {
+  const cf = { customfield_10072: { emailAddress: "dev.owner@salescode.ai" } };
+  assert.equal(resolveTaskOwnerEmail(cf, DEV, null, null, true), "dev.owner@salescode.ai");
+});
+
+test("hasMatchedLoc=true with neither Dev Owner nor Assignee → null", () => {
+  assert.equal(resolveTaskOwnerEmail({}, DEV, null, null, true), null);
 });
