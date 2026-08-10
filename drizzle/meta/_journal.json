@@ -463,6 +463,13 @@
       "when": 1786119173457,
       "tag": "0066_spicy_toro",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1786365144744,
+      "tag": "0067_lumpy_warpath",
+      "breakpoints": true
     }
   ]
 }

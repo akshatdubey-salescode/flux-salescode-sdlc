@@ -1,12 +1,13 @@
 // Unit tests for the pure matching logic extracted from runLocSyncJob:
 // extractCandidateJiraKeys (the generous-separator regex) and
-// isPrEligibleForJira (author + lenient-date-floor check). The rest of
-// loc-sync.ts (runLocSyncJob itself) is DB/GitHub-API-driven and isn't
-// unit-tested here — see the module header for what these two functions feed.
+// resolvePrCredit (author + lenient-date-floor check, Dev Owner preferred
+// over Assignee). The rest of loc-sync.ts (runLocSyncJob itself) is
+// DB/GitHub-API-driven and isn't unit-tested here — see the module header
+// for what these two functions feed.
 // Run: ./node_modules/.bin/tsx --test src/lib/github/loc-sync.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractCandidateJiraKeys, isPrEligibleForJira, isJobStale } from "./loc-sync";
+import { extractCandidateJiraKeys, resolvePrCredit, isJobStale } from "./loc-sync";
 
 // --- extractCandidateJiraKeys: separator generosity -------------------------
 
@@ -50,48 +51,63 @@ test("a short word+digit combo below the minimum key length yields no candidate"
   assert.deepEqual(extractCandidateJiraKeys("v2"), []);
 });
 
-// --- isPrEligibleForJira: author + lenient date floor -----------------------
+// --- resolvePrCredit: author + lenient date floor, Dev Owner preferred ------
 
 const day = (iso: string) => new Date(iso);
 
-test("no candidate for the key → not eligible", () => {
-  assert.equal(isPrEligibleForJira(undefined, "dev@salescode.ai", day("2026-06-01")), false);
+test("no candidate for the key → no credit", () => {
+  assert.equal(resolvePrCredit(undefined, "dev@salescode.ai", day("2026-06-01")), null);
 });
 
-test("no resolved author email → not eligible", () => {
-  const candidate = { assigneeEmail: "dev@salescode.ai", createdAt: null };
-  assert.equal(isPrEligibleForJira(candidate, undefined, day("2026-06-01")), false);
+test("no resolved author email → no credit", () => {
+  const candidate = { assigneeEmail: "dev@salescode.ai", devOwnerEmail: null, createdAt: null };
+  assert.equal(resolvePrCredit(candidate, undefined, day("2026-06-01")), null);
 });
 
-test("author does not match the Jira's assignee → not eligible", () => {
-  const candidate = { assigneeEmail: "dev@salescode.ai", createdAt: null };
-  assert.equal(isPrEligibleForJira(candidate, "someone.else@salescode.ai", day("2026-06-01")), false);
+test("author matches neither Assignee nor Dev Owner → no credit", () => {
+  const candidate = { assigneeEmail: "dev@salescode.ai", devOwnerEmail: null, createdAt: null };
+  assert.equal(resolvePrCredit(candidate, "someone.else@salescode.ai", day("2026-06-01")), null);
 });
 
-test("author matches, Jira has no known creation date → eligible regardless of PR date", () => {
-  const candidate = { assigneeEmail: "dev@salescode.ai", createdAt: null };
-  assert.equal(isPrEligibleForJira(candidate, "dev@salescode.ai", day("2020-01-01")), true);
+test("author matches Assignee, no Dev Owner set → credited to Assignee", () => {
+  const candidate = { assigneeEmail: "dev@salescode.ai", devOwnerEmail: null, createdAt: null };
+  assert.equal(resolvePrCredit(candidate, "dev@salescode.ai", day("2020-01-01")), "dev@salescode.ai");
 });
 
-test("PR created before the Jira existed → not eligible", () => {
-  const candidate = { assigneeEmail: "dev@salescode.ai", createdAt: day("2026-06-01") };
-  assert.equal(isPrEligibleForJira(candidate, "dev@salescode.ai", day("2026-05-01")), false);
+test("author matches Dev Owner, not Assignee → credited to Dev Owner", () => {
+  const candidate = { assigneeEmail: "assignee@salescode.ai", devOwnerEmail: "owner@salescode.ai", createdAt: null };
+  assert.equal(resolvePrCredit(candidate, "owner@salescode.ai", day("2026-06-01")), "owner@salescode.ai");
 });
 
-test("PR created exactly when the Jira was created → eligible (inclusive floor)", () => {
-  const candidate = { assigneeEmail: "dev@salescode.ai", createdAt: day("2026-06-01T00:00:00Z") };
-  assert.equal(isPrEligibleForJira(candidate, "dev@salescode.ai", day("2026-06-01T00:00:00Z")), true);
+test("author matches Assignee while a different Dev Owner is set → still credited to Assignee (this PR just wasn't the Dev Owner's)", () => {
+  const candidate = { assigneeEmail: "assignee@salescode.ai", devOwnerEmail: "owner@salescode.ai", createdAt: null };
+  assert.equal(resolvePrCredit(candidate, "assignee@salescode.ai", day("2026-06-01")), "assignee@salescode.ai");
 });
 
-test("PR created well after the Jira, in a later quarter, is still eligible — no upper bound (the fix for the trailing-PR gap)", () => {
-  const candidate = { assigneeEmail: "dev@salescode.ai", createdAt: day("2026-01-01") };
+test("Dev Owner and Assignee are the same person → credited to that one email", () => {
+  const candidate = { assigneeEmail: "dev@salescode.ai", devOwnerEmail: "dev@salescode.ai", createdAt: null };
+  assert.equal(resolvePrCredit(candidate, "dev@salescode.ai", day("2026-06-01")), "dev@salescode.ai");
+});
+
+test("PR created before the Jira existed → no credit, even for the Dev Owner", () => {
+  const candidate = { assigneeEmail: "assignee@salescode.ai", devOwnerEmail: "owner@salescode.ai", createdAt: day("2026-06-01") };
+  assert.equal(resolvePrCredit(candidate, "owner@salescode.ai", day("2026-05-01")), null);
+});
+
+test("PR created exactly when the Jira was created → credited (inclusive floor)", () => {
+  const candidate = { assigneeEmail: "dev@salescode.ai", devOwnerEmail: null, createdAt: day("2026-06-01T00:00:00Z") };
+  assert.equal(resolvePrCredit(candidate, "dev@salescode.ai", day("2026-06-01T00:00:00Z")), "dev@salescode.ai");
+});
+
+test("PR created well after the Jira, in a later quarter, is still credited — no upper bound (the fix for the trailing-PR gap)", () => {
+  const candidate = { assigneeEmail: "dev@salescode.ai", devOwnerEmail: null, createdAt: day("2026-01-01") };
   // Jira created Q4 FY25, completed Q1 FY26; this PR lands in Q2 FY26.
-  assert.equal(isPrEligibleForJira(candidate, "dev@salescode.ai", day("2026-08-05")), true);
+  assert.equal(resolvePrCredit(candidate, "dev@salescode.ai", day("2026-08-05")), "dev@salescode.ai");
 });
 
-test("author matches but PR predates the Jira by years → not eligible", () => {
-  const candidate = { assigneeEmail: "dev@salescode.ai", createdAt: day("2026-01-01") };
-  assert.equal(isPrEligibleForJira(candidate, "dev@salescode.ai", day("2020-01-01")), false);
+test("author matches but PR predates the Jira by years → no credit", () => {
+  const candidate = { assigneeEmail: "dev@salescode.ai", devOwnerEmail: null, createdAt: day("2026-01-01") };
+  assert.equal(resolvePrCredit(candidate, "dev@salescode.ai", day("2020-01-01")), null);
 });
 
 // --- isJobStale: the "dead process vs. still running" threshold ------------

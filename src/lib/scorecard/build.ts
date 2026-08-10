@@ -431,18 +431,25 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
     );
 
   // Precomputed LOC per Jira for this quarter (written by loc-sync, never
-  // recomputed here) — keyed upper-case, additions + deletions summed.
+  // recomputed here) — keyed upper-case. creditedEmail is whoever loc-sync
+  // confirmed actually wrote the matched PR (Dev Owner if they did, else
+  // Assignee — see resolvePrCredit in loc-sync.ts); resolveTaskOwnerEmail
+  // trusts it outright over the raw Dev Owner/Assignee fields when present.
   const locRows = await db
     .select({
       jiraKey: jiraIssueLoc.jiraKey,
       totalAdditions: jiraIssueLoc.totalAdditions,
       totalDeletions: jiraIssueLoc.totalDeletions,
+      creditedEmail: jiraIssueLoc.creditedEmail,
     })
     .from(jiraIssueLoc)
     .where(eq(jiraIssueLoc.quarterKey, quarterKey));
-  const locMap = new Map<string, number>();
+  const locMap = new Map<string, { loc: number; creditedEmail: string | null }>();
   for (const l of locRows) {
-    locMap.set(l.jiraKey.toUpperCase(), l.totalAdditions + l.totalDeletions);
+    locMap.set(l.jiraKey.toUpperCase(), {
+      loc: l.totalAdditions + l.totalDeletions,
+      creditedEmail: l.creditedEmail,
+    });
   }
 
   // Two parallel accumulators per developer:
@@ -517,15 +524,14 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
     }
 
     // Resolution credit + MTTR → resolver (Dev Owner ?? Assignee, unless a
-    // matched PR makes Assignee the harder evidence — see
-    // resolveTaskOwnerEmail).
-    const bugHasMatchedLoc = locMap.get(b.jiraKey.toUpperCase()) != null;
+    // matched PR proves who actually wrote it — see resolveTaskOwnerEmail).
+    const bugLocCreditedEmail = locMap.get(b.jiraKey.toUpperCase())?.creditedEmail ?? null;
     const resolver = resolveTaskOwnerEmail(
       b.customFields,
       b.devOwnerFieldIds,
       b.assigneeEmail,
       accountIdEmailMap,
-      bugHasMatchedLoc
+      bugLocCreditedEmail
     );
     if (resolver) {
       const raw = getAcc(rawAccs, resolver);
@@ -575,24 +581,26 @@ export async function buildScorecards(quarterKey: string): Promise<BuildResult> 
 
   // Pass 2 — tasks: features, complexity, AI tasks, sprint commitment. Task
   // credit goes to the Dev Owner when set, else the Assignee (§5.1) — unless
-  // the task has a matched PR, in which case Assignee wins outright (see
-  // resolveTaskOwnerEmail: loc-sync only matches a PR whose author resolves
-  // to the Assignee, so that's harder evidence than a Dev Owner field that
-  // can go stale after a handoff). A task with neither is credited to nobody
-  // and dropped — this has nothing to do with self-assignment. Every
+  // the task has a matched PR, in which case whoever loc-sync confirmed
+  // actually wrote it wins outright (see resolveTaskOwnerEmail: loc-sync
+  // matches a PR authored by either the Dev Owner or the Assignee, preferring
+  // Dev Owner when both qualify, so that's harder evidence than a Jira field
+  // that can go stale after a handoff). A task with neither is credited to
+  // nobody and dropped — this has nothing to do with self-assignment. Every
   // remaining task counts toward the raw (Score) accumulator unconditionally;
   // self-assigned ones simply don't also mirror into the excl accumulator
   // below.
   for (const t of tasks) {
     // Looked up before owner resolution — a matched PR changes who counts as
     // the owner (see resolveTaskOwnerEmail), so this has to come first.
-    const loc = locMap.get(t.jiraKey.toUpperCase()) ?? null;
+    const locEntry = locMap.get(t.jiraKey.toUpperCase()) ?? null;
+    const loc = locEntry?.loc ?? null;
     const owner = resolveTaskOwnerEmail(
       t.customFields,
       t.devOwnerFieldIds,
       t.assigneeEmail,
       accountIdEmailMap,
-      loc != null
+      locEntry?.creditedEmail ?? null
     );
     if (!owner) continue;
     const raw = getAcc(rawAccs, owner);
