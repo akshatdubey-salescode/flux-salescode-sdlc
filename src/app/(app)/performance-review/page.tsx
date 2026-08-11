@@ -139,6 +139,18 @@ export default async function PerformanceReviewPage({
   if (sp.person) {
     const detail = await fetchScorecardDetail(sp.person, quarterKey);
 
+    // Cards that render un-dimmed in the Metrics tab: every available (m.available)
+    // base metric, plus the 6 Complex Tasks sub-cards (Complex./Complex. NSA./
+    // Complexity Accuracy — see the codeChurn branch below), which never dim.
+    // Currently always 4 + 6 = 10 (Bug Quality/MTTR/Sprint Commitment/Complex
+    // Tasks are the only data-backed metrics; Code Churn/AI Tasks/Effort are
+    // permanently untracked here — see the footnote below), but derived rather
+    // than hardcoded so it stays correct if that ever changes.
+    const activeMetricCount = detail
+      ? detail.breakdown.metrics.filter((m) => m.available).length +
+        (detail.breakdown.metrics.some((m) => m.key === "codeChurn") ? 6 : 0)
+      : 0;
+
     return (
       <div className="flex min-h-svh flex-col bg-zinc-50 dark:bg-zinc-950">
         <PageHeader>
@@ -197,7 +209,7 @@ export default async function PerformanceReviewPage({
                   <div className="overflow-x-auto">
                     <TabsList>
                       <TabsTrigger value="metrics">
-                        Metrics
+                        Metrics ({activeMetricCount})
                       </TabsTrigger>
                       <TabsTrigger value="bugs">
                         Weighted bugs ({detail.weightedBugItems.length})
@@ -220,7 +232,7 @@ export default async function PerformanceReviewPage({
                     </TabsList>
                   </div>
 
-                  <TabsContent value="metrics" className="space-y-6 pt-5 pb-6">
+                  <TabsContent value="metrics" className="space-y-6 pt-8 pb-8">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {detail.breakdown.metrics.map((m) => (
                     <Fragment key={m.key}>
