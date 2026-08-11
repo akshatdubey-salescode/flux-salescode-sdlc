@@ -830,7 +830,7 @@ export default async function PerformanceReviewPage({
         </Breadcrumb>
       </PageHeader>
 
-      <main className="flex-1 p-6">
+      <main className="flex-1 p-6 pb-0">
         <div className="mx-auto max-w-5xl space-y-6">
           <div className="flex items-start justify-between gap-4">
             <div>

@@ -233,7 +233,7 @@ export function MetricMeaningModal({ detail }: { detail: ScorecardDetail }) {
                       <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
                         <dt className="flex flex-wrap items-center gap-2">
                           <span className="font-medium text-zinc-900 dark:text-zinc-100">
-                            Complexity Accuracy (all Jiras)
+                            Complexity Accuracy (All Jiras)
                           </span>
                           <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
                             all Jiras
