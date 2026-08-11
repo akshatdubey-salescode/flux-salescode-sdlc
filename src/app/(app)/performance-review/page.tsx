@@ -12,6 +12,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { selectableQuarters, currentQuarter } from "@/lib/scorecard/quarter";
 import { SCORE_SCALE } from "@/lib/scorecard/config";
 import { fetchScorecards, fetchScorecardDetail } from "./data";
@@ -320,6 +321,31 @@ export default async function PerformanceReviewPage({
                   carry weight 0, so they don&apos;t affect the score.
                 </p>
 
+                <Tabs defaultValue="bugs" className="w-full">
+                  <div className="overflow-x-auto">
+                    <TabsList>
+                      <TabsTrigger value="bugs">
+                        Weighted bugs ({detail.weightedBugItems.length})
+                      </TabsTrigger>
+                      <TabsTrigger value="features">
+                        Feature tasks ({detail.featureItems.length})
+                      </TabsTrigger>
+                      <TabsTrigger value="mttr">
+                        MTTR samples ({detail.mttrItems.length})
+                      </TabsTrigger>
+                      <TabsTrigger value="complexity">
+                        Complexity ({detail.complexTasksCount})
+                      </TabsTrigger>
+                      <TabsTrigger value="expected-complexity">
+                        Expected Complexity ({detail.complexTasksCount})
+                      </TabsTrigger>
+                      <TabsTrigger value="missing-dates">
+                        Missing dates ({detail.missingActualDateItems.length})
+                      </TabsTrigger>
+                    </TabsList>
+                  </div>
+
+                  <TabsContent value="bugs">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     Weighted bugs ({detail.weightedBugItems.length}) ·{" "}
@@ -391,13 +417,17 @@ export default async function PerformanceReviewPage({
                     </table>
                   </div>
                 </section>
+                  </TabsContent>
 
+                  <TabsContent value="features">
                 <FeatureTasksTable
                   items={detail.featureItems}
                   isSuperuser={canRecompute}
                   quarterKey={quarterKey}
                 />
+                  </TabsContent>
 
+                  <TabsContent value="mttr">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     MTTR samples ({detail.mttrItems.length})
@@ -467,7 +497,9 @@ export default async function PerformanceReviewPage({
                     </table>
                   </div>
                 </section>
+                  </TabsContent>
 
+                  <TabsContent value="complexity">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     Complexity distribution ({detail.complexTasksCount} task
@@ -557,7 +589,9 @@ export default async function PerformanceReviewPage({
                     </table>
                   </div>
                 </section>
+                  </TabsContent>
 
+                  <TabsContent value="expected-complexity">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     Expected Complexity distribution ({detail.complexTasksCount} task
@@ -651,7 +685,9 @@ export default async function PerformanceReviewPage({
                     </table>
                   </div>
                 </section>
+                  </TabsContent>
 
+                  <TabsContent value="missing-dates">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     Issues missing Actual start / end ({detail.missingActualDateItems.length})
@@ -739,6 +775,8 @@ export default async function PerformanceReviewPage({
                     </table>
                   </div>
                 </section>
+                  </TabsContent>
+                </Tabs>
               </>
             )}
           </div>
