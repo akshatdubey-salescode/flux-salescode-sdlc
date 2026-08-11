@@ -320,7 +320,7 @@ export function LeaderboardTable({
                 <td className="px-4 py-3 align-top tabular-nums text-xs text-zinc-400">
                   {rankByEmail.get(row.email)}
                 </td>
-                <td className="px-4 py-3 align-top">
+                <td className="whitespace-nowrap px-4 py-3 align-top">
                   <Link
                     href={`/performance-review?quarter=${quarterKey}&person=${encodeURIComponent(
                       row.email,
@@ -328,15 +328,15 @@ export function LeaderboardTable({
                     className="group/link"
                     title="Jira Complexity Rating — full per-Jira breakdown, including Complexity Accuracy"
                   >
-                    <span className="block font-medium text-zinc-900 group-hover/link:underline dark:text-zinc-100">
+                    <span
+                      className="font-medium text-zinc-900 group-hover/link:underline dark:text-zinc-100"
+                      title={row.email}
+                    >
                       {row.name}
-                    </span>
-                    <span className="block font-mono text-xs text-zinc-500 dark:text-zinc-400">
-                      {row.email}
                     </span>
                   </Link>
                 </td>
-                <td className="px-4 py-3 align-top text-sm text-zinc-600 dark:text-zinc-400">
+                <td className="whitespace-nowrap px-4 py-3 align-top text-sm text-zinc-600 dark:text-zinc-400">
                   {row.manager ?? "—"}
                 </td>
                 {columns.map((col) => (
