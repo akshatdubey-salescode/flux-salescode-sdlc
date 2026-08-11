@@ -4,12 +4,18 @@
 // actions.ts, "Sync LOC" button) calls runLocSyncJob directly. No cron —
 // deliberately dropped in favor of running it on demand.
 //
-// Matching rule per Jira: a PR counts when (a) its author resolves to the
-// same person as the Jira's assignee, (b) the Jira key appears — case-
+// Matching rule per Jira: a PR counts when (a) its author resolves to either
+// the Jira's Dev Owner or its Assignee, (b) the Jira key appears — case-
 // insensitively — in the PR's title or branch name, and (c) the PR was
-// created on/after the Jira itself was created. LOC = code-only (whole-line
-// comments excluded, see comment-lines.ts) additions + deletions, summed
-// across every qualifying PR for that Jira.
+// created on/after the Jira itself was created. When both a Dev Owner-
+// authored PR and an Assignee-authored PR qualify for the same Jira, Dev
+// Owner wins outright and only their PR(s) count — see resolvePrCredit. LOC =
+// code-only (whole-line comments excluded, see comment-lines.ts) additions +
+// deletions, summed across the credited person's qualifying PRs for that
+// Jira. The credited person's email is persisted (jiraIssueLoc.creditedEmail)
+// so build.ts's resolveTaskOwnerEmail can trust it outright as harder
+// evidence than the raw Dev Owner/Assignee fields — a real PR proves who
+// wrote the code, a Jira field can go stale after a handoff.
 //
 // (c) is deliberately lenient — no upper bound, no requirement that the PR
 // falls inside the Jira's own scoring quarter. A ticket completed in Q1 can
@@ -42,13 +48,15 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   jiraIssues,
+  jiraProjects,
   githubAccounts,
   githubPullRequests,
   jiraIssueLoc,
   locSyncJobs,
   users,
 } from "@/lib/db/schema";
-import { normalizeEmail } from "@/lib/jira/scorecard-fields";
+import { normalizeEmail, extractIssueOwnerEmail } from "@/lib/jira/scorecard-fields";
+import { loadAccountIdEmailMap } from "@/lib/jira/identity";
 import { quarterFromKey } from "@/lib/scorecard/quarter";
 import { PERFORMANCE_SCORECARDS_TAG } from "@/lib/scorecard/cache-tags";
 import { revalidateTag } from "next/cache";
@@ -110,21 +118,31 @@ export function extractCandidateJiraKeys(text: string): string[] {
   return [...keys];
 }
 
+export type JiraCreditCandidate = {
+  assigneeEmail: string;
+  devOwnerEmail: string | null;
+  createdAt: Date | null;
+};
+
 /**
- * Whether a PR qualifies as a match for one candidate Jira: the PR's author
- * must be that Jira's assignee, and the PR must have been created on/after
- * the Jira itself was created (the lenient floor — see the module header).
- * Pure and exported so this decision can be unit-tested against fixture data
- * without a live GitHub/DB call.
+ * Who a PR credits for one candidate Jira, or null if it doesn't qualify at
+ * all: the PR's author must be that Jira's Dev Owner OR its Assignee — Dev
+ * Owner checked first and preferred when both would somehow match different
+ * PRs for the same Jira across a run — and the PR must have been created
+ * on/after the Jira itself was created (the lenient floor — see the module
+ * header). Pure and exported so this decision can be unit-tested against
+ * fixture data without a live GitHub/DB call.
  */
-export function isPrEligibleForJira(
-  candidate: { assigneeEmail: string; createdAt: Date | null } | undefined,
+export function resolvePrCredit(
+  candidate: JiraCreditCandidate | undefined,
   authorEmail: string | undefined,
   prCreatedAt: Date
-): boolean {
-  if (!candidate || !authorEmail || candidate.assigneeEmail !== authorEmail) return false;
-  if (candidate.createdAt && prCreatedAt < candidate.createdAt) return false;
-  return true;
+): string | null {
+  if (!candidate || !authorEmail) return null;
+  if (candidate.createdAt && prCreatedAt < candidate.createdAt) return null;
+  if (candidate.devOwnerEmail && authorEmail === candidate.devOwnerEmail) return candidate.devOwnerEmail;
+  if (authorEmail === candidate.assigneeEmail) return candidate.assigneeEmail;
+  return null;
 }
 
 export type LocSyncResult = {
@@ -340,21 +358,27 @@ export async function runLocSyncJob(jobId: string, quarterKey: string): Promise<
   const errorMessages: string[] = [];
 
   try {
+    const accountIdEmailMap = await loadAccountIdEmailMap();
     const issueRows = await db
       .select({
         jiraKey: jiraIssues.jiraKey,
         assigneeEmail: jiraIssues.assigneeEmail,
         completedAt: jiraIssues.completedAt,
         jiraCreatedAt: jiraIssues.jiraCreatedAt,
+        customFields: jiraIssues.customFields,
+        devOwnerFieldIds: jiraProjects.devOwnerFieldIds,
       })
-      .from(jiraIssues);
-    const jiraMap = new Map<string, { assigneeEmail: string; createdAt: Date | null }>();
+      .from(jiraIssues)
+      .innerJoin(jiraProjects, eq(jiraIssues.projectId, jiraProjects.id));
+    const jiraMap = new Map<string, JiraCreditCandidate>();
     for (const r of issueRows) {
       if (!r.completedAt) continue;
       const day = r.completedAt.toISOString().slice(0, 10);
       if (day < quarter.start || day > quarter.end) continue;
       const email = normalizeEmail(r.assigneeEmail);
-      if (email) jiraMap.set(r.jiraKey.toUpperCase(), { assigneeEmail: email, createdAt: r.jiraCreatedAt });
+      if (!email) continue;
+      const devOwnerEmail = extractIssueOwnerEmail(r.customFields, r.devOwnerFieldIds, accountIdEmailMap);
+      jiraMap.set(r.jiraKey.toUpperCase(), { assigneeEmail: email, devOwnerEmail, createdAt: r.jiraCreatedAt });
     }
 
     // Listing floor: the earliest of this quarter's candidate Jiras' own
@@ -378,8 +402,13 @@ export async function runLocSyncJob(jobId: string, quarterKey: string): Promise<
       .set({ totalRepos: repos.length })
       .where(eq(locSyncJobs.id, jobId));
 
-    // jiraKey(upper) → running total for THIS run only.
-    const agg = new Map<string, { additions: number; deletions: number; prNumbers: number[] }>();
+    // jiraKey(upper) → creditedEmail → running total for THIS run only. A
+    // Jira can accumulate qualifying PRs under more than one identity across
+    // the scan (e.g. an old PR from the Assignee, a newer one from a Dev
+    // Owner set after reassignment) — reduced to a single winning identity
+    // per Jira once the scan finishes (see the reduction below), so no
+    // ticket's LOC ever blends two different people's work.
+    const agg = new Map<string, Map<string, { additions: number; deletions: number; prNumbers: number[] }>>();
 
     repoLoop: for (const repo of repos) {
       const client = repo.orgId ? orgClients.get(repo.orgId)?.client : undefined;
@@ -426,17 +455,20 @@ export async function runLocSyncJob(jobId: string, quarterKey: string): Promise<
         const prCreatedAt = new Date(pr.created_at);
 
         for (const key of candidateKeys) {
-          if (!isPrEligibleForJira(jiraMap.get(key), authorEmail, prCreatedAt)) continue;
+          const creditedEmail = resolvePrCredit(jiraMap.get(key), authorEmail, prCreatedAt);
+          if (!creditedEmail) continue;
 
           const stats = await ensurePrStats(repo.id, repo.fullName, pr.number, cached, client);
           if (!stats) continue;
 
           matchesFound++;
-          const entry = agg.get(key) ?? { additions: 0, deletions: 0, prNumbers: [] };
+          const byEmail = agg.get(key) ?? new Map<string, { additions: number; deletions: number; prNumbers: number[] }>();
+          const entry = byEmail.get(creditedEmail) ?? { additions: 0, deletions: 0, prNumbers: [] };
           entry.additions += stats.additions;
           entry.deletions += stats.deletions;
           entry.prNumbers.push(pr.number);
-          agg.set(key, entry);
+          byEmail.set(creditedEmail, entry);
+          agg.set(key, byEmail);
         }
       }
 
@@ -445,6 +477,22 @@ export async function runLocSyncJob(jobId: string, quarterKey: string): Promise<
         .update(locSyncJobs)
         .set({ syncedRepos, prsScanned, matchesFound, errorCount: errors, errorMessages })
         .where(eq(locSyncJobs.id, jobId));
+    }
+
+    // Reduce each Jira's per-identity buckets to a single winner: Dev Owner
+    // outright when they have any qualifying PR, else Assignee — mirrors
+    // resolvePrCredit's own preference, just applied once per Jira instead of
+    // once per PR. Only the winning identity's additions/deletions/PRs count;
+    // the loser's (rare — only possible when the Dev Owner changed mid-
+    // quarter) are dropped rather than blended in.
+    const winners = new Map<string, { additions: number; deletions: number; prNumbers: number[]; creditedEmail: string }>();
+    for (const [jiraKey, byEmail] of agg) {
+      const candidate = jiraMap.get(jiraKey);
+      const devOwnerEntry = candidate?.devOwnerEmail ? byEmail.get(candidate.devOwnerEmail) : undefined;
+      const [creditedEmail, entry] = devOwnerEntry
+        ? [candidate!.devOwnerEmail!, devOwnerEntry]
+        : [...byEmail.entries()][0];
+      winners.set(jiraKey, { ...entry, creditedEmail });
     }
 
     // Every run is a FULL resync of the quarter (not an incremental delta) —
@@ -461,13 +509,14 @@ export async function runLocSyncJob(jobId: string, quarterKey: string): Promise<
     if (fullyComplete) {
       await db.transaction(async (tx) => {
         await tx.delete(jiraIssueLoc).where(eq(jiraIssueLoc.quarterKey, quarterKey));
-        const rows = [...agg.entries()].map(([jiraKey, v]) => ({
+        const rows = [...winners.entries()].map(([jiraKey, v]) => ({
           jiraKey,
           quarterKey,
           totalAdditions: v.additions,
           totalDeletions: v.deletions,
           prCount: v.prNumbers.length,
           prNumbers: v.prNumbers,
+          creditedEmail: v.creditedEmail,
           computedAt: new Date(),
         }));
         for (let i = 0; i < rows.length; i += 500) {
@@ -475,7 +524,7 @@ export async function runLocSyncJob(jobId: string, quarterKey: string): Promise<
         }
       });
     } else {
-      for (const [jiraKey, v] of agg) {
+      for (const [jiraKey, v] of winners) {
         await db
           .insert(jiraIssueLoc)
           .values({
@@ -485,6 +534,7 @@ export async function runLocSyncJob(jobId: string, quarterKey: string): Promise<
             totalDeletions: v.deletions,
             prCount: v.prNumbers.length,
             prNumbers: v.prNumbers,
+            creditedEmail: v.creditedEmail,
             computedAt: new Date(),
           })
           .onConflictDoUpdate({
@@ -494,6 +544,7 @@ export async function runLocSyncJob(jobId: string, quarterKey: string): Promise<
               totalDeletions: v.deletions,
               prCount: v.prNumbers.length,
               prNumbers: v.prNumbers,
+              creditedEmail: v.creditedEmail,
               computedAt: new Date(),
             },
           });

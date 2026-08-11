@@ -56,27 +56,27 @@ export function extractIssueOwnerEmail(
 
 /**
  * Who a *task* (non-bug issue) is credited to in the performance review: the
- * "Dev Owner" user-picker when set, else the issue Assignee — UNLESS the
- * issue has a matched PR (hasMatchedLoc), in which case Assignee wins
- * outright. loc-sync only ever matches a PR whose author resolves to the
- * issue's current Assignee (see isPrEligibleForJira), so "has a matched PR"
- * and "the Assignee is who actually wrote the code" are the same fact —
- * harder evidence than a Dev Owner field that can go stale after a handoff.
- * Both fields are resolved to a normalized email (Dev Owner via the same
+ * "Dev Owner" user-picker when set, else the issue Assignee — UNLESS
+ * loc-sync found a matched PR and knows exactly who wrote it
+ * (locCreditedEmail), in which case that person wins outright, replacing
+ * whichever of Dev Owner/Assignee the field-based guess would have picked.
+ * loc-sync itself already prefers a Dev Owner-authored PR over an Assignee-
+ * authored one when both exist for the same Jira (see resolvePrCredit in
+ * loc-sync.ts) — this function doesn't need to re-decide between them, only
+ * trust the answer once it exists, since a real PR proves who wrote the code
+ * more reliably than a Jira field that can go stale after a handoff. Both
+ * fallback fields are resolved to a normalized email (Dev Owner via the same
  * user-picker logic as Issue Owner, since it's the same field type). Returns
- * null when neither is present — such a task is credited to nobody.
+ * null when nothing at all is present — such a task is credited to nobody.
  */
 export function resolveTaskOwnerEmail(
   cf: CustomFields | null | undefined,
   devOwnerFieldIds: string[] | null,
   assigneeEmail: string | null | undefined,
   accountIdEmailMap?: Map<string, string> | null,
-  hasMatchedLoc?: boolean
+  locCreditedEmail?: string | null
 ): string | null {
-  if (hasMatchedLoc) {
-    const assignee = normalizeEmail(assigneeEmail);
-    if (assignee) return assignee;
-  }
+  if (locCreditedEmail) return locCreditedEmail;
   return (
     extractIssueOwnerEmail(cf, devOwnerFieldIds, accountIdEmailMap) ??
     normalizeEmail(assigneeEmail)

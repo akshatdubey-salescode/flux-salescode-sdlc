@@ -1,6 +1,7 @@
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 import Link from "next/link";
 import { requireAuth } from "@/lib/auth/server";
+import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import {
   Breadcrumb,
@@ -10,10 +11,12 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { selectableQuarters, currentQuarter } from "@/lib/scorecard/quarter";
-import { WEIGHTS, SCORE_SCALE } from "@/lib/scorecard/config";
+import { SCORE_SCALE } from "@/lib/scorecard/config";
 import { METRIC_INFO, DATE_CAPTURE_NOTE } from "@/lib/scorecard/metric-descriptions";
 import { fetchScorecards, fetchScorecardDetail } from "./data";
+import { getVisibleColumns } from "./visible-columns";
 import { ReviewControls } from "./controls";
 import { LeaderboardTable } from "./leaderboard-table";
 import { ScoringGuide } from "./scoring-guide";
@@ -84,6 +87,46 @@ function ComplexityAccuracyStat({
   return <>{formatComplexityAccuracy(correct, checked)}</>;
 }
 
+/** One KPI card in the metrics grid: label, detail line, and a points/weight/contribution stat row. */
+function MetricCard({
+  label,
+  detail,
+  points,
+  weight,
+  contribution,
+  dimmed,
+}: {
+  label: string;
+  detail: ReactNode;
+  points: ReactNode;
+  weight?: number;
+  contribution?: ReactNode;
+  dimmed?: boolean;
+}) {
+  return (
+    <Card className={cn("gap-1 py-3", dimmed && "opacity-50")}>
+      <CardHeader className="gap-0.5 px-4">
+        <CardTitle className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          {label}
+        </CardTitle>
+        <p className="text-xs text-zinc-600 dark:text-zinc-400">{detail}</p>
+      </CardHeader>
+      <CardContent className="px-4">
+        <div className="flex items-baseline justify-between">
+          <span className="text-2xl font-semibold tabular-nums">{points}</span>
+          {weight != null && (
+            <span className="text-xs text-zinc-500">weight {weight.toFixed(2)}</span>
+          )}
+        </div>
+        {contribution != null && (
+          <p className="mt-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+            {contribution}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default async function PerformanceReviewPage({
   searchParams,
@@ -154,202 +197,124 @@ export default async function PerformanceReviewPage({
                   </p>
                 </div>
 
-                <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/80">
-                        <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                          Metric
-                        </th>
-                        <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                          Detail
-                        </th>
-                        <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                          Points
-                        </th>
-                        <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                          Weight
-                        </th>
-                        <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                          Contribution
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.breakdown.metrics.map((m) => (
-                        <Fragment key={m.key}>
-                          <tr
-                            className={
-                              "border-b border-zinc-100 last:border-0 dark:border-zinc-800/60 " +
-                              (m.available ? "" : "opacity-50")
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {detail.breakdown.metrics.map((m) => (
+                    <Fragment key={m.key}>
+                      <MetricCard
+                        label={m.label}
+                        detail={m.available ? m.raw : "N/A — not tracked"}
+                        points={m.available ? fmtPoints(m.points) : "N/A"}
+                        weight={m.weight}
+                        contribution={
+                          m.available
+                            ? `${m.contribution.toFixed(2)} / ${(m.weight * 5 * SCORE_SCALE).toFixed(2)}`
+                            : "—"
+                        }
+                        dimmed={!m.available}
+                      />
+                      {m.key === "codeChurn" && (
+                        <>
+                          <MetricCard
+                            label="Complex. (M)"
+                            detail={(() => {
+                              const cm = findComplexTasksMetric(detail.breakdown.metrics);
+                              return cm ? complexTasksCalc(cm) : "Recompute to see the breakdown";
+                            })()}
+                            points={`${detail.markedComplexityScoreAll.toFixed(1)} / 30`}
+                          />
+                          <MetricCard
+                            label="Complex. (E)"
+                            detail={(() => {
+                              const ce = findComplexTasksMetric(detail.breakdown.expectedAllMetrics);
+                              return ce ? complexTasksCalc(ce) : "Recompute to see the breakdown";
+                            })()}
+                            points={`${detail.expectedComplexityScoreAll.toFixed(1)} / 30`}
+                          />
+                          <MetricCard
+                            label="Complex. NSA. (M)"
+                            detail={(() => {
+                              const nm = findComplexTasksMetric(detail.breakdown.nsaMetrics);
+                              return nm ? complexTasksCalc(nm) : "Recompute to see the breakdown";
+                            })()}
+                            points={`${detail.markedComplexityScore.toFixed(1)} / 30`}
+                          />
+                          <MetricCard
+                            label="Complex. NSA. (E)"
+                            detail={(() => {
+                              const ne = findComplexTasksMetric(detail.breakdown.nsaExpectedMetrics);
+                              return ne ? complexTasksCalc(ne) : "Recompute to see the breakdown";
+                            })()}
+                            points={`${detail.expectedComplexityScore.toFixed(1)} / 30`}
+                          />
+                          <MetricCard
+                            label="Complexity Accuracy (all Jiras)"
+                            detail={
+                              <ComplexityAccuracyStat
+                                correct={detail.complexityAccuracyAllCorrect}
+                                checked={detail.complexityAccuracyAllChecked}
+                              />
                             }
-                          >
-                            <td className="px-4 py-3 align-top font-medium text-zinc-900 dark:text-zinc-100">
-                              {m.label}
-                            </td>
-                            <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
-                              {m.available ? m.raw : "N/A — not tracked"}
-                            </td>
-                            <td className="px-4 py-3 text-right align-top tabular-nums">
-                              {m.available ? fmtPoints(m.points) : "N/A"}
-                            </td>
-                            <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">
-                              {m.weight.toFixed(2)}
-                            </td>
-                            <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">
-                              {m.available ? (
-                                <>
-                                  {m.contribution.toFixed(2)}
-                                  <span className="font-normal text-zinc-400">
-                                    {" "}
-                                    / {(m.weight * 5 * SCORE_SCALE).toFixed(2)}
-                                  </span>
-                                </>
-                              ) : (
-                                "—"
-                              )}
-                            </td>
-                          </tr>
-                          {m.key === "codeChurn" && (
-                            <>
-                              <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60">
-                                <td className="px-4 py-3 align-top font-medium text-zinc-900 dark:text-zinc-100">
-                                  Complex. (M)
-                                </td>
-                                <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
-                                  {(() => {
-                                    const cm = findComplexTasksMetric(detail.breakdown.metrics);
-                                    return cm ? complexTasksCalc(cm) : "Recompute to see the breakdown";
-                                  })()}
-                                </td>
-                                <td className="px-4 py-3 text-right align-top tabular-nums">
-                                  {detail.markedComplexityScoreAll.toFixed(1)} / 30
-                                </td>
-                                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">—</td>
-                                <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">—</td>
-                              </tr>
-                              <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60">
-                                <td className="px-4 py-3 align-top font-medium text-zinc-900 dark:text-zinc-100">
-                                  Complex. (E)
-                                </td>
-                                <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
-                                  {(() => {
-                                    const ce = findComplexTasksMetric(detail.breakdown.expectedAllMetrics);
-                                    return ce ? complexTasksCalc(ce) : "Recompute to see the breakdown";
-                                  })()}
-                                </td>
-                                <td className="px-4 py-3 text-right align-top tabular-nums">
-                                  {detail.expectedComplexityScoreAll.toFixed(1)} / 30
-                                </td>
-                                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">—</td>
-                                <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">—</td>
-                              </tr>
-                              <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60">
-                                <td className="px-4 py-3 align-top font-medium text-zinc-900 dark:text-zinc-100">
-                                  Complex. NSA. (M)
-                                </td>
-                                <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
-                                  {(() => {
-                                    const nm = findComplexTasksMetric(detail.breakdown.nsaMetrics);
-                                    return nm ? complexTasksCalc(nm) : "Recompute to see the breakdown";
-                                  })()}
-                                </td>
-                                <td className="px-4 py-3 text-right align-top tabular-nums">
-                                  {detail.markedComplexityScore.toFixed(1)} / 30
-                                </td>
-                                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">—</td>
-                                <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">—</td>
-                              </tr>
-                              <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60">
-                                <td className="px-4 py-3 align-top font-medium text-zinc-900 dark:text-zinc-100">
-                                  Complex. NSA. (E)
-                                </td>
-                                <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
-                                  {(() => {
-                                    const ne = findComplexTasksMetric(detail.breakdown.nsaExpectedMetrics);
-                                    return ne ? complexTasksCalc(ne) : "Recompute to see the breakdown";
-                                  })()}
-                                </td>
-                                <td className="px-4 py-3 text-right align-top tabular-nums">
-                                  {detail.expectedComplexityScore.toFixed(1)} / 30
-                                </td>
-                                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">—</td>
-                                <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">—</td>
-                              </tr>
-                              <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60">
-                                <td className="px-4 py-3 align-top font-medium text-zinc-900 dark:text-zinc-100">
-                                  Complexity Accuracy (all Jiras)
-                                </td>
-                                <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
-                                  <ComplexityAccuracyStat
-                                    correct={detail.complexityAccuracyAllCorrect}
-                                    checked={detail.complexityAccuracyAllChecked}
-                                  />
-                                </td>
-                                <td className="px-4 py-3 text-right align-top tabular-nums">
-                                  <ComplexityAccuracyStat
-                                    correct={detail.complexityAccuracyAllCorrect}
-                                    checked={detail.complexityAccuracyAllChecked}
-                                  />
-                                </td>
-                                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">—</td>
-                                <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">—</td>
-                              </tr>
-                              <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60">
-                                <td className="px-4 py-3 align-top font-medium text-zinc-900 dark:text-zinc-100">
-                                  Complexity Accuracy (NSA only)
-                                </td>
-                                <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
-                                  <ComplexityAccuracyStat
-                                    correct={detail.complexityAccuracyCorrect}
-                                    checked={detail.complexityAccuracyChecked}
-                                  />
-                                </td>
-                                <td className="px-4 py-3 text-right align-top tabular-nums">
-                                  <ComplexityAccuracyStat
-                                    correct={detail.complexityAccuracyCorrect}
-                                    checked={detail.complexityAccuracyChecked}
-                                  />
-                                </td>
-                                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">—</td>
-                                <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">—</td>
-                              </tr>
-                            </>
-                          )}
-                        </Fragment>
-                      ))}
-                      <tr className="bg-zinc-50 dark:bg-zinc-900/60">
-                        <td
-                          colSpan={4}
-                          className="px-4 py-3 text-right text-sm font-semibold"
-                        >
-                          Final score
-                        </td>
-                        <td className="px-4 py-3 text-right text-sm font-bold tabular-nums">
-                          {detail.finalScore.toFixed(1)}
-                          <span className="font-normal text-zinc-400">
-                            {" "}
-                            /{" "}
-                            {detail.breakdown.metrics
-                              .reduce((s, m) => s + m.weight * 5 * SCORE_SCALE, 0)
-                              .toFixed(0)}
-                          </span>
-                        </td>
-                      </tr>
-                      <tr className="bg-zinc-50/60 dark:bg-zinc-900/40" title={SCORE_NSA_E_INFO}>
-                        <td
-                          colSpan={4}
-                          className="px-4 py-3 text-right text-sm font-semibold"
-                        >
-                          Score NSA. (E)
-                        </td>
-                        <td className="px-4 py-3 text-right text-sm font-bold tabular-nums">
-                          {detail.scoreNsaExpected.toFixed(1)}
-                          <span className="font-normal text-zinc-400"> / 100</span>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
+                            points={
+                              <ComplexityAccuracyStat
+                                correct={detail.complexityAccuracyAllCorrect}
+                                checked={detail.complexityAccuracyAllChecked}
+                              />
+                            }
+                          />
+                          <MetricCard
+                            label="Complexity Accuracy (NSA only)"
+                            detail={
+                              <ComplexityAccuracyStat
+                                correct={detail.complexityAccuracyCorrect}
+                                checked={detail.complexityAccuracyChecked}
+                              />
+                            }
+                            points={
+                              <ComplexityAccuracyStat
+                                correct={detail.complexityAccuracyCorrect}
+                                checked={detail.complexityAccuracyChecked}
+                              />
+                            }
+                          />
+                        </>
+                      )}
+                    </Fragment>
+                  ))}
+                  <Card className="gap-1 border-zinc-300 bg-zinc-50 py-3 dark:border-zinc-700 dark:bg-zinc-900/60">
+                    <CardHeader className="gap-0.5 px-4">
+                      <CardTitle className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                        Final score
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="px-4">
+                      <span className="text-2xl font-bold tabular-nums">
+                        {detail.finalScore.toFixed(1)}
+                      </span>
+                      <span className="font-normal text-zinc-400">
+                        {" "}
+                        /{" "}
+                        {detail.breakdown.metrics
+                          .reduce((s, m) => s + m.weight * 5 * SCORE_SCALE, 0)
+                          .toFixed(0)}
+                      </span>
+                    </CardContent>
+                  </Card>
+                  <Card
+                    className="gap-1 border-zinc-300 bg-zinc-50/60 py-3 dark:border-zinc-700 dark:bg-zinc-900/40"
+                    title={SCORE_NSA_E_INFO}
+                  >
+                    <CardHeader className="gap-0.5 px-4">
+                      <CardTitle className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                        Score NSA. (E)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="px-4">
+                      <span className="text-2xl font-bold tabular-nums">
+                        {detail.scoreNsaExpected.toFixed(1)}
+                      </span>
+                      <span className="font-normal text-zinc-400"> / 100</span>
+                    </CardContent>
+                  </Card>
                 </div>
 
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -1018,6 +983,7 @@ export default async function PerformanceReviewPage({
   // ---- Leaderboard ----
   const rows = await fetchScorecards(quarterKey);
   const computedAt = rows[0]?.computedAt ?? null;
+  const visibleColumns = await getVisibleColumns();
 
   return (
     <div className="flex min-h-svh flex-col bg-zinc-50 dark:bg-zinc-950">
@@ -1033,34 +999,17 @@ export default async function PerformanceReviewPage({
 
       <main className="flex-1 p-6">
         <div className="mx-auto max-w-5xl space-y-6">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              Performance Review
-            </h1>
-            <p className="mt-1 max-w-3xl text-sm text-zinc-500">
-              Suggested quarterly ratings for developers, scored out of 100 and
-              derived from synced Jira data across four weighted metrics — Bug
-              Quality ({WEIGHTS.bugQuality}), Complex Tasks ({WEIGHTS.complexTasks}),
-              Sprint Commitment ({WEIGHTS.sprintCommitment}), and MTTR ({WEIGHTS.mttr}).{" "}
-              <strong>Score</strong> counts every completed Jira, unfiltered.{" "}
-              <strong>Score NSA. (E)</strong> is the same formula and scale,
-              but self-assigned Jiras are excluded and Complex Tasks is
-              weighted by LOC-predicted complexity instead of marked — the
-              only other column directly comparable to Score. Alongside them,
-              four Jira Complexity Rating columns isolate just the Complex
-              Tasks contribution (out of 30 — the other 70 points of Score
-              are the same regardless of complexity source or
-              self-assignment, so they&apos;re left out to keep the comparison
-              clean): <strong>Complex. (M)</strong> and{" "}
-              <strong>Complex. (E)</strong> keep every Jira (identical
-              population to Score — marked vs. LOC-predicted complexity);{" "}
-              <strong>Complex. NSA. (M)</strong> and{" "}
-              <strong>Complex. NSA. (E)</strong> exclude self-assigned Jiras
-              (reporter === credited person) entirely. Complexity Accuracy —
-              both an all-Jiras and a non-self-assigned reading — moved into
-              the per-developer breakdown; use the details icon to see it.
-              Ratings are a decision aid, not a verdict.
-            </p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">
+                Performance Review
+              </h1>
+              <p className="mt-1 max-w-2xl text-sm text-zinc-500">
+                Suggested quarterly ratings for developers, scored out of 100
+                from synced Jira data. A decision aid, not a verdict.
+              </p>
+            </div>
+            <ScoringGuide />
           </div>
 
           <ReviewControls
@@ -1070,12 +1019,11 @@ export default async function PerformanceReviewPage({
             canRecompute={canRecompute}
           />
 
-          <ScoringGuide />
-
           <LeaderboardTable
             rows={rows}
             quarterKey={quarterKey}
             quarterLabel={quarterLabel}
+            visibleColumns={visibleColumns}
           />
         </div>
       </main>

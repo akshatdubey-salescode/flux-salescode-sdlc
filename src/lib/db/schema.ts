@@ -1080,6 +1080,12 @@ export const jiraIssueLoc = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::integer[]`),
+    // Whoever actually authored the matched PR(s) — Dev Owner if any of them
+    // wrote one, else Assignee (see resolvePrCredit in loc-sync.ts). Read by
+    // resolveTaskOwnerEmail as harder evidence than the raw Dev Owner/Assignee
+    // fields, since this is confirmed by a real PR rather than just a Jira
+    // field that can go stale after a handoff. Null when no PR matched.
+    creditedEmail: text("credited_email"),
     computedAt: timestamp("computed_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

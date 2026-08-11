@@ -6,6 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ratingValueForSortKey } from "./rating-sort";
+import { WEIGHTS, SCORE_SCALE } from "@/lib/scorecard/config";
 
 const row = {
   finalScore: 78.5,
@@ -14,6 +15,10 @@ const row = {
   markedComplexityScore: 16.7,
   expectedComplexityScore: 15.9,
   scoreNsaExpected: 71.2,
+  bugQualityPoints: 4.2,
+  sprintCommitmentPoints: 3.8,
+  complexTasksPoints: 4.5,
+  mttrPoints: null,
 };
 
 test("score reads finalScore (the 0-100 composite)", () => {
@@ -56,6 +61,10 @@ test("m and nsaM diverge whenever self-assigned Jiras exist", () => {
     markedComplexityScore: 14,
     expectedComplexityScore: 12,
     scoreNsaExpected: 82,
+    bugQualityPoints: null,
+    sprintCommitmentPoints: null,
+    complexTasksPoints: null,
+    mttrPoints: null,
   };
   assert.notEqual(
     ratingValueForSortKey(withSelfAssigned, "m"),
@@ -65,4 +74,32 @@ test("m and nsaM diverge whenever self-assigned Jiras exist", () => {
     ratingValueForSortKey(withSelfAssigned, "e"),
     ratingValueForSortKey(withSelfAssigned, "nsaE"),
   );
+});
+
+// --- bugQuality/sprintCommitment/complexTasks/mttr: points × weight × scale,
+// matching the Contribution cell's own formula, not raw 0-5 points ----------
+
+test("bugQuality reads points × its weight × SCORE_SCALE", () => {
+  assert.equal(
+    ratingValueForSortKey(row, "bugQuality"),
+    row.bugQualityPoints * WEIGHTS.bugQuality * SCORE_SCALE,
+  );
+});
+
+test("sprintCommitment reads points × its weight × SCORE_SCALE", () => {
+  assert.equal(
+    ratingValueForSortKey(row, "sprintCommitment"),
+    row.sprintCommitmentPoints * WEIGHTS.sprintCommitment * SCORE_SCALE,
+  );
+});
+
+test("complexTasks reads points × its weight × SCORE_SCALE", () => {
+  assert.equal(
+    ratingValueForSortKey(row, "complexTasks"),
+    row.complexTasksPoints * WEIGHTS.complexTasks * SCORE_SCALE,
+  );
+});
+
+test("mttr with null points (unavailable) sorts as -1, below every real contribution", () => {
+  assert.equal(ratingValueForSortKey(row, "mttr"), -1);
 });

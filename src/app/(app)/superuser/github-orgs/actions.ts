@@ -14,14 +14,28 @@ const ORG_PATH = "/superuser/github-orgs";
 export type DiscoveryMode = "auto" | "manual";
 
 /**
- * Add (or re-key) a GitHub org.
- *
- * 'auto' orgs are discovered by listing the whole org, so we validate the PAT
- * can read the org's repos. 'manual' orgs are for a partial-access PAT (e.g. a
- * personal token with access to only some repos of an org you have no org PAT
- * for) — the org listing endpoint would 403, so we only verify the token
- * authenticates; per-repo access is checked when each repo is registered.
- * Returns an error string on validation failure so the form can surface it.
+ * Validates a token against the access check its discovery mode actually
+ * supports — 'auto' orgs (e.g. salescode-ai, visible to every employee) can
+ * list the whole org, so testOrgAccess (GET /orgs/{org}/repos) is the right
+ * check. 'manual' orgs (e.g. salescode-tools, stakeholder-only visibility)
+ * never support org-wide listing regardless of token — testOrgAccess would
+ * 404/403 there even for a token with full per-repo access, so this only
+ * confirms the token authenticates at all; per-repo access is checked
+ * separately whenever a repo is registered (addManualRepo).
+ * Returns an error string on failure, or null on success.
+ */
+async function validateTokenForMode(
+  client: GitHubClient,
+  mode: DiscoveryMode
+): Promise<string | null> {
+  if (mode === "auto") return client.testOrgAccess();
+  return (await client.testConnection()) ? null : "Invalid or expired token.";
+}
+
+/**
+ * Add (or re-key) a GitHub org. See validateTokenForMode for why the access
+ * check differs by discovery mode. Returns an error string on validation
+ * failure so the form can surface it.
  */
 export async function addGithubOrg(
   login: string,
@@ -37,12 +51,8 @@ export async function addGithubOrg(
   if (!cleanToken) return { error: "A token is required." };
 
   const client = new GitHubClient({ token: cleanToken, org: cleanLogin });
-  if (mode === "auto") {
-    const accessError = await client.testOrgAccess();
-    if (accessError) return { error: accessError };
-  } else if (!(await client.testConnection())) {
-    return { error: "Invalid or expired token." };
-  }
+  const accessError = await validateTokenForMode(client, mode);
+  if (accessError) return { error: accessError };
 
   await db
     .insert(githubOrgs)
@@ -173,9 +183,14 @@ export async function removeManualRepo(repoId: string): Promise<{ error?: string
 
 /**
  * Rotate an existing org's PAT without re-typing its login. Validates the new
- * token can read the org before persisting it (encrypted). This is the token
- * every repo in the org is fetched/cloned with, so updating it here updates
- * access for all of them. Leaves isActive untouched.
+ * token against the check its discovery mode actually supports (see
+ * validateTokenForMode) before persisting it (encrypted) — previously this
+ * always ran the 'auto' org-listing check regardless of mode, which made a
+ * manual-mode org's token permanently un-rotatable once the old one died: the
+ * new token would fail the org-listing check even with full per-repo access,
+ * the exact scenario manual mode exists for. This is the token every repo in
+ * the org is fetched/cloned with, so updating it here updates access for all
+ * of them. Leaves isActive untouched.
  */
 export async function updateGithubOrgToken(
   id: string,
@@ -187,16 +202,17 @@ export async function updateGithubOrgToken(
   if (!cleanToken) return { error: "A token is required." };
 
   const [org] = await db
-    .select({ login: githubOrgs.login })
+    .select({ login: githubOrgs.login, discoveryMode: githubOrgs.discoveryMode })
     .from(githubOrgs)
     .where(eq(githubOrgs.id, id))
     .limit(1);
   if (!org) return { error: "Org not found." };
 
-  const accessError = await new GitHubClient({
-    token: cleanToken,
-    org: org.login,
-  }).testOrgAccess();
+  const mode: DiscoveryMode = org.discoveryMode === "manual" ? "manual" : "auto";
+  const accessError = await validateTokenForMode(
+    new GitHubClient({ token: cleanToken, org: org.login }),
+    mode
+  );
   if (accessError) return { error: accessError };
 
   await db
