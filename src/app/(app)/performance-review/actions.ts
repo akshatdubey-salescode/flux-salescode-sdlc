@@ -173,18 +173,23 @@ export async function updateVisibleColumns(
     return { error: "Select at least one column." };
   }
 
-  await db
-    .insert(featureFlags)
-    .values({
-      key: FEATURE_FLAGS.PERFORMANCE_REVIEW_VISIBLE_COLUMNS,
-      value: columns,
-      updatedAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: featureFlags.key,
-      set: { value: columns, updatedAt: new Date() },
-    });
+  try {
+    await db
+      .insert(featureFlags)
+      .values({
+        key: FEATURE_FLAGS.PERFORMANCE_REVIEW_VISIBLE_COLUMNS,
+        value: columns,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: featureFlags.key,
+        set: { value: columns, updatedAt: new Date() },
+      });
 
-  revalidateTag("feature-flags", "max");
-  return {};
+    revalidateTag("feature-flags", "max");
+    return {};
+  } catch (err) {
+    console.error("[performance-review] updateVisibleColumns failed:", err);
+    return { error: err instanceof Error ? err.message : "Failed to update columns." };
+  }
 }
