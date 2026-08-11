@@ -16,6 +16,7 @@ import { selectableQuarters, currentQuarter } from "@/lib/scorecard/quarter";
 import { SCORE_SCALE } from "@/lib/scorecard/config";
 import { METRIC_INFO, DATE_CAPTURE_NOTE } from "@/lib/scorecard/metric-descriptions";
 import { fetchScorecards, fetchScorecardDetail } from "./data";
+import { getVisibleColumns } from "./visible-columns";
 import { ReviewControls } from "./controls";
 import { LeaderboardTable } from "./leaderboard-table";
 import { ScoringGuide } from "./scoring-guide";
@@ -982,6 +983,7 @@ export default async function PerformanceReviewPage({
   // ---- Leaderboard ----
   const rows = await fetchScorecards(quarterKey);
   const computedAt = rows[0]?.computedAt ?? null;
+  const visibleColumns = await getVisibleColumns();
 
   return (
     <div className="flex min-h-svh flex-col bg-zinc-50 dark:bg-zinc-950">
@@ -1021,6 +1023,7 @@ export default async function PerformanceReviewPage({
             rows={rows}
             quarterKey={quarterKey}
             quarterLabel={quarterLabel}
+            visibleColumns={visibleColumns}
           />
         </div>
       </main>
