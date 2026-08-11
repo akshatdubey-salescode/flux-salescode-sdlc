@@ -220,15 +220,29 @@ export function LeaderboardTable({
     });
   }, [rows, query, dept]);
 
-  // Re-sorts on top of the filtered list — "#" below reflects position in
-  // this order, not the server-computed row.rank, so it always matches what
-  // the user is actually looking at.
+  // Re-sorts on top of the filtered list — this is what actually renders as
+  // rows, so it reflects the currently active sort column/direction.
   const sorted = useMemo(() => {
     const valueOf = (r: ScorecardRow) => ratingValueForSortKey(r, sortKey);
     return [...filtered].sort((a, b) =>
       sortDir === "desc" ? valueOf(b) - valueOf(a) : valueOf(a) - valueOf(b),
     );
   }, [filtered, sortKey, sortDir]);
+
+  // "#" is this person's rank across the *entire org* under the current sort
+  // column — computed from the full, unfiltered rows so it stays the same
+  // number whether or not a search/department filter is narrowing what's
+  // currently visible. Deliberately keyed off the live sortKey/sortDir (not
+  // the server-computed row.rank) so it still matches whatever column the
+  // user is actually looking at, just measured against everyone, not only
+  // the currently-filtered subset.
+  const rankByEmail = useMemo(() => {
+    const valueOf = (r: ScorecardRow) => ratingValueForSortKey(r, sortKey);
+    const fullSorted = [...rows].sort((a, b) =>
+      sortDir === "desc" ? valueOf(b) - valueOf(a) : valueOf(a) - valueOf(b),
+    );
+    return new Map(fullSorted.map((r, i) => [r.email, i + 1]));
+  }, [rows, sortKey, sortDir]);
 
   return (
     <div className="space-y-3">
@@ -298,13 +312,13 @@ export function LeaderboardTable({
             </tr>
           </thead>
           <tbody>
-            {sorted.map((row, i) => (
+            {sorted.map((row) => (
               <tr
                 key={row.email}
                 className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60"
               >
                 <td className="px-4 py-3 align-top tabular-nums text-xs text-zinc-400">
-                  {i + 1}
+                  {rankByEmail.get(row.email)}
                 </td>
                 <td className="px-4 py-3 align-top">
                   <Link
