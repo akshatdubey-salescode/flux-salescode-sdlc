@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { selectableQuarters, currentQuarter } from "@/lib/scorecard/quarter";
-import { WEIGHTS, SCORE_SCALE } from "@/lib/scorecard/config";
+import { SCORE_SCALE } from "@/lib/scorecard/config";
 import { METRIC_INFO, DATE_CAPTURE_NOTE } from "@/lib/scorecard/metric-descriptions";
 import { fetchScorecards, fetchScorecardDetail } from "./data";
 import { ReviewControls } from "./controls";
@@ -997,34 +997,17 @@ export default async function PerformanceReviewPage({
 
       <main className="flex-1 p-6">
         <div className="mx-auto max-w-5xl space-y-6">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              Performance Review
-            </h1>
-            <p className="mt-1 max-w-3xl text-sm text-zinc-500">
-              Suggested quarterly ratings for developers, scored out of 100 and
-              derived from synced Jira data across four weighted metrics — Bug
-              Quality ({WEIGHTS.bugQuality}), Complex Tasks ({WEIGHTS.complexTasks}),
-              Sprint Commitment ({WEIGHTS.sprintCommitment}), and MTTR ({WEIGHTS.mttr}).{" "}
-              <strong>Score</strong> counts every completed Jira, unfiltered.{" "}
-              <strong>Score NSA. (E)</strong> is the same formula and scale,
-              but self-assigned Jiras are excluded and Complex Tasks is
-              weighted by LOC-predicted complexity instead of marked — the
-              only other column directly comparable to Score. Alongside them,
-              four Jira Complexity Rating columns isolate just the Complex
-              Tasks contribution (out of 30 — the other 70 points of Score
-              are the same regardless of complexity source or
-              self-assignment, so they&apos;re left out to keep the comparison
-              clean): <strong>Complex. (M)</strong> and{" "}
-              <strong>Complex. (E)</strong> keep every Jira (identical
-              population to Score — marked vs. LOC-predicted complexity);{" "}
-              <strong>Complex. NSA. (M)</strong> and{" "}
-              <strong>Complex. NSA. (E)</strong> exclude self-assigned Jiras
-              (reporter === credited person) entirely. Complexity Accuracy —
-              both an all-Jiras and a non-self-assigned reading — moved into
-              the per-developer breakdown; use the details icon to see it.
-              Ratings are a decision aid, not a verdict.
-            </p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">
+                Performance Review
+              </h1>
+              <p className="mt-1 max-w-2xl text-sm text-zinc-500">
+                Suggested quarterly ratings for developers, scored out of 100
+                from synced Jira data. A decision aid, not a verdict.
+              </p>
+            </div>
+            <ScoringGuide />
           </div>
 
           <ReviewControls
@@ -1033,8 +1016,6 @@ export default async function PerformanceReviewPage({
             computedAt={computedAt}
             canRecompute={canRecompute}
           />
-
-          <ScoringGuide />
 
           <LeaderboardTable
             rows={rows}
