@@ -139,6 +139,18 @@ export default async function PerformanceReviewPage({
   if (sp.person) {
     const detail = await fetchScorecardDetail(sp.person, quarterKey);
 
+    // Cards that render un-dimmed in the Metrics tab: every available (m.available)
+    // base metric, plus the 6 Complex Tasks sub-cards (Complex./Complex. NSA./
+    // Complexity Accuracy — see the codeChurn branch below), which never dim.
+    // Currently always 4 + 6 = 10 (Bug Quality/MTTR/Sprint Commitment/Complex
+    // Tasks are the only data-backed metrics; Code Churn/AI Tasks/Effort are
+    // permanently untracked here — see the footnote below), but derived rather
+    // than hardcoded so it stays correct if that ever changes.
+    const activeMetricCount = detail
+      ? detail.breakdown.metrics.filter((m) => m.available).length +
+        (detail.breakdown.metrics.some((m) => m.key === "codeChurn") ? 6 : 0)
+      : 0;
+
     return (
       <div className="flex min-h-svh flex-col bg-zinc-50 dark:bg-zinc-950">
         <PageHeader>
@@ -193,6 +205,34 @@ export default async function PerformanceReviewPage({
                   <MetricMeaningModal detail={detail} />
                 </div>
 
+                <Tabs defaultValue="metrics" className="w-full">
+                  <div className="overflow-x-auto">
+                    <TabsList>
+                      <TabsTrigger value="metrics">
+                        Metrics ({activeMetricCount})
+                      </TabsTrigger>
+                      <TabsTrigger value="bugs">
+                        Weighted bugs ({detail.weightedBugItems.length})
+                      </TabsTrigger>
+                      <TabsTrigger value="features">
+                        Feature tasks ({detail.featureItems.length})
+                      </TabsTrigger>
+                      <TabsTrigger value="mttr">
+                        MTTR samples ({detail.mttrItems.length})
+                      </TabsTrigger>
+                      <TabsTrigger value="complexity">
+                        Complexity ({detail.complexTasksCount})
+                      </TabsTrigger>
+                      <TabsTrigger value="expected-complexity">
+                        Expected Complexity ({detail.complexTasksCount})
+                      </TabsTrigger>
+                      <TabsTrigger value="missing-dates">
+                        Missing dates ({detail.missingActualDateItems.length})
+                      </TabsTrigger>
+                    </TabsList>
+                  </div>
+
+                  <TabsContent value="metrics" className="space-y-6 pt-8 pb-8">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {detail.breakdown.metrics.map((m) => (
                     <Fragment key={m.key}>
@@ -320,32 +360,9 @@ export default async function PerformanceReviewPage({
                   and AI Tasks is currently excluded from the rating — all three
                   carry weight 0, so they don&apos;t affect the score.
                 </p>
+                  </TabsContent>
 
-                <Tabs defaultValue="bugs" className="w-full">
-                  <div className="overflow-x-auto">
-                    <TabsList>
-                      <TabsTrigger value="bugs">
-                        Weighted bugs ({detail.weightedBugItems.length})
-                      </TabsTrigger>
-                      <TabsTrigger value="features">
-                        Feature tasks ({detail.featureItems.length})
-                      </TabsTrigger>
-                      <TabsTrigger value="mttr">
-                        MTTR samples ({detail.mttrItems.length})
-                      </TabsTrigger>
-                      <TabsTrigger value="complexity">
-                        Complexity ({detail.complexTasksCount})
-                      </TabsTrigger>
-                      <TabsTrigger value="expected-complexity">
-                        Expected Complexity ({detail.complexTasksCount})
-                      </TabsTrigger>
-                      <TabsTrigger value="missing-dates">
-                        Missing dates ({detail.missingActualDateItems.length})
-                      </TabsTrigger>
-                    </TabsList>
-                  </div>
-
-                  <TabsContent value="bugs">
+                  <TabsContent value="bugs" className="pt-6">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     Weighted bugs ({detail.weightedBugItems.length}) ·{" "}
@@ -419,7 +436,7 @@ export default async function PerformanceReviewPage({
                 </section>
                   </TabsContent>
 
-                  <TabsContent value="features">
+                  <TabsContent value="features" className="pt-6">
                 <FeatureTasksTable
                   items={detail.featureItems}
                   isSuperuser={canRecompute}
@@ -427,7 +444,7 @@ export default async function PerformanceReviewPage({
                 />
                   </TabsContent>
 
-                  <TabsContent value="mttr">
+                  <TabsContent value="mttr" className="pt-6">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     MTTR samples ({detail.mttrItems.length})
@@ -499,7 +516,7 @@ export default async function PerformanceReviewPage({
                 </section>
                   </TabsContent>
 
-                  <TabsContent value="complexity">
+                  <TabsContent value="complexity" className="pt-6">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     Complexity distribution ({detail.complexTasksCount} task
@@ -591,7 +608,7 @@ export default async function PerformanceReviewPage({
                 </section>
                   </TabsContent>
 
-                  <TabsContent value="expected-complexity">
+                  <TabsContent value="expected-complexity" className="pt-6">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     Expected Complexity distribution ({detail.complexTasksCount} task
@@ -687,7 +704,7 @@ export default async function PerformanceReviewPage({
                 </section>
                   </TabsContent>
 
-                  <TabsContent value="missing-dates">
+                  <TabsContent value="missing-dates" className="pt-6">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     Issues missing Actual start / end ({detail.missingActualDateItems.length})
