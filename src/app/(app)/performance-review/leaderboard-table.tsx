@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { RiSearchLine, RiInformationLine } from "@remixicon/react";
+import { RiSearchLine } from "@remixicon/react";
 import { WEIGHTS, SCORE_SCALE } from "@/lib/scorecard/config";
 import {
   Select,
@@ -74,23 +74,6 @@ function SortIndicator({ active, dir }: { active: boolean; dir: "asc" | "desc" }
   return <span className="ml-1 text-zinc-700 dark:text-zinc-300">{dir === "desc" ? "↓" : "↑"}</span>;
 }
 
-/**
- * Small "i" badge for a header, sitting next to (not inside) the sortable
- * label button — a nested button-in-button isn't valid HTML, so this is a
- * sibling span with its own hover/focus title, not a click target.
- */
-function HeaderInfoBadge({ text }: { text: string }) {
-  return (
-    <span
-      tabIndex={0}
-      title={text}
-      className="inline-flex shrink-0 cursor-help text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
-    >
-      <RiInformationLine size={13} />
-    </span>
-  );
-}
-
 const ALL_JIRAS_INFO =
   "Includes every completed Jira, including self-created-and-assigned ones — same population as Score.";
 const NSA_INFO =
@@ -98,19 +81,110 @@ const NSA_INFO =
 const SCORE_NSA_E_INFO =
   "Same formula as Score (Bug Quality + MTTR + Sprint Commitment + Complex Tasks), but computed with self-assigned Jiras excluded and Complex Tasks weighted by LOC-predicted complexity instead of marked. Unlike Complex. NSA. (E) (Complex Tasks contribution alone, out of 30), this is the full composite, out of 100 — directly comparable to Score.";
 
+/**
+ * Every numeric column's label, hover tooltip, and cell renderer, keyed by
+ * its SortKey — all numeric columns are sortable (see SortIndicator usage
+ * below), and this is also the set the performanceReviewVisibleColumns
+ * feature flag (visible-columns.ts) picks a subset of, in ALL_NUMERIC_COLUMNS'
+ * canonical order. Previously-separate header "i" badges are folded into each
+ * column's own `title` (a native hover tooltip on the <th>, not a visible
+ * icon) — nothing explained there is lost, just no longer a clutter icon,
+ * and the full explanation still lives in the "How scores are calculated"
+ * modal.
+ */
+type NumericColumn = {
+  key: SortKey;
+  label: string;
+  title: string;
+  cell: (row: ScorecardRow) => ReactNode;
+};
+
+const NUMERIC_COLUMNS: NumericColumn[] = [
+  {
+    key: "score",
+    label: "Score",
+    title: "The original Performance Review score — every completed Jira counts, including self-created-and-assigned ones. Click to sort",
+    cell: (row) => <RatingCell value={row.finalScore} max={MAX_SCORE} />,
+  },
+  {
+    key: "scoreNsaE",
+    label: "Score NSA. (E)",
+    title: `${SCORE_NSA_E_INFO} Click to sort`,
+    cell: (row) => <RatingCell value={row.scoreNsaExpected} max={MAX_SCORE} />,
+  },
+  {
+    key: "m",
+    label: "Complex. (M)",
+    title: `Complex Tasks contribution only (out of 30), rated by each task's marked complexity, every completed Jira included. Bug Quality/MTTR/Sprint Commitment aren't part of this — see Score for those. ${ALL_JIRAS_INFO} Click to sort`,
+    cell: (row) => <RatingCell value={row.markedComplexityScoreAll} max={MAX_COMPLEX_CONTRIBUTION} />,
+  },
+  {
+    key: "e",
+    label: "Complex. (E)",
+    title: `Same as Complex. (M) (out of 30), but using the LOC-predicted complexity instead of the marked value. ${ALL_JIRAS_INFO} Click to sort`,
+    cell: (row) => <RatingCell value={row.expectedComplexityScoreAll} max={MAX_COMPLEX_CONTRIBUTION} />,
+  },
+  {
+    key: "nsaM",
+    label: "Complex. NSA. (M)",
+    title: `Same as Complex. (M) (out of 30), but self-assigned Jiras are excluded entirely. ${NSA_INFO} Click to sort`,
+    cell: (row) => <RatingCell value={row.markedComplexityScore} max={MAX_COMPLEX_CONTRIBUTION} />,
+  },
+  {
+    key: "nsaE",
+    label: "Complex. NSA. (E)",
+    title: `Same as Complex. (E) (out of 30), but self-assigned Jiras are excluded entirely. ${NSA_INFO} Click to sort`,
+    cell: (row) => <RatingCell value={row.expectedComplexityScore} max={MAX_COMPLEX_CONTRIBUTION} />,
+  },
+  {
+    key: "bugQuality",
+    label: "Bug Qual.",
+    title: "Bug Quality's contribution to Score (points × weight). Click to sort",
+    cell: (row) => <Contribution points={row.bugQualityPoints} weight={WEIGHTS.bugQuality} />,
+  },
+  {
+    key: "sprintCommitment",
+    label: "Sprint",
+    title: "Sprint Commitment's contribution to Score (points × weight). Click to sort",
+    cell: (row) => <Contribution points={row.sprintCommitmentPoints} weight={WEIGHTS.sprintCommitment} />,
+  },
+  {
+    key: "complexTasks",
+    label: "Complex",
+    title: "Complex Tasks' contribution to Score (points × weight). Click to sort",
+    cell: (row) => <Contribution points={row.complexTasksPoints} weight={WEIGHTS.complexTasks} />,
+  },
+  {
+    key: "mttr",
+    label: "MTTR",
+    title: "MTTR's contribution to Score (points × weight). Click to sort",
+    cell: (row) => <Contribution points={row.mttrPoints} weight={WEIGHTS.mttr} />,
+  },
+];
+
 export function LeaderboardTable({
   rows,
   quarterKey,
   quarterLabel,
+  visibleColumns,
 }: {
   rows: ScorecardRow[];
   quarterKey: string;
   quarterLabel: string;
+  visibleColumns: SortKey[];
 }) {
   const [query, setQuery] = useState("");
   const [dept, setDept] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("score");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  // NUMERIC_COLUMNS filtered down to whatever performanceReviewVisibleColumns
+  // (the feature flag) currently allows, in NUMERIC_COLUMNS' own canonical
+  // order — the source of truth for both the header row and every data row.
+  const columns = useMemo(
+    () => NUMERIC_COLUMNS.filter((c) => visibleColumns.includes(c.key)),
+    [visibleColumns],
+  );
 
   // Clicking the column already being sorted flips direction; clicking a
   // different rating column switches to it, defaulting to descending
@@ -205,117 +279,22 @@ export function LeaderboardTable({
               <th className="whitespace-nowrap px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 Manager
               </th>
-              <th
-                className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                title="The original Performance Review score — every completed Jira counts, including self-created-and-assigned ones. Click to sort"
-              >
-                <button
-                  type="button"
-                  onClick={() => toggleSort("score")}
-                  className="inline-flex items-center uppercase hover:text-zinc-700 dark:hover:text-zinc-300"
+              {columns.map((col) => (
+                <th
+                  key={col.key}
+                  className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
+                  title={col.title}
                 >
-                  Score
-                  <SortIndicator active={sortKey === "score"} dir={sortDir} />
-                </button>
-              </th>
-              <th
-                className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                title="Same formula as Score, but self-assigned Jiras excluded and Complex Tasks weighted by LOC-predicted complexity. Click to sort"
-              >
-                <span className="inline-flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => toggleSort("scoreNsaE")}
+                    onClick={() => toggleSort(col.key)}
                     className="inline-flex items-center uppercase hover:text-zinc-700 dark:hover:text-zinc-300"
                   >
-                    Score NSA. (E)
-                    <SortIndicator active={sortKey === "scoreNsaE"} dir={sortDir} />
+                    {col.label}
+                    <SortIndicator active={sortKey === col.key} dir={sortDir} />
                   </button>
-                  <HeaderInfoBadge text={SCORE_NSA_E_INFO} />
-                </span>
-              </th>
-              <th
-                className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                title="Complex Tasks contribution only (out of 30), rated by each task's marked complexity, every completed Jira included. Bug Quality/MTTR/Sprint Commitment aren't part of this — see Score for those. Click to sort"
-              >
-                <span className="inline-flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => toggleSort("m")}
-                    className="inline-flex items-center uppercase hover:text-zinc-700 dark:hover:text-zinc-300"
-                  >
-                    Complex. (M)
-                    <SortIndicator active={sortKey === "m"} dir={sortDir} />
-                  </button>
-                  <HeaderInfoBadge text={ALL_JIRAS_INFO} />
-                </span>
-              </th>
-              <th
-                className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                title="Same as Complex. (M) (out of 30), but using the LOC-predicted complexity instead of the marked value. Click to sort"
-              >
-                <span className="inline-flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => toggleSort("e")}
-                    className="inline-flex items-center uppercase hover:text-zinc-700 dark:hover:text-zinc-300"
-                  >
-                    Complex. (E)
-                    <SortIndicator active={sortKey === "e"} dir={sortDir} />
-                  </button>
-                  <HeaderInfoBadge text={ALL_JIRAS_INFO} />
-                </span>
-              </th>
-              <th
-                className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                title="Same as Complex. (M) (out of 30), but self-assigned Jiras are excluded entirely. Click to sort"
-              >
-                <span className="inline-flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => toggleSort("nsaM")}
-                    className="inline-flex items-center uppercase hover:text-zinc-700 dark:hover:text-zinc-300"
-                  >
-                    Complex. NSA. (M)
-                    <SortIndicator active={sortKey === "nsaM"} dir={sortDir} />
-                  </button>
-                  <HeaderInfoBadge text={NSA_INFO} />
-                </span>
-              </th>
-              <th
-                className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                title="Same as Complex. (E) (out of 30), but self-assigned Jiras are excluded entirely. Click to sort"
-              >
-                <span className="inline-flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => toggleSort("nsaE")}
-                    className="inline-flex items-center uppercase hover:text-zinc-700 dark:hover:text-zinc-300"
-                  >
-                    Complex. NSA. (E)
-                    <SortIndicator active={sortKey === "nsaE"} dir={sortDir} />
-                  </button>
-                  <HeaderInfoBadge text={NSA_INFO} />
-                </span>
-              </th>
-              <th className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Bug Qual.
-              </th>
-              <th className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Sprint
-              </th>
-              <th className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Complex
-              </th>
-              <th className="whitespace-nowrap px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                MTTR
-              </th>
-              <th
-                className="w-12 whitespace-nowrap px-4 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                title="Jira Complexity Rating — full per-Jira breakdown, including Complexity Accuracy"
-              >
-                Details
-              </th>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -333,6 +312,7 @@ export function LeaderboardTable({
                       row.email,
                     )}`}
                     className="group/link"
+                    title="Jira Complexity Rating — full per-Jira breakdown, including Complexity Accuracy"
                   >
                     <span className="block font-medium text-zinc-900 group-hover/link:underline dark:text-zinc-100">
                       {row.name}
@@ -345,64 +325,21 @@ export function LeaderboardTable({
                 <td className="px-4 py-3 align-top text-sm text-zinc-600 dark:text-zinc-400">
                   {row.manager ?? "—"}
                 </td>
-                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  <RatingCell value={row.finalScore} max={MAX_SCORE} />
-                </td>
-                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  <RatingCell value={row.scoreNsaExpected} max={MAX_SCORE} />
-                </td>
-                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  <RatingCell value={row.markedComplexityScoreAll} max={MAX_COMPLEX_CONTRIBUTION} />
-                </td>
-                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  <RatingCell value={row.expectedComplexityScoreAll} max={MAX_COMPLEX_CONTRIBUTION} />
-                </td>
-                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  <RatingCell value={row.markedComplexityScore} max={MAX_COMPLEX_CONTRIBUTION} />
-                </td>
-                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  <RatingCell value={row.expectedComplexityScore} max={MAX_COMPLEX_CONTRIBUTION} />
-                </td>
-                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  <Contribution
-                    points={row.bugQualityPoints}
-                    weight={WEIGHTS.bugQuality}
-                  />
-                </td>
-                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  <Contribution
-                    points={row.sprintCommitmentPoints}
-                    weight={WEIGHTS.sprintCommitment}
-                  />
-                </td>
-                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  <Contribution
-                    points={row.complexTasksPoints}
-                    weight={WEIGHTS.complexTasks}
-                  />
-                </td>
-                <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                  <Contribution points={row.mttrPoints} weight={WEIGHTS.mttr} />
-                </td>
-                <td className="px-4 py-3 text-center align-top">
-                  <Link
-                    href={`/performance-review?quarter=${quarterKey}&person=${encodeURIComponent(
-                      row.email,
-                    )}`}
-                    title="Jira Complexity Rating — full per-Jira breakdown, including Complexity Accuracy"
-                    aria-label={`View Jira Complexity Rating for ${row.name}`}
-                    className="inline-flex text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                {columns.map((col) => (
+                  <td
+                    key={col.key}
+                    className="whitespace-nowrap px-4 py-3 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400"
                   >
-                    <RiInformationLine size={18} />
-                  </Link>
-                </td>
+                    {col.cell(row)}
+                  </td>
+                ))}
               </tr>
             ))}
 
             {rows.length === 0 && (
               <tr>
                 <td
-                  colSpan={14}
+                  colSpan={3 + columns.length}
                   className="px-4 py-8 text-center text-sm text-zinc-400"
                 >
                   No scorecards for {quarterLabel} yet. Click{" "}
@@ -415,7 +352,7 @@ export function LeaderboardTable({
             {rows.length > 0 && filtered.length === 0 && (
               <tr>
                 <td
-                  colSpan={14}
+                  colSpan={3 + columns.length}
                   className="px-4 py-8 text-center text-sm text-zinc-400"
                 >
                   No developers match the current filters.

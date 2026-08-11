@@ -17,6 +17,7 @@ export type FlagKey = keyof typeof defaultFlags;
 export const FEATURE_FLAGS = {
   REQUIREMENT_BUILDER: "enableRequirementBuilder",
   COMPLEXITY_LOC_RANGES: "complexityLocRanges",
+  PERFORMANCE_REVIEW_VISIBLE_COLUMNS: "performanceReviewVisibleColumns",
 } as const satisfies Record<string, FlagKey>;
 
 // ---------------------------------------------------------------------------
