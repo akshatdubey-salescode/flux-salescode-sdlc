@@ -193,6 +193,34 @@ export default async function PerformanceReviewPage({
                   <MetricMeaningModal detail={detail} />
                 </div>
 
+                <Tabs defaultValue="metrics" className="w-full">
+                  <div className="overflow-x-auto">
+                    <TabsList>
+                      <TabsTrigger value="metrics">
+                        Metrics
+                      </TabsTrigger>
+                      <TabsTrigger value="bugs">
+                        Weighted bugs ({detail.weightedBugItems.length})
+                      </TabsTrigger>
+                      <TabsTrigger value="features">
+                        Feature tasks ({detail.featureItems.length})
+                      </TabsTrigger>
+                      <TabsTrigger value="mttr">
+                        MTTR samples ({detail.mttrItems.length})
+                      </TabsTrigger>
+                      <TabsTrigger value="complexity">
+                        Complexity ({detail.complexTasksCount})
+                      </TabsTrigger>
+                      <TabsTrigger value="expected-complexity">
+                        Expected Complexity ({detail.complexTasksCount})
+                      </TabsTrigger>
+                      <TabsTrigger value="missing-dates">
+                        Missing dates ({detail.missingActualDateItems.length})
+                      </TabsTrigger>
+                    </TabsList>
+                  </div>
+
+                  <TabsContent value="metrics">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {detail.breakdown.metrics.map((m) => (
                     <Fragment key={m.key}>
@@ -320,30 +348,7 @@ export default async function PerformanceReviewPage({
                   and AI Tasks is currently excluded from the rating — all three
                   carry weight 0, so they don&apos;t affect the score.
                 </p>
-
-                <Tabs defaultValue="bugs" className="w-full">
-                  <div className="overflow-x-auto">
-                    <TabsList>
-                      <TabsTrigger value="bugs">
-                        Weighted bugs ({detail.weightedBugItems.length})
-                      </TabsTrigger>
-                      <TabsTrigger value="features">
-                        Feature tasks ({detail.featureItems.length})
-                      </TabsTrigger>
-                      <TabsTrigger value="mttr">
-                        MTTR samples ({detail.mttrItems.length})
-                      </TabsTrigger>
-                      <TabsTrigger value="complexity">
-                        Complexity ({detail.complexTasksCount})
-                      </TabsTrigger>
-                      <TabsTrigger value="expected-complexity">
-                        Expected Complexity ({detail.complexTasksCount})
-                      </TabsTrigger>
-                      <TabsTrigger value="missing-dates">
-                        Missing dates ({detail.missingActualDateItems.length})
-                      </TabsTrigger>
-                    </TabsList>
-                  </div>
+                  </TabsContent>
 
                   <TabsContent value="bugs">
                 <section className="space-y-3">
