@@ -469,7 +469,7 @@ export default async function PerformanceReviewPage({
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
                     P1/P2 bugs owned by this developer (Issue Owner, assignee
                     fallback). Resolution time spans the developer work-window — see
-                    “How dates are captured” below — not the full ticket lifetime.
+                    “How dates are captured” above — not the full ticket lifetime.
                     Their average drives the MTTR score; with no samples the metric
                     defaults to a full 5.
                   </p>

@@ -255,7 +255,7 @@ export function LeaderboardTable({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search developer by name…"
+            placeholder="Search by name, email, or manager…"
             className="h-9 w-full rounded-md border border-zinc-200 bg-white pl-9 pr-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-zinc-100/10"
           />
         </div>

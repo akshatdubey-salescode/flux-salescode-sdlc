@@ -27,6 +27,19 @@ export function ColumnPicker({ visibleColumns }: { visibleColumns: SortKey[] }) 
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
+  // Resync when the server-fetched visibleColumns prop changes underneath us
+  // (a quarter switch, a Recompute refresh, another superuser's edit) — this
+  // component doesn't remount on those, so without this the checkboxes would
+  // silently keep showing whatever was checked at mount time. Adjusted during
+  // render (React's own recommended pattern for "derive state from a prop
+  // change") rather than in a useEffect, which would cost an extra render
+  // pass for what's really just synchronizing with the latest prop.
+  const [prevVisibleColumns, setPrevVisibleColumns] = useState(visibleColumns);
+  if (visibleColumns !== prevVisibleColumns) {
+    setPrevVisibleColumns(visibleColumns);
+    setChecked(new Set(visibleColumns));
+  }
+
   function toggle(key: SortKey, next: boolean) {
     const nextChecked = new Set(checked);
     if (next) {
@@ -69,6 +82,7 @@ export function ColumnPicker({ visibleColumns }: { visibleColumns: SortKey[] }) 
           <DropdownMenuCheckboxItem
             key={col.key}
             checked={checked.has(col.key)}
+            disabled={isPending}
             onCheckedChange={(next) => toggle(col.key, next)}
             onSelect={(e) => e.preventDefault()}
           >
