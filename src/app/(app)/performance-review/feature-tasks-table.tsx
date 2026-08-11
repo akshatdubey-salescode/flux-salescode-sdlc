@@ -28,19 +28,6 @@ function JiraKeyLink({ item }: { item: { key: string; url?: string } }) {
   );
 }
 
-/** Small "i" badge, same hover/focus pattern as the leaderboard's header badges. */
-function InfoBadge({ text }: { text: string }) {
-  return (
-    <span
-      tabIndex={0}
-      title={text}
-      className="inline-flex cursor-help rounded-full border border-zinc-300 px-1 text-[10px] leading-4 text-zinc-400 hover:text-zinc-600 dark:border-zinc-700 dark:hover:text-zinc-300"
-    >
-      i
-    </span>
-  );
-}
-
 /**
  * This table itself (Key/Summary/Complexity) predates this branch entirely —
  * see git history on page.tsx (1a3f775, Akshat Dubey). Everything this file
@@ -101,42 +88,47 @@ export function FeatureTasksTable({
           Feature tasks ({visible.length}
           {nonSelfAssignedOnly && visible.length !== items.length ? ` of ${items.length}` : ""})
         </h2>
-        <label className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+        <label
+          className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400"
+          title="Off (default): shows every feature task, exactly as this table has always shown it. On: hides self-assigned tasks (reporter also the credited person) — they still count toward Score either way, this only changes what's displayed here."
+        >
           <Switch
             checked={nonSelfAssignedOnly}
             onCheckedChange={setNonSelfAssignedOnly}
           />
           Non-self-assigned only
-          <InfoBadge text="Off (default): shows every feature task, exactly as this table has always shown it. On: hides self-assigned tasks (reporter also the credited person) — they still count toward Score either way, this only changes what's displayed here." />
         </label>
       </div>
       <p className="text-xs text-zinc-500 dark:text-zinc-400">
-        Non-bug tasks the developer completed this quarter, counted as
-        feature output for the Bug Quality score.{" "}
-        <strong>Expected</strong> is what complexity the task&apos;s
-        matched LOC predicts — shown in{" "}
-        <span className="font-semibold text-amber-700 dark:text-amber-400">
-          amber
-        </span>{" "}
-        whenever it disagrees with the marked value, for any complexity
-        level. The separate{" "}
-        <span className="font-medium text-amber-600 dark:text-amber-400">
-          ⚠ flagged
-        </span>{" "}
-        badge is narrower — only Complexity 4-5 tasks whose LOC is
-        suspiciously low — worth a quick look, not an automatic
-        downgrade. A task with no matched PR shows &ldquo;—&rdquo;
-        for LOC (nothing measured) — with no evidence either way,
-        Expected simply carries the marked value forward rather than
-        defaulting to <strong>1</strong>, so it never contradicts a
-        rating nobody could actually check. Tasks marked{" "}
-        <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-          self-assigned
-        </span>{" "}
-        still count here and toward Score, but are excluded from
-        Complex. (M), Complex. (E), and Complexity
-        Accuracy — use the toggle above to hide them.
+        Non-bug tasks completed this quarter, counted as feature output for
+        the Bug Quality score.
       </p>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
+        <span
+          className="font-semibold text-amber-700 dark:text-amber-400"
+          title="What complexity the task's matched LOC predicts — shown in amber whenever it disagrees with the marked value, for any complexity level."
+        >
+          Amber = Expected ≠ Marked
+        </span>
+        <span
+          className="font-medium text-amber-600 dark:text-amber-400"
+          title="Only Complexity 4-5 tasks whose LOC is suspiciously low — worth a quick look, not an automatic downgrade."
+        >
+          ⚠ flagged = C4/C5 outlier
+        </span>
+        <span
+          className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+          title="Reporter is also the credited person — still counts here and toward Score, but excluded from Complex. (M), Complex. (E), and Complexity Accuracy. Use the toggle above to hide these rows."
+        >
+          self-assigned
+        </span>
+        <span
+          className="text-zinc-500 dark:text-zinc-400"
+          title="No PR matched yet — nothing measured. Expected then carries the marked value forward instead of defaulting to 1, so it never contradicts a rating nobody could actually check."
+        >
+          &ldquo;—&rdquo; LOC = no PR matched
+        </span>
+      </div>
       <div className="max-h-96 overflow-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <table className="w-full text-sm">
           <thead className="sticky top-0">

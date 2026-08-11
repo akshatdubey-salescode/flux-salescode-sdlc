@@ -141,15 +141,36 @@ export default async function PerformanceReviewPage({
 
     // Cards that render un-dimmed in the Metrics tab: every available (m.available)
     // base metric, plus the 6 Complex Tasks sub-cards (Complex./Complex. NSA./
-    // Complexity Accuracy — see the codeChurn branch below), which never dim.
+    // Complexity Accuracy — see the complexTasks branch below), which never dim.
     // Currently always 4 + 6 = 10 (Bug Quality/MTTR/Sprint Commitment/Complex
     // Tasks are the only data-backed metrics; Code Churn/AI Tasks/Effort are
     // permanently untracked here — see the footnote below), but derived rather
     // than hardcoded so it stays correct if that ever changes.
     const activeMetricCount = detail
       ? detail.breakdown.metrics.filter((m) => m.available).length +
-        (detail.breakdown.metrics.some((m) => m.key === "codeChurn") ? 6 : 0)
+        (detail.breakdown.metrics.some((m) => m.key === "complexTasks") ? 6 : 0)
       : 0;
+
+    // Display order for the Metrics tab grid — Code Churn is a simple, always-
+    // dimmed "not tracked" card, so it sits with its fellow untracked metrics
+    // (AI Tasks, Effort) at the end instead of interrupting the flow right
+    // after Bug Quality. The 6 Complex Tasks sub-cards anchor off complexTasks
+    // (a real, populated card) rather than codeChurn, so they read as a
+    // natural continuation instead of needing their own category divider.
+    const METRIC_DISPLAY_ORDER = [
+      "bugQuality",
+      "mttr",
+      "sprintCommitment",
+      "complexTasks",
+      "codeChurn",
+      "effort",
+      "aiTasks",
+    ];
+    const orderedMetrics = detail
+      ? [...detail.breakdown.metrics].sort(
+          (a, b) => METRIC_DISPLAY_ORDER.indexOf(a.key) - METRIC_DISPLAY_ORDER.indexOf(b.key),
+        )
+      : [];
 
     return (
       <div className="flex min-h-svh flex-col bg-zinc-50 dark:bg-zinc-950">
@@ -234,7 +255,7 @@ export default async function PerformanceReviewPage({
 
                   <TabsContent value="metrics" className="space-y-6 pt-8 pb-8">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {detail.breakdown.metrics.map((m) => (
+                  {orderedMetrics.map((m) => (
                     <Fragment key={m.key}>
                       <MetricCard
                         label={m.label}
@@ -248,7 +269,7 @@ export default async function PerformanceReviewPage({
                         }
                         dimmed={!m.available}
                       />
-                      {m.key === "codeChurn" && (
+                      {m.key === "complexTasks" && (
                         <>
                           <MetricCard
                             label="Complex. (M)"
@@ -284,12 +305,7 @@ export default async function PerformanceReviewPage({
                           />
                           <MetricCard
                             label="Complexity Accuracy (all Jiras)"
-                            detail={
-                              <ComplexityAccuracyStat
-                                correct={detail.complexityAccuracyAllCorrect}
-                                checked={detail.complexityAccuracyAllChecked}
-                              />
-                            }
+                            detail="Marked vs. LOC-predicted complexity, every Jira"
                             points={
                               <ComplexityAccuracyStat
                                 correct={detail.complexityAccuracyAllCorrect}
@@ -299,12 +315,7 @@ export default async function PerformanceReviewPage({
                           />
                           <MetricCard
                             label="Complexity Accuracy (NSA only)"
-                            detail={
-                              <ComplexityAccuracyStat
-                                correct={detail.complexityAccuracyCorrect}
-                                checked={detail.complexityAccuracyChecked}
-                              />
-                            }
+                            detail="Same, self-assigned Jiras excluded"
                             points={
                               <ComplexityAccuracyStat
                                 correct={detail.complexityAccuracyCorrect}
