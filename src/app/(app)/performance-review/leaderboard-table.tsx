@@ -99,7 +99,7 @@ type NumericColumn = {
   cell: (row: ScorecardRow) => ReactNode;
 };
 
-const NUMERIC_COLUMNS: NumericColumn[] = [
+export const NUMERIC_COLUMNS: NumericColumn[] = [
   {
     key: "score",
     label: "Score",

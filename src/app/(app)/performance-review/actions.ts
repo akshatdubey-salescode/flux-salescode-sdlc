@@ -4,11 +4,14 @@ import { revalidateTag } from "next/cache";
 import { eq } from "drizzle-orm";
 import { requireRole } from "@/lib/auth/server";
 import { db } from "@/lib/db";
-import { jiraSelfAssignedOverrides } from "@/lib/db/schema";
+import { jiraSelfAssignedOverrides, featureFlags } from "@/lib/db/schema";
 import { buildScorecards } from "@/lib/scorecard/build";
 import { PERFORMANCE_SCORECARDS_TAG } from "@/lib/scorecard/cache-tags";
 import { quarterFromKey } from "@/lib/scorecard/quarter";
 import { enqueueLocSyncJob, runLocSyncJob } from "@/lib/github/loc-sync";
+import { FEATURE_FLAGS } from "@/lib/feature-flags";
+import { parseVisibleColumns } from "./visible-columns";
+import type { SortKey } from "./rating-sort";
 
 export type RecomputeResult = {
   error?: string;
@@ -150,4 +153,38 @@ export async function clearSelfAssignedOverride(
     console.error("[performance-review] clearSelfAssignedOverride failed:", err);
     return { error: err instanceof Error ? err.message : "Failed to clear override." };
   }
+}
+
+export type UpdateVisibleColumnsResult = { error?: string };
+
+/**
+ * Persists which numeric leaderboard columns are visible — writes straight to
+ * feature_flags.performanceReviewVisibleColumns (see visible-columns.ts,
+ * read uncached, so this takes effect on the very next page load for
+ * everyone). Superuser-only: this is a shared, org-wide default, not a
+ * personal preference.
+ */
+export async function updateVisibleColumns(
+  columns: SortKey[]
+): Promise<UpdateVisibleColumnsResult> {
+  await requireRole("SUPERUSER");
+
+  if (!parseVisibleColumns(columns)) {
+    return { error: "Select at least one column." };
+  }
+
+  await db
+    .insert(featureFlags)
+    .values({
+      key: FEATURE_FLAGS.PERFORMANCE_REVIEW_VISIBLE_COLUMNS,
+      value: columns,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: featureFlags.key,
+      set: { value: columns, updatedAt: new Date() },
+    });
+
+  revalidateTag("feature-flags", "max");
+  return {};
 }

@@ -20,6 +20,7 @@ import { getVisibleColumns } from "./visible-columns";
 import { ReviewControls } from "./controls";
 import { LeaderboardTable } from "./leaderboard-table";
 import { ScoringGuide } from "./scoring-guide";
+import { ColumnPicker } from "./column-picker";
 import { MetricMeaningModal } from "./metric-meaning-modal";
 import { FeatureTasksTable } from "./feature-tasks-table";
 import { formatComplexityAccuracy } from "./complexity-accuracy-stat";
@@ -842,7 +843,10 @@ export default async function PerformanceReviewPage({
                 from synced Jira data. A decision aid, not a verdict.
               </p>
             </div>
-            <ScoringGuide />
+            <div className="flex flex-col items-end gap-1">
+              <ScoringGuide />
+              {canRecompute && <ColumnPicker visibleColumns={visibleColumns} />}
+            </div>
           </div>
 
           <ReviewControls
