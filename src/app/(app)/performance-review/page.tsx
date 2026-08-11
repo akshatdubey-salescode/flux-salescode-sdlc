@@ -220,7 +220,7 @@ export default async function PerformanceReviewPage({
                     </TabsList>
                   </div>
 
-                  <TabsContent value="metrics">
+                  <TabsContent value="metrics" className="space-y-6 pt-6 pb-6">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {detail.breakdown.metrics.map((m) => (
                     <Fragment key={m.key}>
@@ -350,7 +350,7 @@ export default async function PerformanceReviewPage({
                 </p>
                   </TabsContent>
 
-                  <TabsContent value="bugs">
+                  <TabsContent value="bugs" className="pt-6">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     Weighted bugs ({detail.weightedBugItems.length}) ·{" "}
@@ -424,7 +424,7 @@ export default async function PerformanceReviewPage({
                 </section>
                   </TabsContent>
 
-                  <TabsContent value="features">
+                  <TabsContent value="features" className="pt-6">
                 <FeatureTasksTable
                   items={detail.featureItems}
                   isSuperuser={canRecompute}
@@ -432,7 +432,7 @@ export default async function PerformanceReviewPage({
                 />
                   </TabsContent>
 
-                  <TabsContent value="mttr">
+                  <TabsContent value="mttr" className="pt-6">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     MTTR samples ({detail.mttrItems.length})
@@ -504,7 +504,7 @@ export default async function PerformanceReviewPage({
                 </section>
                   </TabsContent>
 
-                  <TabsContent value="complexity">
+                  <TabsContent value="complexity" className="pt-6">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     Complexity distribution ({detail.complexTasksCount} task
@@ -596,7 +596,7 @@ export default async function PerformanceReviewPage({
                 </section>
                   </TabsContent>
 
-                  <TabsContent value="expected-complexity">
+                  <TabsContent value="expected-complexity" className="pt-6">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     Expected Complexity distribution ({detail.complexTasksCount} task
@@ -692,7 +692,7 @@ export default async function PerformanceReviewPage({
                 </section>
                   </TabsContent>
 
-                  <TabsContent value="missing-dates">
+                  <TabsContent value="missing-dates" className="pt-6">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     Issues missing Actual start / end ({detail.missingActualDateItems.length})
