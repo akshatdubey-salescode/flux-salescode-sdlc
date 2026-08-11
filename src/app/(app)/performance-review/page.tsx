@@ -220,7 +220,7 @@ export default async function PerformanceReviewPage({
                     </TabsList>
                   </div>
 
-                  <TabsContent value="metrics" className="space-y-6 pt-6 pb-6">
+                  <TabsContent value="metrics" className="space-y-6 pt-5 pb-6">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {detail.breakdown.metrics.map((m) => (
                     <Fragment key={m.key}>
