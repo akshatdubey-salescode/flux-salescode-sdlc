@@ -274,16 +274,27 @@ export function LeaderboardTable({
         </Select>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        {/* Inner overflow-x-auto (not the outer, rounded-corner-clipping div)
-            so wide tables scroll horizontally instead of just clipping
-            off-screen columns — nowrap on every header keeps labels from
-            wrapping into two lines, which would otherwise let the browser
-            squeeze columns down instead of triggering the scrollbar. */}
-        <div className="overflow-x-auto">
+      {/* max-h + overflow-auto together make this div the actual scroll
+          container for the table — vertically (bounded, so the header can
+          stick within it) and horizontally (contains the table's own
+          scrollbar so it can't overflow the page). Reverted from a two-stage
+          "full height until scrolled to, then bounds+sticks" version: that
+          version conditionally added max-height only once scrolled-to, but
+          since a sticky element stays in normal document flow, shrinking its
+          own height at that instant collapsed the page's total height at the
+          same scroll position — which yanked the scroll position back,
+          un-triggering the very state that caused the shrink, growing it
+          back, re-triggering it... an infinite feedback loop (the visible
+          symptom: flickering, and scrolling effectively locked). A stable
+          two-stage version is possible but needs the stuck state rendered
+          via position: fixed + a same-height placeholder (removing it from
+          document flow entirely, so its size can't feed back into the
+          scroll position that measures it) — a real feature build, not a
+          class tweak; this static version is the stable fallback. */}
+      <div className="max-h-screen overflow-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/80">
+          <thead className="sticky top-0">
+            <tr className="rounded-t-lg border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-800">
               <th className="w-12 whitespace-nowrap px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 #
               </th>
@@ -375,7 +386,6 @@ export function LeaderboardTable({
             )}
           </tbody>
         </table>
-        </div>
       </div>
     </div>
   );
