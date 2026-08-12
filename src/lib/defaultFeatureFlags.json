@@ -18,5 +18,6 @@
     "sprintCommitment",
     "complexTasks",
     "mttr"
-  ]
+  ],
+  "showBugBoardOpenColumn": false
 }

@@ -550,7 +550,7 @@ export function BugTracker({
               </h2>
               <div className="flex items-center gap-3">
                 <span className="text-xs text-zinc-400">
-                  Owner = Issue Owner, falling back to Assignee
+                  Owner = Issue Owner field only (never the assignee)
                 </span>
                 <Button
                   variant="outline"

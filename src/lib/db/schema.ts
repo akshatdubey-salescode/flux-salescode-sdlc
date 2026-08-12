@@ -184,7 +184,13 @@ export const jiraIssues = pgTable(
     summary: text("summary").notNull(),
     description: text("description"), // Atlassian Document Format as JSON string
     status: text("status").notNull(),
-    statusCategory: text("status_category"), // "To Do" | "In Progress" | "Done"
+    // Jira's status-category NAME, verbatim from their API — NOT the fixed
+    // 3-value enum it looks like. Different Jira sites/instances label the
+    // same green "done" bucket differently (this org alone has both "Done"
+    // and "Complete" in the wild). Never compare this directly for "is done"
+    // — use isDoneOrCancelled() (bug-summary.ts), which prefers the curated
+    // projectStatusMappings row and only falls back to this name.
+    statusCategory: text("status_category"),
     issueType: text("issue_type").notNull(),
     priority: text("priority"),
     assigneeAccountId: text("assignee_account_id"),

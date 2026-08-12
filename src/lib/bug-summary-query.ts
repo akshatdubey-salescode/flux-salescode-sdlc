@@ -1,6 +1,6 @@
-import { and, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { jiraIssues, jiraProjects } from "@/lib/db/schema";
+import { jiraIssues, jiraProjects, projectStatusMappings } from "@/lib/db/schema";
 import { loadAccountIdEmailMap } from "@/lib/jira/identity";
 import {
   extractIssueOwnerEmail,
@@ -15,6 +15,7 @@ import {
 import {
   resolveEnvironment,
   priorityBucket,
+  isDoneOrCancelled,
   MISSING_ISSUE_OWNER,
   type BugRow,
 } from "@/lib/bug-summary";
@@ -46,22 +47,20 @@ async function accountIdsForEmails(emails: string[]): Promise<string[]> {
 }
 
 /**
- * SQL candidate superset for "owner ∈ these people". Owner resolves to the
- * Issue Owner field, falling back to the primary assignee, so we match either:
- *   - primary assignee is one of the emails (covers the assignee fallback), OR
- *   - the issue-owner user object lives in custom_fields and references the
- *     person's accountId (always present, even when their email is hidden) or
- *     email.
- * This is intentionally loose — loadBugRows then post-filters on the exact
- * resolved ownerEmail, which removes the false positives (e.g. assigned-to-me
- * but owned-by-someone-else) and any unrelated custom-field matches.
+ * SQL candidate superset for "owner ∈ these people". Owner is the Issue
+ * Owner field ONLY — never the assignee — so we match on: the issue-owner
+ * user object living in custom_fields and referencing the person's accountId
+ * (always present, even when their email is hidden) or email. This is
+ * intentionally loose (an accountId/email can appear in custom_fields for
+ * reasons other than being *this* project's Issue Owner field) — loadBugRows
+ * then post-filters on the exact resolved ownerEmail, which removes those
+ * false positives.
  */
 export async function ownedByConditions(emails: string[]): Promise<SQL> {
   const lower = emails.map((e) => e.toLowerCase());
   const accountIds = await accountIdsForEmails(lower);
 
   const clauses: SQL[] = [];
-  if (lower.length) clauses.push(inArray(jiraIssues.assigneeEmail, lower));
   for (const token of [...accountIds, ...lower]) {
     clauses.push(sql`${jiraIssues.customFields}::text ILIKE ${`%${token}%`}`);
   }
@@ -69,8 +68,8 @@ export async function ownedByConditions(emails: string[]): Promise<SQL> {
 }
 
 /**
- * Load bug rows across one or more projects, resolving owner (Issue Owner field,
- * falling back to the assignee) and environment per project. Shared by every
+ * Load bug rows across one or more projects, resolving owner to the Issue
+ * Owner field ONLY (never the assignee) and environment per project. Shared by every
  * bug-tracker scope
  * (single project, My Bugs, team board) so they all produce identical BugRows.
  * The caller supplies the scope + date conditions; the bug-type filter is added
@@ -100,33 +99,30 @@ export async function loadBugRows(
       jiraBaseUrl: jiraProjects.jiraBaseUrl,
       projectKey: jiraProjects.jiraProjectKey,
       projectName: jiraProjects.name,
+      canonicalStatus: projectStatusMappings.canonicalStatus,
     })
     .from(jiraIssues)
     .innerJoin(jiraProjects, eq(jiraIssues.projectId, jiraProjects.id))
+    .leftJoin(
+      projectStatusMappings,
+      and(
+        eq(projectStatusMappings.projectId, jiraIssues.projectId),
+        eq(projectStatusMappings.rawStatus, jiraIssues.status)
+      )
+    )
     .where(and(bugTypeCondition, ...conditions));
 
   const mapped = rows.map((r): BugRow => {
-    // Attribution is the Issue Owner field, falling back to the primary
-    // assignee when no Issue Owner is set. The Issue Owner is treated as a
-    // unit — when it's present we take both its email and name from the field,
-    // and only when it's entirely absent do we fall back to the assignee — so
-    // the resolved email and name always describe the same person. Bugs with
-    // neither an Issue Owner nor an assignee are surfaced as
-    // "Missing Issue Owner".
-    const ownerFieldEmail = extractIssueOwnerEmail(
+    // Attribution is the Issue Owner field ONLY — the assignee is never the
+    // bug owner, no matter how tempting a fallback it'd be when the field is
+    // empty. A bug with no Issue Owner set is "Missing Issue Owner", full
+    // stop; it does not become the assignee's bug.
+    const ownerEmail = extractIssueOwnerEmail(
       r.customFields,
       r.issueOwnerFieldIds,
       accountIdEmailMap
     );
-    const ownerFieldName = extractIssueOwnerName(r.customFields, r.issueOwnerFieldIds);
-    const hasIssueOwner = ownerFieldEmail !== null || ownerFieldName !== null;
-
-    const ownerEmail = hasIssueOwner
-      ? ownerFieldEmail
-      : normalizeEmail(r.assigneeEmail);
-    const ownerName =
-      (hasIssueOwner ? ownerFieldName : r.assigneeName?.trim() || null) ??
-      MISSING_ISSUE_OWNER;
+    const ownerName = extractIssueOwnerName(r.customFields, r.issueOwnerFieldIds) ?? MISSING_ISSUE_OWNER;
     const environment = resolveEnvironment(
       r.customFields as Record<string, unknown> | null,
       r.environmentFieldIds
@@ -148,7 +144,7 @@ export async function loadBugRows(
       ownerEmail,
       assigneeName: r.assigneeName?.trim() || null,
       assigneeEmail: normalizeEmail(r.assigneeEmail),
-      isOpen: (r.statusCategory ?? "").trim().toLowerCase() !== "done",
+      isOpen: !isDoneOrCancelled(r.canonicalStatus, r.statusCategory),
       isInvalid: BUG_INVALID_STATUSES.has(normalizeStatus(r.status)),
       jiraCreatedAt: r.jiraCreatedAt ? r.jiraCreatedAt.toISOString() : null,
       jiraUpdatedAt: r.jiraUpdatedAt ? r.jiraUpdatedAt.toISOString() : null,

@@ -1,12 +1,11 @@
 "use client";
 
-// Shared modal shell for the bug board's drill-downs (source breakdown,
-// project breakdown, project Jira list, missing-owner list) — larger than
-// the shared Dialog's sm:max-w-sm default, and deliberately doesn't dismiss
-// on an outside click (only the X button or Escape does), since these are
-// meant to sit open while someone reads a list, not vanish on a stray click
-// past the edge. Not a change to the shared Dialog component itself — that
-// would silently affect every other modal in the app; this wraps it locally.
+// Shared modal shell for the bug board's drill-downs (breakdown tabs,
+// project Jira list, missing-owner list) — larger than the shared Dialog's
+// sm:max-w-sm default. Closes on outside click same as any other Dialog
+// (no onPointerDownOutside override) — not a change to the shared Dialog
+// component itself, that would silently affect every other modal in the app;
+// this wraps it locally.
 //
 // DialogContent has its own p-4 padding, so a header that's sticky *and*
 // meant to touch the very top edge can't just cancel that with a negative
@@ -50,7 +49,6 @@ export function BugModal({
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent
         className={cn("max-h-[85vh] max-w-3xl overflow-y-auto p-0 sm:max-w-3xl", className)}
-        onPointerDownOutside={(e) => e.preventDefault()}
         showCloseButton={false}
       >
         <DialogHeader className="sticky top-0 z-10 min-w-0 flex-row items-center justify-between gap-3 border-b border-border/50 bg-popover px-4 py-3">
