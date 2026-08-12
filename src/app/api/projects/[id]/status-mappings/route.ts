@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
 import {
   jiraProjects,
@@ -131,6 +132,13 @@ export async function POST(
       );
     }
   });
+
+  // This mapping is what isOpen/is_open (bug-summary.ts) resolves "done or
+  // cancelled" from — an admin fixing a wrong mapping (e.g. a status that
+  // was silently landing on the fallback heuristic) needs the Bug
+  // Board/My Bugs/team-board caches to pick it up on the next load, not
+  // whenever their multi-minute TTL happens to lapse.
+  revalidateTag("projects", "max");
 
   return Response.json({ saved: entries.length });
 }

@@ -18,6 +18,7 @@ export const FEATURE_FLAGS = {
   REQUIREMENT_BUILDER: "enableRequirementBuilder",
   COMPLEXITY_LOC_RANGES: "complexityLocRanges",
   PERFORMANCE_REVIEW_VISIBLE_COLUMNS: "performanceReviewVisibleColumns",
+  BUG_BOARD_OPEN_COLUMN: "showBugBoardOpenColumn",
 } as const satisfies Record<string, FlagKey>;
 
 // ---------------------------------------------------------------------------

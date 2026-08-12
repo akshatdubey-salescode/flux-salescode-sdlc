@@ -9,15 +9,15 @@ import {
   RiExternalLinkLine,
   RiArrowRightUpLine,
   RiBugLine,
-  RiPieChartLine,
-  RiAppsLine,
   RiUserUnfollowLine,
+  RiDownload2Line,
 } from "@remixicon/react";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DateRangeBar } from "@/components/bug-summary/date-range-bar";
 import { currentFiscalQuarterChip } from "@/lib/date-utils";
 import type { BugBoardResponse, BugProject } from "@/app/api/bugs/route";
@@ -36,7 +36,7 @@ import {
   type TeamStats,
   type PriorityKey,
 } from "@/lib/bugs/aggregate";
-import { ENV_UNSET } from "@/lib/bug-summary";
+import { ENV_UNSET, type BugRow } from "@/lib/bug-summary";
 import { BugModal } from "./bug-modal";
 import { BugIssueList } from "./bug-issue-list";
 
@@ -47,14 +47,16 @@ import { BugIssueList } from "./bug-issue-list";
 type SortKey = "name" | "total" | "p1" | "p2" | "p3" | "p4" | "open";
 type PriorityCol = { key: PriorityKey; label: string; jql: string };
 
-const SORT_OPTS: { value: SortKey; label: string }[] = [
+// "open" is appended conditionally (see SORT_OPTS_BASE usage below) — only
+// when feature_flags.showBugBoardOpenColumn is on, matching the column
+// itself being feature-flagged out of the table.
+const SORT_OPTS_BASE: { value: SortKey; label: string }[] = [
   { value: "total", label: "Total" },
   { value: "name",  label: "Name"  },
   { value: "p1",    label: "P1"    },
   { value: "p2",    label: "P2"    },
   { value: "p3",    label: "P3"    },
   { value: "p4",    label: "P4"    },
-  { value: "open",  label: "Open"  },
 ];
 
 const ALL_PRIORITY_COLS: PriorityCol[] = [
@@ -93,7 +95,7 @@ function myBugsHref(
 // Main component
 // ---------------------------------------------------------------------------
 
-export function BugBoardClient() {
+export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) {
   type FetchResult =
     | { ok: true;  data: BugBoardResponse; cacheKey: string }
     | { ok: false; error: string;          cacheKey: string };
@@ -112,11 +114,17 @@ export function BugBoardClient() {
   const [end,   setEnd]   = useState(defaultQuarter?.end ?? "");
   const [sortBy,        setSortBy]        = useState<SortKey>("total");
   const [sortDir,       setSortDir]       = useState<"asc" | "desc">("desc");
-  // Which row's Source/Project breakdown modal is open (null = none) — one
-  // modal at a time, replacing the old inline-expand-a-table-row toggle.
-  const [sourceModalRow,   setSourceModalRow]   = useState<OwnerRow | null>(null);
-  const [projectsModalRow, setProjectsModalRow] = useState<OwnerRow | null>(null);
+  // Which row's breakdown modal is open (null = none) — one modal, two tabs
+  // (Project Breakdown, Source Breakdown), replacing what used to be two
+  // separate modals behind two separate row icons.
+  const [breakdownRow, setBreakdownRow] = useState<OwnerRow | null>(null);
+  const [breakdownTab, setBreakdownTab] = useState<"project" | "source">("project");
   const [missingOwnerOpen, setMissingOwnerOpen] = useState(false);
+
+  const openBreakdown = (row: OwnerRow, tab: "project" | "source" = "project") => {
+    setBreakdownRow(row);
+    setBreakdownTab(tab);
+  };
 
   const cacheKey = `${start}:${end}`;
 
@@ -280,8 +288,69 @@ export function BugBoardClient() {
   const resolvedFrom = start || undefined;
   const resolvedTo = end || undefined;
 
-  // Developer + visible-priority cols + Total + Open + % Share + View
-  const colSpan = 1 + visiblePriorityCols.length + 4;
+  // Developer + visible-priority cols + Total + (Open, if flagged on) + % Share
+  const colSpan = 1 + visiblePriorityCols.length + 2 + (showOpenColumn ? 1 : 0);
+
+  const [exporting, setExporting] = useState(false);
+
+  // Org-wide bug list (every project, not just what's currently on screen) →
+  // /api/bugs/export with scope "developer", which is the rollup sheet PLUS
+  // a per-developer section listing every one of their bugs — not just
+  // counts. Same route + workbook styling the per-project/My Bugs/team
+  // BugTracker "Download in Excel" buttons already use.
+  async function handleExportExcel() {
+    if (exporting || !start || !end) return;
+    setExporting(true);
+    try {
+      // Every filter currently applied on screen — Priority, Raised (date
+      // range, already start/end), Env, Projects, Developers, Customer-found
+      // only — so the export is exactly what's filtered, not everything in
+      // the date range. /api/bugs/list applies these server-side, against
+      // the same owner/environment/customer-found resolution the table
+      // itself uses.
+      const params = new URLSearchParams({ start, end });
+      params.set("priorities", selPriorities.map((p) => p.toUpperCase()).join(","));
+      if (selEnv) params.set("env", selEnv);
+      if (selProjects.length) params.set("projectIds", selProjects.join(","));
+      if (selOwners.length) params.set("ownerKeys", selOwners.join(","));
+      if (cfOnly) params.set("cfOnly", "true");
+
+      const listRes = await fetch(`/api/bugs/list?${params}`);
+      if (!listRes.ok) throw new Error("Failed to load bugs");
+      const { bugs } = (await listRes.json()) as { bugs: BugRow[] };
+
+      const exportRes = await fetch("/api/bugs/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rows: bugs,
+          title: "Bug Board",
+          showProject: true,
+          scope: "developer",
+          start,
+          end,
+          environment: selEnv,
+          // Same feature_flags.showBugBoardOpenColumn gate as the on-screen
+          // table — one flag, both surfaces, never independently out of sync.
+          showOpen: showOpenColumn,
+        }),
+      });
+      if (!exportRes.ok) throw new Error("Export failed");
+      const blob = await exportRes.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Bug_Board-developer-bugs-${end}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("[handleExportExcel] error:", err);
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -323,6 +392,15 @@ export function BugBoardClient() {
             </p>
           )}
         </div>
+        <button
+          type="button"
+          onClick={handleExportExcel}
+          disabled={exporting}
+          className="flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+        >
+          <RiDownload2Line className="size-3.5" />
+          {exporting ? "Exporting…" : "Export to Excel"}
+        </button>
       </div>
 
       {/* Filter bar */}
@@ -435,6 +513,7 @@ export function BugBoardClient() {
             sortBy={sortBy}
             sortDir={sortDir}
             onChange={(by, dir) => { setSortBy(by); setSortDir(dir); }}
+            showOpenColumn={showOpenColumn}
           />
         </div>
       </div>
@@ -459,7 +538,14 @@ export function BugBoardClient() {
         <div className="max-h-screen overflow-auto rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
           <table className="w-full border-collapse text-sm">
             <thead className="sticky top-0">
-              <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
+              {/* rounded-t-xl matches the wrapper's own rounded-xl — without it
+                  this colored row's square corners poke past the wrapper's
+                  rounded ones, showing as a stray notch (mirrors the fix
+                  below on tfoot's rounded-b-xl). dark:bg-zinc-800, not -900:
+                  the wrapper itself is dark:bg-zinc-900, so bg-zinc-900 here
+                  was invisible — same shade as the header sat on. Matches the
+                  Performance Review leaderboard's header treatment. */}
+              <tr className="rounded-t-xl border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-800">
                 <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                   Developer
                 </th>
@@ -469,9 +555,10 @@ export function BugBoardClient() {
                   </th>
                 ))}
                 <th className="px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Total</th>
-                <th className="px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Open</th>
+                {showOpenColumn && (
+                  <th className="px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Open</th>
+                )}
                 <th className="px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">% Share</th>
-                <th className="w-16 px-3 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">View</th>
               </tr>
             </thead>
             <tbody>
@@ -487,22 +574,32 @@ export function BugBoardClient() {
                     key={row.key}
                     row={row}
                     team={teamStats}
-                    onOpenSource={() => setSourceModalRow(row)}
-                    onOpenProjects={() => setProjectsModalRow(row)}
+                    onOpenBreakdown={() => openBreakdown(row)}
                     visiblePriorityCols={visiblePriorityCols}
                     dateFrom={resolvedFrom}
                     dateTo={resolvedTo}
                     env={selEnv}
                     projectKeys={selProjectKeys}
+                    showOpenColumn={showOpenColumn}
                   />
                 ))
               )}
             </tbody>
             {displayRows.length > 0 && (
               <tfoot>
-                <tr className="border-t-2 border-zinc-300 bg-zinc-50/90 dark:border-zinc-700 dark:bg-zinc-900/60">
+                {/* rounded-b-xl for the same reason as thead's rounded-t-xl
+                    above — this row's own bg would otherwise square off
+                    against the wrapper's rounded-xl bottom corners. */}
+                <tr className="rounded-b-xl border-t-2 border-zinc-300 bg-zinc-50/90 dark:border-zinc-700 dark:bg-zinc-900/60">
                   <td className="px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-foreground">
-                    Total
+                    <button
+                      type="button"
+                      onClick={() => openBreakdown(totalOwnerRow)}
+                      className="hover:underline"
+                      title="Everyone's breakdown"
+                    >
+                      Total
+                    </button>
                   </td>
                   {visiblePriorityCols.map((c) => (
                     <td key={c.key} className="px-3 py-2.5 text-right text-xs font-bold tabular-nums text-foreground">
@@ -512,17 +609,13 @@ export function BugBoardClient() {
                   <td className="px-3 py-2.5 text-right text-xs font-extrabold tabular-nums text-foreground">
                     {grandTotal.total}
                   </td>
-                  <td className="px-3 py-2.5 text-right text-xs font-bold tabular-nums text-foreground">
-                    {grandTotal.open}
-                  </td>
+                  {showOpenColumn && (
+                    <td className="px-3 py-2.5 text-right text-xs font-bold tabular-nums text-foreground">
+                      {grandTotal.open}
+                    </td>
+                  )}
                   <td className="px-3 py-2.5 text-right text-xs font-bold tabular-nums text-foreground">
                     100%
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <div className="flex items-center justify-center gap-1">
-                      <ActionButton active={sourceModalRow?.key === "__total__"}   onClick={() => setSourceModalRow(totalOwnerRow)}   title="Customer vs QA breakdown" icon={<RiPieChartLine size={13} />} />
-                      <ActionButton active={projectsModalRow?.key === "__total__"} onClick={() => setProjectsModalRow(totalOwnerRow)} title="Project-wise split"        icon={<RiAppsLine    size={13} />} />
-                    </div>
                   </td>
                 </tr>
               </tfoot>
@@ -531,26 +624,33 @@ export function BugBoardClient() {
         </div>
       )}
 
+      {/* One modal, two tabs — Project Breakdown first, Source Breakdown
+          second (that order, not alphabetical/whatever) — replacing what
+          used to be two separate modals behind two separate row icons. */}
       <BugModal
-        open={sourceModalRow != null}
-        onOpenChange={(open) => !open && setSourceModalRow(null)}
-        title={sourceModalRow ? `Source breakdown — ${sourceModalRow.name}` : "Source breakdown"}
+        open={breakdownRow != null}
+        onOpenChange={(open) => !open && setBreakdownRow(null)}
+        title={breakdownRow ? `Breakdown — ${breakdownRow.name}` : "Breakdown"}
       >
-        {sourceModalRow && <FoundBreakdown counts={sourceModalRow} prioritySet={prioritySet} />}
-      </BugModal>
-
-      <BugModal
-        open={projectsModalRow != null}
-        onOpenChange={(open) => !open && setProjectsModalRow(null)}
-        title={projectsModalRow ? `Project breakdown — ${projectsModalRow.name}` : "Project breakdown"}
-      >
-        {projectsModalRow && (
-          <ProjectSplit
-            row={projectsModalRow}
-            visiblePriorityCols={visiblePriorityCols}
-            dateFrom={resolvedFrom}
-            dateTo={resolvedTo}
-          />
+        {breakdownRow && (
+          <Tabs value={breakdownTab} onValueChange={(v) => setBreakdownTab(v as "project" | "source")}>
+            <TabsList>
+              <TabsTrigger value="project">Project Breakdown</TabsTrigger>
+              <TabsTrigger value="source">Source Breakdown</TabsTrigger>
+            </TabsList>
+            <TabsContent value="project" className="mt-3">
+              <ProjectSplit
+                row={breakdownRow}
+                visiblePriorityCols={visiblePriorityCols}
+                dateFrom={resolvedFrom}
+                dateTo={resolvedTo}
+                showOpenColumn={showOpenColumn}
+              />
+            </TabsContent>
+            <TabsContent value="source" className="mt-3">
+              <FoundBreakdown counts={breakdownRow} prioritySet={prioritySet} />
+            </TabsContent>
+          </Tabs>
         )}
       </BugModal>
 
@@ -585,23 +685,23 @@ function StatChip({ label, value }: { label: string; value: number }) {
 function OwnerRowView({
   row,
   team,
-  onOpenSource,
-  onOpenProjects,
+  onOpenBreakdown,
   visiblePriorityCols,
   dateFrom,
   dateTo,
   env,
   projectKeys,
+  showOpenColumn,
 }: {
   row: OwnerRow;
   team: TeamStats;
-  onOpenSource: () => void;
-  onOpenProjects: () => void;
+  onOpenBreakdown: () => void;
   visiblePriorityCols: PriorityCol[];
   dateFrom?: string;
   dateTo?: string;
   env?: string | null;
   projectKeys?: string[];
+  showOpenColumn: boolean;
 }) {
   const contrib = team.grandTotal > 0 ? (row.total / team.grandTotal) * 100 : 0;
   const neutral = row.isUnassigned;
@@ -610,9 +710,16 @@ function OwnerRowView({
     <tr className="border-b border-zinc-100 transition-colors hover:bg-zinc-50/60 dark:border-zinc-800/60 dark:hover:bg-zinc-800/20">
       <td className="px-4 py-3">
         <span className="group inline-flex items-center gap-1.5">
-          <span className={`text-sm font-medium ${neutral ? "italic text-muted-foreground" : "text-foreground"}`}>
+          {/* Name is the link into the breakdown modal now — same pattern as
+              the Performance Review leaderboard's Developer column — instead
+              of two separate icon buttons off in a View column. */}
+          <button
+            type="button"
+            onClick={onOpenBreakdown}
+            className={`text-sm font-medium hover:underline ${neutral ? "italic text-muted-foreground" : "text-foreground"}`}
+          >
             {row.name}
-          </span>
+          </button>
           {!neutral && row.email && (
             <Link
               href={myBugsHref(row.email, dateFrom, dateTo, env, projectKeys)}
@@ -629,38 +736,9 @@ function OwnerRowView({
         <CountCell key={c.key} value={row[c.key]} avg={team.avg[c.key]} neutral={neutral} />
       ))}
       <CountCell value={row.total} avg={team.avg.total} neutral={neutral} bold />
-      <CountCell value={row.open}  avg={team.avg.open}  neutral={neutral} />
+      {showOpenColumn && <CountCell value={row.open} avg={team.avg.open} neutral={neutral} />}
       <ContribCell pct={contrib} value={row.total} avg={team.avg.total} neutral={neutral} />
-      <td className="px-3 py-3">
-        <div className="flex items-center justify-center gap-1">
-          <ActionButton active={false} onClick={onOpenSource}   title="Customer vs QA breakdown" icon={<RiPieChartLine size={13} />} />
-          <ActionButton active={false} onClick={onOpenProjects} title="Project-wise split"        icon={<RiAppsLine    size={13} />} />
-        </div>
-      </td>
     </tr>
-  );
-}
-
-function ActionButton({
-  active, onClick, title, icon,
-}: {
-  active: boolean;
-  onClick: () => void;
-  title: string;
-  icon: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      className={`flex size-7 items-center justify-center rounded-md border transition-colors ${
-        active
-          ? "border-primary/40 bg-primary/5 text-primary dark:bg-primary/10"
-          : "border-transparent text-muted-foreground hover:border-zinc-200 hover:bg-zinc-100 hover:text-foreground dark:hover:border-zinc-700 dark:hover:bg-zinc-800"
-      }`}
-    >
-      {icon}
-    </button>
   );
 }
 
@@ -763,12 +841,13 @@ function FoundBreakdown({ counts, prioritySet }: { counts: Counts; prioritySet: 
 // ---------------------------------------------------------------------------
 
 function ProjectSplit({
-  row, visiblePriorityCols, dateFrom, dateTo,
+  row, visiblePriorityCols, dateFrom, dateTo, showOpenColumn,
 }: {
   row: OwnerRow;
   visiblePriorityCols: PriorityCol[];
   dateFrom?: string;
   dateTo?: string;
+  showOpenColumn: boolean;
 }) {
   const projAvgTotal = row.projects.length > 0 ? row.total / row.projects.length : 0;
   // "__total__" is the synthetic grand-total row (everyone, not one person) —
@@ -794,7 +873,9 @@ function ProjectSplit({
                 <th key={c.key} className="w-12 whitespace-nowrap px-2 py-2 text-right font-semibold uppercase tracking-wide text-muted-foreground">{c.label}</th>
               ))}
               <th className="w-14 whitespace-nowrap px-2 py-2 text-right font-semibold uppercase tracking-wide text-muted-foreground">Total</th>
-              <th className="w-14 whitespace-nowrap px-2 py-2 text-right font-semibold uppercase tracking-wide text-muted-foreground">Open</th>
+              {showOpenColumn && (
+                <th className="w-14 whitespace-nowrap px-2 py-2 text-right font-semibold uppercase tracking-wide text-muted-foreground">Open</th>
+              )}
               {/* w-20, not w-16 — at w-16 (64px) the "% Share" label itself
                   (tracking-wide uppercase, ~66px) overflowed its own column
                   and got clipped by the wrapper's overflow-hidden, reading as
@@ -819,6 +900,7 @@ function ProjectSplit({
                 dateTo={dateTo}
                 ownerKey={ownerKey}
                 unassignedOnly={row.isUnassigned}
+                showOpenColumn={showOpenColumn}
               />
             ))}
           </tbody>
@@ -829,7 +911,7 @@ function ProjectSplit({
 }
 
 function ProjectRowView({
-  p, ownerTotal, projAvgTotal, visiblePriorityCols, dateFrom, dateTo, ownerKey, unassignedOnly,
+  p, ownerTotal, projAvgTotal, visiblePriorityCols, dateFrom, dateTo, ownerKey, unassignedOnly, showOpenColumn,
 }: {
   p: ProjectBreakdown;
   ownerTotal: number;
@@ -841,6 +923,7 @@ function ProjectRowView({
   ownerKey?: string;
   /** True only for the real "no issue owner" bucket — never for the grand-total row. */
   unassignedOnly?: boolean;
+  showOpenColumn: boolean;
 }) {
   const contrib = ownerTotal > 0 ? (p.total / ownerTotal) * 100 : 0;
   const state   = rag(p.total, projAvgTotal);
@@ -884,7 +967,9 @@ function ProjectRowView({
           </td>
         ))}
         <td className="px-2 py-2 text-right tabular-nums font-bold text-foreground">{p.total}</td>
-        <td className="px-2 py-2 text-right tabular-nums text-foreground">{p.open}</td>
+        {showOpenColumn && (
+          <td className="px-2 py-2 text-right tabular-nums text-foreground">{p.open}</td>
+        )}
         <td className="py-2 pl-2 pr-3 text-right tabular-nums">
           {badge
             ? <span className={badge}>{contrib.toFixed(1)}%</span>
@@ -1000,13 +1085,17 @@ function SearchableMultiSelect({
 }
 
 function SortControl({
-  sortBy, sortDir, onChange,
+  sortBy, sortDir, onChange, showOpenColumn,
 }: {
   sortBy: SortKey;
   sortDir: "asc" | "desc";
   onChange: (by: SortKey, dir: "asc" | "desc") => void;
+  showOpenColumn: boolean;
 }) {
-  const current = SORT_OPTS.find((o) => o.value === sortBy) ?? SORT_OPTS[0];
+  const sortOpts = showOpenColumn
+    ? [...SORT_OPTS_BASE, { value: "open" as const, label: "Open" }]
+    : SORT_OPTS_BASE;
+  const current = sortOpts.find((o) => o.value === sortBy) ?? sortOpts[0];
   return (
     <div className="flex items-center gap-0.5">
       <Popover>
@@ -1018,7 +1107,7 @@ function SortControl({
         </PopoverTrigger>
         <PopoverContent align="end" className="w-36 p-0">
           <div className="py-1">
-            {SORT_OPTS.map((opt) => (
+            {sortOpts.map((opt) => (
               <button
                 key={opt.value}
                 onClick={() => onChange(opt.value, sortDir)}

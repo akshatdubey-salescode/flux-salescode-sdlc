@@ -19,9 +19,9 @@ export type BugRow = {
   priorityBucket: BugPriorityBucket;
   /** Normalized environment label; "—" when unset. */
   environment: string;
-  /** Resolved owner: Issue Owner field, else assignee, else "Missing Issue Owner". */
+  /** Resolved owner: the Issue Owner field ONLY (never the assignee), else "Missing Issue Owner". */
   ownerName: string;
-  /** Owner email (attribution key); null when unassigned/unresolved. */
+  /** Owner email (attribution key); null when the Issue Owner field is unset. */
   ownerEmail: string | null;
   /** Primary Jira assignee display name; null when the bug is unassigned. */
   assigneeName: string | null;
@@ -172,4 +172,32 @@ export function priorityBucket(priority: string | null): BugPriorityBucket {
   if (["p2", "high", "major"].includes(p)) return "P2";
   if (["p3", "medium", "moderate"].includes(p)) return "P3";
   return "Other";
+}
+
+/**
+ * Is this issue done or cancelled — the "not open" side of Open/Closed?
+ * Single source of truth for every "is this bug open" check in the app
+ * (Bug Board, My Bugs, team board, project bug tracker, Excel export).
+ *
+ * Prefers the project's own curated canonical status — the same
+ * project_status_mappings row a project's Status Mapping editor writes, and
+ * the only source of truth the sync's changelog rollup trusts
+ * (getStatusRawSets in sync.ts) — over the raw Jira status_category name.
+ * That name is NOT the fixed 3-value enum ("To Do"/"In Progress"/"Done") it
+ * looks like: different Jira sites/instances label the same green "done"
+ * bucket differently — this org's own synced data has both "Done" and
+ * "Complete" as distinct category names for what Jira colors green on the
+ * exact same semantic bucket. A bare equality check against "Done" alone
+ * silently missed every "Complete"-labelled bug, showing genuinely closed
+ * bugs as still open. Falls back to that (Done-or-Complete, case-insensitive)
+ * heuristic only for the handful of projects with no mapping row yet (see
+ * /superuser/unmapped-projects) — never leaves them all stuck "open".
+ */
+export function isDoneOrCancelled(
+  canonicalStatus: string | null,
+  statusCategory: string | null
+): boolean {
+  if (canonicalStatus) return canonicalStatus === "DONE" || canonicalStatus === "CANCELLED";
+  const cat = (statusCategory ?? "").trim().toLowerCase();
+  return cat === "done" || cat === "complete";
 }
