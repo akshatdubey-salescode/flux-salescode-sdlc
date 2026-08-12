@@ -59,6 +59,12 @@ const SORT_OPTS_BASE: { value: SortKey; label: string }[] = [
   { value: "p4",    label: "P4"    },
 ];
 
+// Tie-break cascade for any column-wise sort, in this fixed priority order
+// (each descending) — whichever key is the primary sort itself is skipped
+// (comparing it to itself can never break a tie), then Name (ascending) is
+// the always-unique final tiebreaker.
+const TIE_BREAK_ORDER: SortKey[] = ["total", "p1", "p2", "p3", "p4", "open"];
+
 const ALL_PRIORITY_COLS: PriorityCol[] = [
   { key: "p1", label: "P1", jql: "P1" },
   { key: "p2", label: "P2", jql: "P2" },
@@ -196,7 +202,16 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
     return ownerRows.map((row) => ({
       ...row,
       ...applyFilters(row),
-      projects: row.projects.map((p) => ({ ...p, ...applyFilters(p) })),
+      // A project only ever enters row.projects because at least one real
+      // cell existed for it — but the Priority/Customer-found filter above
+      // is applied per project too, and can zero one out on its own (e.g.
+      // every bug this person has on that project was a priority that's now
+      // deselected). Filtering to total>0 here, not just at the person
+      // level, is what keeps a 0-bug project out of their own breakdown
+      // modal instead of showing as a dead "0 / 0 / 0.0%" row.
+      projects: row.projects
+        .map((p) => ({ ...p, ...applyFilters(p) }))
+        .filter((p) => p.total > 0),
     }));
   }, [ownerRows, allPrioritiesSelected, prioritySet, cfOnly]);
 
@@ -219,11 +234,29 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
     [prioritySet],
   );
 
+  // Stable rank by Total bugs (descending), computed from the full
+  // Priority/Env/Project-filtered set — before the Developer filter/search
+  // narrows what's actually shown, so applying a Developer filter never
+  // changes anyone's # value. Excludes the synthetic "Missing Issue Owner"
+  // bucket (not a person to rank) and anyone left with 0 bugs after the
+  // filters (a hidden zero-bug row should never eat a rank number a visible
+  // person would otherwise have gotten).
+  const rankByKey = useMemo(() => {
+    const ranked = effectiveRows
+      .filter((r) => !r.isUnassigned && r.total > 0)
+      .sort((a, b) => b.total - a.total);
+    return new Map(ranked.map((r, i) => [r.key, i + 1]));
+  }, [effectiveRows]);
+
   const displayRows = useMemo(() => {
     const ownerSet  = new Set(selOwners);
     const filterOn  = ownerSet.size > 0;
     const q = nameQuery.trim().toLowerCase();
     const rows = effectiveRows.filter((r) => {
+      // A 0-bug row (e.g. someone whose only bugs were a priority that's
+      // now deselected) has nothing left to show and would otherwise eat a
+      // rank number no visible row actually has.
+      if (r.total === 0) return false;
       if (r.isUnassigned ? filterOn : filterOn && !ownerSet.has(r.key)) return false;
       if (q && !(r.name.toLowerCase().includes(q) || (r.email ?? "").toLowerCase().includes(q))) return false;
       return true;
@@ -231,8 +264,29 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
     const dir = sortDir === "asc" ? 1 : -1;
     rows.sort((a, b) => {
       if (a.isUnassigned !== b.isUnassigned) return a.isUnassigned ? 1 : -1;
-      if (sortBy === "name") return dir * a.name.localeCompare(b.name);
-      return dir * ((a[sortBy] as number) - (b[sortBy] as number));
+
+      const primary = (() => {
+        if (sortBy === "name") return dir * a.name.localeCompare(b.name);
+        const av = a[sortBy] as number;
+        const bv = b[sortBy] as number;
+        // A "—" (0) in the sorted column has nothing to rank by — it sinks
+        // to the bottom regardless of asc/desc, same as the Missing Issue
+        // Owner row above. Direction only decides order between two real
+        // values.
+        if (!av !== !bv) return av ? -1 : 1;
+        return dir * (av - bv);
+      })();
+      if (primary !== 0) return primary;
+
+      // Deterministic tie-break so equal rows land in the same order on
+      // every render, not whatever order they happened to already be in —
+      // see TIE_BREAK_ORDER above.
+      for (const key of TIE_BREAK_ORDER) {
+        if (key === sortBy) continue;
+        const diff = (b[key] as number) - (a[key] as number);
+        if (diff !== 0) return diff;
+      }
+      return a.name.localeCompare(b.name);
     });
     return rows;
   }, [effectiveRows, selOwners, nameQuery, sortBy, sortDir]);
@@ -284,12 +338,24 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
         : [...prev, key],
     );
 
+  // Clicking the column already being sorted flips direction; clicking a
+  // different one switches to it, defaulting to descending — same behavior
+  // as the Performance Review leaderboard's own column-header sort.
+  const toggleSort = (key: SortKey) => {
+    if (sortBy === key) {
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    } else {
+      setSortBy(key);
+      setSortDir("desc");
+    }
+  };
+
   // Resolved date range for Jira deep-links + My Bugs links — the active bounds.
   const resolvedFrom = start || undefined;
   const resolvedTo = end || undefined;
 
-  // Developer + visible-priority cols + Total + (Open, if flagged on) + % Share
-  const colSpan = 1 + visiblePriorityCols.length + 2 + (showOpenColumn ? 1 : 0);
+  // # + Developer + visible-priority cols + Total + (Open, if flagged on) + % Share
+  const colSpan = 2 + visiblePriorityCols.length + 2 + (showOpenColumn ? 1 : 0);
 
   const [exporting, setExporting] = useState(false);
 
@@ -445,6 +511,7 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
           end={end}
           onChange={(s, e) => { setStart(s); setEnd(e); }}
           disabled={loading}
+          labelClassName="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70"
         />
 
         {envOptions.length > 0 && (
@@ -545,20 +612,59 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
                   the wrapper itself is dark:bg-zinc-900, so bg-zinc-900 here
                   was invisible — same shade as the header sat on. Matches the
                   Performance Review leaderboard's header treatment. */}
+              {/* text-xs (not text-[11px]) + text-zinc-500 (not
+                  text-muted-foreground, a lighter token) + py-2.5 (not
+                  py-3) — matches the Performance Review leaderboard's
+                  header exactly; those three were the only real
+                  differences left once the bg/rounding already matched. */}
               <tr className="rounded-t-xl border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-800">
-                <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <th className="w-10 px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  #
+                </th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   Developer
                 </th>
                 {visiblePriorityCols.map((c) => (
-                  <th key={c.key} className="px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {c.label}
-                  </th>
+                  <SortableTh
+                    key={c.key}
+                    label={c.label}
+                    sortKey={c.key}
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                    className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
+                  />
                 ))}
-                <th className="px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Total</th>
+                <SortableTh
+                  label="Total"
+                  sortKey="total"
+                  sortBy={sortBy}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                  className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
+                />
                 {showOpenColumn && (
-                  <th className="px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Open</th>
+                  <SortableTh
+                    label="Open"
+                    sortKey="open"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                    className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
+                  />
                 )}
-                <th className="px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">% Share</th>
+                {/* % Share has no SortKey of its own — it's directly
+                    proportional to Total, so sorting by it would just
+                    reproduce Total's own order. Wired to "total" rather
+                    than inventing a redundant key. */}
+                <SortableTh
+                  label="% Share"
+                  sortKey="total"
+                  sortBy={sortBy}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                  className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
+                />
               </tr>
             </thead>
             <tbody>
@@ -569,10 +675,23 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
                   </td>
                 </tr>
               ) : (
-                displayRows.map((row) => (
+                displayRows.map((row, idx) => (
                   <OwnerRowView
                     key={row.key}
                     row={row}
+                    // Sorted by Total: the stable, Developer-filter-proof
+                    // rank (see rankByKey above). Sorted by anything else:
+                    // just this row's position in the list as currently
+                    // sorted — "who's #1 in P2" only means something
+                    // relative to a P2 sort, not the Total-based standing.
+                    // Unassigned is always last and never ranked either way.
+                    rank={
+                      row.isUnassigned
+                        ? null
+                        : sortBy === "total"
+                          ? rankByKey.get(row.key) ?? null
+                          : idx + 1
+                    }
                     team={teamStats}
                     onOpenBreakdown={() => openBreakdown(row)}
                     visiblePriorityCols={visiblePriorityCols}
@@ -591,7 +710,8 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
                     above — this row's own bg would otherwise square off
                     against the wrapper's rounded-xl bottom corners. */}
                 <tr className="rounded-b-xl border-t-2 border-zinc-300 bg-zinc-50/90 dark:border-zinc-700 dark:bg-zinc-900/60">
-                  <td className="px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-foreground">
+                  <td className="px-4 py-2.5" />
+                  <td className="px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-foreground">
                     <button
                       type="button"
                       onClick={() => openBreakdown(totalOwnerRow)}
@@ -684,6 +804,7 @@ function StatChip({ label, value }: { label: string; value: number }) {
 
 function OwnerRowView({
   row,
+  rank,
   team,
   onOpenBreakdown,
   visiblePriorityCols,
@@ -694,6 +815,8 @@ function OwnerRowView({
   showOpenColumn,
 }: {
   row: OwnerRow;
+  /** Stable rank by Total, from the full Priority/Env/Project-filtered set — null for the Missing Issue Owner row. */
+  rank: number | null;
   team: TeamStats;
   onOpenBreakdown: () => void;
   visiblePriorityCols: PriorityCol[];
@@ -708,7 +831,10 @@ function OwnerRowView({
 
   return (
     <tr className="border-b border-zinc-100 transition-colors hover:bg-zinc-50/60 dark:border-zinc-800/60 dark:hover:bg-zinc-800/20">
-      <td className="px-4 py-3">
+      <td className="px-4 py-3 tabular-nums text-xs text-muted-foreground">
+        {rank ?? "—"}
+      </td>
+      <td className="px-3 py-3">
         <span className="group inline-flex items-center gap-1.5">
           {/* Name is the link into the breakdown modal now — same pattern as
               the Performance Review leaderboard's Developer column — instead
@@ -739,6 +865,40 @@ function OwnerRowView({
       {showOpenColumn && <CountCell value={row.open} avg={team.avg.open} neutral={neutral} />}
       <ContribCell pct={contrib} value={row.total} avg={team.avg.total} neutral={neutral} />
     </tr>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sortable header cell — same ↕/↓/↑ indicator as the Performance Review
+// leaderboard's own column headers, wired to the same sortBy/sortDir state
+// the "Sort:" dropdown already uses (clicking a header is just another way
+// to set it, not a second competing mechanism).
+// ---------------------------------------------------------------------------
+
+function SortableTh({
+  label, sortKey, sortBy, sortDir, onSort, className,
+}: {
+  label: string;
+  sortKey: SortKey;
+  sortBy: SortKey;
+  sortDir: "asc" | "desc";
+  onSort: (key: SortKey) => void;
+  className: string;
+}) {
+  const active = sortBy === sortKey;
+  return (
+    <th className={className}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className="inline-flex items-center gap-1 uppercase hover:text-foreground"
+      >
+        {label}
+        <span className={active ? "text-zinc-700 dark:text-zinc-300" : "text-zinc-300 dark:text-zinc-600"}>
+          {active ? (sortDir === "desc" ? "↓" : "↑") : "↕"}
+        </span>
+      </button>
+    </th>
   );
 }
 
@@ -804,9 +964,6 @@ function FoundBreakdown({ counts, prioritySet }: { counts: Counts; prioritySet: 
 
   return (
     <div>
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/70">
-        Source breakdown
-      </p>
       <div
         className="inline-grid gap-x-6 gap-y-1.5 rounded-lg border border-zinc-200 bg-white px-4 py-3 text-xs dark:border-zinc-700 dark:bg-zinc-900"
         style={{ gridTemplateColumns: `auto repeat(${rows.length}, minmax(44px, 1fr))` }}
@@ -858,7 +1015,7 @@ function ProjectSplit({
   return (
     <div>
       <p className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/70">
-        Project breakdown — click a row or priority to browse those issues
+        Click a row or priority to browse those issues
       </p>
       {/* table-fixed + explicit widths on every numeric column (which never
           wrap and never need more than a few chars) means Project is the
@@ -868,13 +1025,13 @@ function ProjectSplit({
         <table className="w-full table-fixed border-collapse text-xs">
           <thead>
             <tr className="bg-zinc-100/60 text-left dark:bg-zinc-800/50">
-              <th className="px-3 py-2 font-semibold uppercase tracking-wide text-muted-foreground">Project</th>
+              <th className="px-3 py-2 font-semibold uppercase tracking-wide text-zinc-500">Project</th>
               {visiblePriorityCols.map((c) => (
-                <th key={c.key} className="w-12 whitespace-nowrap px-2 py-2 text-right font-semibold uppercase tracking-wide text-muted-foreground">{c.label}</th>
+                <th key={c.key} className="w-12 whitespace-nowrap px-2 py-2 text-right font-semibold uppercase tracking-wide text-zinc-500">{c.label}</th>
               ))}
-              <th className="w-14 whitespace-nowrap px-2 py-2 text-right font-semibold uppercase tracking-wide text-muted-foreground">Total</th>
+              <th className="w-14 whitespace-nowrap px-2 py-2 text-right font-semibold uppercase tracking-wide text-zinc-500">Total</th>
               {showOpenColumn && (
-                <th className="w-14 whitespace-nowrap px-2 py-2 text-right font-semibold uppercase tracking-wide text-muted-foreground">Open</th>
+                <th className="w-14 whitespace-nowrap px-2 py-2 text-right font-semibold uppercase tracking-wide text-zinc-500">Open</th>
               )}
               {/* w-20, not w-16 — at w-16 (64px) the "% Share" label itself
                   (tracking-wide uppercase, ~66px) overflowed its own column
@@ -885,7 +1042,7 @@ function ProjectSplit({
                   edge. Comes out of Project's own width (it has none set),
                   so a long project name simply truncates a few chars sooner
                   instead of the table ever needing to widen. */}
-              <th className="w-20 whitespace-nowrap py-2 pl-2 pr-3 text-right font-semibold uppercase tracking-wide text-muted-foreground">% Share</th>
+              <th className="w-20 whitespace-nowrap py-2 pl-2 pr-3 text-right font-semibold uppercase tracking-wide text-zinc-500">% Share</th>
             </tr>
           </thead>
           <tbody>
