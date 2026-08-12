@@ -1056,6 +1056,7 @@ function ProjectSplit({
                 dateFrom={dateFrom}
                 dateTo={dateTo}
                 ownerKey={ownerKey}
+                ownerName={row.name}
                 unassignedOnly={row.isUnassigned}
                 showOpenColumn={showOpenColumn}
               />
@@ -1068,7 +1069,7 @@ function ProjectSplit({
 }
 
 function ProjectRowView({
-  p, ownerTotal, projAvgTotal, visiblePriorityCols, dateFrom, dateTo, ownerKey, unassignedOnly, showOpenColumn,
+  p, ownerTotal, projAvgTotal, visiblePriorityCols, dateFrom, dateTo, ownerKey, ownerName, unassignedOnly, showOpenColumn,
 }: {
   p: ProjectBreakdown;
   ownerTotal: number;
@@ -1078,6 +1079,8 @@ function ProjectRowView({
   dateTo?: string;
   /** Scopes the issue-list modal to one developer's bugs — undefined for the grand-total row. */
   ownerKey?: string;
+  /** The breakdown row's own name ("Total" / "Unassigned" / a real person) — same value shown in the parent Breakdown modal's title, so this nested modal reads as "whose issues" too. */
+  ownerName: string;
   /** True only for the real "no issue owner" bucket — never for the grand-total row. */
   unassignedOnly?: boolean;
   showOpenColumn: boolean;
@@ -1138,7 +1141,7 @@ function ProjectRowView({
       <BugModal
         open={modalOpen}
         onOpenChange={setModalOpen}
-        title={`${p.projectName}${priorityFilter ? ` — ${priorityFilter}` : ""}`}
+        title={`${p.projectName} — ${ownerName}${priorityFilter ? ` — ${priorityFilter}` : ""}`}
       >
         <BugIssueList
           projectId={p.projectId}
