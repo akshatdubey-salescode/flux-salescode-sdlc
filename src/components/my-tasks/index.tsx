@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { RiDownload2Line, RiLayoutColumnLine } from "@remixicon/react";
 import { UserInsightsDashboard } from "./user-insights-dashboard";
+import { MyGithubActivity } from "./my-github-activity";
+import { MyHoursLeave } from "./my-hours-leave";
 import { MyMeetings } from "./my-meetings";
 import { BugTracker } from "@/components/bug-summary";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
@@ -132,12 +134,14 @@ export function MyTasksView({
   const searchParams = useSearchParams();
   const filters = readFilters(searchParams);
   const tabParam = searchParams.get("tab");
-  // Insights is self-only; when observing someone, fall back to the list.
+  // Insights/GitHub/Hours are self-only; when observing someone, fall back
+  // to the list rather than showing another person's personal panels.
+  const SELF_ONLY_TABS = ["insights", "github", "hours"];
   const activeTab =
     tabParam === "meetings" || tabParam === "bugs"
       ? tabParam
-      : tabParam === "insights" && !targetEmail
-        ? "insights"
+      : tabParam && SELF_ONLY_TABS.includes(tabParam) && !targetEmail
+        ? tabParam
         : "list";
 
   const { pinnedKeys, togglePin } = usePinnedTasks();
@@ -343,6 +347,8 @@ export function MyTasksView({
               <TabsTrigger value="list">{isObserving ? "Tasks" : "Tasks List"}</TabsTrigger>
               <TabsTrigger value="bugs">{isObserving ? "Bugs" : "My Bugs"}</TabsTrigger>
               {!isObserving && <TabsTrigger value="insights">My Insights</TabsTrigger>}
+              {!isObserving && <TabsTrigger value="github">My PRs</TabsTrigger>}
+              {!isObserving && <TabsTrigger value="hours">My Hours</TabsTrigger>}
               <TabsTrigger value="meetings">{isObserving ? "Meetings" : "My Meetings"}</TabsTrigger>
             </TabsList>
           ) : (
@@ -444,6 +450,18 @@ export function MyTasksView({
       {!isObserving && (
         <TabsContent value="insights" className="outline-none">
           <UserInsightsDashboard />
+        </TabsContent>
+      )}
+
+      {!isObserving && (
+        <TabsContent value="github" className="outline-none">
+          <MyGithubActivity />
+        </TabsContent>
+      )}
+
+      {!isObserving && (
+        <TabsContent value="hours" className="outline-none">
+          <MyHoursLeave />
         </TabsContent>
       )}
 
