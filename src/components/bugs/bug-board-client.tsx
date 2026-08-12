@@ -11,6 +11,7 @@ import {
   RiBugLine,
   RiPieChartLine,
   RiAppsLine,
+  RiUserUnfollowLine,
 } from "@remixicon/react";
 import {
   Popover,
@@ -26,7 +27,6 @@ import {
   deriveOwnerOptions,
   deriveEnvironments,
   effectiveCounts,
-  jiraOwnerBugLink,
   rag,
   RAG_BADGE,
   PRIORITIES,
@@ -37,6 +37,8 @@ import {
   type PriorityKey,
 } from "@/lib/bugs/aggregate";
 import { ENV_UNSET } from "@/lib/bug-summary";
+import { BugModal } from "./bug-modal";
+import { BugIssueList } from "./bug-issue-list";
 
 // ---------------------------------------------------------------------------
 // Types + constants
@@ -110,8 +112,11 @@ export function BugBoardClient() {
   const [end,   setEnd]   = useState(defaultQuarter?.end ?? "");
   const [sortBy,        setSortBy]        = useState<SortKey>("total");
   const [sortDir,       setSortDir]       = useState<"asc" | "desc">("desc");
-  const [expandedSource,   setExpandedSource]   = useState<Set<string>>(new Set());
-  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
+  // Which row's Source/Project breakdown modal is open (null = none) — one
+  // modal at a time, replacing the old inline-expand-a-table-row toggle.
+  const [sourceModalRow,   setSourceModalRow]   = useState<OwnerRow | null>(null);
+  const [projectsModalRow, setProjectsModalRow] = useState<OwnerRow | null>(null);
+  const [missingOwnerOpen, setMissingOwnerOpen] = useState(false);
 
   const cacheKey = `${start}:${end}`;
 
@@ -145,8 +150,6 @@ export function BugBoardClient() {
     for (const p of data?.projects ?? []) m.set(p.id, p);
     return m;
   }, [data]);
-
-  const freshdeskFieldId = data?.freshdeskFieldId ?? null;
 
   const projectIdSet = useMemo(() => new Set(selProjects), [selProjects]);
   // Selected projects as Jira keys, for persisting into the My Bugs deep-link
@@ -261,26 +264,17 @@ export function BugBoardClient() {
     ...grandTotal,
   }), [totalProjectBreakdowns, grandTotal]);
 
+  const missingOwnerCount = useMemo(
+    () => displayRows.find((r) => r.isUnassigned)?.total ?? 0,
+    [displayRows],
+  );
+
   const togglePriority = (key: PriorityKey) =>
     setSelPriorities((prev) =>
       prev.includes(key)
         ? prev.length > 1 ? prev.filter((k) => k !== key) : prev
         : [...prev, key],
     );
-
-  const toggleSource = (key: string) =>
-    setExpandedSource((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) { next.delete(key); } else { next.add(key); }
-      return next;
-    });
-
-  const toggleProjects = (key: string) =>
-    setExpandedProjects((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) { next.delete(key); } else { next.add(key); }
-      return next;
-    });
 
   // Resolved date range for Jira deep-links + My Bugs links — the active bounds.
   const resolvedFrom = start || undefined;
@@ -303,6 +297,17 @@ export function BugBoardClient() {
               <StatChip label="users" value={teamStats.numOwners} />
               <StatChip label={cfOnly ? "customer bugs shown" : "bugs shown"} value={displayRows.reduce((s, r) => s + r.total, 0)} />
               <StatChip label={cfOnly ? "avg CF / user" : "avg / user"} value={Math.round(teamStats.avg.total)} />
+              {missingOwnerCount > 0 && (
+                <button
+                  onClick={() => setMissingOwnerOpen(true)}
+                  className="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-1.5 py-px text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50"
+                  title="View the individual issues with no owner"
+                >
+                  <RiUserUnfollowLine size={11} />
+                  <span className="font-semibold tabular-nums">{missingOwnerCount}</span>
+                  <span>missing owner</span>
+                </button>
+              )}
               <span className="text-muted-foreground/50">·</span>
               <span className="inline-flex items-center gap-2">
                 <span className="inline-flex items-center gap-1">
@@ -451,10 +456,10 @@ export function BugBoardClient() {
 
       {/* Table */}
       {!loading && !error && (
-        <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="max-h-screen overflow-auto rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
           <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-zinc-200 bg-zinc-50/80 dark:border-zinc-800 dark:bg-zinc-900/60">
+            <thead className="sticky top-0">
+              <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
                 <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                   Developer
                 </th>
@@ -482,20 +487,13 @@ export function BugBoardClient() {
                     key={row.key}
                     row={row}
                     team={teamStats}
-                    projectById={projectById}
-                    sourceOpen={expandedSource.has(row.key)}
-                    projectsOpen={expandedProjects.has(row.key)}
-                    onToggleSource={() => toggleSource(row.key)}
-                    onToggleProjects={() => toggleProjects(row.key)}
+                    onOpenSource={() => setSourceModalRow(row)}
+                    onOpenProjects={() => setProjectsModalRow(row)}
                     visiblePriorityCols={visiblePriorityCols}
-                    prioritySet={prioritySet}
-                    colSpan={colSpan}
                     dateFrom={resolvedFrom}
                     dateTo={resolvedTo}
                     env={selEnv}
                     projectKeys={selProjectKeys}
-                    cfOnly={cfOnly}
-                    freshdeskFieldId={freshdeskFieldId}
                   />
                 ))
               )}
@@ -522,30 +520,47 @@ export function BugBoardClient() {
                   </td>
                   <td className="px-3 py-2.5">
                     <div className="flex items-center justify-center gap-1">
-                      <ActionButton active={expandedSource.has("__total__")}   onClick={() => toggleSource("__total__")}   title="Customer vs QA breakdown" icon={<RiPieChartLine size={13} />} />
-                      <ActionButton active={expandedProjects.has("__total__")} onClick={() => toggleProjects("__total__")} title="Project-wise split"        icon={<RiAppsLine    size={13} />} />
+                      <ActionButton active={sourceModalRow?.key === "__total__"}   onClick={() => setSourceModalRow(totalOwnerRow)}   title="Customer vs QA breakdown" icon={<RiPieChartLine size={13} />} />
+                      <ActionButton active={projectsModalRow?.key === "__total__"} onClick={() => setProjectsModalRow(totalOwnerRow)} title="Project-wise split"        icon={<RiAppsLine    size={13} />} />
                     </div>
                   </td>
                 </tr>
-                {expandedSource.has("__total__") && (
-                  <tr>
-                    <td colSpan={colSpan} className="bg-zinc-50/50 px-5 py-3 dark:bg-zinc-800/20">
-                      <FoundBreakdown counts={grandTotal} prioritySet={prioritySet} />
-                    </td>
-                  </tr>
-                )}
-                {expandedProjects.has("__total__") && (
-                  <tr>
-                    <td colSpan={colSpan} className="bg-zinc-50/50 px-5 py-3 dark:bg-zinc-800/20">
-                      <ProjectSplit row={totalOwnerRow} projectById={projectById} visiblePriorityCols={visiblePriorityCols} prioritySet={prioritySet} dateFrom={resolvedFrom} dateTo={resolvedTo} cfOnly={cfOnly} freshdeskFieldId={freshdeskFieldId} />
-                    </td>
-                  </tr>
-                )}
               </tfoot>
             )}
           </table>
         </div>
       )}
+
+      <BugModal
+        open={sourceModalRow != null}
+        onOpenChange={(open) => !open && setSourceModalRow(null)}
+        title={sourceModalRow ? `Source breakdown — ${sourceModalRow.name}` : "Source breakdown"}
+      >
+        {sourceModalRow && <FoundBreakdown counts={sourceModalRow} prioritySet={prioritySet} />}
+      </BugModal>
+
+      <BugModal
+        open={projectsModalRow != null}
+        onOpenChange={(open) => !open && setProjectsModalRow(null)}
+        title={projectsModalRow ? `Project breakdown — ${projectsModalRow.name}` : "Project breakdown"}
+      >
+        {projectsModalRow && (
+          <ProjectSplit
+            row={projectsModalRow}
+            visiblePriorityCols={visiblePriorityCols}
+            dateFrom={resolvedFrom}
+            dateTo={resolvedTo}
+          />
+        )}
+      </BugModal>
+
+      <BugModal
+        open={missingOwnerOpen}
+        onOpenChange={setMissingOwnerOpen}
+        title="Bugs with no issue owner"
+      >
+        <BugIssueList unassignedOnly from={resolvedFrom} to={resolvedTo} />
+      </BugModal>
     </div>
   );
 }
@@ -570,91 +585,59 @@ function StatChip({ label, value }: { label: string; value: number }) {
 function OwnerRowView({
   row,
   team,
-  projectById,
-  sourceOpen,
-  projectsOpen,
-  onToggleSource,
-  onToggleProjects,
+  onOpenSource,
+  onOpenProjects,
   visiblePriorityCols,
-  prioritySet,
-  colSpan,
   dateFrom,
   dateTo,
   env,
   projectKeys,
-  cfOnly,
-  freshdeskFieldId,
 }: {
   row: OwnerRow;
   team: TeamStats;
-  projectById: Map<string, BugProject>;
-  sourceOpen: boolean;
-  projectsOpen: boolean;
-  onToggleSource: () => void;
-  onToggleProjects: () => void;
+  onOpenSource: () => void;
+  onOpenProjects: () => void;
   visiblePriorityCols: PriorityCol[];
-  prioritySet: Set<PriorityKey>;
-  colSpan: number;
   dateFrom?: string;
   dateTo?: string;
   env?: string | null;
   projectKeys?: string[];
-  cfOnly?: boolean;
-  freshdeskFieldId?: number | null;
 }) {
   const contrib = team.grandTotal > 0 ? (row.total / team.grandTotal) * 100 : 0;
   const neutral = row.isUnassigned;
 
   return (
-    <>
-      <tr className="border-b border-zinc-100 transition-colors hover:bg-zinc-50/60 dark:border-zinc-800/60 dark:hover:bg-zinc-800/20">
-        <td className="px-4 py-3">
-          <span className="group inline-flex items-center gap-1.5">
-            <span className={`text-sm font-medium ${neutral ? "italic text-muted-foreground" : "text-foreground"}`}>
-              {row.name}
-            </span>
-            {!neutral && row.email && (
-              <Link
-                href={myBugsHref(row.email, dateFrom, dateTo, env, projectKeys)}
-                title={`Open ${row.name}'s bugs`}
-                onClick={(e) => e.stopPropagation()}
-                className="text-muted-foreground/40 opacity-0 transition-opacity hover:text-primary group-hover:opacity-100 focus:opacity-100"
-              >
-                <RiArrowRightUpLine size={14} />
-              </Link>
-            )}
+    <tr className="border-b border-zinc-100 transition-colors hover:bg-zinc-50/60 dark:border-zinc-800/60 dark:hover:bg-zinc-800/20">
+      <td className="px-4 py-3">
+        <span className="group inline-flex items-center gap-1.5">
+          <span className={`text-sm font-medium ${neutral ? "italic text-muted-foreground" : "text-foreground"}`}>
+            {row.name}
           </span>
-        </td>
-        {visiblePriorityCols.map((c) => (
-          <CountCell key={c.key} value={row[c.key]} avg={team.avg[c.key]} neutral={neutral} />
-        ))}
-        <CountCell value={row.total} avg={team.avg.total} neutral={neutral} bold />
-        <CountCell value={row.open}  avg={team.avg.open}  neutral={neutral} />
-        <ContribCell pct={contrib} value={row.total} avg={team.avg.total} neutral={neutral} />
-        <td className="px-3 py-3">
-          <div className="flex items-center justify-center gap-1">
-            <ActionButton active={sourceOpen}   onClick={onToggleSource}   title="Customer vs QA breakdown" icon={<RiPieChartLine size={13} />} />
-            <ActionButton active={projectsOpen} onClick={onToggleProjects} title="Project-wise split"        icon={<RiAppsLine    size={13} />} />
-          </div>
-        </td>
-      </tr>
-
-      {sourceOpen && (
-        <tr className="border-b border-zinc-100 dark:border-zinc-800/60">
-          <td colSpan={colSpan} className="bg-zinc-50/50 px-5 py-3 dark:bg-zinc-800/20">
-            <FoundBreakdown counts={row} prioritySet={prioritySet} />
-          </td>
-        </tr>
-      )}
-
-      {projectsOpen && (
-        <tr className="border-b border-zinc-100 dark:border-zinc-800/60">
-          <td colSpan={colSpan} className="bg-zinc-50/50 px-5 py-3 dark:bg-zinc-800/20">
-            <ProjectSplit row={row} projectById={projectById} visiblePriorityCols={visiblePriorityCols} prioritySet={prioritySet} dateFrom={dateFrom} dateTo={dateTo} cfOnly={cfOnly} freshdeskFieldId={freshdeskFieldId} />
-          </td>
-        </tr>
-      )}
-    </>
+          {!neutral && row.email && (
+            <Link
+              href={myBugsHref(row.email, dateFrom, dateTo, env, projectKeys)}
+              title={`Open ${row.name}'s bugs`}
+              onClick={(e) => e.stopPropagation()}
+              className="text-muted-foreground/40 opacity-0 transition-opacity hover:text-primary group-hover:opacity-100 focus:opacity-100"
+            >
+              <RiArrowRightUpLine size={14} />
+            </Link>
+          )}
+        </span>
+      </td>
+      {visiblePriorityCols.map((c) => (
+        <CountCell key={c.key} value={row[c.key]} avg={team.avg[c.key]} neutral={neutral} />
+      ))}
+      <CountCell value={row.total} avg={team.avg.total} neutral={neutral} bold />
+      <CountCell value={row.open}  avg={team.avg.open}  neutral={neutral} />
+      <ContribCell pct={contrib} value={row.total} avg={team.avg.total} neutral={neutral} />
+      <td className="px-3 py-3">
+        <div className="flex items-center justify-center gap-1">
+          <ActionButton active={false} onClick={onOpenSource}   title="Customer vs QA breakdown" icon={<RiPieChartLine size={13} />} />
+          <ActionButton active={false} onClick={onOpenProjects} title="Project-wise split"        icon={<RiAppsLine    size={13} />} />
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -780,35 +763,48 @@ function FoundBreakdown({ counts, prioritySet }: { counts: Counts; prioritySet: 
 // ---------------------------------------------------------------------------
 
 function ProjectSplit({
-  row, projectById, visiblePriorityCols, prioritySet, dateFrom, dateTo, cfOnly, freshdeskFieldId,
+  row, visiblePriorityCols, dateFrom, dateTo,
 }: {
   row: OwnerRow;
-  projectById: Map<string, BugProject>;
   visiblePriorityCols: PriorityCol[];
-  prioritySet: Set<PriorityKey>;
   dateFrom?: string;
   dateTo?: string;
-  cfOnly?: boolean;
-  freshdeskFieldId?: number | null;
 }) {
   const projAvgTotal = row.projects.length > 0 ? row.total / row.projects.length : 0;
+  // "__total__" is the synthetic grand-total row (everyone, not one person) —
+  // only a real developer or the real unassigned bucket should scope the
+  // per-project issue list down to their own bugs.
+  const ownerKey = row.key !== "__total__" && !row.isUnassigned ? row.key : undefined;
 
   return (
     <div>
       <p className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/70">
-        Project breakdown — click row or priority to open in Jira
+        Project breakdown — click a row or priority to browse those issues
       </p>
+      {/* table-fixed + explicit widths on every numeric column (which never
+          wrap and never need more than a few chars) means Project is the
+          only column without a set width — it gets whatever's left and
+          truncates instead of ever forcing the table wider than the modal. */}
       <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
-        <table className="w-full border-collapse text-xs">
+        <table className="w-full table-fixed border-collapse text-xs">
           <thead>
             <tr className="bg-zinc-100/60 text-left dark:bg-zinc-800/50">
               <th className="px-3 py-2 font-semibold uppercase tracking-wide text-muted-foreground">Project</th>
               {visiblePriorityCols.map((c) => (
-                <th key={c.key} className="px-3 py-2 text-right font-semibold uppercase tracking-wide text-muted-foreground">{c.label}</th>
+                <th key={c.key} className="w-12 whitespace-nowrap px-2 py-2 text-right font-semibold uppercase tracking-wide text-muted-foreground">{c.label}</th>
               ))}
-              <th className="px-3 py-2 text-right font-semibold uppercase tracking-wide text-muted-foreground">Total</th>
-              <th className="px-3 py-2 text-right font-semibold uppercase tracking-wide text-muted-foreground">Open</th>
-              <th className="px-3 py-2 text-right font-semibold uppercase tracking-wide text-muted-foreground">% Share</th>
+              <th className="w-14 whitespace-nowrap px-2 py-2 text-right font-semibold uppercase tracking-wide text-muted-foreground">Total</th>
+              <th className="w-14 whitespace-nowrap px-2 py-2 text-right font-semibold uppercase tracking-wide text-muted-foreground">Open</th>
+              {/* w-20, not w-16 — at w-16 (64px) the "% Share" label itself
+                  (tracking-wide uppercase, ~66px) overflowed its own column
+                  and got clipped by the wrapper's overflow-hidden, reading as
+                  the header text getting eaten/buried at the right edge.
+                  pr-3 mirrors Project's pl-3 — the same inset on both ends of
+                  the table, rather than % Share sitting tight against the
+                  edge. Comes out of Project's own width (it has none set),
+                  so a long project name simply truncates a few chars sooner
+                  instead of the table ever needing to widen. */}
+              <th className="w-20 whitespace-nowrap py-2 pl-2 pr-3 text-right font-semibold uppercase tracking-wide text-muted-foreground">% Share</th>
             </tr>
           </thead>
           <tbody>
@@ -818,14 +814,11 @@ function ProjectSplit({
                 p={p}
                 ownerTotal={row.total}
                 projAvgTotal={projAvgTotal}
-                account={row.account}
-                project={projectById.get(p.projectId)}
                 visiblePriorityCols={visiblePriorityCols}
-                prioritySet={prioritySet}
                 dateFrom={dateFrom}
                 dateTo={dateTo}
-                cfOnly={cfOnly}
-                freshdeskFieldId={freshdeskFieldId}
+                ownerKey={ownerKey}
+                unassignedOnly={row.isUnassigned}
               />
             ))}
           </tbody>
@@ -836,64 +829,85 @@ function ProjectSplit({
 }
 
 function ProjectRowView({
-  p, ownerTotal, projAvgTotal, account, project, visiblePriorityCols, dateFrom, dateTo, cfOnly, freshdeskFieldId,
+  p, ownerTotal, projAvgTotal, visiblePriorityCols, dateFrom, dateTo, ownerKey, unassignedOnly,
 }: {
   p: ProjectBreakdown;
   ownerTotal: number;
   projAvgTotal: number;
-  account: string | null;
-  project: BugProject | undefined;
   visiblePriorityCols: PriorityCol[];
-  prioritySet: Set<PriorityKey>;
   dateFrom?: string;
   dateTo?: string;
-  cfOnly?: boolean;
-  freshdeskFieldId?: number | null;
+  /** Scopes the issue-list modal to one developer's bugs — undefined for the grand-total row. */
+  ownerKey?: string;
+  /** True only for the real "no issue owner" bucket — never for the grand-total row. */
+  unassignedOnly?: boolean;
 }) {
-  const contrib  = ownerTotal > 0 ? (p.total / ownerTotal) * 100 : 0;
-  const state    = rag(p.total, projAvgTotal);
-  const badge    = RAG_BADGE[state];
-  const rowLink  = project ? jiraOwnerBugLink(project, account, undefined, dateFrom, dateTo, cfOnly, freshdeskFieldId) : null;
+  const contrib = ownerTotal > 0 ? (p.total / ownerTotal) * 100 : 0;
+  const state   = rag(p.total, projAvgTotal);
+  const badge   = RAG_BADGE[state];
+  // Reads directly from our own jira_issues (via /api/bugs/issues) instead of
+  // firing a generated JQL search — see BugIssueList's own comment for why
+  // that JQL was unreliable (it compared a custom field to a raw accountId,
+  // which Jira's JQL engine generally can't resolve for non-system fields).
+  const [priorityFilter, setPriorityFilter] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
 
-  const open = (priority?: string) => {
-    if (!project) return;
-    window.open(jiraOwnerBugLink(project, account, priority, dateFrom, dateTo, cfOnly, freshdeskFieldId), "_blank", "noopener,noreferrer");
+  const openIssues = (priority?: string) => {
+    setPriorityFilter(priority ?? null);
+    setModalOpen(true);
   };
 
   return (
-    <tr
-      className={`border-t border-zinc-100 transition-colors dark:border-zinc-800/60 ${rowLink ? "cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/30" : ""}`}
-      onClick={() => open()}
-    >
-      <td className="px-3 py-2">
-        <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
-          {p.projectName}
-          {rowLink && <RiExternalLinkLine size={10} className="shrink-0 opacity-40" />}
-        </span>
-      </td>
-      {visiblePriorityCols.map((c) => (
-        <td key={c.key} className="px-3 py-2 text-right tabular-nums">
-          {p[c.key] ? (
-            <button
-              onClick={(e) => { e.stopPropagation(); open(c.jql); }}
-              className="font-medium text-foreground hover:text-primary hover:underline"
-            >
-              {p[c.key]}
-            </button>
-          ) : (
-            <span className="text-muted-foreground/30">—</span>
-          )}
+    <>
+      <tr
+        className="cursor-pointer border-t border-zinc-100 transition-colors hover:bg-zinc-50 dark:border-zinc-800/60 dark:hover:bg-zinc-800/30"
+        onClick={() => openIssues()}
+      >
+        <td className="min-w-0 px-3 py-2">
+          <span className="flex min-w-0 items-center gap-1.5 font-medium text-foreground">
+            <span className="truncate" title={p.projectName}>{p.projectName}</span>
+            <RiExternalLinkLine size={10} className="shrink-0 opacity-40" />
+          </span>
         </td>
-      ))}
-      <td className="px-3 py-2 text-right tabular-nums font-bold text-foreground">{p.total}</td>
-      <td className="px-3 py-2 text-right tabular-nums text-foreground">{p.open}</td>
-      <td className="px-3 py-2 text-right tabular-nums">
-        {badge
-          ? <span className={badge}>{contrib.toFixed(1)}%</span>
-          : <span className="text-foreground">{contrib.toFixed(1)}%</span>
-        }
-      </td>
-    </tr>
+        {visiblePriorityCols.map((c) => (
+          <td key={c.key} className="px-2 py-2 text-right tabular-nums">
+            {p[c.key] ? (
+              <button
+                onClick={(e) => { e.stopPropagation(); openIssues(c.jql); }}
+                className="font-medium text-foreground hover:text-primary hover:underline"
+              >
+                {p[c.key]}
+              </button>
+            ) : (
+              <span className="text-muted-foreground/30">—</span>
+            )}
+          </td>
+        ))}
+        <td className="px-2 py-2 text-right tabular-nums font-bold text-foreground">{p.total}</td>
+        <td className="px-2 py-2 text-right tabular-nums text-foreground">{p.open}</td>
+        <td className="py-2 pl-2 pr-3 text-right tabular-nums">
+          {badge
+            ? <span className={badge}>{contrib.toFixed(1)}%</span>
+            : <span className="text-foreground">{contrib.toFixed(1)}%</span>
+          }
+        </td>
+      </tr>
+
+      <BugModal
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        title={`${p.projectName}${priorityFilter ? ` — ${priorityFilter}` : ""}`}
+      >
+        <BugIssueList
+          projectId={p.projectId}
+          priority={priorityFilter ?? undefined}
+          from={dateFrom}
+          to={dateTo}
+          ownerKey={ownerKey}
+          unassignedOnly={unassignedOnly}
+        />
+      </BugModal>
+    </>
   );
 }
 
