@@ -2,7 +2,7 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { RiLoader4Line, RiRefreshLine, RiGitPullRequestLine } from "@remixicon/react";
+import { RiLoader4Line, RiRefreshLine } from "@remixicon/react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { recomputeScorecards, syncJiraLoc } from "./actions";
+import { recomputeScorecards } from "./actions";
 
 type QuarterOption = { key: string; label: string };
 
@@ -43,7 +43,6 @@ export function ReviewControls({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [isSyncingLoc, startLocSync] = useTransition();
 
   function onQuarterChange(key: string) {
     router.push(`/performance-review?quarter=${encodeURIComponent(key)}`);
@@ -60,23 +59,6 @@ export function ReviewControls({
         `Scored ${res.developersScored ?? 0} developer${
           res.developersScored === 1 ? "" : "s"
         } for this quarter.`
-      );
-      router.refresh();
-    });
-  }
-
-  // Manual-only trigger (no cron) — pulls fresh PR data, matches it to
-  // Jiras, and recomputes scorecards with the new LOC.
-  function onSyncLoc() {
-    startLocSync(async () => {
-      const res = await syncJiraLoc(selectedKey);
-      if (res.error) {
-        toast.error(res.error);
-        return;
-      }
-      toast.success(
-        `Matched ${res.matchesFound ?? 0} PR(s) across ${res.prsScanned ?? 0} scanned.` +
-          (res.rateLimited ? " Stopped early — GitHub rate limit low, will resume next run." : "")
       );
       router.refresh();
     });
@@ -110,22 +92,6 @@ export function ReviewControls({
             <RiRefreshLine className="size-4" />
           )}
           {isPending ? "Recomputing…" : "Recompute"}
-        </Button>
-      )}
-
-      {canRecompute && (
-        <Button
-          variant="outline"
-          onClick={onSyncLoc}
-          disabled={isSyncingLoc}
-          className="gap-2"
-        >
-          {isSyncingLoc ? (
-            <RiLoader4Line className="size-4 animate-spin" />
-          ) : (
-            <RiGitPullRequestLine className="size-4" />
-          )}
-          {isSyncingLoc ? "Syncing LOC…" : "Sync LOC"}
         </Button>
       )}
 

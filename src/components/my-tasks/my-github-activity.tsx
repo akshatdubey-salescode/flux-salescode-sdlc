@@ -1,7 +1,7 @@
 "use client";
 
-// Self-only "my open PRs" panel — the data github_pull_requests holds is only
-// ever refreshed by a superuser's manual "Sync LOC" run (no cron, see
+// Self-only "my open PRs" panel — the data github_pull_requests holds is
+// refreshed nightly by the Flux-Github-PR-LOC-Sync Jenkins job (see
 // loc-sync.ts), so this is deliberately upfront about staleness (lastSyncedAt)
 // rather than presenting itself as a live PR feed.
 import { useEffect, useState } from "react";
@@ -66,7 +66,7 @@ export function MyGithubActivity() {
             My Open Pull Requests
           </CardTitle>
           <CardAction>
-            <ChartInfo description="Not a live feed — this list only reflects PRs seen during the last manual Sync LOC run (Performance Review > Sync LOC), which a superuser triggers on demand. It can lag behind what's actually open on GitHub." />
+            <ChartInfo description="Not a live feed — this list only reflects PRs seen during the last nightly sync, so it can lag behind what's actually open on GitHub by up to a day." />
           </CardAction>
         </CardHeader>
         <CardContent>
