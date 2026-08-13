@@ -1,14 +1,9 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { cacheLife, cacheTag } from "next/cache";
 import { requireAuth } from "@/lib/auth/server";
-import {
-  githubAccounts,
-  githubPullRequests,
-  githubRepos,
-  users,
-} from "@/lib/db/schema";
+import { githubAccounts, users } from "@/lib/db/schema";
 import { MY_GITHUB_ACTIVITY_TAG } from "@/lib/github/cache-tags";
 
 export async function GET() {
@@ -21,40 +16,19 @@ export async function GET() {
   }
 }
 
-export type MyOpenPullRequest = {
-  number: number;
-  title: string;
-  headRef: string;
-  createdAt: string;
-  daysOpen: number;
-  additions: number | null;
-  deletions: number | null;
-  repoFullName: string;
-};
-
 export type MyGithubActivity = {
+  /** unmapped=true means this person has no linked GitHub account at all
+   *  (github_accounts.user_id) — the LOC Sync Status panel can't match
+   *  anything to them without one. */
   unmapped: boolean;
-  pullRequests: MyOpenPullRequest[];
-  lastSyncedAt: string | null;
+  /** The signed-in user's own email — lets the client feed LocSyncStatusPanel without re-deriving it. */
+  email: string;
 };
 
-/**
- * The signed-in user's currently-open pull requests, oldest first (the ones
- * most worth a nudge). Sourced from github_pull_requests, which is only ever
- * populated by a superuser's manual "Sync LOC" run (no cron — see loc-sync.ts)
- * — so this can lag behind reality by however long it's been since the last
- * sync. lastSyncedAt is returned alongside the list so the UI can say so
- * honestly instead of implying a live view. unmapped=true means this person
- * has no linked GitHub account at all (github_accounts.user_id), which reads
- * very differently from "zero open PRs" — the UI must distinguish the two.
- */
+/** Whether the signed-in user has a linked (non-bot) GitHub account at all. */
 async function fetchMyGithubActivity(userEmail: string): Promise<MyGithubActivity> {
   "use cache";
   cacheLife("minutes");
-  // The per-user tag scopes this one reader; the static MY_GITHUB_ACTIVITY_TAG
-  // is what loc-sync.ts revalidates in bulk (it doesn't know every user's
-  // email up front) so this panel actually reflects "as of the last sync"
-  // immediately, not just once cacheLife's TTL happens to lapse.
   cacheTag(MY_GITHUB_ACTIVITY_TAG, `github-my-activity:${userEmail}`);
 
   // users.email (and users.id, which is the same value) is always stored
@@ -66,39 +40,5 @@ async function fetchMyGithubActivity(userEmail: string): Promise<MyGithubActivit
     .innerJoin(users, eq(users.id, githubAccounts.userId))
     .where(and(eq(users.email, userEmail), eq(githubAccounts.isBot, false)));
 
-  const logins = accounts.map((a) => a.login);
-  if (logins.length === 0) {
-    return { unmapped: true, pullRequests: [], lastSyncedAt: null };
-  }
-
-  const [prs, [syncRow]] = await Promise.all([
-    db
-      .select({
-        number: githubPullRequests.number,
-        title: githubPullRequests.title,
-        headRef: githubPullRequests.headRef,
-        createdAt: githubPullRequests.createdAt,
-        additions: githubPullRequests.additions,
-        deletions: githubPullRequests.deletions,
-        repoFullName: githubRepos.fullName,
-      })
-      .from(githubPullRequests)
-      .innerJoin(githubRepos, eq(githubRepos.id, githubPullRequests.repoId))
-      .where(and(eq(githubPullRequests.state, "open"), inArray(githubPullRequests.authorLogin, logins)))
-      .orderBy(githubPullRequests.createdAt),
-    db
-      .select({ syncedAt: sql<string | null>`max(${githubPullRequests.syncedAt})` })
-      .from(githubPullRequests),
-  ]);
-
-  const now = Date.now();
-  return {
-    unmapped: false,
-    pullRequests: prs.map((pr) => ({
-      ...pr,
-      createdAt: pr.createdAt.toISOString(),
-      daysOpen: Math.floor((now - pr.createdAt.getTime()) / 86_400_000),
-    })),
-    lastSyncedAt: syncRow?.syncedAt ?? null,
-  };
+  return { unmapped: accounts.length === 0, email: userEmail };
 }
