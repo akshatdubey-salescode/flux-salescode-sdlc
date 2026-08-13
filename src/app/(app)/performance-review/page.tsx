@@ -22,6 +22,7 @@ import { LeaderboardTable } from "./leaderboard-table";
 import { ScoringGuide } from "./scoring-guide";
 import { ColumnPicker } from "./column-picker";
 import { MetricMeaningModal } from "./metric-meaning-modal";
+import { LocSyncStatusModal } from "./loc-sync-status-modal";
 import { FeatureTasksTable } from "./feature-tasks-table";
 import { formatComplexityAccuracy } from "./complexity-accuracy-stat";
 import { complexTasksCalc, findComplexTasksMetric } from "./rating-calc";
@@ -224,7 +225,10 @@ export default async function PerformanceReviewPage({
                       / 100
                     </p>
                   </div>
-                  <MetricMeaningModal detail={detail} />
+                  <div className="flex items-center gap-2">
+                    <LocSyncStatusModal email={detail.email} quarterKey={quarterKey} />
+                    <MetricMeaningModal detail={detail} />
+                  </div>
                 </div>
 
                 <Tabs defaultValue="metrics" className="w-full">
