@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import {
   RiAddLine,
+  RiAppsLine,
   RiCloseLine,
   RiDeleteBin2Line,
   RiGitRepositoryLine,
@@ -34,13 +35,17 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
   addGithubOrg,
   addManualRepo,
   deleteGithubOrg,
   removeManualRepo,
+  revertGithubOrgToPat,
+  saveGithubAppCredentials,
   setGithubOrgActive,
+  setGithubOrgAppAuth,
   updateGithubOrgToken,
   type DiscoveryMode,
 } from "./actions";
@@ -49,6 +54,8 @@ export type OrgRow = {
   id: string;
   login: string;
   isActive: boolean;
+  authMode: string;
+  appInstallationId: string | null;
   discoveryMode: string;
   lastSyncedAt: Date | null;
   repoCount: number;
@@ -56,7 +63,7 @@ export type OrgRow = {
   repos: { id: string; fullName: string }[];
 };
 
-export function OrgManager({ orgs }: { orgs: OrgRow[] }) {
+export function OrgManager({ orgs, hasAppCredentials }: { orgs: OrgRow[]; hasAppCredentials: boolean }) {
   const router = useRouter();
   const [login, setLogin] = useState("");
   const [token, setToken] = useState("");
@@ -137,6 +144,8 @@ export function OrgManager({ orgs }: { orgs: OrgRow[] }) {
         {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
       </div>
 
+      <GithubAppCard hasAppCredentials={hasAppCredentials} />
+
       {/* Org list */}
       <div className="rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-100 dark:divide-zinc-800">
         {orgs.length === 0 ? (
@@ -144,9 +153,88 @@ export function OrgManager({ orgs }: { orgs: OrgRow[] }) {
             No organisations yet. Add one above to start syncing.
           </div>
         ) : (
-          orgs.map((org) => <OrgRowItem key={org.id} org={org} pending={isPending} />)
+          orgs.map((org) => (
+            <OrgRowItem key={org.id} org={org} pending={isPending} hasAppCredentials={hasAppCredentials} />
+          ))
         )}
       </div>
+    </div>
+  );
+}
+
+/** Configure the one shared GitHub App every authMode='app' org installs. */
+function GithubAppCard({ hasAppCredentials }: { hasAppCredentials: boolean }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [appId, setAppId] = useState("");
+  const [privateKey, setPrivateKey] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function save() {
+    setError(null);
+    startTransition(async () => {
+      const res = await saveGithubAppCredentials(appId, privateKey);
+      if (res.error) {
+        setError(res.error);
+        return;
+      }
+      setAppId("");
+      setPrivateKey("");
+      setOpen(false);
+      router.refresh();
+    });
+  }
+
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 flex items-center gap-3">
+      <RiAppsLine className="size-5 shrink-0 text-zinc-400" />
+      <div className="min-w-0 flex-1">
+        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">GitHub App</h2>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          {hasAppCredentials
+            ? "Configured. Orgs can switch to it below — no per-person PAT to keep alive."
+            : "Not configured yet — orgs below can only use PATs until this is set."}
+        </p>
+      </div>
+      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { setAppId(""); setPrivateKey(""); setError(null); } }}>
+        <DialogTrigger asChild>
+          <Button variant="outline" size="sm" className="shrink-0">
+            {hasAppCredentials ? "Rotate key" : "Configure"}
+          </Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>GitHub App credentials</DialogTitle>
+            <DialogDescription>
+              From the App&apos;s settings page on GitHub: the App ID and a generated private key
+              (.pem). Stored encrypted. Rotating this invalidates every org&apos;s cached
+              installation token — they re-mint automatically on next use.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            placeholder="App ID (e.g. 123456)"
+            value={appId}
+            onChange={(e) => setAppId(e.target.value)}
+            disabled={isPending}
+            className="font-mono"
+          />
+          <Textarea
+            placeholder={"-----BEGIN RSA PRIVATE KEY-----\n…\n-----END RSA PRIVATE KEY-----"}
+            value={privateKey}
+            onChange={(e) => setPrivateKey(e.target.value)}
+            disabled={isPending}
+            rows={6}
+            className="font-mono text-xs"
+          />
+          {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+          <DialogFooter>
+            <Button onClick={save} disabled={isPending || !appId.trim() || !privateKey.trim()}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -179,16 +267,34 @@ function ModeTab({
   );
 }
 
-function OrgRowItem({ org, pending }: { org: OrgRow; pending: boolean }) {
+function OrgRowItem({
+  org, pending, hasAppCredentials,
+}: {
+  org: OrgRow;
+  pending: boolean;
+  hasAppCredentials: boolean;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const busy = pending || isPending;
   const isManual = org.discoveryMode === "manual";
+  const isAppAuth = org.authMode === "app";
 
-  // Edit-token dialog state.
+  // Edit-credential dialog state — rotates a PAT when authMode='pat', or
+  // switches back to one when authMode='app' (revertGithubOrgToPat).
   const [tokenOpen, setTokenOpen] = useState(false);
   const [newToken, setNewToken] = useState("");
   const [tokenError, setTokenError] = useState<string | null>(null);
+
+  // Switch-to-App dialog state (only reachable from authMode='pat').
+  // Defaults to 'auto', not the org's current mode — an App installed with
+  // "All repositories" only auto-tracks new repos when the org is 'auto'
+  // too, and that's the whole point of migrating, so nudge toward it rather
+  // than silently carrying over a 'manual' org's old limitation.
+  const [appOpen, setAppOpen] = useState(false);
+  const [installationId, setInstallationId] = useState("");
+  const [appDiscoveryMode, setAppDiscoveryMode] = useState<DiscoveryMode>("auto");
+  const [appError, setAppError] = useState<string | null>(null);
 
   function toggle() {
     startTransition(async () => {
@@ -200,13 +306,30 @@ function OrgRowItem({ org, pending }: { org: OrgRow; pending: boolean }) {
   function saveToken() {
     setTokenError(null);
     startTransition(async () => {
-      const res = await updateGithubOrgToken(org.id, newToken);
+      const res = isAppAuth
+        ? await revertGithubOrgToPat(org.id, newToken)
+        : await updateGithubOrgToken(org.id, newToken);
       if (res.error) {
         setTokenError(res.error);
         return;
       }
       setNewToken("");
       setTokenOpen(false);
+      router.refresh();
+    });
+  }
+
+  function switchToApp() {
+    setAppError(null);
+    startTransition(async () => {
+      const res = await setGithubOrgAppAuth(org.id, installationId, appDiscoveryMode);
+      if (res.error) {
+        setAppError(res.error);
+        return;
+      }
+      setInstallationId("");
+      setAppDiscoveryMode("auto");
+      setAppOpen(false);
       router.refresh();
     });
   }
@@ -235,6 +358,17 @@ function OrgRowItem({ org, pending }: { org: OrgRow; pending: boolean }) {
           >
             {isManual ? "Manual" : "Auto"}
           </Badge>
+          <Badge
+            variant="secondary"
+            className={cn(
+              "shrink-0",
+              isAppAuth
+                ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400"
+                : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+            )}
+          >
+            {isAppAuth ? "App" : "PAT"}
+          </Badge>
         </span>
         <span className="block text-xs text-zinc-500 dark:text-zinc-400">
           {org.repoCount.toLocaleString()} repos
@@ -262,6 +396,82 @@ function OrgRowItem({ org, pending }: { org: OrgRow; pending: boolean }) {
         {org.isActive ? "Pause" : "Resume"}
       </Button>
 
+      {!isAppAuth && (
+        <Dialog
+          open={appOpen}
+          onOpenChange={(o) => {
+            setAppOpen(o);
+            if (!o) {
+              setInstallationId("");
+              setAppDiscoveryMode("auto");
+              setAppError(null);
+            }
+          }}
+        >
+          <DialogTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy || !hasAppCredentials}
+              className="shrink-0 gap-1.5"
+              title={hasAppCredentials ? "Switch to GitHub App auth" : "Configure the GitHub App above first"}
+            >
+              <RiAppsLine className="size-4" />
+              App
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Switch {org.login} to GitHub App auth</DialogTitle>
+              <DialogDescription>
+                Install the shared GitHub App on <span className="font-medium">{org.login}</span> first
+                (with &quot;All repositories&quot; for auto-discovery of new repos), then paste its
+                Installation ID here. Verified against GitHub before saving; replaces the stored PAT.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">Repo discovery</p>
+              <div className="inline-flex rounded-lg border border-zinc-200 p-0.5 dark:border-zinc-800">
+                <ModeTab
+                  active={appDiscoveryMode === "auto"}
+                  onClick={() => setAppDiscoveryMode("auto")}
+                  disabled={busy}
+                >
+                  Whole org
+                </ModeTab>
+                <ModeTab
+                  active={appDiscoveryMode === "manual"}
+                  onClick={() => setAppDiscoveryMode("manual")}
+                  disabled={busy}
+                >
+                  Specific repos
+                </ModeTab>
+              </div>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                {appDiscoveryMode === "auto"
+                  ? "Recommended when installed with \"All repositories\" — new repos in this org are tracked automatically, no manual step."
+                  : "Only if the installation is scoped to specific repos — new repos still need registering by hand under \"Repos\"."}
+              </p>
+            </div>
+
+            <Input
+              placeholder="Installation ID (e.g. 12345678)"
+              value={installationId}
+              onChange={(e) => setInstallationId(e.target.value)}
+              disabled={busy}
+              className="font-mono"
+            />
+            {appError && <p className="text-xs text-red-600 dark:text-red-400">{appError}</p>}
+            <DialogFooter>
+              <Button onClick={switchToApp} disabled={busy || !installationId.trim()}>
+                Switch to App
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
       <Dialog
         open={tokenOpen}
         onOpenChange={(o) => {
@@ -278,22 +488,33 @@ function OrgRowItem({ org, pending }: { org: OrgRow; pending: boolean }) {
             size="sm"
             disabled={busy}
             className="shrink-0 gap-1.5"
-            title="Update token"
+            title={isAppAuth ? "Switch back to a PAT" : "Update token"}
           >
             <RiKey2Line className="size-4" />
           </Button>
         </DialogTrigger>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Update token for {org.login}</DialogTitle>
+            <DialogTitle>
+              {isAppAuth ? `Switch ${org.login} back to a PAT` : `Update token for ${org.login}`}
+            </DialogTitle>
             <DialogDescription>
-              Paste a new {isManual ? "personal" : "fine-grained"} PAT for{" "}
-              <span className="font-medium">{org.login}</span>. It needs{" "}
-              <span className="font-medium">Contents: read</span> and{" "}
-              <span className="font-medium">Metadata: read</span>
-              {isManual
-                ? " on the repos you track, and replaces the stored token for all of them."
-                : ", is validated against GitHub, and replaces the stored token for every repo in this org."}
+              {isAppAuth ? (
+                <>
+                  Paste a PAT for <span className="font-medium">{org.login}</span> to stop using the
+                  GitHub App installation and go back to a token-based org.
+                </>
+              ) : (
+                <>
+                  Paste a new {isManual ? "personal" : "fine-grained"} PAT for{" "}
+                  <span className="font-medium">{org.login}</span>. It needs{" "}
+                  <span className="font-medium">Contents: read</span> and{" "}
+                  <span className="font-medium">Metadata: read</span>
+                  {isManual
+                    ? " on the repos you track, and replaces the stored token for all of them."
+                    : ", is validated against GitHub, and replaces the stored token for every repo in this org."}
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <Input
@@ -307,7 +528,7 @@ function OrgRowItem({ org, pending }: { org: OrgRow; pending: boolean }) {
           {tokenError && <p className="text-xs text-red-600 dark:text-red-400">{tokenError}</p>}
           <DialogFooter>
             <Button onClick={saveToken} disabled={busy || !newToken}>
-              Update token
+              {isAppAuth ? "Switch to PAT" : "Update token"}
             </Button>
           </DialogFooter>
         </DialogContent>

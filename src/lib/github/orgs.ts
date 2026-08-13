@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { githubOrgs } from "@/lib/db/schema";
 import { decrypt } from "@/lib/crypto";
 import { GitHubClient } from "./client";
+import { getInstallationToken } from "./app-auth";
 
 export type ActiveOrg = {
   id: string;
@@ -13,24 +14,34 @@ export type ActiveOrg = {
   discoveryMode: string;
 };
 
-/** Active orgs with their PATs decrypted, ready to drive a client. */
+/**
+ * Active orgs with a ready-to-use token — a decrypted PAT for authMode='pat'
+ * orgs, or a freshly-minted (cached) GitHub App installation token for
+ * authMode='app' orgs. Either way the caller gets back a plain bearer token
+ * and doesn't need to know which kind it is; GitHubClient never changes.
+ */
 export async function loadActiveOrgs(): Promise<ActiveOrg[]> {
   const rows = await db
     .select({
       id: githubOrgs.id,
       login: githubOrgs.login,
+      authMode: githubOrgs.authMode,
       apiToken: githubOrgs.apiToken,
+      appInstallationId: githubOrgs.appInstallationId,
       discoveryMode: githubOrgs.discoveryMode,
     })
     .from(githubOrgs)
     .where(eq(githubOrgs.isActive, true));
 
-  return rows.map((r) => ({
-    id: r.id,
-    login: r.login,
-    token: decrypt(r.apiToken),
-    discoveryMode: r.discoveryMode,
-  }));
+  const out: ActiveOrg[] = [];
+  for (const r of rows) {
+    const token =
+      r.authMode === "app" && r.appInstallationId
+        ? await getInstallationToken(r.appInstallationId)
+        : decrypt(r.apiToken ?? "");
+    out.push({ id: r.id, login: r.login, token, discoveryMode: r.discoveryMode });
+  }
+  return out;
 }
 
 export type OrgClient = { login: string; client: GitHubClient };
