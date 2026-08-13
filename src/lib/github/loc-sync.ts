@@ -59,6 +59,7 @@ import { normalizeEmail, extractIssueOwnerEmail } from "@/lib/jira/scorecard-fie
 import { loadAccountIdEmailMap } from "@/lib/jira/identity";
 import { quarterFromKey } from "@/lib/scorecard/quarter";
 import { PERFORMANCE_SCORECARDS_TAG } from "@/lib/scorecard/cache-tags";
+import { MY_GITHUB_ACTIVITY_TAG } from "./cache-tags";
 import { revalidateTag } from "next/cache";
 import { buildOrgClients } from "./orgs";
 import { getTrackedRepos } from "./repos";
@@ -569,6 +570,10 @@ export async function runLocSyncJob(jobId: string, quarterKey: string): Promise<
     // fresh LOC sync should invalidate them too (complexity-mismatch flags
     // depend on this data).
     revalidateTag(PERFORMANCE_SCORECARDS_TAG, "max");
+    // My Tasks > My PRs reads github_pull_requests too and bills itself as
+    // "as of the last sync" — without this it'd only refresh once its own
+    // cacheLife TTL happened to lapse, undercutting that promise.
+    revalidateTag(MY_GITHUB_ACTIVITY_TAG, "max");
 
     return { quarterKey, prsScanned, matchesFound, rateLimited };
   } catch (err) {

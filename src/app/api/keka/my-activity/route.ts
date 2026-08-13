@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
 import { cacheLife, cacheTag } from "next/cache";
 import { requireAuth } from "@/lib/auth/server";
-import { KEKA_ATTENDANCE_TAG, KEKA_LEAVE_TAG } from "@/lib/keka/cache-tags";
+import { KEKA_ATTENDANCE_TAG, KEKA_LEAVE_TAG, KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
 import { summarizeAttendance } from "@/lib/keka/my-attendance-stats";
 
 export async function GET() {
@@ -27,7 +27,10 @@ export async function GET() {
 async function fetchMyKekaActivity(userEmail: string) {
   "use cache";
   cacheLife("minutes");
-  cacheTag(KEKA_ATTENDANCE_TAG, KEKA_LEAVE_TAG);
+  // KEKA_DIRECTORY_TAG too — this reads keka_employees for the
+  // email->employeeNumber mapping, so an admin fixing a wrong mapping needs
+  // this to refresh alongside the directory sync, not just attendance/leave.
+  cacheTag(KEKA_ATTENDANCE_TAG, KEKA_LEAVE_TAG, KEKA_DIRECTORY_TAG);
 
   const empRes = await db.execute(sql`
     SELECT employee_number FROM keka_employees WHERE lower(email) = lower(${userEmail}) LIMIT 1

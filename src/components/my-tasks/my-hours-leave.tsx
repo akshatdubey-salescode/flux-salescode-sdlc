@@ -38,17 +38,20 @@ type MyKekaActivity = {
 export function MyHoursLeave() {
   const [data, setData] = useState<MyKekaActivity | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     fetch("/api/keka/my-activity")
-      .then((res) => res.json())
-      .then((data) => {
-        setData(data);
-        setLoading(false);
-      });
+      .then((res) => {
+        if (!res.ok) throw new Error(`request failed: ${res.status}`);
+        return res.json();
+      })
+      .then((data) => setData(data))
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
   }, []);
 
-  if (loading || !data) {
+  if (loading) {
     return (
       <div className="space-y-5 pt-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -60,6 +63,14 @@ export function MyHoursLeave() {
           <Skeleton className="h-[280px] rounded-lg" />
           <Skeleton className="h-[280px] rounded-lg" />
         </div>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="pt-4">
+        <EmptyState message="Couldn't load your hours and leave right now — try refreshing the page." />
       </div>
     );
   }

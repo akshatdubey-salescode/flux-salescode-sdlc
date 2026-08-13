@@ -9,6 +9,7 @@ import {
   githubRepos,
   users,
 } from "@/lib/db/schema";
+import { MY_GITHUB_ACTIVITY_TAG } from "@/lib/github/cache-tags";
 
 export async function GET() {
   try {
@@ -50,7 +51,11 @@ export type MyGithubActivity = {
 async function fetchMyGithubActivity(userEmail: string): Promise<MyGithubActivity> {
   "use cache";
   cacheLife("minutes");
-  cacheTag(`github-my-activity:${userEmail}`);
+  // The per-user tag scopes this one reader; the static MY_GITHUB_ACTIVITY_TAG
+  // is what loc-sync.ts revalidates in bulk (it doesn't know every user's
+  // email up front) so this panel actually reflects "as of the last sync"
+  // immediately, not just once cacheLife's TTL happens to lapse.
+  cacheTag(MY_GITHUB_ACTIVITY_TAG, `github-my-activity:${userEmail}`);
 
   // users.email (and users.id, which is the same value) is always stored
   // already-lowercased at insert time (see getCurrentUser in auth/server.ts),
