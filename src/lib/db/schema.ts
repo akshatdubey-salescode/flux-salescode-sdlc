@@ -839,12 +839,24 @@ export const githubOrgs = pgTable("github_orgs", {
   id: uuid("id").primaryKey().defaultRandom(),
   // The org login, e.g. "salescode-ai".
   login: text("login").notNull().unique(),
+  // How this org's token is obtained:
+  //  'pat' = apiToken is a long-lived fine-grained PAT, tied to whoever
+  //          generated it (see apiToken below).
+  //  'app' = appInstallationId identifies this org's GitHub App installation;
+  //          the token is a short-lived installation access token minted on
+  //          demand via app-auth.ts (see githubAppCredentials). Org-level,
+  //          not tied to any one person's account.
+  authMode: text("auth_mode").notNull().default("pat"),
   // Fine-grained PAT with Contents + Metadata read on the org's repos.
-  // Encrypted at rest; decrypt() before use.
-  apiToken: text("api_token").notNull(),
+  // Encrypted at rest; decrypt() before use. Only set when authMode='pat'.
+  apiToken: text("api_token"),
+  // This org's GitHub App installation id (from installing the shared App in
+  // githubAppCredentials on this org). Only set when authMode='app'.
+  appInstallationId: text("app_installation_id"),
   // How this org's repos are discovered:
   //  'auto'   = list the whole org via GET /orgs/{org}/repos (needs an org-wide
-  //             PAT). Repos are mirrored and pruned automatically.
+  //             PAT, or an App installation with "All repositories" access).
+  //             Repos are mirrored and pruned automatically.
   //  'manual' = the PAT can only read specific repos (e.g. a personal PAT with
   //             partial access to an org you have no org PAT for). Repos aren't
   //             auto-listed or pruned — a superuser registers them by full name
@@ -854,6 +866,24 @@ export const githubOrgs = pgTable("github_orgs", {
   lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
   // Superuser who added the org; null for the seeded legacy org.
   createdBy: text("created_by").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// A single shared GitHub App's credentials — installed across every org that
+// runs authMode='app' (see githubOrgs.appInstallationId). Expected to hold
+// exactly one row; kept as its own table rather than columns on githubOrgs
+// since the App itself is one entity shared by many org installations, not
+// per-org data.
+export const githubAppCredentials = pgTable("github_app_credentials", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  appId: text("app_id").notNull(),
+  // PEM private key, encrypted at rest; decrypt() before use.
+  privateKey: text("private_key").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
