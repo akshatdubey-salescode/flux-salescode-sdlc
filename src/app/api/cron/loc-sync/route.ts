@@ -4,18 +4,17 @@ import { PERFORMANCE_SCORECARDS_TAG } from "@/lib/scorecard/cache-tags";
 import { buildScorecards } from "@/lib/scorecard/build";
 import { enqueueLocSyncJob, runLocSyncJob } from "@/lib/github/loc-sync";
 
-// Bearer CRON_SECRET guard, mirroring keka-sync/github-sync. The schedule is
-// registered the same way theirs is (no vercel.json in-repo) — daily, at
-// midnight, is deliberately all this side-app needs; a full LOC sync scans
-// every tracked repo's PRs and has historically taken 5-7 minutes on a real
-// run (see loc_sync_jobs), so a tighter cadence would risk piling onto an
-// already-running job for no benefit here.
+// Bearer CRON_SECRET guard, mirroring keka-sync/github-sync. Production
+// scheduling actually runs through Flux-Github-PR-LOC-Sync (a Jenkins job, a
+// JS port of loc-sync.ts run directly against Postgres, off Vercel entirely —
+// see that repo) at IST midnight; this route stays as a manual/local trigger
+// surface, not the primary schedule.
 //
-// Always targets the CURRENT fiscal quarter — there's no UI picker at
-// midnight, unlike the manual "Sync LOC" button (performance-review/actions.ts)
-// which lets a superuser pick. enqueueLocSyncJob's own dedup means this is
-// safe to trigger even if a manual sync is mid-flight: it just reports the
-// existing job instead of starting a second one.
+// Always targets the CURRENT fiscal quarter — there's no UI picker here.
+// There is no superuser "Sync LOC" button anymore either (dropped once the
+// nightly job took over) — enqueueLocSyncJob's own dedup means this route is
+// still safe to trigger even while the Jenkins job is mid-flight: it just
+// reports the existing job instead of starting a second one.
 export const maxDuration = 800; // Vercel caps this to the plan's actual max if lower.
 
 function authorized(req: Request): boolean {

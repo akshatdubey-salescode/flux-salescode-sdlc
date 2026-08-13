@@ -1,8 +1,11 @@
 // Computes lines-of-code per Jira per quarter and caches it in jira_issue_loc,
 // so the scorecard build (build.ts) never has to hit GitHub itself — it only
-// reads the cache. Manual-only: a superuser action (performance-review/
-// actions.ts, "Sync LOC" button) calls runLocSyncJob directly. No cron —
-// deliberately dropped in favor of running it on demand.
+// reads the cache. Runs nightly via a Jenkins job (Flux-Github-PR-LOC-Sync, a
+// JS port of this file run directly against Postgres) rather than through
+// Vercel's serverless time limit; api/cron/loc-sync/route.ts calls
+// runLocSyncJob the same way for manual/local triggering. There is no
+// superuser button for this anymore — it was dropped once the nightly job
+// took over.
 //
 // Matching rule per Jira: a PR counts when (a) its author resolves to either
 // the Jira's Dev Owner or its Assignee, (b) the Jira key appears — case-
