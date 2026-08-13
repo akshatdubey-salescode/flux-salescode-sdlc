@@ -32,18 +32,29 @@ type MyGithubActivity = {
 export function MyGithubActivity() {
   const [data, setData] = useState<MyGithubActivity | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     fetch("/api/github/my-activity")
-      .then((res) => res.json())
-      .then((data) => {
-        setData(data);
-        setLoading(false);
-      });
+      .then((res) => {
+        if (!res.ok) throw new Error(`request failed: ${res.status}`);
+        return res.json();
+      })
+      .then((data) => setData(data))
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
   }, []);
 
-  if (loading || !data) {
+  if (loading) {
     return <Skeleton className="h-64 rounded-lg" />;
+  }
+
+  if (error || !data) {
+    return (
+      <div className="pt-4">
+        <EmptyState message="Couldn't load your pull requests right now — try refreshing the page." />
+      </div>
+    );
   }
 
   return (
