@@ -26,8 +26,12 @@ function isoDate(d: Date): string {
  * per (employeeNumber, date). Idempotent (keyed on the natural composite), and
  * it never prunes — historical attendance must survive a directory prune.
  *
- * Default window is the trailing `trailingDays` (incl. today, UTC). Pass an
- * explicit from/to for a backfill (the client chunks it into ≤90-day requests).
+ * Default window is the trailing `trailingDays` (incl. today, UTC), optionally
+ * extended `forwardDays` into the future — mirrors syncKekaLeave's trailing+
+ * forward shape, since a forward window on attendance is mostly useful for the
+ * upcoming weekly-off/holiday calendar (dayType), not for real punches that
+ * haven't happened yet (see isCompletedDay below). Pass an explicit from/to for
+ * a backfill (the client chunks it into ≤90-day requests).
  *
  * `isAbsent` is derived: a WORKING day (dayType 0) with no clock-in and no
  * effective hours. dayType was decoded empirically from live data (2026-06-25):
@@ -39,11 +43,13 @@ export async function syncKekaAttendance(opts?: {
   from?: string;
   to?: string;
   trailingDays?: number;
+  forwardDays?: number;
 }): Promise<{ synced: number; errors: number; skipped: number; from: string; to: string }> {
   const trailing = opts?.trailingDays ?? 35;
+  const forward = opts?.forwardDays ?? 0;
   const today = new Date();
   const todayIso = isoDate(today);
-  const to = opts?.to ?? todayIso;
+  const to = opts?.to ?? isoDate(new Date(today.getTime() + forward * 86_400_000));
   const from =
     opts?.from ?? isoDate(new Date(today.getTime() - (trailing - 1) * 86_400_000));
 

@@ -37,15 +37,17 @@ export async function POST(req: Request) {
     revalidateTag(KEKA_DIRECTORY_TAG, "max");
 
     // Attendance is secondary: a failure here must NOT fail the directory pull,
-    // so it's caught and reported inline rather than thrown. Trailing window
-    // (default 35d) keeps recent absence fresh; heavy backfills run via script.
+    // so it's caught and reported inline rather than thrown. -15/+15 window
+    // keeps recent absence fresh AND surfaces upcoming weekly-offs/holidays;
+    // heavy backfills run via script.
     let attendance:
       | Awaited<ReturnType<typeof syncKekaAttendance>>
       | { error: string };
     try {
-      // Short trailing window keeps the daily run under Keka's 50/min quota and
-      // the serverless time limit; historical backfill is done via the script.
-      attendance = await syncKekaAttendance({ trailingDays: 14 });
+      // Short trailing+forward window keeps the daily run under Keka's 50/min
+      // quota and the serverless time limit; historical backfill is done via
+      // the script.
+      attendance = await syncKekaAttendance({ trailingDays: 15, forwardDays: 15 });
       revalidateTag(KEKA_ATTENDANCE_TAG, "max");
     } catch (err) {
       attendance = { error: err instanceof Error ? err.message : String(err) };
