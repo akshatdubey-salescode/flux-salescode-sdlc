@@ -22,7 +22,7 @@ import { LeaderboardTable } from "./leaderboard-table";
 import { ScoringGuide } from "./scoring-guide";
 import { ColumnPicker } from "./column-picker";
 import { MetricMeaningModal } from "./metric-meaning-modal";
-import { LocSyncStatusModal } from "./loc-sync-status-modal";
+import { LocSyncStatusModal } from "@/components/loc-sync-status-modal";
 import { FeatureTasksTable } from "./feature-tasks-table";
 import { formatComplexityAccuracy } from "./complexity-accuracy-stat";
 import { complexTasksCalc, findComplexTasksMetric } from "./rating-calc";
