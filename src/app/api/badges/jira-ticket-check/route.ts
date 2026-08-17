@@ -112,7 +112,7 @@ function renderBanner({ repoLine, titleLine }: { repoLine: string; titleLine: st
     <text x="36" y="90" font-family="Arial, Helvetica, sans-serif" font-size="24" fill="#ffffff">Retitle the PR to include one — e.g.</text>
     <g transform="translate(435, 63)">
       <rect width="330" height="38" rx="8" fill="#00c6b1" fill-opacity="0.16"/>
-      <text x="16" y="19" dominant-baseline="central" font-family="Menlo, Consolas, monospace" font-size="19" font-weight="700" fill="#11D6C5">PROJ-123: your title here</text>
+      <text x="165" y="19" text-anchor="middle" dominant-baseline="central" font-family="Menlo, Consolas, monospace" font-size="19" font-weight="700" fill="#11D6C5">PROJ-123: your title here</text>
     </g>
     <text x="36" y="138" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#9DB2C6">This check re-runs automatically in a few seconds.</text>
   </g>
