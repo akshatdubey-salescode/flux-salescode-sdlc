@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Resvg } from "@resvg/resvg-js";
-import fs from "node:fs";
 import path from "node:path";
 
 // Public on purpose — no requireAuth() here. GitHub fetches this URL directly
@@ -81,14 +80,6 @@ function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
 
-// PNG, not WebP — same "malformed"/unsupported-format issue resvg hit with
-// WOFF2 fonts also applies to WebP raster images; PNG is universally
-// supported by resvg's underlying image decoder.
-const LOGO_DATA_URI = (() => {
-  const bytes = fs.readFileSync(path.join(process.cwd(), "public/salescode-logo.png"));
-  return `data:image/png;base64,${bytes.toString("base64")}`;
-})();
-
 /**
  * The banner's layout constants (padding, gaps, positions) were pixel-measured
  * against a static render, not hand-derived from font-metric formulas alone —
@@ -97,12 +88,20 @@ const LOGO_DATA_URI = (() => {
  * pill moved to its own row), the four gaps (top/logo→section/section→box/
  * box→bottom) get recomputed to stay equal: (630 - 64 - 205 - 200) / 4 ≈ 40px
  * each, last one absorbing the rounding remainder.
+ *
+ * The logo itself was later dropped from the render entirely (a reviewer's
+ * call — no need for the org image in a notice like this) by cropping
+ * everything above the old logo's bottom edge (was at y=112) rather than
+ * just hiding it: every remaining group's y-translate shifted up by 112,
+ * and the canvas height shrank from 630 to 518 to match. The salescode logo
+ * PNG stays checked in at public/salescode-logo.png regardless — nothing
+ * here deletes the asset, only stops this one banner from rendering it.
  */
 function renderBanner({ repoLine, titleLine }: { repoLine: string; titleLine: string }): string {
   const repoLineSafe = escapeXml(repoLine);
   const titleLineSafe = titleLine ? `&quot;${escapeXml(titleLine)}&quot;` : "";
 
-  return `<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+  return `<svg width="1200" height="518" viewBox="0 0 1200 518" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#082B4B"/>
@@ -122,18 +121,13 @@ function renderBanner({ repoLine, titleLine }: { repoLine: string; titleLine: st
     </radialGradient>
   </defs>
 
-  <rect width="1200" height="630" fill="url(#bg)"/>
-  <circle cx="980" cy="120" r="340" fill="url(#glow1)"/>
-  <circle cx="160" cy="560" r="300" fill="url(#glow2)"/>
+  <rect width="1200" height="518" fill="url(#bg)"/>
+  <circle cx="980" cy="8" r="340" fill="url(#glow1)"/>
+  <circle cx="160" cy="448" r="300" fill="url(#glow2)"/>
 
-  <rect x="0" y="0" width="10" height="630" fill="url(#tealGlow)"/>
+  <rect x="0" y="0" width="10" height="518" fill="url(#tealGlow)"/>
 
   <g transform="translate(80, 48)">
-    <rect width="152" height="64" rx="14" fill="#ffffff"/>
-    <image href="${LOGO_DATA_URI}" x="16" y="16" width="120" height="32" preserveAspectRatio="xMidYMid meet"/>
-  </g>
-
-  <g transform="translate(80, 160)">
     <circle cx="46" cy="46" r="46" fill="#E0231B" fill-opacity="0.14"/>
     <circle cx="46" cy="46" r="46" fill="none" stroke="#E0231B" stroke-width="3"/>
     <line x1="24" y1="24" x2="68" y2="68" stroke="#FF5A52" stroke-width="7" stroke-linecap="round"/>
@@ -147,7 +141,7 @@ function renderBanner({ repoLine, titleLine }: { repoLine: string; titleLine: st
     ${titleLineSafe ? `<text x="0" y="198" font-family="Inter" font-size="20" fill="#9DB2C6">${titleLineSafe}</text>` : ""}
   </g>
 
-  <g transform="translate(80, 413)">
+  <g transform="translate(80, 301)">
     <rect width="1040" height="166" rx="18" fill="#ffffff" fill-opacity="0.06" stroke="#11D6C5" stroke-opacity="0.4" stroke-width="1.5"/>
     <text x="36" y="39" font-family="Inter" font-size="20" font-weight="700" fill="#11D6C5">QUICK FIX</text>
     <text x="36" y="90" font-family="Inter" font-size="24" fill="#ffffff">Retitle the PR to include a Jira ticket key — e.g.</text>
