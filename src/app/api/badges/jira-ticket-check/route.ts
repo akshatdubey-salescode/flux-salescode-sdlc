@@ -49,9 +49,15 @@ function rasterize(svg: string): Buffer {
       // resvg's font engine (fontdb/ttf-parser) rejected both fonts as
       // "malformed" when they were WOFF2 (Brotli-compressed) — only
       // TTF/OTF/plain-WOFF are supported, so these are checked-in as
-      // decompressed .ttf files specifically for this renderer.
+      // decompressed .ttf files specifically for this renderer. Inter is
+      // also checked in as two separate static-weight instances (not the
+      // original variable font) -- resvg does not interpolate a variable
+      // font's weight axis, so every font-weight request against a single
+      // variable file silently rendered at whatever its default instance
+      // was (Regular), ignoring font-weight="700" entirely.
       fontFiles: [
-        path.join(process.cwd(), "public/inter-var.ttf"),
+        path.join(process.cwd(), "public/inter-regular.ttf"),
+        path.join(process.cwd(), "public/inter-bold.ttf"),
         path.join(process.cwd(), "public/jetbrains-mono-700.ttf"),
       ],
       loadSystemFonts: false,
@@ -122,18 +128,18 @@ function renderBanner({ repoLine, titleLine }: { repoLine: string; titleLine: st
 
   <rect x="0" y="0" width="10" height="630" fill="url(#tealGlow)"/>
 
-  <g transform="translate(80, 40)">
+  <g transform="translate(80, 48)">
     <rect width="152" height="64" rx="14" fill="#ffffff"/>
     <image href="${LOGO_DATA_URI}" x="16" y="16" width="120" height="32" preserveAspectRatio="xMidYMid meet"/>
   </g>
 
-  <g transform="translate(80, 144)">
+  <g transform="translate(80, 160)">
     <circle cx="46" cy="46" r="46" fill="#E0231B" fill-opacity="0.14"/>
     <circle cx="46" cy="46" r="46" fill="none" stroke="#E0231B" stroke-width="3"/>
     <line x1="24" y1="24" x2="68" y2="68" stroke="#FF5A52" stroke-width="7" stroke-linecap="round"/>
     <line x1="68" y1="24" x2="24" y2="68" stroke="#FF5A52" stroke-width="7" stroke-linecap="round"/>
 
-    <text x="112" y="46" dominant-baseline="central" font-family="Inter" font-size="46" font-weight="800" fill="#ffffff">Jira Ticket Check Failed!</text>
+    <text x="112" y="46" dominant-baseline="central" font-family="Inter" font-size="46" font-weight="700" fill="#ffffff">Jira Ticket Check Failed!</text>
 
     <text x="0" y="130" font-family="Inter" font-size="22" fill="#DCEAF2">This PR doesn't reference a Jira ticket key in its title or branch name.</text>
 
@@ -141,15 +147,15 @@ function renderBanner({ repoLine, titleLine }: { repoLine: string; titleLine: st
     ${titleLineSafe ? `<text x="0" y="198" font-family="Inter" font-size="20" fill="#9DB2C6">${titleLineSafe}</text>` : ""}
   </g>
 
-  <g transform="translate(80, 389)">
-    <rect width="1040" height="200" rx="18" fill="#ffffff" fill-opacity="0.06" stroke="#11D6C5" stroke-opacity="0.4" stroke-width="1.5"/>
-    <text x="36" y="36" font-family="Inter" font-size="20" font-weight="700" fill="#11D6C5">QUICK FIX</text>
-    <text x="36" y="75" font-family="Inter" font-size="24" fill="#ffffff">Retitle the PR to include a Jira ticket key — e.g.</text>
-    <g transform="translate(36, 100)">
+  <g transform="translate(80, 413)">
+    <rect width="1040" height="166" rx="18" fill="#ffffff" fill-opacity="0.06" stroke="#11D6C5" stroke-opacity="0.4" stroke-width="1.5"/>
+    <text x="36" y="39" font-family="Inter" font-size="20" font-weight="700" fill="#11D6C5">QUICK FIX</text>
+    <text x="36" y="90" font-family="Inter" font-size="24" fill="#ffffff">Retitle the PR to include a Jira ticket key — e.g.</text>
+    <g transform="translate(586, 63)">
       <rect width="330" height="38" rx="8" fill="#00c6b1" fill-opacity="0.16"/>
       <text x="165" y="19" text-anchor="middle" dominant-baseline="central" font-family="JetBrains Mono" font-size="19" font-weight="700" fill="#11D6C5">PROJ-123: your title here</text>
     </g>
-    <text x="36" y="173" font-family="Inter" font-size="18" fill="#9DB2C6">This check re-runs automatically in a few seconds.</text>
+    <text x="36" y="139" font-family="Inter" font-size="18" fill="#9DB2C6">This check re-runs automatically in a few seconds.</text>
   </g>
 </svg>`;
 }
