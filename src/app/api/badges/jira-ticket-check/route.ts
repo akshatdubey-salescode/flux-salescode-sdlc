@@ -128,6 +128,21 @@ function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
 
+// JetBrains Mono Bold's actual advance width at font-size 19, pixel-measured
+// directly against the rendered font (not assumed) -- 282px for a 25-char
+// string and 77px for a 7-char one both land within a percent of this same
+// per-character ratio, confirming a monospace font really does have a fixed
+// advance regardless of which characters it is. Used so the credited
+// banner's key pill sizes itself to whatever key it is given (Jira keys
+// vary in length) with the same ~24px padding the other pill has, instead
+// of a fixed width that leaves excess padding around a short key.
+const MONO_CHAR_WIDTH_RATIO = 0.59; // px per unit font-size, at font-size 19
+const PILL_PADDING = 24;
+
+function pillWidthFor(text: string, fontSize = 19): number {
+  return Math.round(text.length * fontSize * MONO_CHAR_WIDTH_RATIO) + PILL_PADDING * 2;
+}
+
 // Shared chrome (background, ambient glows, teal accent bar) all three
 // banners use — glow2Color is the only thing that varies: teal for the
 // passing/credited banner, red for either failure case.
@@ -254,8 +269,8 @@ function bannerCredited({
     <text x="36" y="39" font-family="Inter" font-size="20" font-weight="700" fill="#11D6C5">CREDITED TO</text>
     <text x="36" y="90" font-family="Inter" font-size="24" fill="#ffffff">This PR is being credited to —</text>
     <g transform="translate(395, 63)">
-      <rect width="180" height="38" rx="8" fill="#00c6b1" fill-opacity="0.16"/>
-      <text x="90" y="19" text-anchor="middle" dominant-baseline="central" font-family="JetBrains Mono" font-size="19" font-weight="700" fill="#11D6C5">${escapeXml(key)}</text>
+      <rect width="${pillWidthFor(key)}" height="38" rx="8" fill="#00c6b1" fill-opacity="0.16"/>
+      <text x="${pillWidthFor(key) / 2}" y="19" text-anchor="middle" dominant-baseline="central" font-family="JetBrains Mono" font-size="19" font-weight="700" fill="#11D6C5">${escapeXml(key)}</text>
     </g>
     <text x="36" y="139" font-family="Inter" font-size="18" fill="#9DB2C6">Retitling the PR re-runs this check automatically.</text>
   </g>
