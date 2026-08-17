@@ -35,6 +35,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   let result: "no-key" | "not-found" | "credited";
   let svg: string;
+  let jiraSummary: string | null = null; // logged only — not shown in the banner itself
 
   if (!key) {
     result = "no-key";
@@ -51,11 +52,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       svg = bannerNotFound({ repoLine, titleLine: title, key });
     } else {
       result = "credited";
-      svg = bannerCredited({ repoLine, titleLine: title, key, jiraTitle: row.summary });
+      jiraSummary = row.summary;
+      svg = bannerCredited({ repoLine, titleLine: title, key });
     }
   }
 
-  console.log(`✨✨ [jira-ticket-check badge] repo=${repo} | pr=${pr} | key=${key ?? "none"} | result=${result}`);
+  console.log(`✨✨ [jira-ticket-check badge] repo=${repo} | pr=${pr} | key=${key ?? "none"} | result=${result} | jiraSummary=${jiraSummary ?? "n/a"}`);
 
   const png = rasterize(svg);
 
@@ -211,8 +213,8 @@ function bannerNotFound({ repoLine, titleLine, key }: { repoLine: string; titleL
   ${chrome("#E0231B")}
   <g transform="translate(80, 48)">
     ${xIcon()}
-    <text x="112" y="46" dominant-baseline="central" font-family="Inter" font-size="46" font-weight="700" fill="#ffffff">Jira Ticket Check Failed!</text>
-    <text x="0" y="130" font-family="Inter" font-size="22" fill="#DCEAF2">${escapeXml(`Found "${key}" but it doesn't match any real Jira ticket.`)}</text>
+    <text x="112" y="46" dominant-baseline="central" font-family="Inter" font-size="46" font-weight="700" fill="#ffffff">Unknown Jira Ticket!</text>
+    <text x="0" y="130" font-family="Inter" font-size="22" fill="#DCEAF2">${escapeXml(`No Jira ticket exists with the key "${key}".`)}</text>
     <text x="0" y="166" font-family="JetBrains Mono" font-size="18" font-weight="700" fill="#11D6C5">${escapeXml(repoLine)}</text>
     <text x="0" y="198" font-family="Inter" font-size="20" fill="#9DB2C6">${escapeXml(`"${titleLine}"`)}</text>
   </g>
@@ -233,12 +235,10 @@ function bannerCredited({
   repoLine,
   titleLine,
   key,
-  jiraTitle,
 }: {
   repoLine: string;
   titleLine: string;
   key: string;
-  jiraTitle: string;
 }): string {
   return `<svg width="1200" height="518" viewBox="0 0 1200 518" xmlns="http://www.w3.org/2000/svg">
   ${chrome("#11D6C5")}
@@ -251,13 +251,12 @@ function bannerCredited({
   </g>
   <g transform="translate(80, 301)">
     <rect width="1040" height="166" rx="18" fill="#ffffff" fill-opacity="0.06" stroke="#11D6C5" stroke-opacity="0.4" stroke-width="1.5"/>
-    <text x="36" y="39" font-family="Inter" font-size="20" font-weight="700" fill="#11D6C5">CREDITED TO</text>
-    <text x="36" y="90" font-family="Inter" font-size="24" fill="#ffffff">This PR is being credited to —</text>
-    <g transform="translate(492, 63)">
+    <text x="36" y="53" font-family="Inter" font-size="20" font-weight="700" fill="#11D6C5">CREDITED TO</text>
+    <text x="36" y="118" font-family="Inter" font-size="24" fill="#ffffff">This PR is being credited to —</text>
+    <g transform="translate(395, 91)">
       <rect width="180" height="38" rx="8" fill="#00c6b1" fill-opacity="0.16"/>
       <text x="90" y="19" text-anchor="middle" dominant-baseline="central" font-family="JetBrains Mono" font-size="19" font-weight="700" fill="#11D6C5">${escapeXml(key)}</text>
     </g>
-    <text x="36" y="139" font-family="Inter" font-size="18" fill="#9DB2C6">${escapeXml(`"${truncate(jiraTitle, 90)}"`)}</text>
   </g>
 </svg>`;
 }
