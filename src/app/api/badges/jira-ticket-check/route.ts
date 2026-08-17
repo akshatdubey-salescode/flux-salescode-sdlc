@@ -15,7 +15,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   console.log(`✨✨ [jira-ticket-check badge] repo=${repo} | pr=${pr}`);
 
-  const svg = renderBanner({ repoLine: `${repo} · PR #${pr}`, titleLine: title });
+  const svg = renderBanner({ repoLine: `${repo} — PR #${pr}`, titleLine: title });
 
   return new NextResponse(svg, {
     headers: {
@@ -98,7 +98,7 @@ function renderBanner({ repoLine, titleLine }: { repoLine: string; titleLine: st
     <line x1="24" y1="24" x2="68" y2="68" stroke="#FF5A52" stroke-width="7" stroke-linecap="round"/>
     <line x1="68" y1="24" x2="24" y2="68" stroke="#FF5A52" stroke-width="7" stroke-linecap="round"/>
 
-    <text x="112" y="46" dominant-baseline="central" font-family="Arial, Helvetica, sans-serif" font-size="46" font-weight="800" fill="#ffffff">Jira Ticket Check Failed</text>
+    <text x="112" y="46" dominant-baseline="central" font-family="Arial, Helvetica, sans-serif" font-size="46" font-weight="800" fill="#ffffff">Jira Ticket Check Failed!</text>
 
     <text x="0" y="130" font-family="Arial, Helvetica, sans-serif" font-size="22" fill="#DCEAF2">This PR doesn't reference a Jira ticket key in its title or branch name.</text>
 
