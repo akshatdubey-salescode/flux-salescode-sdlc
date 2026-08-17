@@ -49,6 +49,35 @@ const LOGO_DATA_URI = (() => {
   return `data:image/webp;base64,${bytes.toString("base64")}`;
 })();
 
+// Embedded as actual font data, not just a font-family name — an SVG's
+// font-family is only ever a hint the RENDERER resolves against whatever
+// fonts it has installed. GitHub's web page renders using the viewer's own
+// browser/OS fonts (Arial, Menlo — fine on a Mac), but an email client
+// shows this same image through its own server-side pipeline (e.g.
+// Gmail's image proxy), almost certainly on Linux boxes that have none of
+// those proprietary Apple/Microsoft/Monotype fonts installed at all, so it
+// silently substitutes something else — same SVG, visibly different
+// fonts depending on where it is viewed. Embedding the font bytes directly
+// makes the rendering identical everywhere, no installed-font dependency.
+// Inter (variable, covers weights 400/700/800 from this one file) and
+// JetBrains Mono are both SIL Open Font License — freely embeddable, unlike
+// Arial/Menlo/Consolas which we have no redistribution rights to at all.
+const SANS_FONT_BASE64 = fs.readFileSync(path.join(process.cwd(), "public/inter-var.woff2")).toString("base64");
+const MONO_FONT_BASE64 = fs.readFileSync(path.join(process.cwd(), "public/jetbrains-mono-700.woff2")).toString("base64");
+const FONT_FACES = `
+  <style>
+    @font-face {
+      font-family: "BadgeSans";
+      font-weight: 100 900;
+      src: url(data:font/woff2;base64,${SANS_FONT_BASE64}) format("woff2");
+    }
+    @font-face {
+      font-family: "BadgeMono";
+      font-weight: 700;
+      src: url(data:font/woff2;base64,${MONO_FONT_BASE64}) format("woff2");
+    }
+  </style>`;
+
 /**
  * The banner's layout constants (padding, gaps, positions) were pixel-measured
  * against a static render, not hand-derived from font-metric formulas alone —
@@ -62,7 +91,7 @@ function renderBanner({ repoLine, titleLine }: { repoLine: string; titleLine: st
   const titleLineSafe = titleLine ? `&quot;${escapeXml(titleLine)}&quot;` : "";
 
   return `<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
-  <defs>
+  <defs>${FONT_FACES}
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#082B4B"/>
       <stop offset="100%" stop-color="#053029"/>
@@ -98,23 +127,23 @@ function renderBanner({ repoLine, titleLine }: { repoLine: string; titleLine: st
     <line x1="24" y1="24" x2="68" y2="68" stroke="#FF5A52" stroke-width="7" stroke-linecap="round"/>
     <line x1="68" y1="24" x2="24" y2="68" stroke="#FF5A52" stroke-width="7" stroke-linecap="round"/>
 
-    <text x="112" y="46" dominant-baseline="central" font-family="Arial, Helvetica, sans-serif" font-size="46" font-weight="800" fill="#ffffff">Jira Ticket Check Failed!</text>
+    <text x="112" y="46" dominant-baseline="central" font-family="BadgeSans, sans-serif" font-size="46" font-weight="800" fill="#ffffff">Jira Ticket Check Failed!</text>
 
-    <text x="0" y="130" font-family="Arial, Helvetica, sans-serif" font-size="22" fill="#DCEAF2">This PR doesn't reference a Jira ticket key in its title or branch name.</text>
+    <text x="0" y="130" font-family="BadgeSans, sans-serif" font-size="22" fill="#DCEAF2">This PR doesn't reference a Jira ticket key in its title or branch name.</text>
 
-    <text x="0" y="166" font-family="Menlo, Consolas, monospace" font-size="18" font-weight="700" fill="#11D6C5">${repoLineSafe}</text>
-    ${titleLineSafe ? `<text x="0" y="198" font-family="Arial, Helvetica, sans-serif" font-size="20" fill="#9DB2C6">${titleLineSafe}</text>` : ""}
+    <text x="0" y="166" font-family="BadgeMono, monospace" font-size="18" font-weight="700" fill="#11D6C5">${repoLineSafe}</text>
+    ${titleLineSafe ? `<text x="0" y="198" font-family="BadgeSans, sans-serif" font-size="20" fill="#9DB2C6">${titleLineSafe}</text>` : ""}
   </g>
 
   <g transform="translate(80, 416)">
     <rect width="1040" height="166" rx="18" fill="#ffffff" fill-opacity="0.06" stroke="#11D6C5" stroke-opacity="0.4" stroke-width="1.5"/>
-    <text x="36" y="39" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#11D6C5">QUICK FIX</text>
-    <text x="36" y="90" font-family="Arial, Helvetica, sans-serif" font-size="24" fill="#ffffff">Retitle the PR to include one — e.g.</text>
+    <text x="36" y="39" font-family="BadgeSans, sans-serif" font-size="20" font-weight="700" fill="#11D6C5">QUICK FIX</text>
+    <text x="36" y="90" font-family="BadgeSans, sans-serif" font-size="24" fill="#ffffff">Retitle the PR to include one — e.g.</text>
     <g transform="translate(435, 63)">
       <rect width="330" height="38" rx="8" fill="#00c6b1" fill-opacity="0.16"/>
-      <text x="165" y="19" text-anchor="middle" dominant-baseline="central" font-family="Menlo, Consolas, monospace" font-size="19" font-weight="700" fill="#11D6C5">PROJ-123: your title here</text>
+      <text x="165" y="19" text-anchor="middle" dominant-baseline="central" font-family="BadgeMono, monospace" font-size="19" font-weight="700" fill="#11D6C5">PROJ-123: your title here</text>
     </g>
-    <text x="36" y="138" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#9DB2C6">This check re-runs automatically in a few seconds.</text>
+    <text x="36" y="138" font-family="BadgeSans, sans-serif" font-size="18" fill="#9DB2C6">This check re-runs automatically in a few seconds.</text>
   </g>
 </svg>`;
 }
