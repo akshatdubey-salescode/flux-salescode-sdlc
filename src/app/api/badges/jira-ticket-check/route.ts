@@ -190,7 +190,7 @@ function bannerNoKey({ repoLine, titleLine }: { repoLine: string; titleLine: str
   ${chrome("#E0231B")}
   <g transform="translate(80, 48)">
     ${xIcon()}
-    <text x="112" y="46" dominant-baseline="central" font-family="Inter" font-size="46" font-weight="700" fill="#ffffff">Jira Ticket Check Failed!</text>
+    <text x="112" y="46" dominant-baseline="central" font-family="Inter" font-size="46" font-weight="700" fill="#ffffff">No Jira Ticket Referenced!</text>
     <text x="0" y="130" font-family="Inter" font-size="22" fill="#DCEAF2">This PR doesn't reference a Jira ticket key in its title or branch name.</text>
     <text x="0" y="166" font-family="JetBrains Mono" font-size="18" font-weight="700" fill="#11D6C5">${repoLineSafe}</text>
     ${titleLineSafe ? `<text x="0" y="198" font-family="Inter" font-size="20" fill="#9DB2C6">${titleLineSafe}</text>` : ""}
@@ -203,7 +203,7 @@ function bannerNoKey({ repoLine, titleLine }: { repoLine: string; titleLine: str
       <rect width="330" height="38" rx="8" fill="#00c6b1" fill-opacity="0.16"/>
       <text x="165" y="19" text-anchor="middle" dominant-baseline="central" font-family="JetBrains Mono" font-size="19" font-weight="700" fill="#11D6C5">PROJ-123: your title here</text>
     </g>
-    <text x="36" y="139" font-family="Inter" font-size="18" fill="#9DB2C6">This check re-runs automatically in a few seconds.</text>
+    <text x="36" y="139" font-family="Inter" font-size="18" fill="#9DB2C6">Retitling the PR re-runs this check automatically — usually within 15 seconds.</text>
   </g>
 </svg>`;
 }
@@ -226,7 +226,7 @@ function bannerNotFound({ repoLine, titleLine, key }: { repoLine: string; titleL
       <rect width="330" height="38" rx="8" fill="#00c6b1" fill-opacity="0.16"/>
       <text x="165" y="19" text-anchor="middle" dominant-baseline="central" font-family="JetBrains Mono" font-size="19" font-weight="700" fill="#11D6C5">PROJ-123: your title here</text>
     </g>
-    <text x="36" y="139" font-family="Inter" font-size="18" fill="#9DB2C6">This check re-runs automatically in a few seconds.</text>
+    <text x="36" y="139" font-family="Inter" font-size="18" fill="#9DB2C6">Retitling the PR re-runs this check automatically — usually within 15 seconds.</text>
   </g>
 </svg>`;
 }
@@ -251,12 +251,13 @@ function bannerCredited({
   </g>
   <g transform="translate(80, 301)">
     <rect width="1040" height="166" rx="18" fill="#ffffff" fill-opacity="0.06" stroke="#11D6C5" stroke-opacity="0.4" stroke-width="1.5"/>
-    <text x="36" y="53" font-family="Inter" font-size="20" font-weight="700" fill="#11D6C5">CREDITED TO</text>
-    <text x="36" y="118" font-family="Inter" font-size="24" fill="#ffffff">This PR is being credited to —</text>
-    <g transform="translate(395, 91)">
+    <text x="36" y="39" font-family="Inter" font-size="20" font-weight="700" fill="#11D6C5">CREDITED TO</text>
+    <text x="36" y="90" font-family="Inter" font-size="24" fill="#ffffff">This PR is being credited to —</text>
+    <g transform="translate(395, 63)">
       <rect width="180" height="38" rx="8" fill="#00c6b1" fill-opacity="0.16"/>
       <text x="90" y="19" text-anchor="middle" dominant-baseline="central" font-family="JetBrains Mono" font-size="19" font-weight="700" fill="#11D6C5">${escapeXml(key)}</text>
     </g>
+    <text x="36" y="139" font-family="Inter" font-size="18" fill="#9DB2C6">Retitling the PR re-runs this check automatically — usually within 15 seconds.</text>
   </g>
 </svg>`;
 }
