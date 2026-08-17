@@ -86,10 +86,11 @@ const LOGO_DATA_URI = (() => {
 /**
  * The banner's layout constants (padding, gaps, positions) were pixel-measured
  * against a static render, not hand-derived from font-metric formulas alone —
- * see salescode-jenkins-pipelines PR #189 for that process. Adding the
- * repo/PR#/title lines grew the middle "section" zone from 135 to 205, so the
- * four gaps (top/logo→section/section→box/box→bottom) were recomputed to stay
- * equal: (630 - 64 - 205 - 166) / 4 ≈ 49px each.
+ * see salescode-jenkins-pipelines PR #189 for that process. Whenever a zone's
+ * height changes (e.g. the quick-fix box growing from 166 to 200 when the
+ * pill moved to its own row), the four gaps (top/logo→section/section→box/
+ * box→bottom) get recomputed to stay equal: (630 - 64 - 205 - 200) / 4 ≈ 40px
+ * each, last one absorbing the rounding remainder.
  */
 function renderBanner({ repoLine, titleLine }: { repoLine: string; titleLine: string }): string {
   const repoLineSafe = escapeXml(repoLine);
@@ -121,12 +122,12 @@ function renderBanner({ repoLine, titleLine }: { repoLine: string; titleLine: st
 
   <rect x="0" y="0" width="10" height="630" fill="url(#tealGlow)"/>
 
-  <g transform="translate(80, 49)">
+  <g transform="translate(80, 40)">
     <rect width="152" height="64" rx="14" fill="#ffffff"/>
     <image href="${LOGO_DATA_URI}" x="16" y="16" width="120" height="32" preserveAspectRatio="xMidYMid meet"/>
   </g>
 
-  <g transform="translate(80, 162)">
+  <g transform="translate(80, 144)">
     <circle cx="46" cy="46" r="46" fill="#E0231B" fill-opacity="0.14"/>
     <circle cx="46" cy="46" r="46" fill="none" stroke="#E0231B" stroke-width="3"/>
     <line x1="24" y1="24" x2="68" y2="68" stroke="#FF5A52" stroke-width="7" stroke-linecap="round"/>
@@ -140,15 +141,15 @@ function renderBanner({ repoLine, titleLine }: { repoLine: string; titleLine: st
     ${titleLineSafe ? `<text x="0" y="198" font-family="Inter" font-size="20" fill="#9DB2C6">${titleLineSafe}</text>` : ""}
   </g>
 
-  <g transform="translate(80, 416)">
-    <rect width="1040" height="166" rx="18" fill="#ffffff" fill-opacity="0.06" stroke="#11D6C5" stroke-opacity="0.4" stroke-width="1.5"/>
-    <text x="36" y="39" font-family="Inter" font-size="20" font-weight="700" fill="#11D6C5">QUICK FIX</text>
-    <text x="36" y="90" font-family="Inter" font-size="24" fill="#ffffff">Retitle the PR to include one — e.g.</text>
-    <g transform="translate(435, 63)">
+  <g transform="translate(80, 389)">
+    <rect width="1040" height="200" rx="18" fill="#ffffff" fill-opacity="0.06" stroke="#11D6C5" stroke-opacity="0.4" stroke-width="1.5"/>
+    <text x="36" y="36" font-family="Inter" font-size="20" font-weight="700" fill="#11D6C5">QUICK FIX</text>
+    <text x="36" y="75" font-family="Inter" font-size="24" fill="#ffffff">Retitle the PR to include a Jira ticket key — e.g.</text>
+    <g transform="translate(36, 100)">
       <rect width="330" height="38" rx="8" fill="#00c6b1" fill-opacity="0.16"/>
       <text x="165" y="19" text-anchor="middle" dominant-baseline="central" font-family="JetBrains Mono" font-size="19" font-weight="700" fill="#11D6C5">PROJ-123: your title here</text>
     </g>
-    <text x="36" y="138" font-family="Inter" font-size="18" fill="#9DB2C6">This check re-runs automatically in a few seconds.</text>
+    <text x="36" y="173" font-family="Inter" font-size="18" fill="#9DB2C6">This check re-runs automatically in a few seconds.</text>
   </g>
 </svg>`;
 }
