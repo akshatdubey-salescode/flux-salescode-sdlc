@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "node:fs";
+import { Resvg } from "@resvg/resvg-js";
 import path from "node:path";
 
 // Public on purpose — no requireAuth() here. GitHub fetches this URL directly
@@ -16,10 +16,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   console.log(`✨✨ [jira-ticket-check badge] repo=${repo} | pr=${pr}`);
 
   const svg = renderBanner({ repoLine: `${repo} — PR #${pr}`, titleLine: title });
+  const png = rasterize(svg);
 
-  return new NextResponse(svg, {
+  return new NextResponse(new Uint8Array(png), {
     headers: {
-      "Content-Type": "image/svg+xml",
+      "Content-Type": "image/png",
       // Same URL always renders the same content (fully determined by its
       // own query params) — short caching just spares repeat fetches of an
       // already-failed PR from re-rendering every time, not a staleness
@@ -27,6 +28,41 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       "Cache-Control": "public, max-age=300",
     },
   });
+}
+
+/**
+ * Rasterizes to PNG on our own server, rather than returning the raw SVG for
+ * the viewer to render — GitHub's web page renders an <img> SVG using the
+ * viewer's own browser (fine, has real fonts), but an email client shows the
+ * same image through its own server-side pipeline (e.g. Gmail's image
+ * proxy), whose SVG rasterizer turned out not to support @font-face/embedded
+ * web fonts at all (confirmed by direct comparison: same URL, visibly
+ * different fonts between the GitHub comment and the delivered email). A
+ * plain PNG has no font (or WebP image, see LOGO_PNG below) to resolve at
+ * all for the viewer — the text is already pixels — so there is nothing left
+ * for any rendering environment to get inconsistent about.
+ */
+function rasterize(svg: string): Buffer {
+  const resvg = new Resvg(svg, {
+    font: {
+      // resvg's font engine (fontdb/ttf-parser) rejected both fonts as
+      // "malformed" when they were WOFF2 (Brotli-compressed) — only
+      // TTF/OTF/plain-WOFF are supported, so these are checked-in as
+      // decompressed .ttf files specifically for this renderer. Inter is
+      // also checked in as two separate static-weight instances (not the
+      // original variable font) -- resvg does not interpolate a variable
+      // font's weight axis, so every font-weight request against a single
+      // variable file silently rendered at whatever its default instance
+      // was (Regular), ignoring font-weight="700" entirely.
+      fontFiles: [
+        path.join(process.cwd(), "public/inter-regular.ttf"),
+        path.join(process.cwd(), "public/inter-bold.ttf"),
+        path.join(process.cwd(), "public/jetbrains-mono-700.ttf"),
+      ],
+      loadSystemFonts: false,
+    },
+  });
+  return resvg.render().asPng();
 }
 
 /** Escapes text for safe embedding inside SVG/XML — PR titles are arbitrary,
@@ -44,54 +80,29 @@ function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
 
-const LOGO_DATA_URI = (() => {
-  const bytes = fs.readFileSync(path.join(process.cwd(), "public/salescode-logo.webp"));
-  return `data:image/webp;base64,${bytes.toString("base64")}`;
-})();
-
-// Embedded as actual font data, not just a font-family name — an SVG's
-// font-family is only ever a hint the RENDERER resolves against whatever
-// fonts it has installed. GitHub's web page renders using the viewer's own
-// browser/OS fonts (Arial, Menlo — fine on a Mac), but an email client
-// shows this same image through its own server-side pipeline (e.g.
-// Gmail's image proxy), almost certainly on Linux boxes that have none of
-// those proprietary Apple/Microsoft/Monotype fonts installed at all, so it
-// silently substitutes something else — same SVG, visibly different
-// fonts depending on where it is viewed. Embedding the font bytes directly
-// makes the rendering identical everywhere, no installed-font dependency.
-// Inter (variable, covers weights 400/700/800 from this one file) and
-// JetBrains Mono are both SIL Open Font License — freely embeddable, unlike
-// Arial/Menlo/Consolas which we have no redistribution rights to at all.
-const SANS_FONT_BASE64 = fs.readFileSync(path.join(process.cwd(), "public/inter-var.woff2")).toString("base64");
-const MONO_FONT_BASE64 = fs.readFileSync(path.join(process.cwd(), "public/jetbrains-mono-700.woff2")).toString("base64");
-const FONT_FACES = `
-  <style>
-    @font-face {
-      font-family: "BadgeSans";
-      font-weight: 100 900;
-      src: url(data:font/woff2;base64,${SANS_FONT_BASE64}) format("woff2");
-    }
-    @font-face {
-      font-family: "BadgeMono";
-      font-weight: 700;
-      src: url(data:font/woff2;base64,${MONO_FONT_BASE64}) format("woff2");
-    }
-  </style>`;
-
 /**
  * The banner's layout constants (padding, gaps, positions) were pixel-measured
  * against a static render, not hand-derived from font-metric formulas alone —
- * see salescode-jenkins-pipelines PR #189 for that process. Adding the
- * repo/PR#/title lines grew the middle "section" zone from 135 to 205, so the
- * four gaps (top/logo→section/section→box/box→bottom) were recomputed to stay
- * equal: (630 - 64 - 205 - 166) / 4 ≈ 49px each.
+ * see salescode-jenkins-pipelines PR #189 for that process. Whenever a zone's
+ * height changes (e.g. the quick-fix box growing from 166 to 200 when the
+ * pill moved to its own row), the four gaps (top/logo→section/section→box/
+ * box→bottom) get recomputed to stay equal: (630 - 64 - 205 - 200) / 4 ≈ 40px
+ * each, last one absorbing the rounding remainder.
+ *
+ * The logo itself was later dropped from the render entirely (a reviewer's
+ * call — no need for the org image in a notice like this) by cropping
+ * everything above the old logo's bottom edge (was at y=112) rather than
+ * just hiding it: every remaining group's y-translate shifted up by 112,
+ * and the canvas height shrank from 630 to 518 to match. The salescode logo
+ * PNG stays checked in at public/salescode-logo.png regardless — nothing
+ * here deletes the asset, only stops this one banner from rendering it.
  */
 function renderBanner({ repoLine, titleLine }: { repoLine: string; titleLine: string }): string {
   const repoLineSafe = escapeXml(repoLine);
   const titleLineSafe = titleLine ? `&quot;${escapeXml(titleLine)}&quot;` : "";
 
-  return `<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
-  <defs>${FONT_FACES}
+  return `<svg width="1200" height="518" viewBox="0 0 1200 518" xmlns="http://www.w3.org/2000/svg">
+  <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#082B4B"/>
       <stop offset="100%" stop-color="#053029"/>
@@ -110,40 +121,35 @@ function renderBanner({ repoLine, titleLine }: { repoLine: string; titleLine: st
     </radialGradient>
   </defs>
 
-  <rect width="1200" height="630" fill="url(#bg)"/>
-  <circle cx="980" cy="120" r="340" fill="url(#glow1)"/>
-  <circle cx="160" cy="560" r="300" fill="url(#glow2)"/>
+  <rect width="1200" height="518" fill="url(#bg)"/>
+  <circle cx="980" cy="8" r="340" fill="url(#glow1)"/>
+  <circle cx="160" cy="448" r="300" fill="url(#glow2)"/>
 
-  <rect x="0" y="0" width="10" height="630" fill="url(#tealGlow)"/>
+  <rect x="0" y="0" width="10" height="518" fill="url(#tealGlow)"/>
 
-  <g transform="translate(80, 49)">
-    <rect width="152" height="64" rx="14" fill="#ffffff"/>
-    <image href="${LOGO_DATA_URI}" x="16" y="16" width="120" height="32" preserveAspectRatio="xMidYMid meet"/>
-  </g>
-
-  <g transform="translate(80, 162)">
+  <g transform="translate(80, 48)">
     <circle cx="46" cy="46" r="46" fill="#E0231B" fill-opacity="0.14"/>
     <circle cx="46" cy="46" r="46" fill="none" stroke="#E0231B" stroke-width="3"/>
     <line x1="24" y1="24" x2="68" y2="68" stroke="#FF5A52" stroke-width="7" stroke-linecap="round"/>
     <line x1="68" y1="24" x2="24" y2="68" stroke="#FF5A52" stroke-width="7" stroke-linecap="round"/>
 
-    <text x="112" y="46" dominant-baseline="central" font-family="BadgeSans, sans-serif" font-size="46" font-weight="800" fill="#ffffff">Jira Ticket Check Failed!</text>
+    <text x="112" y="46" dominant-baseline="central" font-family="Inter" font-size="46" font-weight="700" fill="#ffffff">Jira Ticket Check Failed!</text>
 
-    <text x="0" y="130" font-family="BadgeSans, sans-serif" font-size="22" fill="#DCEAF2">This PR doesn't reference a Jira ticket key in its title or branch name.</text>
+    <text x="0" y="130" font-family="Inter" font-size="22" fill="#DCEAF2">This PR doesn't reference a Jira ticket key in its title or branch name.</text>
 
-    <text x="0" y="166" font-family="BadgeMono, monospace" font-size="18" font-weight="700" fill="#11D6C5">${repoLineSafe}</text>
-    ${titleLineSafe ? `<text x="0" y="198" font-family="BadgeSans, sans-serif" font-size="20" fill="#9DB2C6">${titleLineSafe}</text>` : ""}
+    <text x="0" y="166" font-family="JetBrains Mono" font-size="18" font-weight="700" fill="#11D6C5">${repoLineSafe}</text>
+    ${titleLineSafe ? `<text x="0" y="198" font-family="Inter" font-size="20" fill="#9DB2C6">${titleLineSafe}</text>` : ""}
   </g>
 
-  <g transform="translate(80, 416)">
+  <g transform="translate(80, 301)">
     <rect width="1040" height="166" rx="18" fill="#ffffff" fill-opacity="0.06" stroke="#11D6C5" stroke-opacity="0.4" stroke-width="1.5"/>
-    <text x="36" y="39" font-family="BadgeSans, sans-serif" font-size="20" font-weight="700" fill="#11D6C5">QUICK FIX</text>
-    <text x="36" y="90" font-family="BadgeSans, sans-serif" font-size="24" fill="#ffffff">Retitle the PR to include one — e.g.</text>
-    <g transform="translate(435, 63)">
+    <text x="36" y="39" font-family="Inter" font-size="20" font-weight="700" fill="#11D6C5">QUICK FIX</text>
+    <text x="36" y="90" font-family="Inter" font-size="24" fill="#ffffff">Retitle the PR to include a Jira ticket key — e.g.</text>
+    <g transform="translate(586, 63)">
       <rect width="330" height="38" rx="8" fill="#00c6b1" fill-opacity="0.16"/>
-      <text x="165" y="19" text-anchor="middle" dominant-baseline="central" font-family="BadgeMono, monospace" font-size="19" font-weight="700" fill="#11D6C5">PROJ-123: your title here</text>
+      <text x="165" y="19" text-anchor="middle" dominant-baseline="central" font-family="JetBrains Mono" font-size="19" font-weight="700" fill="#11D6C5">PROJ-123: your title here</text>
     </g>
-    <text x="36" y="138" font-family="BadgeSans, sans-serif" font-size="18" fill="#9DB2C6">This check re-runs automatically in a few seconds.</text>
+    <text x="36" y="139" font-family="Inter" font-size="18" fill="#9DB2C6">This check re-runs automatically in a few seconds.</text>
   </g>
 </svg>`;
 }
