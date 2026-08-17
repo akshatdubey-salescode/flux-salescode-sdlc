@@ -203,7 +203,7 @@ function bannerNoKey({ repoLine, titleLine }: { repoLine: string; titleLine: str
       <rect width="330" height="38" rx="8" fill="#00c6b1" fill-opacity="0.16"/>
       <text x="165" y="19" text-anchor="middle" dominant-baseline="central" font-family="JetBrains Mono" font-size="19" font-weight="700" fill="#11D6C5">PROJ-123: your title here</text>
     </g>
-    <text x="36" y="139" font-family="Inter" font-size="18" fill="#9DB2C6">Retitling the PR re-runs this check automatically — usually within 15 seconds.</text>
+    <text x="36" y="139" font-family="Inter" font-size="18" fill="#9DB2C6">Retitling the PR re-runs this check automatically.</text>
   </g>
 </svg>`;
 }
@@ -213,7 +213,7 @@ function bannerNotFound({ repoLine, titleLine, key }: { repoLine: string; titleL
   ${chrome("#E0231B")}
   <g transform="translate(80, 48)">
     ${xIcon()}
-    <text x="112" y="46" dominant-baseline="central" font-family="Inter" font-size="46" font-weight="700" fill="#ffffff">Unknown Jira Ticket!</text>
+    <text x="112" y="46" dominant-baseline="central" font-family="Inter" font-size="46" font-weight="700" fill="#ffffff">Jira Ticket Doesn't Exist!</text>
     <text x="0" y="130" font-family="Inter" font-size="22" fill="#DCEAF2">${escapeXml(`No Jira ticket exists with the key "${key}".`)}</text>
     <text x="0" y="166" font-family="JetBrains Mono" font-size="18" font-weight="700" fill="#11D6C5">${escapeXml(repoLine)}</text>
     <text x="0" y="198" font-family="Inter" font-size="20" fill="#9DB2C6">${escapeXml(`"${titleLine}"`)}</text>
@@ -226,7 +226,7 @@ function bannerNotFound({ repoLine, titleLine, key }: { repoLine: string; titleL
       <rect width="330" height="38" rx="8" fill="#00c6b1" fill-opacity="0.16"/>
       <text x="165" y="19" text-anchor="middle" dominant-baseline="central" font-family="JetBrains Mono" font-size="19" font-weight="700" fill="#11D6C5">PROJ-123: your title here</text>
     </g>
-    <text x="36" y="139" font-family="Inter" font-size="18" fill="#9DB2C6">Retitling the PR re-runs this check automatically — usually within 15 seconds.</text>
+    <text x="36" y="139" font-family="Inter" font-size="18" fill="#9DB2C6">Retitling the PR re-runs this check automatically.</text>
   </g>
 </svg>`;
 }
@@ -257,7 +257,7 @@ function bannerCredited({
       <rect width="180" height="38" rx="8" fill="#00c6b1" fill-opacity="0.16"/>
       <text x="90" y="19" text-anchor="middle" dominant-baseline="central" font-family="JetBrains Mono" font-size="19" font-weight="700" fill="#11D6C5">${escapeXml(key)}</text>
     </g>
-    <text x="36" y="139" font-family="Inter" font-size="18" fill="#9DB2C6">Retitling the PR re-runs this check automatically — usually within 15 seconds.</text>
+    <text x="36" y="139" font-family="Inter" font-size="18" fill="#9DB2C6">Retitling the PR re-runs this check automatically.</text>
   </g>
 </svg>`;
 }
