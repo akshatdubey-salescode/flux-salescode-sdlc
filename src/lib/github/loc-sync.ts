@@ -105,7 +105,7 @@ export function isJobStale(referenceTime: Date, now: Date): boolean {
 // spurious match only "hits" if it happens to equal a real Jira key AND that
 // Jira's assignee matches the PR author AND the dates align — real false
 // positives are effectively impossible.
-const JIRA_KEY_REGEX = /([A-Za-z][A-Za-z0-9]{1,9}?)[-_.\s]*(\d{1,6})/g;
+const JIRA_KEY_REGEX = /(?<![A-Za-z])([A-Za-z]{2,10})[^A-Za-z0-9]*(\d{1,6})(?!\d)/g;
 
 /**
  * Every distinct, canonicalized ("PREFIX-123", upper-cased) Jira key found in
