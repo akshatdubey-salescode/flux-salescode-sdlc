@@ -51,6 +51,16 @@ test("a short word+digit combo below the minimum key length yields no candidate"
   assert.deepEqual(extractCandidateJiraKeys("v2"), []);
 });
 
+test("an ordinary word over 10 letters directly touching digits yields no candidate", () => {
+  // "transformer" is 11 letters, one past the {2,10} namespace cap. A prior
+  // regex (lazy quantifier, no start-boundary lookbehind) resolved this by
+  // sliding the match start one letter in and grabbing "ransformer-4242" —
+  // a real-shaped but wrong key with its leading letter sheared off. The
+  // lookbehind stops any match from starting mid-word, so this must yield
+  // nothing rather than a mangled key.
+  assert.deepEqual(extractCandidateJiraKeys("promos transformer-4242 done"), []);
+});
+
 // --- resolvePrCredit: author + lenient date floor, Dev Owner preferred ------
 
 const day = (iso: string) => new Date(iso);
