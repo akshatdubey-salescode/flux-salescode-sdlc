@@ -1,0 +1,106 @@
+# Jira Ticket Check (Server-Side Enforcement)
+#
+# Every PR must reference a Jira ticket key that actually exists in this
+# same app's own jira_issues table. Fails the check (and blocks merge, once
+# wired into a required ruleset) if it can't find one, or if the key it
+# finds is not a real ticket.
+#
+# This is a direct copy, not a workflow_call into salescode-ai/
+# salescode-jenkins-pipelines's version of the same file -- that source
+# lives under a different account entirely, and neither its self-hosted
+# runner nor a cross-account reusable-workflow call is reachable from here.
+# Keep both copies in sync by hand if the shared logic changes.
+#
+# A single request to this app's own public badge route does everything:
+# parses the key from the PR title (branch name as fallback, first match
+# only), looks it up against this app's jira_issues table, renders whichever
+# of three banners applies (no key found / key found but not a real ticket /
+# key found and credited), and reports which one via the X-Jira-Check
+# response header. That header is this job's own pass/fail signal.
+#
+# Comment behavior differs by outcome, on purpose:
+# - Fail: posts a NEW PR comment every failed run, never found-and-updated
+#   in place. GitHub only emails PR watchers on comment *creation*, not on
+#   edit, and the point of this comment is to actually reach the developer
+#   by email each time their PR fails, not just to keep one comment's text
+#   current.
+# - Pass: no PR comment at all. The credited banner goes to this job's own
+#   Actions Job Summary instead (Checks tab -> this job -> Summary) -- the
+#   very first passing run has no comment yet to update, so a PR-comment
+#   approach would still have to create one, and GitHub emails on comment
+#   creation regardless of pass or fail. Never creating a PR comment for a
+#   pass is the only way to guarantee zero emails on every passing run,
+#   including the first.
+
+name: Jira Ticket Check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: ["main"]
+
+concurrency:
+  group: jira-ticket-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  jira-ticket-check:
+    name: Check for a valid Jira ticket reference
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validate against this app's own Jira data and comment the result
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BRANCH_NAME: ${{ github.head_ref }}
+        run: |
+          node -e '
+            (async () => {
+              const [owner, repo] = process.env.GITHUB_REPOSITORY.split("/");
+              const api = `https://api.github.com/repos/${owner}/${repo}`;
+              const headers = {
+                Authorization: `Bearer ${process.env.GH_TOKEN}`,
+                Accept: "application/vnd.github+json",
+                "Content-Type": "application/json",
+                "X-GitHub-Api-Version": "2022-11-28",
+              };
+
+              const badgeParams = new URLSearchParams({
+                repo: process.env.GITHUB_REPOSITORY,
+                pr: process.env.PR_NUMBER,
+                title: process.env.PR_TITLE ?? "",
+                branch: process.env.BRANCH_NAME ?? "",
+              });
+              const imageUrl = `https://salescode-sdlc-v2.vercel.app/api/badges/jira-ticket-check?${badgeParams}`;
+
+              const badgeRes = await fetch(imageUrl);
+              if (!badgeRes.ok) throw new Error(`badge fetch failed: ${badgeRes.status}`);
+              const checkResult = badgeRes.headers.get("x-jira-check");
+              const passed = checkResult === "pass";
+              console.log(`Jira ticket check result: ${badgeRes.headers.get("x-jira-check-result")} (${passed ? "pass" : "fail"})`);
+
+              const marker = "<!-- jira-ticket-check -->";
+              const body = `${marker}\n![Jira Ticket Check](${imageUrl})`;
+
+              if (passed) {
+                const fs = require("node:fs");
+                fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${body}\n`);
+                console.log("Wrote the credited banner to the job summary -- no PR comment, no email.");
+              } else {
+                const res = await fetch(`${api}/issues/${process.env.PR_NUMBER}/comments`, { method: "POST", headers, body: JSON.stringify({ body }) });
+                if (!res.ok) throw new Error(`create comment failed: ${res.status} ${await res.text()}`);
+                console.log("Posted a new PR comment explaining the failure.");
+                process.exit(1);
+              }
+            })();
+          '
