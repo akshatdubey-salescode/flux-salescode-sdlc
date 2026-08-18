@@ -35,7 +35,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   let result: "no-key" | "not-found" | "credited";
   let svg: string;
-  let jiraSummary: string | null = null; // logged only — not shown in the banner itself
+  let jiraSummary: string | null = null;
 
   if (!key) {
     result = "no-key";
@@ -53,7 +53,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     } else {
       result = "credited";
       jiraSummary = row.summary;
-      svg = bannerCredited({ repoLine, titleLine: title, key });
+      svg = bannerCredited({ repoLine, titleLine: title, key, jiraSummary });
     }
   }
 
@@ -142,6 +142,13 @@ const PILL_PADDING = 24;
 function pillWidthFor(text: string, fontSize = 19): number {
   return Math.round(text.length * fontSize * MONO_CHAR_WIDTH_RATIO) + PILL_PADDING * 2;
 }
+
+// The credited banner's pill starts at a fixed x=395 inside a 1040-wide box
+// with a 36px right margin, leaving 609px to the box's edge. Solving
+// pillWidthFor(n) <= 609 for n gives ~50 -- truncating the pill's text to
+// that many characters (key included) keeps it inside the box regardless of
+// how long the real Jira summary is, without needing the summary summarized.
+const PILL_MAX_CHARS = 50;
 
 // Shared chrome (background, ambient glows, teal accent bar) all three
 // banners use — glow2Color is the only thing that varies: teal for the
@@ -250,11 +257,18 @@ function bannerCredited({
   repoLine,
   titleLine,
   key,
+  jiraSummary,
 }: {
   repoLine: string;
   titleLine: string;
   key: string;
+  jiraSummary: string | null;
 }): string {
+  // Same "key: description" shape the QUICK FIX pill's example already uses
+  // ("PROJ-123: your title here") -- just with the real key and the real
+  // summary, length-trimmed (not summarized) to fit the pill's box.
+  const pillText = truncate(jiraSummary ? `${key}: ${jiraSummary}` : key, PILL_MAX_CHARS);
+
   return `<svg width="1200" height="518" viewBox="0 0 1200 518" xmlns="http://www.w3.org/2000/svg">
   ${chrome("#11D6C5")}
   <g transform="translate(80, 48)">
@@ -269,8 +283,8 @@ function bannerCredited({
     <text x="36" y="39" font-family="Inter" font-size="20" font-weight="700" fill="#11D6C5">CREDITED TO</text>
     <text x="36" y="90" font-family="Inter" font-size="24" fill="#ffffff">This PR is being credited to —</text>
     <g transform="translate(395, 63)">
-      <rect width="${pillWidthFor(key)}" height="38" rx="8" fill="#00c6b1" fill-opacity="0.16"/>
-      <text x="${pillWidthFor(key) / 2}" y="19" text-anchor="middle" dominant-baseline="central" font-family="JetBrains Mono" font-size="19" font-weight="700" fill="#11D6C5">${escapeXml(key)}</text>
+      <rect width="${pillWidthFor(pillText)}" height="38" rx="8" fill="#00c6b1" fill-opacity="0.16"/>
+      <text x="${pillWidthFor(pillText) / 2}" y="19" text-anchor="middle" dominant-baseline="central" font-family="JetBrains Mono" font-size="19" font-weight="700" fill="#11D6C5">${escapeXml(pillText)}</text>
     </g>
     <text x="36" y="139" font-family="Inter" font-size="18" fill="#9DB2C6">Retitling the PR re-runs this check automatically.</text>
   </g>
