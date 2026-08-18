@@ -95,17 +95,15 @@ export function isJobStale(referenceTime: Date, now: Date): boolean {
 // prefix and number separately so callers can reassemble the canonical
 // "PREFIX-123" form regardless of how the PR author actually wrote it (people
 // use dashes, underscores, dots, spaces, or nothing — "SC-123", "SC_123",
-// "sc.123", "SC 123", "sc123" should all resolve). The prefix group is lazy
-// ({1,9}?), not greedy — with no separator to mark the split, a greedy prefix
-// over-consumes digits before backtracking to satisfy the number group,
-// landing on the wrong split (e.g. "sc3940" greedy-first would backtrack to
-// prefix "sc394" + number "0" instead of prefix "sc" + number "3940"). Lazy
-// expansion stops at the first split that lets the number group match,
-// which is the correct one. A permissive regex here is safe regardless: a
-// spurious match only "hits" if it happens to equal a real Jira key AND that
-// Jira's assignee matches the PR author AND the dates align — real false
-// positives are effectively impossible.
-const JIRA_KEY_REGEX = /(?<![A-Za-z])([A-Za-z]{2,10})[^A-Za-z0-9]*(\d{1,6})(?!\d)/g;
+// "sc.123", "SC 123", "sc123" should all resolve). No length cap on either
+// group on purpose -- deliberately generous, since this only extracts a
+// *candidate*; the real DB lookup downstream is what decides whether it's an
+// actual ticket. The (?<![A-Za-z])/(?!\d) anchors are what actually matter:
+// a match can only start at a real word boundary and its digit run can't be
+// cut short, so a long ordinary word right before a number (e.g.
+// "transformer-4242") resolves to the whole thing, TRANSFORMER-4242 -- not a
+// shorter, wrong substring with its leading letter sheared off.
+const JIRA_KEY_REGEX = /(?<![A-Za-z])([A-Za-z]{2,})[^A-Za-z0-9]*(\d+)(?!\d)/g;
 
 /**
  * Every distinct, canonicalized ("PREFIX-123", upper-cased) Jira key found in

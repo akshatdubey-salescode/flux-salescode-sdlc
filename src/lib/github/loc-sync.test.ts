@@ -51,14 +51,21 @@ test("a short word+digit combo below the minimum key length yields no candidate"
   assert.deepEqual(extractCandidateJiraKeys("v2"), []);
 });
 
-test("an ordinary word over 10 letters directly touching digits yields no candidate", () => {
-  // "transformer" is 11 letters, one past the {2,10} namespace cap. A prior
-  // regex (lazy quantifier, no start-boundary lookbehind) resolved this by
-  // sliding the match start one letter in and grabbing "ransformer-4242" —
-  // a real-shaped but wrong key with its leading letter sheared off. The
-  // lookbehind stops any match from starting mid-word, so this must yield
-  // nothing rather than a mangled key.
-  assert.deepEqual(extractCandidateJiraKeys("promos transformer-4242 done"), []);
+test("an ordinary word over 10 letters directly touching digits resolves to the whole word, not a sheared fragment", () => {
+  // No namespace length cap: a prior regex (lazy quantifier, no
+  // start-boundary lookbehind) resolved a long word like "transformer"
+  // right before a number by sliding the match start one letter in and
+  // grabbing "ransformer-4242" — a real-shaped but wrong key with its
+  // leading letter sheared off. The lookbehind stops any match from
+  // starting mid-word, so this must resolve to the whole word intact
+  // instead — a DB lookup downstream is what actually decides whether it's
+  // a real ticket, not this extraction step.
+  assert.deepEqual(extractCandidateJiraKeys("promos transformer-4242 done"), ["TRANSFORMER-4242"]);
+});
+
+test("a very long word and a very long digit run both resolve in full, uncapped", () => {
+  assert.deepEqual(extractCandidateJiraKeys("jujutsukaisen2626"), ["JUJUTSUKAISEN-2626"]);
+  assert.deepEqual(extractCandidateJiraKeys("CAV-1234567890"), ["CAV-1234567890"]);
 });
 
 // --- resolvePrCredit: author + lenient date floor, Dev Owner preferred ------
