@@ -35,9 +35,10 @@
 name: Jira Ticket Check
 
 on:
+  # No branches: filter -- every PR needs a Jira ticket key regardless of
+  # target branch, not just main.
   pull_request:
     types: [opened, edited, synchronize, reopened]
-    branches: ["main"]
 
 concurrency:
   group: jira-ticket-check-${{ github.event.pull_request.number }}
