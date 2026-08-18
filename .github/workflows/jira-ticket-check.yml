@@ -37,7 +37,15 @@ name: Jira Ticket Check
 on:
   # No branches: filter -- every PR needs a Jira ticket key regardless of
   # target branch, not just main.
-  pull_request:
+  #
+  # pull_request_target, not pull_request: always runs the copy of this
+  # file committed to this repo's own default branch, regardless of what
+  # either branch in a given PR contains -- so a PR between two old,
+  # long-lived branches that never merged this file in still triggers the
+  # check. Safe here: this job never checks out or executes anything from
+  # the PR itself, it only reads title/number/head_ref off the trusted
+  # event payload and calls this app's own public badge endpoint.
+  pull_request_target:
     types: [opened, edited, synchronize, reopened]
 
 concurrency:
