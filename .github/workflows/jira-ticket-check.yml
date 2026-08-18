@@ -18,21 +18,18 @@
 # key found and credited), and reports which one via the X-Jira-Check
 # response header. That header is this job's own pass/fail signal.
 #
-# Comment behavior differs by outcome, on purpose:
-# - Fail: posts a NEW PR comment every failed run, never found-and-updated
-#   in place. GitHub only emails PR watchers on comment *creation*, not on
-#   edit, and the point of this comment is to actually reach the developer
-#   by email each time their PR fails, not just to keep one comment's text
-#   current.
-# - Pass: found-and-updated in place if a marker comment already exists
-#   (from an earlier failed attempt, or an earlier pass) -- PATCH never
-#   emails, so a PR that failed a few times before passing gets its most
-#   recent failure comment flipped to "passed" with no extra email. Only
-#   creates a new comment if none exists yet at all, i.e. the PR passes on
-#   its very first run with nothing to update -- that one case does email
-#   once (there's no "silent create" on the comments API), accepted as the
-#   cost of the credited banner always being visible as a PR comment, not
-#   just in the job's own Actions Job Summary.
+# One comment total, ever, regardless of outcome: found-and-updated in
+# place if a marker comment already exists, only created new if none does
+# yet. This used to always POST a new comment on every failed run
+# specifically so a developer got emailed on every failure -- but a PR
+# retitled several times while still failing racked up one comment per
+# attempt, bloating the PR's own conversation/review size. GitHub only
+# emails on comment *creation*, never on edit, so unifying to
+# found-and-updated trades that per-failure email away: only the very
+# first comment on a PR (pass or fail, whichever happens first) sends an
+# email; every update after that -- another failure, a fix, a flip to
+# passing -- silently rewrites the same comment instead of adding a new
+# one.
 
 name: Jira Ticket Check
 
@@ -103,26 +100,21 @@ jobs:
               const marker = "<!-- jira-ticket-check -->";
               const body = `${marker}\n![Jira Ticket Check](${imageUrl})`;
 
-              if (passed) {
-                const listRes = await fetch(`${api}/issues/${process.env.PR_NUMBER}/comments?per_page=100`, { headers });
-                if (!listRes.ok) throw new Error(`list comments failed: ${listRes.status} ${await listRes.text()}`);
-                const comments = await listRes.json();
-                // findLast, not find: several failure comments can exist
-                // before a pass. Updating the first match would flip the
-                // oldest one to "passed" and leave newer failure comments
-                // dangling, unaddressed.
-                const existing = comments.findLast((c) => c.body?.includes(marker));
+              const listRes = await fetch(`${api}/issues/${process.env.PR_NUMBER}/comments?per_page=100`, { headers });
+              if (!listRes.ok) throw new Error(`list comments failed: ${listRes.status} ${await listRes.text()}`);
+              const comments = await listRes.json();
+              // findLast, not find: a leftover PR from before this became a
+              // single persistent comment could still have more than one
+              // marker comment on it -- updating the most recent one is the
+              // one that reflects what actually needs to change.
+              const existing = comments.findLast((c) => c.body?.includes(marker));
 
-                const res = existing
-                  ? await fetch(`${api}/issues/comments/${existing.id}`, { method: "PATCH", headers, body: JSON.stringify({ body }) })
-                  : await fetch(`${api}/issues/${process.env.PR_NUMBER}/comments`, { method: "POST", headers, body: JSON.stringify({ body }) });
-                if (!res.ok) throw new Error(`${existing ? "update" : "create"} comment failed: ${res.status} ${await res.text()}`);
-                console.log(`${existing ? "Updated" : "Created"} the passing-state PR comment${existing ? " (no fresh email)" : " (first-ever pass on this PR -- one email)"}.`);
-              } else {
-                const res = await fetch(`${api}/issues/${process.env.PR_NUMBER}/comments`, { method: "POST", headers, body: JSON.stringify({ body }) });
-                if (!res.ok) throw new Error(`create comment failed: ${res.status} ${await res.text()}`);
-                console.log("Posted a new PR comment explaining the failure.");
-                process.exit(1);
-              }
+              const res = existing
+                ? await fetch(`${api}/issues/comments/${existing.id}`, { method: "PATCH", headers, body: JSON.stringify({ body }) })
+                : await fetch(`${api}/issues/${process.env.PR_NUMBER}/comments`, { method: "POST", headers, body: JSON.stringify({ body }) });
+              if (!res.ok) throw new Error(`${existing ? "update" : "create"} comment failed: ${res.status} ${await res.text()}`);
+              console.log(`${existing ? "Updated" : "Created"} the PR comment${existing ? " (no fresh email)" : " (first comment on this PR -- one email)"}.`);
+
+              if (!passed) process.exit(1);
             })();
           '
