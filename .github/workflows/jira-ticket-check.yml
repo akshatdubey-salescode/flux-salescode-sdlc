@@ -24,13 +24,15 @@
 #   edit, and the point of this comment is to actually reach the developer
 #   by email each time their PR fails, not just to keep one comment's text
 #   current.
-# - Pass: no PR comment at all. The credited banner goes to this job's own
-#   Actions Job Summary instead (Checks tab -> this job -> Summary) -- the
-#   very first passing run has no comment yet to update, so a PR-comment
-#   approach would still have to create one, and GitHub emails on comment
-#   creation regardless of pass or fail. Never creating a PR comment for a
-#   pass is the only way to guarantee zero emails on every passing run,
-#   including the first.
+# - Pass: found-and-updated in place if a marker comment already exists
+#   (from an earlier failed attempt, or an earlier pass) -- PATCH never
+#   emails, so a PR that failed a few times before passing gets its most
+#   recent failure comment flipped to "passed" with no extra email. Only
+#   creates a new comment if none exists yet at all, i.e. the PR passes on
+#   its very first run with nothing to update -- that one case does email
+#   once (there's no "silent create" on the comments API), accepted as the
+#   cost of the credited banner always being visible as a PR comment, not
+#   just in the job's own Actions Job Summary.
 
 name: Jira Ticket Check
 
@@ -102,9 +104,20 @@ jobs:
               const body = `${marker}\n![Jira Ticket Check](${imageUrl})`;
 
               if (passed) {
-                const fs = require("node:fs");
-                fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${body}\n`);
-                console.log("Wrote the credited banner to the job summary -- no PR comment, no email.");
+                const listRes = await fetch(`${api}/issues/${process.env.PR_NUMBER}/comments?per_page=100`, { headers });
+                if (!listRes.ok) throw new Error(`list comments failed: ${listRes.status} ${await listRes.text()}`);
+                const comments = await listRes.json();
+                // findLast, not find: several failure comments can exist
+                // before a pass. Updating the first match would flip the
+                // oldest one to "passed" and leave newer failure comments
+                // dangling, unaddressed.
+                const existing = comments.findLast((c) => c.body?.includes(marker));
+
+                const res = existing
+                  ? await fetch(`${api}/issues/comments/${existing.id}`, { method: "PATCH", headers, body: JSON.stringify({ body }) })
+                  : await fetch(`${api}/issues/${process.env.PR_NUMBER}/comments`, { method: "POST", headers, body: JSON.stringify({ body }) });
+                if (!res.ok) throw new Error(`${existing ? "update" : "create"} comment failed: ${res.status} ${await res.text()}`);
+                console.log(`${existing ? "Updated" : "Created"} the passing-state PR comment${existing ? " (no fresh email)" : " (first-ever pass on this PR -- one email)"}.`);
               } else {
                 const res = await fetch(`${api}/issues/${process.env.PR_NUMBER}/comments`, { method: "POST", headers, body: JSON.stringify({ body }) });
                 if (!res.ok) throw new Error(`create comment failed: ${res.status} ${await res.text()}`);
