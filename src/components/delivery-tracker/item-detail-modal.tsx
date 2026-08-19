@@ -66,6 +66,8 @@ export function ItemDetailModal({
         </Field>
         <Field label="Start date">{formatDate(item.startDate)}</Field>
         <Field label="End date">{formatDate(item.dueDate)}</Field>
+        <Field label="Actual start">{formatDateTime(item.actualStart)}</Field>
+        <Field label="Actual end">{formatDateTime(item.actualEnd)}</Field>
         <Field label="Added by">
           {item.addedByName ?? "—"}
           {item.addedAt ? ` · ${formatDateTime(item.addedAt)}` : ""}

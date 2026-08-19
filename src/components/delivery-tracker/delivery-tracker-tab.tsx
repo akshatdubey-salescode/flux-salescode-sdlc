@@ -440,6 +440,16 @@ function formatPlanDate(dateStr: string | null): string {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
+/** Actual Start/End are full datetimes (not just a calendar date like
+ * Start/End Date), so this parses the ISO string directly rather than
+ * pinning it to local midnight the way formatPlanDate does. */
+function formatActualDate(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
 function RollupCounts({ rollup }: { rollup: DeliveryRollup }) {
   return (
     <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
@@ -478,6 +488,7 @@ function DeliveryCard({
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [alertCopied, setAlertCopied] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const today = localDateStr(new Date());
   const daysToGo = daysBetween(delivery.deliveryDate, today);
@@ -489,6 +500,37 @@ function DeliveryCard({
     navigator.clipboard.writeText(buildDeliveryAlertMessage(delivery, visibleItems));
     setAlertCopied(true);
     setTimeout(() => setAlertCopied(false), 2000);
+  }
+
+  /** Per-sprint export — same endpoint the top-level "Export Excel" button
+   * uses, just a single-delivery body instead of every filtered delivery. */
+  async function handleExportSprint() {
+    setExporting(true);
+    try {
+      const res = await fetch("/api/deliveries/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deliveries: [{ name: delivery.name, deliveryDate: delivery.deliveryDate, items: visibleItems }],
+        }),
+      });
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+
+      const safeName = delivery.name.replace(/[^\w-]+/g, "_");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${safeName}-${delivery.deliveryDate}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // silently ignore — user can retry, matching the other export buttons
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function handleAddIssues() {
@@ -593,6 +635,18 @@ function DeliveryCard({
         </div>
         <div className="flex items-center gap-3">
           <RollupCounts rollup={delivery.rollup} />
+          {visibleItems.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-[11px]"
+              onClick={handleExportSprint}
+              disabled={exporting}
+            >
+              <RiDownload2Line className="size-3.5" />
+              {exporting ? "Exporting…" : "Export"}
+            </Button>
+          )}
           {visibleItems.length > 0 && (
             <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={handleCopySummary}>
               {alertCopied ? (
@@ -738,6 +792,8 @@ function DeliveryItemsTable({
             {isVisible("delivery") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Delivery</th>}
             {isVisible("startDate") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Start Date</th>}
             {isVisible("dueDate") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">End Date</th>}
+            {isVisible("actualStart") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Actual Start</th>}
+            {isVisible("actualEnd") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Actual End</th>}
             {isVisible("comments") && <th className="px-2 py-2" />}
             <th className="px-2 py-2" />
             {canManage && <th className="w-16 px-2 py-2" />}
@@ -795,6 +851,12 @@ function DeliveryItemsTable({
                 )}
                 {isVisible("dueDate") && (
                   <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatPlanDate(item.dueDate)}</td>
+                )}
+                {isVisible("actualStart") && (
+                  <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatActualDate(item.actualStart)}</td>
+                )}
+                {isVisible("actualEnd") && (
+                  <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatActualDate(item.actualEnd)}</td>
                 )}
                 {isVisible("comments") && (
                   <td className="px-2 py-2">
