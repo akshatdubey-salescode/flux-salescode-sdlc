@@ -469,7 +469,7 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
           {step === 3 && (
             <div className="space-y-5">
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                How long can an issue match the condition before it's flagged?
+                How long can an issue match the condition before it&apos;s flagged?
               </p>
 
               <div>

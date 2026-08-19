@@ -12,8 +12,6 @@ import {
   RiAlertLine,
   RiCheckboxCircleLine,
   RiTimeLine,
-  RiFireLine,
-  RiQuestionLine,
   RiExternalLinkLine,
   RiFilter3Line,
   RiInboxLine,
@@ -358,29 +356,6 @@ const LABEL_CONFIG: Record<
   },
 };
 
-function priorityColor(priority: string | null): string {
-  switch (priority?.toLowerCase()) {
-    case "critical":
-    case "highest":
-      return "text-red-600 dark:text-red-400";
-    case "high":
-      return "text-orange-600 dark:text-orange-400";
-    case "medium":
-      return "text-amber-600 dark:text-amber-400";
-    default:
-      return "text-muted-foreground";
-  }
-}
-
-function statusChipClass(statusCategory: string | null): string {
-  const cat = (statusCategory ?? "").toLowerCase();
-  if (cat === "done" || cat.includes("complete"))
-    return "text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-100 dark:border-emerald-900/50";
-  if (cat.includes("progress") || cat === "indeterminate")
-    return "text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-100 dark:border-amber-900/50";
-  return "text-muted-foreground bg-muted border-border";
-}
-
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
@@ -433,10 +408,14 @@ function DatePicker({
     () => new Date((value || todayStr()) + "T12:00:00")
   );
 
-  // When value changes externally (chip click), sync the visible month
-  useEffect(() => {
+  // When value changes externally (chip click), sync the visible month.
+  // Adjusted during render (React's documented pattern for this) instead of
+  // in an effect, so it lands in the same render pass rather than an extra one.
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
     if (value) setMonth(new Date(value + "T12:00:00"));
-  }, [value]);
+  }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -1740,7 +1719,14 @@ function UnplannedPersonTable({
 
   const activeFilterCount = localFilter.issueType.length + localFilter.priority.length + localFilter.status.length;
 
-  useEffect(() => { setPage(1); }, [filtered, query, localFilter]);
+  // Reset to page 1 whenever the filtered set or active filters change.
+  // Adjusted during render instead of in an effect — same trigger condition
+  // as the old effect's deps, one render pass instead of two.
+  const [prevResetDeps, setPrevResetDeps] = useState<[UnplannedIssueItem[], string, TableLocalFilter]>([filtered, query, localFilter]);
+  if (filtered !== prevResetDeps[0] || query !== prevResetDeps[1] || localFilter !== prevResetDeps[2]) {
+    setPrevResetDeps([filtered, query, localFilter]);
+    setPage(1);
+  }
 
   const needle = query.trim().toLowerCase();
   let visible = needle

@@ -81,7 +81,11 @@ export function SyncAllPanel({ projects }: { projects: Project[] }) {
   function toggleProject(id: string) {
     setSelected((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
   }
@@ -327,7 +331,7 @@ export function SyncAllPanel({ projects }: { projects: Project[] }) {
           </span>
         </div>
 
-        {projects.map((project, i) => {
+        {projects.map((project) => {
           const queueIndex = queue.findIndex((q) => q.id === project.id);
           return (
             <ProjectRow
