@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireAuth } from "@/lib/auth/server";
 import { getIssueDetail } from "@/lib/jira/issue-detail";
+import { adfToText } from "@/lib/jira/adf";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import {
@@ -48,29 +49,6 @@ function formatDuration(seconds: number | null): string {
   if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
   if (seconds < 86400) return `${(seconds / 3600).toFixed(1)}h`;
   return `${(seconds / 86400).toFixed(1)}d`;
-}
-
-/** Extract plain text from Atlassian Document Format JSON */
-function adfToText(body: string | null): string {
-  if (!body) return "";
-  try {
-    const doc = JSON.parse(body) as Record<string, unknown>;
-    const texts: string[] = [];
-    function walk(node: unknown) {
-      if (!node || typeof node !== "object") return;
-      const n = node as Record<string, unknown>;
-      if (n.type === "text" && typeof n.text === "string") {
-        texts.push(n.text);
-      }
-      if (Array.isArray(n.content)) {
-        for (const child of n.content) walk(child);
-      }
-    }
-    walk(doc);
-    return texts.join(" ").trim();
-  } catch {
-    return body;
-  }
 }
 
 // ---------------------------------------------------------------------------
