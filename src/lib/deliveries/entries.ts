@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { jiraIssues } from "@/lib/db/schema";
 import { getStatusRawSets } from "@/lib/jira/sync";
 import { localDateStr } from "@/lib/date-utils";
+import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
 import type { DeliveryStatusValue } from "@/lib/deliveries/status";
 
 export type DeliveryItemRow = {
@@ -23,6 +24,10 @@ export type DeliveryItemRow = {
   statusSetBy: string | null;
   statusSetByName: string | null;
   statusSetAt: string | null;
+  // Planned Start/Due, same extraction (and same per-project custom-field
+  // config) My Tasks' Plan column uses — see extractStartDate/extractDueDate.
+  startDate: string | null;
+  dueDate: string | null;
 };
 
 export type DeliveryRollup = {
@@ -101,9 +106,13 @@ type DeliveryItemJoinRow = {
   status_set_by: string | null;
   status_set_by_name: string | null;
   status_set_at: string | null;
+  custom_fields: Record<string, unknown> | null;
+  start_date_field_ids: string[] | null;
+  end_date_field_ids: string[] | null;
 };
 
 function mapItemRow(r: DeliveryItemJoinRow): DeliveryItemRow {
+  const cf = r.custom_fields ?? {};
   return {
     id: r.id,
     issueId: r.issue_id,
@@ -122,6 +131,8 @@ function mapItemRow(r: DeliveryItemJoinRow): DeliveryItemRow {
     statusSetBy: r.status_set_by,
     statusSetByName: r.status_set_by_name,
     statusSetAt: r.status_set_at,
+    startDate: extractStartDate(cf, r.start_date_field_ids),
+    dueDate: extractDueDate(cf, r.end_date_field_ids),
   };
 }
 
@@ -135,7 +146,8 @@ async function fetchItemsForDeliveries(deliveryIds: string[]): Promise<Map<strin
         di.id, di.delivery_id, di.issue_id, di.added_by, di.added_by_name, di.added_at,
         di.status, di.status_comment, di.status_set_by, di.status_set_by_name, di.status_set_at,
         ji.jira_key, ji.summary, ji.status AS jira_status, ji.priority,
-        ji.assignee_email, ji.assignee_name, jp.jira_base_url AS jira_base_url
+        ji.assignee_email, ji.assignee_name, jp.jira_base_url AS jira_base_url,
+        ji.custom_fields, jp.start_date_field_ids, jp.end_date_field_ids
       FROM delivery_items di
       JOIN jira_issues ji ON ji.id = di.issue_id
       JOIN jira_projects jp ON jp.id = ji.project_id

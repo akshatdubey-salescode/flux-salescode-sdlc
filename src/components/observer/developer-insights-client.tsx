@@ -73,7 +73,6 @@ export function DeveloperInsightsClient({ email, boardId, boardName }: Props) {
   // Load insights only when toggled on
   useEffect(() => {
     if (!showInsights || insights) return;
-    setInsightsLoading(true);
     fetch(`/api/observer/developer/${encodeURIComponent(email)}/insights`)
       .then((r) => r.json())
       .then(setInsights)
@@ -96,7 +95,12 @@ export function DeveloperInsightsClient({ email, boardId, boardName }: Props) {
         </div>
         <div className="ml-auto flex items-center gap-3">
           <button
-            onClick={() => setShowInsights((v) => !v)}
+            onClick={() => {
+              // Show the spinner immediately on click (a real event), not from the effect —
+              // avoids a synchronous setState-in-effect that triggers a cascading render.
+              if (!showInsights && !insights) setInsightsLoading(true);
+              setShowInsights((v) => !v);
+            }}
             className={`flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-1.5 border transition-colors ${
               showInsights
                 ? "bg-primary text-primary-foreground border-primary"

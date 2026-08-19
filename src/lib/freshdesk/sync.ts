@@ -6,7 +6,6 @@ import {
   fetchTicket,
   fdStatusLabel,
   fdPriorityLabel,
-  type FdTicket,
 } from "./client";
 
 export const FRESHDESK_CUSTOM_FIELD = "customfield_11699";

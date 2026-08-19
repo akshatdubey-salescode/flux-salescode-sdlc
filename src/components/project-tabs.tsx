@@ -264,10 +264,3 @@ function TabContentSkeleton() {
   );
 }
 
-function Placeholder({ label }: { label: string }) {
-  return (
-    <div className="rounded-lg border border-dashed border-zinc-200 p-12 text-center dark:border-zinc-800">
-      <p className="text-xs text-zinc-400">{label} — coming soon</p>
-    </div>
-  );
-}

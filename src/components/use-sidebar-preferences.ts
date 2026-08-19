@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 /**
  * Persists which sidebar menu items the user wants to see.
@@ -34,30 +34,33 @@ function readVisibleHrefs(): string[] | null {
   }
 }
 
+// Distinct from `null` (a legitimate "no preference saved" value) — lets us
+// tell "haven't hydrated yet" apart from "hydrated, nothing saved".
+function getServerSnapshot(): string[] | null | undefined {
+  return undefined;
+}
+
+function subscribe(callback: () => void): () => void {
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === null || e.key === SIDEBAR_PREFS_KEY) callback();
+  };
+  window.addEventListener(PREFS_CHANGE_EVENT, callback);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(PREFS_CHANGE_EVENT, callback);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
 export function useSidebarPreferences() {
-  // Start as `null` on both the server and the first client render so the
-  // markup matches and we don't trip a hydration mismatch. The real value is
-  // loaded from localStorage right after mount.
-  const [visibleHrefs, setVisibleHrefs] = useState<string[] | null>(null);
-  const [hydrated, setHydrated] = useState(false);
-
-  useEffect(() => {
-    setVisibleHrefs(readVisibleHrefs());
-    setHydrated(true);
-
-    const onLocalChange = () => setVisibleHrefs(readVisibleHrefs());
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === null || e.key === SIDEBAR_PREFS_KEY) {
-        setVisibleHrefs(readVisibleHrefs());
-      }
-    };
-    window.addEventListener(PREFS_CHANGE_EVENT, onLocalChange);
-    window.addEventListener("storage", onStorage);
-    return () => {
-      window.removeEventListener(PREFS_CHANGE_EVENT, onLocalChange);
-      window.removeEventListener("storage", onStorage);
-    };
-  }, []);
+  // useSyncExternalStore (not useState+useEffect) reads localStorage and
+  // subscribes to changes without ever calling setState itself — the value
+  // is `undefined` on the server and the first client render (matching
+  // markup, no hydration mismatch), then syncs to the real value right after
+  // mount and on every subsequent local/cross-tab change.
+  const snapshot = useSyncExternalStore(subscribe, readVisibleHrefs, getServerSnapshot);
+  const hydrated = snapshot !== undefined;
+  const visibleHrefs = hydrated ? snapshot : null;
 
   /** Persist the visible set. Pass `null` to clear the preference (show all). */
   const saveVisibleHrefs = useCallback((hrefs: string[] | null) => {
@@ -70,7 +73,6 @@ export function useSidebarPreferences() {
     } catch {
       // ignore (quota exceeded, private browsing, etc.)
     }
-    setVisibleHrefs(hrefs);
     window.dispatchEvent(new Event(PREFS_CHANGE_EVENT));
   }, []);
 
