@@ -2,6 +2,9 @@
   "name": "flux-salescode-sdlc",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "prepare": "husky || true; git rev-parse --git-dir >/dev/null 2>&1 && git config user.name 'Akshat Dubey' && git config user.email 'akshat.dubey@salescode.ai' || true",
     "dev": "next dev",
@@ -59,7 +62,7 @@
   },
   "devDependencies": {
     "@resvg/resvg-js-darwin-arm64": "^2.6.2",
-    "@tailwindcss/postcss": "^4",
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/lodash": "^4.17.24",
     "@types/node": "^20",
     "@types/pg": "^8.20.0",
@@ -71,7 +74,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.3",
     "husky": "^9.1.7",
-    "tailwindcss": "^4",
+    "tailwindcss": "^4.3.3",
     "tsx": "^4.23.9",
     "typescript": "^5"
   }
