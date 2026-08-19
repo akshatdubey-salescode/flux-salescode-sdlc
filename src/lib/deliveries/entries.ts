@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { jiraIssues } from "@/lib/db/schema";
 import { getStatusRawSets } from "@/lib/jira/sync";
 import { localDateStr } from "@/lib/date-utils";
-import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
+import { extractStartDate, extractDueDate, extractActualStart, extractActualEnd } from "@/lib/jira/dates";
 import type { DeliveryStatusValue } from "@/lib/deliveries/status";
 
 export type DeliveryItemRow = {
@@ -28,6 +28,12 @@ export type DeliveryItemRow = {
   // config) My Tasks' Plan column uses — see extractStartDate/extractDueDate.
   startDate: string | null;
   dueDate: string | null;
+  // Actual Start/End — preferred source is the actual-start/end custom
+  // field (extractActualStart/extractActualEnd), falling back to the
+  // changelog-derived dev_started_at/dev_completed_at, same preference
+  // order the performance scorecard already uses (src/lib/scorecard/build.ts).
+  actualStart: string | null;
+  actualEnd: string | null;
 };
 
 export type DeliveryRollup = {
@@ -109,7 +115,22 @@ type DeliveryItemJoinRow = {
   custom_fields: Record<string, unknown> | null;
   start_date_field_ids: string[] | null;
   end_date_field_ids: string[] | null;
+  actual_start_field_ids: string[] | null;
+  actual_end_field_ids: string[] | null;
+  dev_started_at: string | null;
+  dev_completed_at: string | null;
+  jira_created_at: string | null;
+  completed_at: string | null;
 };
+
+/** ISO string for whichever of a Date/timestamp-string/null we got back --
+ * raw db.execute rows aren't guaranteed the same driver-level type mapping
+ * the query builder gives you. */
+function toIso(val: string | Date | null): string | null {
+  if (!val) return null;
+  const d = val instanceof Date ? val : new Date(val);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
 
 function mapItemRow(r: DeliveryItemJoinRow): DeliveryItemRow {
   const cf = r.custom_fields ?? {};
@@ -133,6 +154,16 @@ function mapItemRow(r: DeliveryItemJoinRow): DeliveryItemRow {
     statusSetAt: r.status_set_at,
     startDate: extractStartDate(cf, r.start_date_field_ids),
     dueDate: extractDueDate(cf, r.end_date_field_ids),
+    // Same 3-level preference order as the performance scorecard's devWindow
+    // (src/lib/scorecard/build.ts): the actual-start/end custom field first,
+    // then the changelog-derived dev window, then the issue's own raw
+    // created/completed timestamps as a last resort.
+    actualStart: toIso(
+      extractActualStart(cf, r.actual_start_field_ids) ?? (r.dev_started_at ? new Date(r.dev_started_at) : null) ?? (r.jira_created_at ? new Date(r.jira_created_at) : null)
+    ),
+    actualEnd: toIso(
+      extractActualEnd(cf, r.actual_end_field_ids) ?? (r.dev_completed_at ? new Date(r.dev_completed_at) : null) ?? (r.completed_at ? new Date(r.completed_at) : null)
+    ),
   };
 }
 
@@ -147,7 +178,9 @@ async function fetchItemsForDeliveries(deliveryIds: string[]): Promise<Map<strin
         di.status, di.status_comment, di.status_set_by, di.status_set_by_name, di.status_set_at,
         ji.jira_key, ji.summary, ji.status AS jira_status, ji.priority,
         ji.assignee_email, ji.assignee_name, jp.jira_base_url AS jira_base_url,
-        ji.custom_fields, jp.start_date_field_ids, jp.end_date_field_ids
+        ji.custom_fields, jp.start_date_field_ids, jp.end_date_field_ids,
+        jp.actual_start_field_ids, jp.actual_end_field_ids,
+        ji.dev_started_at, ji.dev_completed_at, ji.jira_created_at, ji.completed_at
       FROM delivery_items di
       JOIN jira_issues ji ON ji.id = di.issue_id
       JOIN jira_projects jp ON jp.id = ji.project_id

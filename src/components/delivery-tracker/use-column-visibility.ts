@@ -14,6 +14,8 @@ export const TOGGLEABLE_COLUMNS = [
   { key: "delivery", label: "Delivery status" },
   { key: "startDate", label: "Start Date" },
   { key: "dueDate", label: "End Date" },
+  { key: "actualStart", label: "Actual Start" },
+  { key: "actualEnd", label: "Actual End" },
   { key: "comments", label: "Comments" },
 ] as const;
 

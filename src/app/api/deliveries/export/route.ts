@@ -83,7 +83,7 @@ function headerRow(ws: ExcelJS.Worksheet, headers: string[]) {
 
 // Fixed regardless of the on-screen column-visibility toggle — that's a
 // purely client-side preference, not something the export should ever honor.
-const HEADERS = ["Jira Key", "Summary", "Status", "Priority", "Assignee", "Delivery Status", "Start Date", "End Date", "Comment"];
+const HEADERS = ["Jira Key", "Summary", "Status", "Priority", "Assignee", "Delivery Status", "Start Date", "End Date", "Actual Start", "Actual End", "Comment"];
 
 async function buildWorkbook(deliveries: ExportDelivery[]): Promise<ArrayBuffer> {
   const wb = new ExcelJS.Workbook();
@@ -133,6 +133,8 @@ async function buildWorkbook(deliveries: ExportDelivery[]): Promise<ArrayBuffer>
         ["delivery", deliveryStatusLabel(item.status)],
         ["startDate", item.startDate ?? ""],
         ["dueDate", item.dueDate ?? ""],
+        ["actualStart", item.actualStart ?? ""],
+        ["actualEnd", item.actualEnd ?? ""],
         ["comment", item.statusComment ?? ""],
       ];
 
