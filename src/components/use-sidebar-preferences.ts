@@ -21,17 +21,45 @@ export const SIDEBAR_PREFS_KEY = "sidebar.visibleItems";
 // tabs.
 const PREFS_CHANGE_EVENT = "sidebar-prefs-change";
 
-function readVisibleHrefs(): string[] | null {
-  if (typeof window === "undefined") return null;
+// `useSyncExternalStore` compares each snapshot against the previous one with
+// `Object.is`, so this has to hand back the *same* array reference until the
+// stored string actually changes. Parsing on every call returned a fresh array
+// each time, so React saw the store as changed on every check and rescheduled
+// a sync re-render forever -- React error #185, "Maximum update depth
+// exceeded", which took down every page under (app). Cache the parse, keyed on
+// the raw string we parsed it from.
+let cachedRaw: string | null | undefined;
+let cachedVisibleHrefs: string[] | null = null;
+
+function parseVisibleHrefs(raw: string | null): string[] | null {
+  if (!raw) return null;
   try {
-    const raw = window.localStorage.getItem(SIDEBAR_PREFS_KEY);
-    if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return null;
     return parsed.filter((h): h is string => typeof h === "string");
   } catch {
     return null;
   }
+}
+
+// Exported for unit tests: the Object.is stability of this return value is
+// load-bearing (see use-sidebar-preferences.test.ts).
+export function readVisibleHrefs(): string[] | null {
+  if (typeof window === "undefined") return null;
+
+  let raw: string | null;
+  try {
+    raw = window.localStorage.getItem(SIDEBAR_PREFS_KEY);
+  } catch {
+    // localStorage can throw outright (disabled cookies, some private modes).
+    return null;
+  }
+
+  if (raw !== cachedRaw) {
+    cachedRaw = raw;
+    cachedVisibleHrefs = parseVisibleHrefs(raw);
+  }
+  return cachedVisibleHrefs;
 }
 
 // Distinct from `null` (a legitimate "no preference saved" value) — lets us
