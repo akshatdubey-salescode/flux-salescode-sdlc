@@ -6,6 +6,7 @@ import { requireAuth } from "@/lib/auth/server";
 import { stampCache, withCacheMetrics } from "@/lib/cache/metrics";
 import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
+import { bucketNowForCache } from "@/lib/date-utils";
 
 // ── Working-hours helpers (identical to timeline route) ───────────────────────
 
@@ -90,7 +91,8 @@ export async function GET(request: Request) {
 
     const rawNow =
       url.searchParams.get("now") ?? new Date().toISOString().slice(0, 19);
-    const nowStr = rawNow.slice(0, 16) + ":00";
+    // Bucketed, because nowStr is part of fetchBoardWorkload's cache key.
+    const nowStr = bucketNowForCache(rawNow);
     const today = nowStr.slice(0, 10);
 
     const singleDate = url.searchParams.get("date");
@@ -118,7 +120,9 @@ async function fetchBoardWorkload(
   uFilterStart: string | null,
   uFilterEnd: string | null
 ) {
-  "use cache";
+  // See the note in analytics/overview: plain "use cache" is in-memory only and
+  // never survived between serverless instances, so this recomputed every time.
+  "use cache: remote";
   cacheLife("minutes");
   cacheTag("jira-issues", "observer-boards", "workload-boards");
 
@@ -177,7 +181,10 @@ async function fetchBoardWorkload(
       SELECT ji.id, lower(ji.assignee_email) AS effective_email
       FROM jira_issues ji
       WHERE lower(ji.assignee_email) IN (${emailsIn})
-      UNION
+      -- UNION ALL, not UNION: an issue that lists the same person as both primary
+      -- and additional assignee yields two rows, but boardSeenIssues already
+      -- dedupes per board, so the distinct sort over the whole set was wasted work.
+      UNION ALL
       SELECT ji.id, lower(ae) AS effective_email
       FROM jira_issues ji
       CROSS JOIN LATERAL unnest(ji.additional_assignee_emails) AS ae
@@ -207,7 +214,6 @@ async function fetchBoardWorkload(
         )
         OR ji.completed_at >= ${completedFromIso}
       )
-    ORDER BY ie.id
   `);
 
   // Initialise per-board summary + dedup set
