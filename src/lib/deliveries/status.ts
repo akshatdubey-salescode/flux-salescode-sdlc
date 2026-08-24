@@ -58,10 +58,35 @@ const DELIVERY_STATUS_STYLES = {
   },
 } satisfies Record<DeliveryStatusValue, { badge: string; dot: string }>;
 
-export function deliveryStatusStyles(value: string): { badge: string; dot: string } {
+// Same amber the app already uses for "at risk"/overdue-while-pending
+// (nearestDeliveryColorClass below) and for partially_delivered — "delivered,
+// but late" reads as a caution, not the hard failure not_delivered's red is.
+const DELIVERED_LATE_STYLE = {
+  badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  dot: "bg-amber-500",
+};
+
+export function deliveryStatusStyles(value: string, isLate = false): { badge: string; dot: string } {
+  if (value === "delivered" && isLate) return DELIVERED_LATE_STYLE;
   return Object.prototype.hasOwnProperty.call(DELIVERY_STATUS_STYLES, value)
     ? DELIVERY_STATUS_STYLES[value as DeliveryStatusValue]
     : DELIVERY_STATUS_STYLES.pending;
+}
+
+/**
+ * True when an item was marked "delivered" only after its delivery's target
+ * date had already passed — i.e. delivered, but late. `statusSetAt` is the
+ * timestamp the outcome was actually recorded; comparing it to `deliveryDate`
+ * (not today's date) is what distinguishes "was late when delivered" from
+ * "is currently overdue," which only makes sense for a still-pending item.
+ */
+export function isDeliveredLate(
+  status: string,
+  deliveryDate: string,
+  statusSetAt: string | null | undefined
+): boolean {
+  if (status !== "delivered" || !statusSetAt) return false;
+  return statusSetAt.slice(0, 10) > deliveryDate;
 }
 
 /**

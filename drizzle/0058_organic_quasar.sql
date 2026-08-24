@@ -1,0 +1,2 @@
+CREATE INDEX "jira_issues_assignee_email_lower_idx" ON "jira_issues" USING btree (lower("assignee_email"));--> statement-breakpoint
+CREATE INDEX "jira_issues_reporter_email_lower_idx" ON "jira_issues" USING btree (lower("reporter_email"));

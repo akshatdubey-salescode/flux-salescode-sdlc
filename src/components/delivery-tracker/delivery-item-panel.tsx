@@ -11,12 +11,13 @@ import {
   DELIVERY_STATUSES,
   deliveryStatusLabel,
   deliveryStatusStyles,
+  isDeliveredLate,
   type DeliveryStatusValue,
 } from "@/lib/deliveries/status";
 import type { IssueDeliveriesDetail, IssueDeliveryMembership } from "@/lib/deliveries/entries";
 import { patchDeliverySummary } from "./delivery-summary-cache";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
-import { DeliveryTransferHistory } from "./delivery-transfer-history";
+import { DeliveryHistory } from "./delivery-history";
 
 /**
  * Jira details + every active delivery this issue belongs to (an issue can
@@ -139,7 +140,7 @@ export function DeliveryItemPanel({
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
               Delivery history
             </p>
-            <DeliveryTransferHistory issueId={issueId} />
+            <DeliveryHistory issueId={issueId} />
           </div>
         </div>
       )}
@@ -182,7 +183,12 @@ function MembershipRow({
   const [error, setError] = useState<string | null>(null);
 
   const dirty = status !== membership.status || comment.trim() !== (membership.statusComment ?? "");
-  const styles = deliveryStatusStyles(status);
+  // Late-delivery styling reflects the SAVED outcome (status/statusSetAt as
+  // recorded server-side), not an in-progress draft — a dirty draft can't
+  // yet know its own statusSetAt, so it just shows the plain status color
+  // until saved, then this recomputes from the refreshed membership.
+  const isLate = status === membership.status && isDeliveredLate(membership.status, membership.deliveryDate, membership.statusSetAt);
+  const styles = deliveryStatusStyles(status, isLate);
 
   async function handleRemove() {
     setRemoving(true);

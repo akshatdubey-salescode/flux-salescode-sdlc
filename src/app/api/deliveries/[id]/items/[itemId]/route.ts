@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { and, eq, inArray } from "drizzle-orm";
 import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
-import { deliveries, deliveryItems } from "@/lib/db/schema";
+import { deliveries, deliveryItems, deliveryStatusHistory } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { canManageDeliveries } from "@/lib/auth/types";
 import { authOptions } from "@/lib/auth/nextauth-options";
@@ -49,12 +49,16 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (!isDeliveryStatus(body.status)) {
     return NextResponse.json({ error: "Invalid status" }, { status: 400 });
   }
+  // Narrowing on a property access (body.status) doesn't survive into the
+  // nested transaction callback below — capture it in a const so the
+  // narrowed type sticks.
+  const nextStatus = body.status;
   const statusComment = parseOptionalText(body.statusComment) ?? null;
   if (statusComment === undefined) {
     return NextResponse.json({ error: "statusComment must be a string or null" }, { status: 400 });
   }
 
-  if (body.status !== "pending") {
+  if (nextStatus !== "pending") {
     const done = await isIssueDone(existing.issueId);
     if (!done) {
       return NextResponse.json(
@@ -68,22 +72,52 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const statusSetByName = session?.user?.name?.trim() || null;
   const statusSetAt = new Date();
 
+  const [deliveryForHistory] = await db
+    .select({ name: deliveries.name })
+    .from(deliveries)
+    .where(eq(deliveries.id, deliveryId))
+    .limit(1);
+
   // Delivery status describes the ISSUE ("was this actually delivered"), not
   // the batch it happens to be viewed through — an item committed to two
   // deliveries at once can't be genuinely Delivered in one and Pending in
   // the other, so every delivery_items row for this issue mirrors the same
   // outcome. Matching `issueId` alone (not deliveryId) reaches every sibling.
-  const updatedRows = await db
-    .update(deliveryItems)
-    .set({
-      status: body.status,
-      statusComment,
-      statusSetBy: user.id,
-      statusSetByName,
-      statusSetAt,
-    })
-    .where(eq(deliveryItems.issueId, existing.issueId))
-    .returning({ deliveryId: deliveryItems.deliveryId });
+  //
+  // The mirrored update and its history row are one unit: without a
+  // transaction, a crash between them could silently drop the audit trail
+  // for a status change that DID take effect.
+  const updatedRows = await db.transaction(async (tx) => {
+    const rows = await tx
+      .update(deliveryItems)
+      .set({
+        status: nextStatus,
+        statusComment,
+        statusSetBy: user.id,
+        statusSetByName,
+        statusSetAt,
+      })
+      .where(eq(deliveryItems.issueId, existing.issueId))
+      .returning({ deliveryId: deliveryItems.deliveryId });
+
+    // Only log a genuine transition — resaving the same status with just a
+    // new comment isn't a status "change" worth cluttering the history with.
+    if (existing.status !== nextStatus) {
+      await tx.insert(deliveryStatusHistory).values({
+        issueId: existing.issueId,
+        deliveryId,
+        deliveryName: deliveryForHistory?.name ?? "Unknown delivery",
+        fromStatus: existing.status,
+        toStatus: nextStatus,
+        statusComment,
+        changedBy: user.id,
+        changedByName: statusSetByName,
+        changedAt: statusSetAt,
+      });
+    }
+
+    return rows;
+  });
 
   const delivery = await fetchDeliveryById(deliveryId);
   if (!delivery) {

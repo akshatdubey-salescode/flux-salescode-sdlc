@@ -47,6 +47,7 @@ import {
   DELIVERY_STATUSES,
   deliveryStatusStyles,
   deliveryStatusLabel,
+  isDeliveredLate,
   type DeliveryStatusValue,
 } from "@/lib/deliveries/status";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
@@ -575,6 +576,7 @@ function DeliveryCard({
       ) : (
         <DeliveryItemsTable
           deliveryId={delivery.id}
+          deliveryDate={delivery.deliveryDate}
           items={visibleItems}
           canManage={canManage}
           onRemoveItem={handleRemoveItem}
@@ -591,6 +593,7 @@ function DeliveryCard({
 
 function DeliveryItemsTable({
   deliveryId,
+  deliveryDate,
   items,
   canManage,
   onRemoveItem,
@@ -599,6 +602,7 @@ function DeliveryItemsTable({
   migrationTargetsByIssue,
 }: {
   deliveryId: string;
+  deliveryDate: string;
   items: DeliveryItemRow[];
   canManage: boolean;
   onRemoveItem: (itemId: string) => void;
@@ -654,7 +658,7 @@ function DeliveryItemsTable({
                 </td>
                 <td className="px-3 py-2 text-muted-foreground">{item.assigneeName ?? "—"}</td>
                 <td className="px-3 py-2">
-                  <DeliveryStatusCell deliveryId={deliveryId} item={item} onUpdated={onChanged} />
+                  <DeliveryStatusCell deliveryId={deliveryId} deliveryDate={deliveryDate} item={item} onUpdated={onChanged} />
                 </td>
                 <td className="px-2 py-2">
                   <div className="flex items-center gap-0.5">
@@ -764,10 +768,12 @@ function MigrateButton({
  */
 function DeliveryStatusCell({
   deliveryId,
+  deliveryDate,
   item,
   onUpdated,
 }: {
   deliveryId: string;
+  deliveryDate: string;
   item: DeliveryItemRow;
   onUpdated: () => void;
 }) {
@@ -817,7 +823,10 @@ function DeliveryStatusCell({
     if (ok) setCommentOpen(false);
   }
 
-  const styles = deliveryStatusStyles(status);
+  // Same rule as the item panel's MembershipRow: late-styling reflects the
+  // SAVED outcome, not an in-progress draft selection.
+  const isLate = status === item.status && isDeliveredLate(item.status, deliveryDate, item.statusSetAt);
+  const styles = deliveryStatusStyles(status, isLate);
 
   return (
     <div className="flex items-center gap-1">
