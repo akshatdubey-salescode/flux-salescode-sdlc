@@ -491,6 +491,13 @@
       "when": 1787125527172,
       "tag": "0070_cooing_zombie",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1787583472068,
+      "tag": "0071_cooing_lady_deathstrike",
+      "breakpoints": true
     }
   ]
 }
