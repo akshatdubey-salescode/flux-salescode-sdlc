@@ -256,6 +256,14 @@ export const jiraIssues = pgTable(
     index("jira_issues_status_idx").on(t.status),
     index("jira_issues_assignee_email_idx").on(t.assigneeEmail),
     index("jira_issues_reporter_email_idx").on(t.reporterEmail),
+    // Expression indexes: assignee_email/reporter_email are stored exactly as
+    // Jira returns them (mixed case, see sync.ts's assigneeEmailResolved), so
+    // any lower(...)-wrapped equality lookup (case-insensitive email joins,
+    // e.g. the Keka-directory people search) can't use the plain indexes
+    // above — confirmed via EXPLAIN ANALYZE that without this, such a lookup
+    // falls back to a full sequential scan every time.
+    index("jira_issues_assignee_email_lower_idx").on(sql`lower(${t.assigneeEmail})`),
+    index("jira_issues_reporter_email_lower_idx").on(sql`lower(${t.reporterEmail})`),
     index("jira_issues_additional_assignees_gin_idx").using("gin", t.additionalAssigneeEmails),
     index("jira_issues_project_updated_idx").on(
       t.projectId,
@@ -1785,6 +1793,42 @@ export const deliveryTransfers = pgTable(
   ]
 );
 
+// ---------------------------------------------------------------------------
+// Delivery Status History — permanent record of every time an item's
+// delivery outcome changed (pending → delivered, etc). Status itself mirrors
+// to every delivery_items row sharing the issue (see the PATCH route), but
+// this logs ONE event per change, against whichever delivery the edit was
+// made through — same "event, not ongoing state" reasoning as
+// delivery_transfers above.
+// ---------------------------------------------------------------------------
+
+export const deliveryStatusHistory = pgTable(
+  "delivery_status_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    issueId: uuid("issue_id")
+      .notNull()
+      .references(() => jiraIssues.id, { onDelete: "cascade" }),
+    // Denormalized name (same idiom as deliveryTransfers) so history stays
+    // readable even if the delivery is later renamed or soft-deleted.
+    deliveryId: uuid("delivery_id").references(() => deliveries.id, { onDelete: "set null" }),
+    deliveryName: text("delivery_name").notNull(),
+    // Null on the very first status ever recorded for this issue.
+    fromStatus: deliveryStatusEnum("from_status"),
+    toStatus: deliveryStatusEnum("to_status").notNull(),
+    statusComment: text("status_comment"),
+    changedBy: text("changed_by")
+      .notNull()
+      .references(() => users.id),
+    changedByName: text("changed_by_name"),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("delivery_status_history_issue_idx").on(t.issueId),
+    index("delivery_status_history_issue_changed_at_idx").on(t.issueId, t.changedAt),
+  ]
+);
+
 export type Delivery = typeof deliveries.$inferSelect;
 export type NewDelivery = typeof deliveries.$inferInsert;
 export type DeliveryItem = typeof deliveryItems.$inferSelect;
@@ -1792,3 +1836,5 @@ export type NewDeliveryItem = typeof deliveryItems.$inferInsert;
 export type DeliveryStatus = (typeof deliveryStatusEnum.enumValues)[number];
 export type DeliveryTransfer = typeof deliveryTransfers.$inferSelect;
 export type NewDeliveryTransfer = typeof deliveryTransfers.$inferInsert;
+export type DeliveryStatusHistoryRow = typeof deliveryStatusHistory.$inferSelect;
+export type NewDeliveryStatusHistoryRow = typeof deliveryStatusHistory.$inferInsert;

@@ -58,6 +58,7 @@ import {
   DELIVERY_STATUSES,
   deliveryStatusStyles,
   deliveryStatusLabel,
+  isDeliveredLate,
   type DeliveryStatusValue,
 } from "@/lib/deliveries/status";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
@@ -742,6 +743,7 @@ function DeliveryCard({
       ) : (
         <DeliveryItemsTable
           deliveryId={delivery.id}
+          deliveryDate={delivery.deliveryDate}
           items={visibleItems}
           canManage={canManage}
           visibleColumns={visibleColumns}
@@ -759,6 +761,7 @@ function DeliveryCard({
 
 function DeliveryItemsTable({
   deliveryId,
+  deliveryDate,
   items,
   canManage,
   visibleColumns,
@@ -768,6 +771,7 @@ function DeliveryItemsTable({
   migrationTargetsByIssue,
 }: {
   deliveryId: string;
+  deliveryDate: string;
   items: DeliveryItemRow[];
   canManage: boolean;
   visibleColumns: Set<ColumnKey>;
@@ -843,7 +847,7 @@ function DeliveryItemsTable({
                 )}
                 {isVisible("delivery") && (
                   <td className="px-3 py-2">
-                    <DeliveryStatusCell deliveryId={deliveryId} item={item} onUpdated={onChanged} />
+                    <DeliveryStatusCell deliveryId={deliveryId} deliveryDate={deliveryDate} item={item} onUpdated={onChanged} />
                   </td>
                 )}
                 {isVisible("startDate") && (
@@ -990,10 +994,12 @@ function MigrateButton({
  * (and duplicated-looking) into the Delivery column. */
 function DeliveryStatusCell({
   deliveryId,
+  deliveryDate,
   item,
   onUpdated,
 }: {
   deliveryId: string;
+  deliveryDate: string;
   item: DeliveryItemRow;
   onUpdated: () => void;
 }) {
@@ -1029,7 +1035,10 @@ function DeliveryStatusCell({
     }
   }
 
-  const styles = deliveryStatusStyles(status);
+  // Same rule as the item panel's MembershipRow: late-styling reflects the
+  // SAVED outcome, not an in-progress draft selection.
+  const isLate = status === item.status && isDeliveredLate(item.status, deliveryDate, item.statusSetAt);
+  const styles = deliveryStatusStyles(status, isLate);
 
   return (
     <Select value={status} onValueChange={handleStatusChange} disabled={saving}>

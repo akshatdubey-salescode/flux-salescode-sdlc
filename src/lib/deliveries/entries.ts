@@ -525,6 +525,74 @@ export async function fetchDeliveryTransferHistory(issueId: string): Promise<Del
   }));
 }
 
+export type DeliveryStatusHistoryEntry = {
+  id: string;
+  deliveryId: string | null;
+  deliveryName: string;
+  fromStatus: DeliveryStatusValue | null;
+  toStatus: DeliveryStatusValue;
+  statusComment: string | null;
+  changedBy: string;
+  changedByName: string | null;
+  changedAt: string;
+};
+
+/**
+ * Every time this issue's delivery outcome actually changed, most recent
+ * first — mirrors fetchDeliveryTransferHistory's shape/reasoning (an
+ * append-only event log, readable even after the delivery it happened in is
+ * later soft-deleted). Status itself mirrors to every delivery_items row
+ * sharing the issue, but each transition is logged once, against whichever
+ * delivery the edit was made through.
+ */
+export async function fetchDeliveryStatusHistory(issueId: string): Promise<DeliveryStatusHistoryEntry[]> {
+  const res = await db.execute(sql`
+    SELECT id, delivery_id, delivery_name, from_status, to_status,
+      status_comment, changed_by, changed_by_name, changed_at
+    FROM delivery_status_history
+    WHERE issue_id = ${issueId}
+    ORDER BY changed_at DESC
+  `);
+  return (res.rows as Record<string, unknown>[]).map((r) => ({
+    id: r.id as string,
+    deliveryId: (r.delivery_id as string | null) ?? null,
+    deliveryName: r.delivery_name as string,
+    fromStatus: (r.from_status as DeliveryStatusValue | null) ?? null,
+    toStatus: r.to_status as DeliveryStatusValue,
+    statusComment: (r.status_comment as string | null) ?? null,
+    changedBy: r.changed_by as string,
+    changedByName: (r.changed_by_name as string | null) ?? null,
+    changedAt: r.changed_at as string,
+  }));
+}
+
+/** One entry in the delivery-status popup's merged "Delivery history" feed. */
+export type DeliveryHistoryEvent =
+  | ({ type: "transfer" } & DeliveryTransferEntry)
+  | ({ type: "status_change" } & DeliveryStatusHistoryEntry);
+
+/**
+ * Migrations and status changes merged into one chronological feed for the
+ * delivery-status popup — "everything that happened to this item's
+ * delivery," not two separate lists the user has to mentally interleave.
+ */
+export async function fetchDeliveryHistory(issueId: string): Promise<DeliveryHistoryEvent[]> {
+  const [transfers, statusChanges] = await Promise.all([
+    fetchDeliveryTransferHistory(issueId),
+    fetchDeliveryStatusHistory(issueId),
+  ]);
+  const events: DeliveryHistoryEvent[] = [
+    ...transfers.map((t) => ({ type: "transfer" as const, ...t })),
+    ...statusChanges.map((s) => ({ type: "status_change" as const, ...s })),
+  ];
+  events.sort((a, b) => {
+    const at = a.type === "transfer" ? a.movedAt : a.changedAt;
+    const bt = b.type === "transfer" ? b.movedAt : b.changedAt;
+    return bt.localeCompare(at);
+  });
+  return events;
+}
+
 export type UpcomingDelivery = {
   id: string;
   name: string;
