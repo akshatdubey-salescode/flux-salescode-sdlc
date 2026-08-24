@@ -19,7 +19,6 @@ import {
   initials,
   formatRelativeTime,
 } from "./helpers";
-import { SORT_OPTIONS } from "./helpers";
 import { localDateStr } from "@/lib/date-utils";
 import { nearestDeliveryColorClass } from "@/lib/deliveries/status";
 
@@ -45,14 +44,6 @@ type Props = {
    * created, updated.
    */
   visibleColumns?: Set<string>;
-};
-
-const SORTABLE_COLS: Record<string, string> = {
-  summary: "summary",
-  status: "status",
-  priority: "priority",
-  updated: "updated",
-  created: "created",
 };
 
 /** Full date (with year) for the planned-badge hover, or "—" when unset. */

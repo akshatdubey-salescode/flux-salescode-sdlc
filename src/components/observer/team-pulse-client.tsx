@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   RiRefreshLine,
@@ -42,7 +42,7 @@ export function TeamPulseClient({ boardId, onRemoveMember }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -59,9 +59,9 @@ export function TeamPulseClient({ boardId, onRemoveMember }: Props) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [boardId]);
 
-  useEffect(() => { load(); }, [boardId]);
+  useEffect(() => { load(); }, [load]);
 
   if (loading) {
     return (

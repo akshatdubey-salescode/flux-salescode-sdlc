@@ -16,6 +16,20 @@ import { recomputeScorecards } from "./actions";
 
 type QuarterOption = { key: string; label: string };
 
+// Fixed locale (not the ambient one) so server-rendered and client-hydrated
+// output are byte-identical — plain toLocaleString() picks up the Node
+// process's locale on the server and the browser's locale on the client,
+// which differ (e.g. M/D/YYYY vs D/M/YYYY, AM/PM case), causing a real React
+// hydration mismatch on every page load.
+const COMPUTED_AT_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  dateStyle: "short",
+  timeStyle: "medium",
+});
+
+function formatComputedAt(computedAt: string): string {
+  return COMPUTED_AT_FORMATTER.format(new Date(computedAt));
+}
+
 export function ReviewControls({
   quarters,
   selectedKey,
@@ -83,7 +97,7 @@ export function ReviewControls({
 
       {computedAt && (
         <span className="text-xs text-zinc-500 dark:text-zinc-400">
-          Last computed {new Date(computedAt).toLocaleString()}
+          Last computed {formatComputedAt(computedAt)}
         </span>
       )}
     </div>

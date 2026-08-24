@@ -5,7 +5,7 @@ import { cacheLife, cacheTag } from "next/cache";
 import { requireAuth } from "@/lib/auth/server";
 import { stampCache, withCacheMetrics } from "@/lib/cache/metrics";
 import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
-import { fiscalQuarterOf } from "@/lib/date-utils";
+import { fiscalQuarterOf, bucketNowForCache } from "@/lib/date-utils";
 
 // ── Working-hours helpers (identical to dashboard / timeline routes) ──────────
 
@@ -111,7 +111,8 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const rawNow =
       url.searchParams.get("now") ?? new Date().toISOString().slice(0, 19);
-    const nowStr = rawNow.slice(0, 16) + ":00";
+    // Bucketed, because nowStr is part of fetchOverview's cache key.
+    const nowStr = bucketNowForCache(rawNow);
     const today = nowStr.slice(0, 10);
 
     // Whole dashboard is scoped to a fiscal quarter; default to the current one.
@@ -136,7 +137,11 @@ async function fetchOverview(
   qStart: string,
   qEnd: string
 ): Promise<ReturnType<typeof stampCache>> {
-  "use cache";
+  // "use cache" alone is in-memory only, and on Fluid Compute each request
+  // can land on a different instance, so it effectively never hit -- every
+  // request paid the full query cost. "remote" stores the entry in the shared
+  // cache handler Vercel provides, so it is reused across instances.
+  "use cache: remote";
   cacheLife("minutes");
   cacheTag("jira-issues", "overview");
 

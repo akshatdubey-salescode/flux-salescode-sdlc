@@ -4,24 +4,39 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { eq } from "drizzle-orm";
 import { requireRole } from "@/lib/auth/server";
 import { db } from "@/lib/db";
-import { githubOrgs, githubRepos } from "@/lib/db/schema";
+import { githubOrgs, githubRepos, githubAppCredentials } from "@/lib/db/schema";
 import { decrypt, encrypt } from "@/lib/crypto";
 import { GitHubClient } from "@/lib/github/client";
 import { GITHUB_STATS_TAG } from "@/lib/github/cache-tags";
+import { testInstallation, clearInstallationTokenCache, getInstallationToken } from "@/lib/github/app-auth";
 
 const ORG_PATH = "/superuser/github-orgs";
 
 export type DiscoveryMode = "auto" | "manual";
 
 /**
- * Add (or re-key) a GitHub org.
- *
- * 'auto' orgs are discovered by listing the whole org, so we validate the PAT
- * can read the org's repos. 'manual' orgs are for a partial-access PAT (e.g. a
- * personal token with access to only some repos of an org you have no org PAT
- * for) — the org listing endpoint would 403, so we only verify the token
- * authenticates; per-repo access is checked when each repo is registered.
- * Returns an error string on validation failure so the form can surface it.
+ * Validates a token against the access check its discovery mode actually
+ * supports — 'auto' orgs (e.g. salescode-ai, visible to every employee) can
+ * list the whole org, so testOrgAccess (GET /orgs/{org}/repos) is the right
+ * check. 'manual' orgs (e.g. salescode-tools, stakeholder-only visibility)
+ * never support org-wide listing regardless of token — testOrgAccess would
+ * 404/403 there even for a token with full per-repo access, so this only
+ * confirms the token authenticates at all; per-repo access is checked
+ * separately whenever a repo is registered (addManualRepo).
+ * Returns an error string on failure, or null on success.
+ */
+async function validateTokenForMode(
+  client: GitHubClient,
+  mode: DiscoveryMode
+): Promise<string | null> {
+  if (mode === "auto") return client.testOrgAccess();
+  return (await client.testConnection()) ? null : "Invalid or expired token.";
+}
+
+/**
+ * Add (or re-key) a GitHub org. See validateTokenForMode for why the access
+ * check differs by discovery mode. Returns an error string on validation
+ * failure so the form can surface it.
  */
 export async function addGithubOrg(
   login: string,
@@ -37,17 +52,14 @@ export async function addGithubOrg(
   if (!cleanToken) return { error: "A token is required." };
 
   const client = new GitHubClient({ token: cleanToken, org: cleanLogin });
-  if (mode === "auto") {
-    const accessError = await client.testOrgAccess();
-    if (accessError) return { error: accessError };
-  } else if (!(await client.testConnection())) {
-    return { error: "Invalid or expired token." };
-  }
+  const accessError = await validateTokenForMode(client, mode);
+  if (accessError) return { error: accessError };
 
   await db
     .insert(githubOrgs)
     .values({
       login: cleanLogin,
+      authMode: "pat",
       apiToken: encrypt(cleanToken),
       discoveryMode: mode,
       isActive: true,
@@ -55,8 +67,12 @@ export async function addGithubOrg(
     })
     .onConflictDoUpdate({
       target: githubOrgs.login,
+      // Re-adding via this PAT form is an explicit "use a PAT for this org"
+      // choice — reverts an org previously switched to App auth too.
       set: {
+        authMode: "pat",
         apiToken: encrypt(cleanToken),
+        appInstallationId: null,
         discoveryMode: mode,
         isActive: true,
         updatedAt: new Date(),
@@ -64,6 +80,117 @@ export async function addGithubOrg(
     });
 
   revalidateTag(GITHUB_STATS_TAG, "max");
+  revalidatePath(ORG_PATH);
+  return {};
+}
+
+/**
+ * Switch an existing org from PAT auth to GitHub App auth. Validates the
+ * installation actually works (mints a real installation token) before
+ * persisting, so a typo'd installation id can't silently break the org's
+ * next sync. The org's PAT is dropped — from here the App is the only
+ * credential and its token is minted fresh on every sync.
+ *
+ * discoveryMode is set here too (not left as whatever the org had before) —
+ * an App installed with "All repositories" only actually auto-tracks new
+ * repos if the org is also 'auto'; bundling both into one validated step
+ * means a superuser can't switch auth and forget the other half.
+ */
+export async function setGithubOrgAppAuth(
+  id: string,
+  installationId: string,
+  discoveryMode: DiscoveryMode
+): Promise<{ error?: string }> {
+  await requireRole("SUPERUSER");
+
+  const clean = installationId.trim();
+  if (!clean) return { error: "Installation id is required." };
+  const mode: DiscoveryMode = discoveryMode === "manual" ? "manual" : "auto";
+
+  const testError = await testInstallation(clean);
+  if (testError) return { error: testError };
+
+  await db
+    .update(githubOrgs)
+    .set({
+      authMode: "app",
+      appInstallationId: clean,
+      apiToken: null,
+      discoveryMode: mode,
+      updatedAt: new Date(),
+    })
+    .where(eq(githubOrgs.id, id));
+
+  clearInstallationTokenCache(clean);
+  revalidateTag(GITHUB_STATS_TAG, "max");
+  revalidatePath(ORG_PATH);
+  return {};
+}
+
+/**
+ * Switch an org back from GitHub App auth to a plain PAT — an escape hatch
+ * if an installation needs to be torn down. Validated the same way
+ * addGithubOrg validates a fresh PAT.
+ */
+export async function revertGithubOrgToPat(id: string, token: string): Promise<{ error?: string }> {
+  await requireRole("SUPERUSER");
+
+  const cleanToken = token.trim();
+  if (!cleanToken) return { error: "A token is required." };
+
+  const [org] = await db
+    .select({ login: githubOrgs.login, discoveryMode: githubOrgs.discoveryMode })
+    .from(githubOrgs)
+    .where(eq(githubOrgs.id, id))
+    .limit(1);
+  if (!org) return { error: "Org not found." };
+
+  const mode: DiscoveryMode = org.discoveryMode === "manual" ? "manual" : "auto";
+  const accessError = await validateTokenForMode(
+    new GitHubClient({ token: cleanToken, org: org.login }),
+    mode
+  );
+  if (accessError) return { error: accessError };
+
+  await db
+    .update(githubOrgs)
+    .set({ authMode: "pat", apiToken: encrypt(cleanToken), appInstallationId: null, updatedAt: new Date() })
+    .where(eq(githubOrgs.id, id));
+
+  revalidateTag(GITHUB_STATS_TAG, "max");
+  revalidatePath(ORG_PATH);
+  return {};
+}
+
+/**
+ * Save (or rotate) the org's single shared GitHub App credentials — the App
+ * ID and its RS256 private key, encrypted at rest. Every authMode='app' org
+ * mints its installation tokens against this one row (see app-auth.ts).
+ */
+export async function saveGithubAppCredentials(
+  appId: string,
+  privateKey: string
+): Promise<{ error?: string }> {
+  await requireRole("SUPERUSER");
+
+  const cleanAppId = appId.trim();
+  const cleanKey = privateKey.trim();
+  if (!cleanAppId) return { error: "App ID is required." };
+  if (!cleanKey.includes("PRIVATE KEY")) return { error: "That doesn't look like a PEM private key." };
+
+  const [existing] = await db.select({ id: githubAppCredentials.id }).from(githubAppCredentials).limit(1);
+  if (existing) {
+    await db
+      .update(githubAppCredentials)
+      .set({ appId: cleanAppId, privateKey: encrypt(cleanKey), updatedAt: new Date() })
+      .where(eq(githubAppCredentials.id, existing.id));
+  } else {
+    await db.insert(githubAppCredentials).values({ appId: cleanAppId, privateKey: encrypt(cleanKey) });
+  }
+
+  // Rotating the key invalidates every cached installation token, not just
+  // one — they were all minted against the old key.
+  clearInstallationTokenCache();
   revalidatePath(ORG_PATH);
   return {};
 }
@@ -87,7 +214,9 @@ export async function addManualRepo(
   const [org] = await db
     .select({
       login: githubOrgs.login,
+      authMode: githubOrgs.authMode,
       apiToken: githubOrgs.apiToken,
+      appInstallationId: githubOrgs.appInstallationId,
       discoveryMode: githubOrgs.discoveryMode,
     })
     .from(githubOrgs)
@@ -100,10 +229,11 @@ export async function addManualRepo(
 
   let repo;
   try {
-    repo = await new GitHubClient({
-      token: decrypt(org.apiToken),
-      org: org.login,
-    }).getRepo(clean);
+    const token =
+      org.authMode === "app" && org.appInstallationId
+        ? await getInstallationToken(org.appInstallationId)
+        : decrypt(org.apiToken ?? "");
+    repo = await new GitHubClient({ token, org: org.login }).getRepo(clean);
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
   }
@@ -173,9 +303,14 @@ export async function removeManualRepo(repoId: string): Promise<{ error?: string
 
 /**
  * Rotate an existing org's PAT without re-typing its login. Validates the new
- * token can read the org before persisting it (encrypted). This is the token
- * every repo in the org is fetched/cloned with, so updating it here updates
- * access for all of them. Leaves isActive untouched.
+ * token against the check its discovery mode actually supports (see
+ * validateTokenForMode) before persisting it (encrypted) — previously this
+ * always ran the 'auto' org-listing check regardless of mode, which made a
+ * manual-mode org's token permanently un-rotatable once the old one died: the
+ * new token would fail the org-listing check even with full per-repo access,
+ * the exact scenario manual mode exists for. This is the token every repo in
+ * the org is fetched/cloned with, so updating it here updates access for all
+ * of them. Leaves isActive untouched.
  */
 export async function updateGithubOrgToken(
   id: string,
@@ -187,16 +322,17 @@ export async function updateGithubOrgToken(
   if (!cleanToken) return { error: "A token is required." };
 
   const [org] = await db
-    .select({ login: githubOrgs.login })
+    .select({ login: githubOrgs.login, discoveryMode: githubOrgs.discoveryMode })
     .from(githubOrgs)
     .where(eq(githubOrgs.id, id))
     .limit(1);
   if (!org) return { error: "Org not found." };
 
-  const accessError = await new GitHubClient({
-    token: cleanToken,
-    org: org.login,
-  }).testOrgAccess();
+  const mode: DiscoveryMode = org.discoveryMode === "manual" ? "manual" : "auto";
+  const accessError = await validateTokenForMode(
+    new GitHubClient({ token: cleanToken, org: org.login }),
+    mode
+  );
   if (accessError) return { error: accessError };
 
   await db

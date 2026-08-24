@@ -1,4 +1,8 @@
-// Unit tests for performance-review task attribution: Dev Owner ?? Assignee.
+// Unit tests for performance-review task attribution: Dev Owner ?? Assignee,
+// overridden outright by locCreditedEmail whenever loc-sync found a matched
+// PR and knows exactly who wrote it (a real PR is harder evidence than a
+// Dev Owner field that can go stale — see resolveTaskOwnerEmail's own
+// comment for the CAV-2245 case this originally fixed).
 // Run: ./node_modules/.bin/tsx --test src/lib/jira/scorecard-fields.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -38,4 +42,40 @@ test("Dev Owner present but unresolvable (accountId, no map) → falls back to A
 
 test("neither Dev Owner nor Assignee → null (credited to nobody)", () => {
   assert.equal(resolveTaskOwnerEmail({}, DEV, null), null);
+});
+
+// --- locCreditedEmail: whoever loc-sync confirmed wrote the matched PR -----
+// wins outright, the CAV-2245 fix (now generalized to Dev Owner too) --------
+
+test("locCreditedEmail set to the Assignee overrides a set Dev Owner", () => {
+  const cf = { customfield_10072: { emailAddress: "dev.owner@salescode.ai" } };
+  assert.equal(
+    resolveTaskOwnerEmail(cf, DEV, "assignee@salescode.ai", null, "assignee@salescode.ai"),
+    "assignee@salescode.ai",
+  );
+});
+
+test("locCreditedEmail set to the Dev Owner themselves — still wins outright, same as before", () => {
+  const cf = { customfield_10072: { emailAddress: "dev.owner@salescode.ai" } };
+  assert.equal(
+    resolveTaskOwnerEmail(cf, DEV, "assignee@salescode.ai", null, "dev.owner@salescode.ai"),
+    "dev.owner@salescode.ai",
+  );
+});
+
+test("locCreditedEmail unset (undefined, default) keeps Dev Owner priority — unchanged behavior", () => {
+  const cf = { customfield_10072: { emailAddress: "dev.owner@salescode.ai" } };
+  assert.equal(resolveTaskOwnerEmail(cf, DEV, "assignee@salescode.ai"), "dev.owner@salescode.ai");
+});
+
+test("locCreditedEmail null (explicit no-match) keeps Dev Owner priority — unchanged behavior", () => {
+  const cf = { customfield_10072: { emailAddress: "dev.owner@salescode.ai" } };
+  assert.equal(
+    resolveTaskOwnerEmail(cf, DEV, "assignee@salescode.ai", null, null),
+    "dev.owner@salescode.ai",
+  );
+});
+
+test("locCreditedEmail set with no Dev Owner field at all → still wins outright", () => {
+  assert.equal(resolveTaskOwnerEmail({}, DEV, null, null, "credited@salescode.ai"), "credited@salescode.ai");
 });

@@ -15,6 +15,9 @@ import {
   RiArrowRightLine,
   RiCheckboxCircleLine,
   RiHistoryLine,
+  RiLayoutColumnLine,
+  RiDownload2Line,
+  RiMore2Line,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +27,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,6 +66,8 @@ import { DeliveryBadge } from "./delivery-badge";
 import { refreshDeliverySummary, subscribeToDeliveryListChanges } from "./delivery-summary-cache";
 import { CreateDeliveryForm } from "./create-delivery-form";
 import { IssueMultiPicker, type IssueResult } from "./issue-multi-picker";
+import { ItemDetailModal } from "./item-detail-modal";
+import { useColumnVisibility, TOGGLEABLE_COLUMNS, type ColumnKey } from "./use-column-visibility";
 import type { DeliveryWithItems, DeliveryItemRow, DeliveryRollup, DeliveryOption } from "@/lib/deliveries/entries";
 
 type DeliveriesResponse = { deliveries: DeliveryWithItems[] };
@@ -89,6 +102,8 @@ export function DeliveryTrackerTab({ projectId, canManage }: { projectId: string
   const [dateTo, setDateTo] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<Set<DeliveryStatusValue>>(() => new Set());
   const [showCompleted, setShowCompleted] = useState(false);
+  const { visibleColumns, toggleColumn, resetColumns } = useColumnVisibility();
+  const [exporting, setExporting] = useState(false);
 
   const load = useCallback(() => {
     // no-store: same browser-fetch-cache staleness this feature hit
@@ -160,6 +175,46 @@ export function DeliveryTrackerTab({ projectId, canManage }: { projectId: string
 
   const hasActiveFilter = !!search.trim() || !!dateFrom || !!dateTo || statusFilter.size > 0;
 
+  // Sends exactly what's currently on screen (post search/date/status/
+  // show-completed filters) — there's no server-side query to re-run with
+  // the same filters the way Project Tracking's export does, since all of
+  // this filtering already happens client-side above. Column visibility
+  // never factors in; the export's columns are fixed (see the export
+  // route), regardless of what's toggled hidden on screen.
+  async function handleExport() {
+    if (!filteredDeliveries) return;
+    setExporting(true);
+    try {
+      const res = await fetch("/api/deliveries/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deliveries: filteredDeliveries.map((d) => ({
+            name: d.name,
+            deliveryDate: d.deliveryDate,
+            items: d.visibleItems,
+          })),
+        }),
+      });
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+
+      const today = new Date().toISOString().split("T")[0];
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `deliveries-${today}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // silently ignore — user can retry, matching My Tasks' export button
+    } finally {
+      setExporting(false);
+    }
+  }
+
   function toggleStatusFilter(value: DeliveryStatusValue) {
     setStatusFilter((prev) => {
       const next = new Set(prev);
@@ -175,18 +230,63 @@ export function DeliveryTrackerTab({ projectId, canManage }: { projectId: string
         <p className="text-xs text-muted-foreground">
           Jira tasks and bugs committed to a delivery date, grouped by delivery.
         </p>
-        {canManage && (
-          <CreateDeliveryForm
-            projectId={projectId}
-            trigger={
-              <Button size="sm">
-                <RiAddLine className="size-3.5" />
-                New delivery
+        <div className="flex items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                <RiLayoutColumnLine className="size-3.5" />
+                Columns
               </Button>
-            }
-            onSaved={load}
-          />
-        )}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuLabel>Visible columns</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {TOGGLEABLE_COLUMNS.map((col) => {
+                const checked = visibleColumns.has(col.key);
+                return (
+                  <DropdownMenuCheckboxItem
+                    key={col.key}
+                    checked={checked}
+                    onSelect={(e) => e.preventDefault()}
+                    onCheckedChange={() => toggleColumn(col.key)}
+                    disabled={checked && visibleColumns.size <= 1}
+                  >
+                    {col.label}
+                  </DropdownMenuCheckboxItem>
+                );
+              })}
+              <DropdownMenuSeparator />
+              <DropdownMenuCheckboxItem
+                checked={false}
+                onSelect={(e) => e.preventDefault()}
+                onCheckedChange={resetColumns}
+              >
+                Show all
+              </DropdownMenuCheckboxItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExport}
+            disabled={exporting || !filteredDeliveries || filteredDeliveries.length === 0}
+          >
+            <RiDownload2Line className="size-3.5" />
+            {exporting ? "Exporting…" : "Export Excel"}
+          </Button>
+          {canManage && (
+            <CreateDeliveryForm
+              projectId={projectId}
+              trigger={
+                <Button size="sm">
+                  <RiAddLine className="size-3.5" />
+                  New delivery
+                </Button>
+              }
+              onSaved={load}
+            />
+          )}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -315,6 +415,7 @@ export function DeliveryTrackerTab({ projectId, canManage }: { projectId: string
           delivery={delivery}
           visibleItems={delivery.visibleItems}
           canManage={canManage}
+          visibleColumns={visibleColumns}
           onChanged={load}
           migrationTargets={migrationTargets.filter((o) => o.id !== delivery.id)}
           deliveriesByIssue={deliveriesByIssue}
@@ -328,6 +429,26 @@ function daysBetween(dateStr: string, today: string): number {
   const d = new Date(dateStr + "T00:00:00");
   const t = new Date(today + "T00:00:00");
   return Math.round((d.getTime() - t.getTime()) / 86_400_000);
+}
+
+/** Planned Start/Due date for the items table's own two columns — same
+ * source (extractStartDate/extractDueDate) as My Tasks' Plan column, just
+ * displayed as its own compact date rather than a Planned/Unplanned badge. */
+function formatPlanDate(dateStr: string | null): string {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** Actual Start/End are full datetimes (not just a calendar date like
+ * Start/End Date), so this parses the ISO string directly rather than
+ * pinning it to local midnight the way formatPlanDate does. */
+function formatActualDate(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
 function RollupCounts({ rollup }: { rollup: DeliveryRollup }) {
@@ -347,6 +468,7 @@ function DeliveryCard({
   delivery,
   visibleItems,
   canManage,
+  visibleColumns,
   onChanged,
   migrationTargets,
   deliveriesByIssue,
@@ -355,6 +477,7 @@ function DeliveryCard({
   /** Items after the item-status filter (a subset of delivery.items) — what the table actually renders. */
   visibleItems: DeliveryItemRow[];
   canManage: boolean;
+  visibleColumns: Set<ColumnKey>;
   onChanged: () => void;
   /** Other active deliveries an item in this card could migrate to. */
   migrationTargets: DeliveryOption[];
@@ -366,6 +489,7 @@ function DeliveryCard({
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [alertCopied, setAlertCopied] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const today = localDateStr(new Date());
   const daysToGo = daysBetween(delivery.deliveryDate, today);
@@ -377,6 +501,37 @@ function DeliveryCard({
     navigator.clipboard.writeText(buildDeliveryAlertMessage(delivery, visibleItems));
     setAlertCopied(true);
     setTimeout(() => setAlertCopied(false), 2000);
+  }
+
+  /** Per-sprint export — same endpoint the top-level "Export Excel" button
+   * uses, just a single-delivery body instead of every filtered delivery. */
+  async function handleExportSprint() {
+    setExporting(true);
+    try {
+      const res = await fetch("/api/deliveries/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deliveries: [{ name: delivery.name, deliveryDate: delivery.deliveryDate, items: visibleItems }],
+        }),
+      });
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+
+      const safeName = delivery.name.replace(/[^\w-]+/g, "_");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${safeName}-${delivery.deliveryDate}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // silently ignore — user can retry, matching the other export buttons
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function handleAddIssues() {
@@ -482,6 +637,18 @@ function DeliveryCard({
         <div className="flex items-center gap-3">
           <RollupCounts rollup={delivery.rollup} />
           {visibleItems.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-[11px]"
+              onClick={handleExportSprint}
+              disabled={exporting}
+            >
+              <RiDownload2Line className="size-3.5" />
+              {exporting ? "Exporting…" : "Export"}
+            </Button>
+          )}
+          {visibleItems.length > 0 && (
             <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={handleCopySummary}>
               {alertCopied ? (
                 <>
@@ -579,6 +746,7 @@ function DeliveryCard({
           deliveryDate={delivery.deliveryDate}
           items={visibleItems}
           canManage={canManage}
+          visibleColumns={visibleColumns}
           onRemoveItem={handleRemoveItem}
           onChanged={onChanged}
           onMigrate={handleMigrate}
@@ -596,6 +764,7 @@ function DeliveryItemsTable({
   deliveryDate,
   items,
   canManage,
+  visibleColumns,
   onRemoveItem,
   onChanged,
   onMigrate,
@@ -605,22 +774,31 @@ function DeliveryItemsTable({
   deliveryDate: string;
   items: DeliveryItemRow[];
   canManage: boolean;
+  visibleColumns: Set<ColumnKey>;
   onRemoveItem: (itemId: string) => void;
   onChanged: () => void;
   onMigrate: (itemId: string, targetDeliveryId: string) => Promise<boolean>;
   migrationTargetsByIssue: (issueId: string) => DeliveryOption[];
 }) {
+  const [detailItem, setDetailItem] = useState<DeliveryItemRow | null>(null);
+  const isVisible = (key: ColumnKey) => visibleColumns.has(key);
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-border bg-muted/20">
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Key</th>
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Summary</th>
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Priority</th>
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Assignee</th>
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Delivery</th>
+            {isVisible("key") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Key</th>}
+            {isVisible("summary") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Summary</th>}
+            {isVisible("jiraStatus") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>}
+            {isVisible("priority") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Priority</th>}
+            {isVisible("assignee") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Assignee</th>}
+            {isVisible("delivery") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Delivery</th>}
+            {isVisible("startDate") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Start Date</th>}
+            {isVisible("dueDate") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">End Date</th>}
+            {isVisible("actualStart") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Actual Start</th>}
+            {isVisible("actualEnd") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Actual End</th>}
+            {isVisible("comments") && <th className="px-2 py-2" />}
             <th className="px-2 py-2" />
             {canManage && <th className="w-16 px-2 py-2" />}
           </tr>
@@ -631,39 +809,77 @@ function DeliveryItemsTable({
             const pStyles = priorityStyles(item.priority);
             return (
               <tr key={item.id} className="hover:bg-muted/20 transition-colors">
-                <td className="px-3 py-2 whitespace-nowrap">
-                  <a
-                    href={`${item.jiraBaseUrl.replace(/\/$/, "")}/browse/${item.jiraKey}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 font-mono font-medium text-foreground hover:text-primary transition-colors"
-                  >
-                    {item.jiraKey}
-                    <RiExternalLinkLine className="size-3 opacity-40" />
-                  </a>
-                </td>
-                <td className="px-3 py-2 max-w-[240px]">
-                  <span className="block truncate" title={item.summary}>{item.summary}</span>
-                </td>
-                <td className="px-3 py-2">
-                  <span className={cn("inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold", sStyles.badge)}>
-                    {item.jiraStatus}
-                  </span>
-                </td>
-                <td className="px-3 py-2">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className={cn("size-1.5 rounded-full", pStyles.dot)} />
-                    <span className={cn("font-medium", pStyles.text)}>{item.priority ?? "—"}</span>
-                  </span>
-                </td>
-                <td className="px-3 py-2 text-muted-foreground">{item.assigneeName ?? "—"}</td>
-                <td className="px-3 py-2">
-                  <DeliveryStatusCell deliveryId={deliveryId} deliveryDate={deliveryDate} item={item} onUpdated={onChanged} />
-                </td>
+                {isVisible("key") && (
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <a
+                      href={`${item.jiraBaseUrl.replace(/\/$/, "")}/browse/${item.jiraKey}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-mono font-medium text-foreground hover:text-primary transition-colors"
+                    >
+                      {item.jiraKey}
+                      <RiExternalLinkLine className="size-3 opacity-40" />
+                    </a>
+                  </td>
+                )}
+                {isVisible("summary") && (
+                  <td className="px-3 py-2 max-w-[240px]">
+                    <span className="block truncate" title={item.summary}>{item.summary}</span>
+                  </td>
+                )}
+                {isVisible("jiraStatus") && (
+                  <td className="px-3 py-2">
+                    <span className={cn("inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold", sStyles.badge)}>
+                      {item.jiraStatus}
+                    </span>
+                  </td>
+                )}
+                {isVisible("priority") && (
+                  <td className="px-3 py-2">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className={cn("size-1.5 rounded-full", pStyles.dot)} />
+                      <span className={cn("font-medium", pStyles.text)}>{item.priority ?? "—"}</span>
+                    </span>
+                  </td>
+                )}
+                {isVisible("assignee") && (
+                  <td className="px-3 py-2 text-muted-foreground">{item.assigneeName ?? "—"}</td>
+                )}
+                {isVisible("delivery") && (
+                  <td className="px-3 py-2">
+                    <DeliveryStatusCell deliveryId={deliveryId} deliveryDate={deliveryDate} item={item} onUpdated={onChanged} />
+                  </td>
+                )}
+                {isVisible("startDate") && (
+                  <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatPlanDate(item.startDate)}</td>
+                )}
+                {isVisible("dueDate") && (
+                  <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatPlanDate(item.dueDate)}</td>
+                )}
+                {isVisible("actualStart") && (
+                  <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatActualDate(item.actualStart)}</td>
+                )}
+                {isVisible("actualEnd") && (
+                  <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatActualDate(item.actualEnd)}</td>
+                )}
+                {isVisible("comments") && (
+                  <td className="px-2 py-2">
+                    <CommentCell deliveryId={deliveryId} item={item} onUpdated={onChanged} />
+                  </td>
+                )}
                 <td className="px-2 py-2">
                   <div className="flex items-center gap-0.5">
                     <DelayLogButton issueId={item.issueId} />
                     <DeliveryBadge issueId={item.issueId} canManage={canManage} onChanged={onChanged} />
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      title="View details"
+                      onClick={() => setDetailItem(item)}
+                    >
+                      <RiMore2Line className="size-3.5" />
+                      <span className="sr-only">View details</span>
+                    </Button>
                   </div>
                 </td>
                 {canManage && (
@@ -690,6 +906,13 @@ function DeliveryItemsTable({
           })}
         </tbody>
       </table>
+      {detailItem && (
+        <ItemDetailModal
+          item={detailItem}
+          open={detailItem !== null}
+          onOpenChange={(open) => { if (!open) setDetailItem(null); }}
+        />
+      )}
     </div>
   );
 }
@@ -766,6 +989,9 @@ function MigrateButton({
  * same issue; onUpdated triggers a full reload of every delivery card so
  * those mirrored siblings show up-to-date too.
  */
+/** Status only — the comment half of this same PATCH endpoint moved to its
+ * own CommentCell, in the Comments column, so the two aren't both crammed
+ * (and duplicated-looking) into the Delivery column. */
 function DeliveryStatusCell({
   deliveryId,
   deliveryDate,
@@ -778,22 +1004,22 @@ function DeliveryStatusCell({
   onUpdated: () => void;
 }) {
   const [status, setStatus] = useState<DeliveryStatusValue>(item.status);
-  const [comment, setComment] = useState(item.statusComment ?? "");
-  const [commentOpen, setCommentOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setStatus(item.status);
-    setComment(item.statusComment ?? "");
-  }, [item.status, item.statusComment]);
+  }, [item.status]);
 
-  async function save(nextStatus: DeliveryStatusValue, nextComment: string) {
+  async function handleStatusChange(value: string) {
+    const next = value as DeliveryStatusValue;
+    setStatus(next);
     setSaving(true);
     try {
       const res = await fetch(`/api/deliveries/${deliveryId}/items/${item.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: nextStatus, statusComment: nextComment.trim() || null }),
+        // Comment is untouched here — CommentCell owns it exclusively now.
+        body: JSON.stringify({ status: next, statusComment: item.statusComment }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -801,26 +1027,12 @@ function DeliveryStatusCell({
       }
       await refreshDeliverySummary(item.issueId);
       onUpdated();
-      return true;
     } catch (e) {
       setStatus(item.status);
-      setComment(item.statusComment ?? "");
       toast.error(e instanceof Error ? e.message : "Failed to update status");
-      return false;
     } finally {
       setSaving(false);
     }
-  }
-
-  function handleStatusChange(value: string) {
-    const next = value as DeliveryStatusValue;
-    setStatus(next);
-    save(next, comment);
-  }
-
-  async function handleSaveComment() {
-    const ok = await save(status, comment);
-    if (ok) setCommentOpen(false);
   }
 
   // Same rule as the item panel's MembershipRow: late-styling reflects the
@@ -829,20 +1041,71 @@ function DeliveryStatusCell({
   const styles = deliveryStatusStyles(status, isLate);
 
   return (
+    <Select value={status} onValueChange={handleStatusChange} disabled={saving}>
+      <SelectTrigger size="sm" className={cn("h-6 w-[132px] rounded-full text-[10px] font-semibold", styles.badge)}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {DELIVERY_STATUSES.map((s) => (
+          <SelectItem key={s.value} value={s.value}>
+            {s.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/** Read-only comment text + its own edit popover — the other half of the
+ * same PATCH endpoint DeliveryStatusCell uses, now living only in the
+ * Comments column (hidden by default, opt-in via the Columns menu). */
+function CommentCell({
+  deliveryId,
+  item,
+  onUpdated,
+}: {
+  deliveryId: string;
+  item: DeliveryItemRow;
+  onUpdated: () => void;
+}) {
+  const [comment, setComment] = useState(item.statusComment ?? "");
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setComment(item.statusComment ?? "");
+  }, [item.statusComment]);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/deliveries/${deliveryId}/items/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        // Status is untouched here — DeliveryStatusCell owns it exclusively.
+        body: JSON.stringify({ status: item.status, statusComment: comment.trim() || null }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      await refreshDeliverySummary(item.issueId);
+      onUpdated();
+      setOpen(false);
+    } catch (e) {
+      setComment(item.statusComment ?? "");
+      toast.error(e instanceof Error ? e.message : "Failed to update comment");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
     <div className="flex items-center gap-1">
-      <Select value={status} onValueChange={handleStatusChange} disabled={saving}>
-        <SelectTrigger size="sm" className={cn("h-6 w-[132px] rounded-full text-[10px] font-semibold", styles.badge)}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {DELIVERY_STATUSES.map((s) => (
-            <SelectItem key={s.value} value={s.value}>
-              {s.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Popover open={commentOpen} onOpenChange={setCommentOpen}>
+      {/* Icon only, deliberately — no comment-text preview in this cell. A
+          filled icon just signals a comment exists; open the popover to
+          actually read/edit it. */}
+      <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
             variant="ghost"
@@ -859,7 +1122,7 @@ function DeliveryStatusCell({
             placeholder="Optional comment…"
             className="min-h-16 text-xs"
           />
-          <Button size="sm" className="w-full" onClick={handleSaveComment} disabled={saving}>
+          <Button size="sm" className="w-full" onClick={handleSave} disabled={saving}>
             {saving ? "Saving…" : "Save comment"}
           </Button>
         </PopoverContent>

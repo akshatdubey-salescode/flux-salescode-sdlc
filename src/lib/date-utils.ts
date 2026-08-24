@@ -194,3 +194,46 @@ export function getWeekRangePresets(): RangePreset[] {
     { label: "FY to date", start: weekStartOf(`${fyStartYear}-04-01`), end: thisSat },
   ];
 }
+
+/**
+ * Minutes per cache-key bucket for `now`. See `bucketNowForCache`.
+ */
+export const NOW_CACHE_BUCKET_MINUTES = 15;
+
+/**
+ * Floors an ISO-ish local timestamp ("YYYY-MM-DDTHH:MM[:SS]") to a
+ * 15-minute bucket, returning "YYYY-MM-DDTHH:MM:00".
+ *
+ * The analytics routes pass `now` into their cached fetchers, so it lands in
+ * the cache key. At minute precision that key changed 60 times an hour, so
+ * every request was a guaranteed miss and paid the full query cost. Bucketing
+ * makes the key change 4 times an hour instead.
+ *
+ * `now` only feeds the at-risk/overdue classification (working hours left
+ * before a due date), so a sub-bucket shift can move an issue across the
+ * at-risk threshold at most `NOW_CACHE_BUCKET_MINUTES` early or late. The date
+ * portion — which decides "overdue" — is untouched.
+ *
+ * Malformed input is returned normalised to the minute rather than throwing,
+ * matching the previous behaviour.
+ */
+export function bucketNowForCache(raw: string): string {
+  const datePart = raw.slice(0, 11); // "YYYY-MM-DDT"
+  const hh = Number(raw.slice(11, 13));
+  const mm = Number(raw.slice(14, 16));
+  if (
+    raw.length < 16 ||
+    raw[10] !== "T" ||
+    !Number.isInteger(hh) ||
+    !Number.isInteger(mm) ||
+    hh < 0 ||
+    hh > 23 ||
+    mm < 0 ||
+    mm > 59
+  ) {
+    return raw.slice(0, 16) + ":00";
+  }
+  const bucketed = Math.floor(mm / NOW_CACHE_BUCKET_MINUTES) * NOW_CACHE_BUCKET_MINUTES;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${datePart}${pad(hh)}:${pad(bucketed)}:00`;
+}

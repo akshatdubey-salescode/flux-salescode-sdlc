@@ -46,9 +46,39 @@ export type GitHubUserRaw = {
   avatar_url: string;
 };
 
+/** One PR from the list endpoint — cheap fields only, no diff stats. */
+export type PullRequestRaw = {
+  number: number;
+  title: string;
+  state: "open" | "closed";
+  user: { login: string } | null;
+  head: { ref: string };
+  created_at: string;
+  updated_at: string;
+  merged_at: string | null;
+};
+
+/**
+ * One changed file within a PR, from the files endpoint. `patch` is the
+ * unified-diff hunk text for that file — omitted by GitHub for binary files
+ * and diffs over ~1MB, in which case additions/deletions (GitHub's raw,
+ * comments-included counts) are the only signal available for that file.
+ */
+export type PullRequestFileRaw = {
+  filename: string;
+  status: string; // added | removed | modified | renamed | ...
+  additions: number;
+  deletions: number;
+  patch?: string;
+};
+
 export class GitHubClient {
   private headers: HeadersInit;
   private org: string;
+  // Updated from x-ratelimit-remaining on every response this client makes.
+  // Null until the first request completes. loc-sync polls this to stop
+  // early rather than running the token's quota to zero.
+  private lastRateLimitRemaining: number | null = null;
 
   constructor(config?: { token?: string; org?: string }) {
     const token = config?.token ?? process.env.GITHUB_TOKEN;
@@ -82,7 +112,19 @@ export class GitHubClient {
           `allowed host "${GITHUB_API_HOST}". No request was sent.`
       );
     }
-    return fetch(url, { method: "GET", headers: this.headers });
+    const res = await fetch(url, { method: "GET", headers: this.headers });
+    const remaining = res.headers.get("x-ratelimit-remaining");
+    if (remaining !== null) this.lastRateLimitRemaining = Number(remaining);
+    return res;
+  }
+
+  /**
+   * Requests remaining on this client's token as of the last call, or null
+   * before any request has been made. Callers doing a long fan-out (loc-sync)
+   * should stop well before this hits 0, not race it down.
+   */
+  get rateLimitRemaining(): number | null {
+    return this.lastRateLimitRemaining;
   }
 
   /** Verify credentials by calling /rate_limit. Returns true if authenticated. */
@@ -270,6 +312,93 @@ export class GitHubClient {
       }
       const batch = (await res.json()) as CommitRaw[];
       out.push(...batch);
+      url = GitHubClient.parseNextLink(res.headers.get("link"));
+    }
+    return out;
+  }
+
+  /**
+   * PRs on a repo, most-recently-updated first, state=all. Stops paginating
+   * once a page's oldest PR has updated_at before `updatedSince` — safe for
+   * quarter scoping because both creating AND merging a PR bump updated_at,
+   * so "updated_at >= quarter start" is guaranteed to include every PR either
+   * opened or merged in-quarter without walking the repo's full PR history.
+   * No diff stats here (list endpoint doesn't carry them) — see
+   * getPullRequestDetail for additions/deletions on a specific PR.
+   */
+  async listPullRequests(
+    repoFullName: string,
+    opts: { updatedSince: string; maxPages?: number }
+  ): Promise<{ prs: PullRequestRaw[]; truncated: boolean }> {
+    const maxPages = opts.maxPages ?? 20; // 20 * 100 = 2000 PRs/repo, generous ceiling
+    const sinceMs = new Date(opts.updatedSince).getTime();
+    const out: PullRequestRaw[] = [];
+    let url: string | null =
+      `${GITHUB_API_BASE}/repos/${repoFullName}/pulls` +
+      `?state=all&sort=updated&direction=desc&per_page=100`;
+
+    let page = 0;
+    for (; page < maxPages && url; page++) {
+      const res = await this.get(url);
+      if (res.status === 404) return { prs: out, truncated: false }; // no access — not fatal for loc-sync
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`GitHub PR list failed for ${repoFullName} (${res.status}): ${body}`);
+      }
+      const batch = (await res.json()) as PullRequestRaw[];
+      if (batch.length === 0) {
+        url = null;
+        break;
+      }
+      let hitFloor = false;
+      for (const pr of batch) {
+        if (new Date(pr.updated_at).getTime() < sinceMs) {
+          hitFloor = true;
+          break;
+        }
+        out.push(pr);
+      }
+      if (hitFloor) {
+        url = null;
+        break;
+      }
+      url = GitHubClient.parseNextLink(res.headers.get("link"));
+    }
+    // Truncated (not a genuine "reached the floor / ran out of pages" stop)
+    // when the loop exited only because it hit maxPages while a next page
+    // still existed — this repo has more in-quarter PRs than the ceiling
+    // covers. Callers must treat this the same as an error: the scan for this
+    // repo is incomplete, so a "fully clean run" full-quarter replace must not
+    // fire off of it.
+    const truncated = page >= maxPages && url !== null;
+    return { prs: out, truncated };
+  }
+
+  /**
+   * Changed files (with diff patches) for one PR — the list endpoint above
+   * doesn't carry these, so this costs one or more separate calls. Only call
+   * it for PRs that already passed the cheap Jira-key/author/quarter filters
+   * (see loc-sync.ts), to keep API cost proportional to real matches rather
+   * than total PR volume. Capped at maxPages * 100 files — a PR with more
+   * changed files than that gets a partial (undercounted) file list; rare in
+   * practice and affects only that one PR's LOC precision, not matching.
+   */
+  async getPullRequestFiles(
+    repoFullName: string,
+    number: number,
+    opts: { maxPages?: number } = {}
+  ): Promise<PullRequestFileRaw[]> {
+    const maxPages = opts.maxPages ?? 10; // 10 * 100 = 1000 files/PR ceiling
+    const out: PullRequestFileRaw[] = [];
+    let url: string | null =
+      `${GITHUB_API_BASE}/repos/${repoFullName}/pulls/${number}/files?per_page=100`;
+
+    for (let page = 0; page < maxPages && url; page++) {
+      const res = await this.get(url);
+      if (!res.ok) return out; // 404/etc — best-effort, not fatal for loc-sync
+      const batch = (await res.json()) as PullRequestFileRaw[];
+      out.push(...batch);
+      if (batch.length === 0) break;
       url = GitHubClient.parseNextLink(res.headers.get("link"));
     }
     return out;

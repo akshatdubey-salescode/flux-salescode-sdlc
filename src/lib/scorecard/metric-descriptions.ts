@@ -139,3 +139,18 @@ export const BOARD_NOTE = {
     "People who have left the org are removed — a Keka exit date on or before today (people on notice still appear).",
   ],
 } as const;
+
+// Score vs the two Jira Complexity Rating columns + "Complexity Acc." + the
+// C4/C5-vs-LOC flag. LOC-based; scoped to the two ratings, not Score.
+export const COMPLEXITY_LOC_NOTE = {
+  title: "Score vs the four Jira Complexity Rating columns, accuracy & flags",
+  intro: "How Score differs from the four Jira Complexity Rating columns, and what each of those reflects:",
+  steps: [
+    "Score is the original Performance Review rating — every completed Jira counts, including self-created-and-assigned ones. It's untouched by anything below.",
+    "The four Jira Complexity Rating columns form a 2x2 grid: {all-Jiras, non-self-assigned (NSA)} x {marked complexity, LOC-predicted (\"expected\") complexity}. Unlike Score, each of these four is ONLY the Complex Tasks metric's own contribution (0-30) — Bug Quality, MTTR, and Sprint Commitment (the other 70 points of Score) are the same regardless of complexity source or self-assignment, so they're deliberately left out rather than diluting the comparison. Complex. (M) and Complex. (E) keep the same all-Jiras population as Score. Complex. NSA. (M) and Complex. NSA. (E) exclude self-assigned Jiras (reporter === credited person) entirely, at attribution time. None of the four ever touch Score's own drill-down lists (Weighted bugs, Feature tasks, MTTR samples, etc.) — those stay Score's, unfiltered, and Score itself is untouched by any of this.",
+    "Within each population, Marked vs. Expected differ only in which complexity feeds Complex Tasks: Marked uses each task's marked complexity (the actual rating), Expected uses the LOC-predicted complexity instead — same weight (0.30), same points formula, same scale (20).",
+    "Complexity Accuracy is correct/checked tasks, shown as a % — how many had marked complexity match what the LOC predicts. Read in the Details drill-down (not the leaderboard), with two separate readings: one over every task (all-Jiras), one restricted to non-self-assigned tasks. Nothing is excluded from the count: an unmarked complexity defaults to C1, and a task with no matched PR at all is trivially correct — with no LOC to compare against, the Expected value just carries the marked complexity forward instead of contradicting it.",
+    "Feature tasks marked Complexity 4-5 are additionally flagged ⚠ when their LOC falls well below what that complexity usually takes (including no matched PR at all) — a nudge to double-check the rating, not an automatic downgrade. This flag runs over every feature task shown in the drill-down (Score's full list, all Jiras) — a self-assigned badge appears alongside it where relevant, and a toggle there can hide self-assigned rows without ever changing what's fetched or scored.",
+    "LOC is matched by finding the Jira key in a PR's title or branch (generously — dash, underscore, dot, space, or no separator all resolve), requiring the PR author to be the same person as the Jira's assignee, and requiring the PR to have been created or merged inside the quarter. Run \"Sync LOC\" to (re)compute it — it's cached, not recalculated on every view. Editing a Jira's complexity in Jira and hitting Recompute re-derives everything fresh, nothing here is a stale snapshot.",
+  ],
+} as const;

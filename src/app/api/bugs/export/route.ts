@@ -20,6 +20,8 @@ type ExportBody = {
   end?: string;
   excludeInvalid?: boolean;
   environment?: string | null;
+  /** Default true — the Bug Board export turns this off; it dropped the Open column from its own on-screen tables as unnecessary clutter. */
+  showOpen?: boolean;
 };
 
 type ExportScope = "all" | "developer";
@@ -43,6 +45,7 @@ export async function POST(req: NextRequest) {
     end: body.end ?? "",
     excludeInvalid: body.excludeInvalid !== false,
     environment: body.environment ?? null,
+    showOpen: body.showOpen !== false,
   };
   const buffer = await buildWorkbook(rows, opts);
 
@@ -92,6 +95,7 @@ type Opts = {
   end: string;
   excludeInvalid: boolean;
   environment: string | null;
+  showOpen: boolean;
 };
 
 async function buildWorkbook(rows: BugRow[], opts: Opts): Promise<ArrayBuffer> {
@@ -304,26 +308,32 @@ function addBugsSheet(wb: ExcelJS.Workbook, rows: BugRow[], opts: Opts) {
 
 // ---- Sheet 2: developer-wise rollup -----------------------------------------
 
-const DEV_HEADERS = ["Developer", "P1", "P2", "P3", "Other", "Total", "Open"];
+function devHeaders(showOpen: boolean): string[] {
+  const headers = ["Developer", "P1", "P2", "P3", "Other", "Total"];
+  if (showOpen) headers.push("Open");
+  return headers;
+}
 
 function addDeveloperSheet(wb: ExcelJS.Workbook, summaries: OwnerSummary[], opts: Opts) {
+  const headers = devHeaders(opts.showOpen);
   const ws = wb.addWorksheet("By Developer", { views: [{ state: "frozen", ySplit: 3 }] });
-  const colCount = DEV_HEADERS.length;
+  const colCount = headers.length;
 
   bannerRows(
     ws,
     colCount,
     `Developer-wise Bug Count — ${opts.title}`,
-    `${summaries.length} developer${summaries.length === 1 ? "" : "s"} · owner = Issue Owner, falling back to Assignee`
+    `${summaries.length} developer${summaries.length === 1 ? "" : "s"} · owner = Issue Owner field only (never the assignee)`
   );
-  headerRow(ws, DEV_HEADERS);
+  headerRow(ws, headers);
 
   const totals = { p1: 0, p2: 0, p3: 0, other: 0, total: 0, open: 0 };
 
   summaries.forEach((s, idx) => {
     const row = ws.getRow(idx + 4);
     const zebra = idx % 2 === 1;
-    const values = [s.ownerName, s.p1, s.p2, s.p3, s.other, s.total, s.open];
+    const values = [s.ownerName, s.p1, s.p2, s.p3, s.other, s.total];
+    if (opts.showOpen) values.push(s.open);
 
     values.forEach((v, ci) => {
       const cell = row.getCell(ci + 1);
@@ -353,7 +363,8 @@ function addDeveloperSheet(wb: ExcelJS.Workbook, summaries: OwnerSummary[], opts
   });
 
   const totalRow = ws.getRow(summaries.length + 4);
-  const totalValues = ["Total", totals.p1, totals.p2, totals.p3, totals.other, totals.total, totals.open];
+  const totalValues = ["Total", totals.p1, totals.p2, totals.p3, totals.other, totals.total];
+  if (opts.showOpen) totalValues.push(totals.open);
   totalValues.forEach((v, ci) => {
     const cell = totalRow.getCell(ci + 1);
     cell.value = v;
@@ -377,7 +388,7 @@ function addDeveloperSheet(wb: ExcelJS.Workbook, summaries: OwnerSummary[], opts
 type DevDetailColKey = BugColKey | "role";
 type DevDetailCol = { header: string; key: DevDetailColKey; width?: number; min: number; max: number };
 
-function devDetailColumns(showProject: boolean): DevDetailCol[] {
+function devDetailColumns(showProject: boolean, showOpen: boolean): DevDetailCol[] {
   const cols: DevDetailCol[] = [
     { header: "Role", key: "role", min: 9, max: 10 },
     { header: "Jira Key", key: "jiraKey", min: 10, max: 16 },
@@ -388,7 +399,9 @@ function devDetailColumns(showProject: boolean): DevDetailCol[] {
     { header: "Priority", key: "priority", min: 8, max: 12 },
     { header: "Environment", key: "environment", min: 11, max: 16 },
     { header: "Status", key: "status", min: 12, max: 26 },
-    { header: "Open", key: "open", min: 6, max: 8 },
+  );
+  if (showOpen) cols.push({ header: "Open", key: "open", min: 6, max: 8 });
+  cols.push(
     { header: "Owner", key: "ownerName", min: 14, max: 28 },
     { header: "Assignee", key: "assigneeName", min: 14, max: 28 },
     { header: "Created", key: "createdAt", min: 12, max: 14 },
@@ -420,7 +433,7 @@ function addDeveloperDetailSheet(
   summaries: OwnerSummary[],
   opts: Opts
 ) {
-  const columns = devDetailColumns(opts.showProject);
+  const columns = devDetailColumns(opts.showProject, opts.showOpen);
   const colCount = columns.length;
   const ws = wb.addWorksheet("Dev-wise Bug Detail", { views: [{ state: "frozen", ySplit: 3 }] });
 

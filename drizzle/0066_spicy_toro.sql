@@ -1,0 +1,1 @@
+ALTER TABLE "performance_scorecards" ADD COLUMN "score_nsa_expected" double precision DEFAULT 0 NOT NULL;

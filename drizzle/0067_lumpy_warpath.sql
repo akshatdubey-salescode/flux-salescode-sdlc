@@ -1,0 +1,1 @@
+ALTER TABLE "jira_issue_loc" ADD COLUMN "credited_email" text;

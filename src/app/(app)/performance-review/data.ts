@@ -13,7 +13,30 @@ export type ScorecardRow = {
   manager: string | null;
   /** Department (from Keka), or null when unmatched. Drives the dept filter. */
   department: string | null;
+  // The original Performance Review score — every completed Jira counts,
+  // including self-created-and-assigned ones. Full four-metric composite,
+  // 0-100. Unrelated in scale to the four ratings below.
   finalScore: number;
+  // The 2x2 Jira Complexity Rating grid — see build.ts file header. Each of
+  // these four is ONLY the Complex Tasks metric's own contribution (0-30),
+  // not a full composite — Bug Quality/MTTR/Sprint Commitment are the same
+  // 70 points regardless of marked-vs-expected or self-assigned exclusion,
+  // so they're deliberately left out of what these four columns compare.
+  // COMPLEX. (M) — all-Jiras, marked complexity.
+  markedComplexityScoreAll: number;
+  // COMPLEX. (E) — all-Jiras, LOC-predicted complexity.
+  expectedComplexityScoreAll: number;
+  // COMPLEX NSA. (M) — self-assigned Jiras excluded entirely at attribution
+  // time in build.ts, marked complexity.
+  markedComplexityScore: number;
+  // COMPLEX NSA. (E) — same self-assigned exclusion as NSA (M), LOC-predicted
+  // complexity instead of marked.
+  expectedComplexityScore: number;
+  // SCORE NSA. (E) — unlike the four columns above, this is the full
+  // four-metric composite (0-100, same formula and scale as finalScore), just
+  // computed over the self-assigned-excluded population with Complex Tasks
+  // weighted by LOC-predicted complexity instead of marked.
+  scoreNsaExpected: number;
   bugQualityPoints: number | null;
   mttrPoints: number | null;
   sprintCommitmentPoints: number | null;
@@ -35,6 +58,20 @@ export type ScorecardFeatureItem = {
   key: string;
   summary: string;
   complexity: number | null;
+  /** Additions + deletions summed across matched PRs; null when none matched yet. */
+  loc: number | null;
+  /** What complexity the matched LOC predicts; null when loc is null. */
+  expectedComplexity: number | null;
+  /** True when a C4/C5 task's LOC is suspiciously low for its claimed complexity. */
+  complexityMismatch: boolean;
+  mismatchSuggestion: string | null;
+  /** Reporter is also the credited person — still counts toward Score, but
+   * excluded from Complex. (M), Complex. (E), and Complexity
+   * Accuracy. Reflects a superuser override when one exists for this Jira. */
+  selfAssigned: boolean;
+  /** True when a superuser has manually overridden this Jira's self-assigned
+   * status — drives whether the drill-down offers "clear" vs. "set". */
+  selfAssignedOverridden: boolean;
   url?: string;
 };
 export type ScorecardMttrItem = {
@@ -61,11 +98,24 @@ export type ScorecardMissingActualDateItem = {
 export type ScorecardBreakdown = {
   metrics: MetricBreakdown[];
   finalScore: number;
+  // The other three {population, complexity source} combinations' own
+  // per-metric breakdowns — same shape as metrics above (all-Jiras marked).
+  // Each powers that combination's own Complex Tasks raw text (e.g. "12
+  // task(s), 45 complexity-pts") in the Details drill-down. Absent on any row
+  // computed before these fields were added — not backfilled until the next
+  // Recompute.
+  expectedAllMetrics?: MetricBreakdown[];
+  nsaMetrics?: MetricBreakdown[];
+  nsaExpectedMetrics?: MetricBreakdown[];
   items?: {
     weightedBugs: ScorecardBugItem[];
     features: ScorecardFeatureItem[];
     mttr?: ScorecardMttrItem[];
     complexity?: ScorecardComplexityBucket[];
+    /** Sibling of complexity, bucketed by LOC-predicted (expected) complexity
+     * instead of marked — no "Unset" bucket, since expectedComplexityForLoc
+     * always returns a concrete 1-5 value. */
+    expectedComplexity?: ScorecardComplexityBucket[];
     missingActualDates?: ScorecardMissingActualDateItem[];
   };
 };
@@ -74,6 +124,19 @@ export type ScorecardDetail = {
   email: string;
   name: string;
   finalScore: number;
+  markedComplexityScoreAll: number;
+  expectedComplexityScoreAll: number;
+  markedComplexityScore: number;
+  expectedComplexityScore: number;
+  scoreNsaExpected: number;
+  // Complexity Accuracy, both readings — correct/checked (LOC-vs-marked-
+  // complexity agreement), rendered as "correct/checked (pct%)". checked=0 →
+  // nothing to check yet (no tasks, or — for the NSA reading — every task
+  // this quarter was self-assigned), render as "—".
+  complexityAccuracyAllCorrect: number;
+  complexityAccuracyAllChecked: number;
+  complexityAccuracyCorrect: number;
+  complexityAccuracyChecked: number;
   computedAt: string | null;
   weightedBugs: number;
   featureCount: number;
@@ -87,6 +150,7 @@ export type ScorecardDetail = {
   featureItems: ScorecardFeatureItem[];
   mttrItems: ScorecardMttrItem[];
   complexityBuckets: ScorecardComplexityBucket[];
+  expectedComplexityBuckets: ScorecardComplexityBucket[];
   missingActualDateItems: ScorecardMissingActualDateItem[];
 };
 
@@ -200,6 +264,11 @@ export async function fetchScorecards(quarterKey: string): Promise<ScorecardRow[
     .select({
       userEmail: performanceScorecards.userEmail,
       finalScore: performanceScorecards.finalScore,
+      markedComplexityScoreAll: performanceScorecards.markedComplexityScoreAll,
+      expectedComplexityScoreAll: performanceScorecards.expectedComplexityScoreAll,
+      markedComplexityScore: performanceScorecards.markedComplexityScore,
+      expectedComplexityScore: performanceScorecards.expectedComplexityScore,
+      scoreNsaExpected: performanceScorecards.scoreNsaExpected,
       bugQualityPoints: performanceScorecards.bugQualityPoints,
       mttrPoints: performanceScorecards.mttrPoints,
       sprintCommitmentPoints: performanceScorecards.sprintCommitmentPoints,
@@ -232,6 +301,11 @@ export async function fetchScorecards(quarterKey: string): Promise<ScorecardRow[
       manager: keka.get(r.userEmail.toLowerCase())?.manager ?? null,
       department: keka.get(r.userEmail.toLowerCase())?.department ?? null,
       finalScore: r.finalScore,
+      markedComplexityScoreAll: r.markedComplexityScoreAll,
+      expectedComplexityScoreAll: r.expectedComplexityScoreAll,
+      markedComplexityScore: r.markedComplexityScore,
+      expectedComplexityScore: r.expectedComplexityScore,
+      scoreNsaExpected: r.scoreNsaExpected,
       bugQualityPoints: r.bugQualityPoints,
       mttrPoints: r.mttrPoints,
       sprintCommitmentPoints: r.sprintCommitmentPoints,
@@ -300,6 +374,15 @@ export async function fetchScorecardDetail(
     email: r.userEmail,
     name: names.get(r.userEmail) ?? r.userEmail,
     finalScore: r.finalScore,
+    markedComplexityScoreAll: r.markedComplexityScoreAll,
+    expectedComplexityScoreAll: r.expectedComplexityScoreAll,
+    markedComplexityScore: r.markedComplexityScore,
+    expectedComplexityScore: r.expectedComplexityScore,
+    scoreNsaExpected: r.scoreNsaExpected,
+    complexityAccuracyAllCorrect: r.complexityAccuracyAllCorrect,
+    complexityAccuracyAllChecked: r.complexityAccuracyAllChecked,
+    complexityAccuracyCorrect: r.complexityAccuracyCorrect,
+    complexityAccuracyChecked: r.complexityAccuracyChecked,
     computedAt: r.computedAt ? r.computedAt.toISOString() : null,
     weightedBugs: r.weightedBugs,
     featureCount: r.featureCount,
@@ -313,6 +396,7 @@ export async function fetchScorecardDetail(
     featureItems: withUrl(breakdown.items?.features ?? []),
     mttrItems: withUrl(breakdown.items?.mttr ?? []),
     complexityBuckets: breakdown.items?.complexity ?? [],
+    expectedComplexityBuckets: breakdown.items?.expectedComplexity ?? [],
     missingActualDateItems: withUrl(breakdown.items?.missingActualDates ?? []),
   };
 }

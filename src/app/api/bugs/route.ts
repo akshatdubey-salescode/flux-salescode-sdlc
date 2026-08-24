@@ -8,6 +8,7 @@ import { FRESHDESK_CUSTOM_FIELD } from "@/lib/freshdesk/sync";
 import { BUG_ISSUE_TYPES, BUG_INVALID_STATUSES } from "@/lib/scorecard/config";
 import { currentFiscalQuarterChip } from "@/lib/date-utils";
 import { normalizeEnvironment } from "@/lib/bug-summary";
+import { FEATURE_FLAGS, isEnabled } from "@/lib/feature-flags";
 
 export type BugCell = {
   ownerKey: string | null;
@@ -65,7 +66,12 @@ export async function GET(request: NextRequest) {
     const rawTo = searchParams.get("to");
     const from = rawFrom && ISO_DATE.test(rawFrom) ? rawFrom : q?.start;
     const to = rawTo && ISO_DATE.test(rawTo) ? rawTo : q?.end;
-    const data = await fetchBugBoard(from, to);
+    // Checked outside fetchBugBoard (not inside its "use cache" body) and
+    // passed in as a real argument, so it becomes part of the cache key —
+    // flipping the flag is a cache miss that recomputes with/without the
+    // FILTER clauses below, not a stale hit from before the flip.
+    const showOpen = await isEnabled(FEATURE_FLAGS.BUG_BOARD_OPEN_COLUMN);
+    const data = await fetchBugBoard(from, to, showOpen);
     return NextResponse.json(data);
   } catch (err) {
     console.error("[bugs] error:", err);
@@ -73,10 +79,21 @@ export async function GET(request: NextRequest) {
   }
 }
 
-async function fetchBugBoard(from?: string, to?: string): Promise<BugBoardResponse> {
+async function fetchBugBoard(from: string | undefined, to: string | undefined, showOpen: boolean): Promise<BugBoardResponse> {
   "use cache";
   cacheLife("minutes");
   cacheTag("projects", "bugs");
+
+  // feature_flags.showBugBoardOpenColumn gates this at the source too, not
+  // just the UI/Excel display of it — off (the default) means the COUNT(*)
+  // FILTER passes below don't run at all, not merely hidden after running.
+  // "is_open" (built into the query below) is what these FILTER on — never
+  // the raw status_category directly, see that CTE for why.
+  const openExpr  = showOpen ? sql`COUNT(*) FILTER (WHERE is_open)::int` : sql`0`;
+  const open1Expr = showOpen ? sql`COUNT(*) FILTER (WHERE is_open AND priority = 'P1')::int` : sql`0`;
+  const open2Expr = showOpen ? sql`COUNT(*) FILTER (WHERE is_open AND priority = 'P2')::int` : sql`0`;
+  const open3Expr = showOpen ? sql`COUNT(*) FILTER (WHERE is_open AND priority = 'P3')::int` : sql`0`;
+  const open4Expr = showOpen ? sql`COUNT(*) FILTER (WHERE is_open AND priority = 'P4')::int` : sql`0`;
 
   const fdField = sql.raw(`'${FRESHDESK_CUSTOM_FIELD}'`);
   const fromFilter = from ? sql` AND ji.jira_created_at >= ${from}::date` : sql``;
@@ -104,7 +121,25 @@ async function fetchBugBoard(from?: string, to?: string): Promise<BugBoardRespon
     WITH base AS (
       SELECT
         ji.priority,
-        ji.status_category,
+        -- "Open" = not DONE and not CANCELLED, per the project's own curated
+        -- status mapping (project_status_mappings — the same admin-configured
+        -- per-project canonical bucketing the sync's changelog rollup already
+        -- trusts, see getStatusRawSets in sync.ts) — never the raw Jira
+        -- status_category name directly. That name is NOT the fixed 3-value
+        -- enum it looks like: this org's own synced data has both "Done" and
+        -- "Complete" as distinct category names for what Jira colors green
+        -- on the SAME semantic bucket (different Jira sites/instances label
+        -- it differently) — a bare equality match against 'Done' alone
+        -- silently missed every "Complete"-labelled bug, showing genuinely
+        -- closed bugs as
+        -- open. Falls back to that (now case-insensitive, Done-or-Complete)
+        -- heuristic only for the handful of projects with no mapping row yet
+        -- (see /superuser/unmapped-projects) — never leaves them all "open".
+        CASE
+          WHEN psm.canonical_status IS NOT NULL
+            THEN psm.canonical_status NOT IN ('DONE', 'CANCELLED')
+          ELSE lower(coalesce(ji.status_category, '')) NOT IN ('done', 'complete')
+        END AS is_open,
         jp.id            AS project_id,
         jp.name          AS project_name,
         jp.jira_base_url AS jira_base_url,
@@ -119,6 +154,8 @@ async function fetchBugBoard(from?: string, to?: string): Promise<BugBoardRespon
         COALESCE(env.env_raw, NULLIF(ji.custom_fields->>'environment', '')) AS env_raw
       FROM jira_issues ji
       JOIN jira_projects jp ON jp.id = ji.project_id
+      LEFT JOIN project_status_mappings psm
+        ON psm.project_id = jp.id AND psm.raw_status = ji.status
       LEFT JOIN LATERAL (
         SELECT ji.custom_fields->f.fid AS v
         FROM unnest(COALESCE(jp.issue_owner_field_ids, '{}'::text[]))
@@ -154,7 +191,7 @@ async function fetchBugBoard(from?: string, to?: string): Promise<BugBoardRespon
     resolved AS (
       SELECT
         project_id, project_name, jira_base_url, jira_project_key,
-        priority, status_category, is_customer, env_raw,
+        priority, is_open, is_customer, env_raw,
         COALESCE(owner_val->>'emailAddress', owner_val->0->>'emailAddress') AS owner_email,
         COALESCE(owner_val->>'displayName',  owner_val->0->>'displayName')  AS owner_name,
         COALESCE(owner_val->>'accountId',    owner_val->0->>'accountId')    AS owner_account
@@ -171,11 +208,11 @@ async function fetchBugBoard(from?: string, to?: string): Promise<BugBoardRespon
       COUNT(*) FILTER (WHERE priority = 'P2')::int                                    AS p2,
       COUNT(*) FILTER (WHERE priority = 'P3')::int                                    AS p3,
       COUNT(*) FILTER (WHERE priority = 'P4')::int                                    AS p4,
-      COUNT(*) FILTER (WHERE status_category IS DISTINCT FROM 'Done')::int            AS open,
-      COUNT(*) FILTER (WHERE status_category IS DISTINCT FROM 'Done' AND priority = 'P1')::int AS open1,
-      COUNT(*) FILTER (WHERE status_category IS DISTINCT FROM 'Done' AND priority = 'P2')::int AS open2,
-      COUNT(*) FILTER (WHERE status_category IS DISTINCT FROM 'Done' AND priority = 'P3')::int AS open3,
-      COUNT(*) FILTER (WHERE status_category IS DISTINCT FROM 'Done' AND priority = 'P4')::int AS open4,
+      ${openExpr}  AS open,
+      ${open1Expr} AS open1,
+      ${open2Expr} AS open2,
+      ${open3Expr} AS open3,
+      ${open4Expr} AS open4,
       COUNT(*) FILTER (WHERE is_customer)::int                                         AS cf_total,
       COUNT(*) FILTER (WHERE is_customer AND priority = 'P1')::int                    AS cf1,
       COUNT(*) FILTER (WHERE is_customer AND priority = 'P2')::int                    AS cf2,

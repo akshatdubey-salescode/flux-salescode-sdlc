@@ -184,7 +184,13 @@ export const jiraIssues = pgTable(
     summary: text("summary").notNull(),
     description: text("description"), // Atlassian Document Format as JSON string
     status: text("status").notNull(),
-    statusCategory: text("status_category"), // "To Do" | "In Progress" | "Done"
+    // Jira's status-category NAME, verbatim from their API — NOT the fixed
+    // 3-value enum it looks like. Different Jira sites/instances label the
+    // same green "done" bucket differently (this org alone has both "Done"
+    // and "Complete" in the wild). Never compare this directly for "is done"
+    // — use isDoneOrCancelled() (bug-summary.ts), which prefers the curated
+    // projectStatusMappings row and only falls back to this name.
+    statusCategory: text("status_category"),
     issueType: text("issue_type").notNull(),
     priority: text("priority"),
     assigneeAccountId: text("assignee_account_id"),
@@ -841,12 +847,24 @@ export const githubOrgs = pgTable("github_orgs", {
   id: uuid("id").primaryKey().defaultRandom(),
   // The org login, e.g. "salescode-ai".
   login: text("login").notNull().unique(),
+  // How this org's token is obtained:
+  //  'pat' = apiToken is a long-lived fine-grained PAT, tied to whoever
+  //          generated it (see apiToken below).
+  //  'app' = appInstallationId identifies this org's GitHub App installation;
+  //          the token is a short-lived installation access token minted on
+  //          demand via app-auth.ts (see githubAppCredentials). Org-level,
+  //          not tied to any one person's account.
+  authMode: text("auth_mode").notNull().default("pat"),
   // Fine-grained PAT with Contents + Metadata read on the org's repos.
-  // Encrypted at rest; decrypt() before use.
-  apiToken: text("api_token").notNull(),
+  // Encrypted at rest; decrypt() before use. Only set when authMode='pat'.
+  apiToken: text("api_token"),
+  // This org's GitHub App installation id (from installing the shared App in
+  // githubAppCredentials on this org). Only set when authMode='app'.
+  appInstallationId: text("app_installation_id"),
   // How this org's repos are discovered:
   //  'auto'   = list the whole org via GET /orgs/{org}/repos (needs an org-wide
-  //             PAT). Repos are mirrored and pruned automatically.
+  //             PAT, or an App installation with "All repositories" access).
+  //             Repos are mirrored and pruned automatically.
   //  'manual' = the PAT can only read specific repos (e.g. a personal PAT with
   //             partial access to an org you have no org PAT for). Repos aren't
   //             auto-listed or pruned — a superuser registers them by full name
@@ -856,6 +874,24 @@ export const githubOrgs = pgTable("github_orgs", {
   lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
   // Superuser who added the org; null for the seeded legacy org.
   createdBy: text("created_by").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// A single shared GitHub App's credentials — installed across every org that
+// runs authMode='app' (see githubOrgs.appInstallationId). Expected to hold
+// exactly one row; kept as its own table rather than columns on githubOrgs
+// since the App itself is one entity shared by many org installations, not
+// per-org data.
+export const githubAppCredentials = pgTable("github_app_credentials", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  appId: text("app_id").notNull(),
+  // PEM private key, encrypted at rest; decrypt() before use.
+  privateKey: text("private_key").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -1017,6 +1053,127 @@ export const githubSyncJobs = pgTable(
       .defaultNow(),
   },
   (t) => [index("github_sync_jobs_status_idx").on(t.status)]
+);
+
+// ---------------------------------------------------------------------------
+// GitHub Pull Requests — one row per (repo, PR number). List-endpoint fields
+// (title, branch, author, dates) are cheap and always upserted; additions/
+// deletions require fetching the PR's changed-file diffs (to strip whole-line
+// comments — see comment-lines.ts), so they're fetched only for PRs that
+// already pass the cheap Jira-key/author/quarter filters in loc-sync (see
+// statsFetchedAt) — keeps GitHub API cost proportional to real matches, not
+// total PR volume.
+// ---------------------------------------------------------------------------
+
+export const githubPullRequests = pgTable(
+  "github_pull_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repoId: uuid("repo_id")
+      .notNull()
+      .references(() => githubRepos.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    title: text("title").notNull(),
+    headRef: text("head_ref").notNull(), // branch name
+    authorLogin: text("author_login"),
+    state: text("state").notNull(), // open | closed
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    mergedAt: timestamp("merged_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+    // Code-only (whole-line comments excluded) when statsMethod = "code_only";
+    // GitHub's raw diff counts (comments included) for any file whose patch
+    // wasn't available to classify (binary / too-large diff).
+    additions: integer("additions"),
+    deletions: integer("deletions"),
+    // Set once the diff-stats fetch has run, so a re-sync doesn't re-fetch
+    // stats for a PR already priced out. Distinct from "raw" so a row fetched
+    // before comment-exclusion shipped is correctly treated as stale and
+    // refetched, rather than silently reused under different semantics.
+    statsMethod: text("stats_method"), // "code_only" | null (not yet fetched, or fetched pre-comment-exclusion)
+    statsFetchedAt: timestamp("stats_fetched_at", { withTimezone: true }),
+    syncedAt: timestamp("synced_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("github_pull_requests_repo_number_idx").on(t.repoId, t.number),
+    index("github_pull_requests_updated_idx").on(t.updatedAt),
+    index("github_pull_requests_author_idx").on(t.authorLogin),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Jira Issue LOC — precomputed, cached lines-of-code total per (Jira key,
+// quarter), summed across every qualifying PR (same assignee as the issue,
+// Jira key found case-insensitively in the PR title or branch, and either the
+// PR's created or merged date falls inside the quarter). Written only by
+// loc-sync's periodic/manual job — the scorecard build reads this table, it
+// never recomputes LOC itself.
+// ---------------------------------------------------------------------------
+
+export const jiraIssueLoc = pgTable(
+  "jira_issue_loc",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    jiraKey: text("jira_key").notNull(), // upper-cased, e.g. "SC-123"
+    quarterKey: text("quarter_key").notNull(),
+    totalAdditions: integer("total_additions").notNull().default(0),
+    totalDeletions: integer("total_deletions").notNull().default(0),
+    prCount: integer("pr_count").notNull().default(0),
+    prNumbers: integer("pr_numbers")
+      .array()
+      .notNull()
+      .default(sql`'{}'::integer[]`),
+    // Whoever actually authored the matched PR(s) — Dev Owner if any of them
+    // wrote one, else Assignee (see resolvePrCredit in loc-sync.ts). Read by
+    // resolveTaskOwnerEmail as harder evidence than the raw Dev Owner/Assignee
+    // fields, since this is confirmed by a real PR rather than just a Jira
+    // field that can go stale after a handoff. Null when no PR matched.
+    creditedEmail: text("credited_email"),
+    computedAt: timestamp("computed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("jira_issue_loc_key_quarter_idx").on(t.jiraKey, t.quarterKey),
+    index("jira_issue_loc_quarter_idx").on(t.quarterKey),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Loc Sync Jobs — tracks a single loc-sync run (manual trigger only, no
+// cron), one quarter at a time. Mirrors github_sync_jobs' shape; rateLimited
+// marks a run that stopped early because GitHub's remaining quota dropped
+// below the safety floor, so the next manual trigger picks up the rest.
+// ---------------------------------------------------------------------------
+
+export const locSyncJobs = pgTable(
+  "loc_sync_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quarterKey: text("quarter_key").notNull(),
+    // pending | running | completed | failed
+    status: text("status").notNull().default("pending"),
+    totalRepos: integer("total_repos"),
+    syncedRepos: integer("synced_repos").notNull().default(0),
+    prsScanned: integer("prs_scanned").notNull().default(0),
+    matchesFound: integer("matches_found").notNull().default(0),
+    rateLimited: boolean("rate_limited").notNull().default(false),
+    errorCount: integer("error_count").notNull().default(0),
+    errorMessages: text("error_messages")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("loc_sync_jobs_status_idx").on(t.status),
+    index("loc_sync_jobs_quarter_idx").on(t.quarterKey),
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -1321,8 +1478,67 @@ export const performanceScorecards = pgTable(
       .default(0),
     underestimatedTasksPoints: doublePrecision("underestimated_tasks_points"),
 
-    // Weighted sum of sub-scores (§6.2).
+    // Weighted sum of sub-scores (§6.2), the original Performance Review
+    // Score. Every completed Jira counts, including self-created-and-assigned
+    // ones; this is deliberately the unfiltered rating and must stay that way
+    // (see build.ts file header). 0-100.
     finalScore: doublePrecision("final_score").notNull().default(0),
+
+    // The 2x2 Jira Complexity Rating grid — {all-Jiras, self-assigned-
+    // excluded (NSA)} x {marked complexity, LOC-predicted ("expected")
+    // complexity}. Unlike finalScore above, each of these four is ONLY the
+    // Complex Tasks metric's own contribution (0-30), not the full four-metric
+    // composite — see build.ts file header for why.
+
+    // COMPLEX. (M) — all-Jiras, marked complexity.
+    markedComplexityScoreAll: doublePrecision("marked_complexity_score_all")
+      .notNull()
+      .default(0),
+
+    // COMPLEX. (E) — all-Jiras, LOC-predicted complexity.
+    expectedComplexityScoreAll: doublePrecision("expected_complexity_score_all")
+      .notNull()
+      .default(0),
+
+    // COMPLEX NSA. (M) — self-assigned Jiras (reporter === credited person)
+    // excluded entirely at attribution time (build.ts), marked complexity.
+    markedComplexityScore: doublePrecision("marked_complexity_score")
+      .notNull()
+      .default(0),
+
+    // COMPLEX NSA. (E) — same self-assigned exclusion as NSA (M), LOC-
+    // predicted complexity instead of marked.
+    expectedComplexityScore: doublePrecision("expected_complexity_score")
+      .notNull()
+      .default(0),
+
+    // SCORE NSA. (E) — unlike the four COMPLEX columns above (Complex Tasks
+    // contribution alone, 0-30), this is the full four-metric composite
+    // (0-100), same formula as finalScore, but computed over the
+    // self-assigned-excluded population with Complex Tasks weighted by
+    // LOC-predicted complexity instead of marked. Directly comparable to
+    // finalScore, not to the COMPLEX columns.
+    scoreNsaExpected: doublePrecision("score_nsa_expected").notNull().default(0),
+
+    // Complexity Accuracy, all-Jiras: of every task (checked), how many had
+    // marked complexity equal to what the LOC predicts (correct) — e.g.
+    // correct=9, checked=30 renders as "9/30 (30%)". Shown in the Details
+    // drill-down, not the leaderboard. Re-derived fresh on every recompute.
+    complexityAccuracyAllCorrect: integer("complexity_accuracy_all_correct")
+      .notNull()
+      .default(0),
+    complexityAccuracyAllChecked: integer("complexity_accuracy_all_checked")
+      .notNull()
+      .default(0),
+
+    // Complexity Accuracy, NSA — the same tally restricted to the
+    // non-self-assigned population (the two COMPLEX NSA. columns above).
+    complexityAccuracyCorrect: integer("complexity_accuracy_correct")
+      .notNull()
+      .default(0),
+    complexityAccuracyChecked: integer("complexity_accuracy_checked")
+      .notNull()
+      .default(0),
 
     // Full §6.4-style contribution breakdown (per-metric raw → points → weight
     // → contribution) plus display metadata, for the drill-down view.
@@ -1343,6 +1559,37 @@ export const performanceScorecards = pgTable(
 
 export type PerformanceScorecard = typeof performanceScorecards.$inferSelect;
 export type NewPerformanceScorecard = typeof performanceScorecards.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Jira Self-Assigned Overrides — a superuser's manual correction of whether a
+// specific Jira counts as self-assigned (reporter === credited person) for
+// scoring purposes. Keyed by jiraKey alone (not per-quarter): a Jira is the
+// same issue regardless of which quarter it's scored in, so one override
+// applies everywhere that key is ever encountered. Persists across
+// Recompute — build.ts checks this table before falling back to the computed
+// reporter === credited-person comparison (isSelfAssigned).
+// ---------------------------------------------------------------------------
+
+export const jiraSelfAssignedOverrides = pgTable("jira_self_assigned_overrides", {
+  jiraKey: text("jira_key").primaryKey(), // upper-cased, e.g. "CAV-2245"
+  // true = force this Jira to count as self-assigned regardless of what
+  // reporter/credited-person actually says; false = force it to NOT count as
+  // self-assigned.
+  selfAssigned: boolean("self_assigned").notNull(),
+  note: text("note"),
+  setBy: text("set_by")
+    .notNull()
+    .references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type JiraSelfAssignedOverride = typeof jiraSelfAssignedOverrides.$inferSelect;
+export type NewJiraSelfAssignedOverride = typeof jiraSelfAssignedOverrides.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // Delay Logs — recorded reasons for why a task/bug is delayed. An issue can

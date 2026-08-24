@@ -32,11 +32,14 @@ export function DateRangeBar({
   end,
   onChange,
   disabled,
+  labelClassName,
 }: {
   start: string;
   end: string;
   onChange: (start: string, end: string) => void;
   disabled?: boolean;
+  /** Overrides the "Raised" label's own classes — default matches this component's original look; callers with their own filter-bar label style (e.g. Bug Board's Priority/Env labels) can pass theirs instead. */
+  labelClassName?: string;
 }) {
   const presets = getRangePresets();
   const last7 = presets.find((p) => p.label === "Last 7 days");
@@ -75,7 +78,7 @@ export function DateRangeBar({
 
   return (
     <div className={cn("flex flex-wrap items-center gap-1.5", disabled && "opacity-60")}>
-      <span className="mr-0.5 text-[10px] font-bold uppercase tracking-widest text-zinc-400">
+      <span className={labelClassName ?? "mr-0.5 text-[10px] font-bold uppercase tracking-widest text-zinc-400"}>
         Raised
       </span>
       {chips.map((c) => {

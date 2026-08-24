@@ -1,5 +1,7 @@
+import { Fragment, type ReactNode } from "react";
 import Link from "next/link";
 import { requireAuth } from "@/lib/auth/server";
+import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import {
   Breadcrumb,
@@ -9,13 +11,21 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { selectableQuarters, currentQuarter } from "@/lib/scorecard/quarter";
-import { WEIGHTS, SCORE_SCALE } from "@/lib/scorecard/config";
-import { METRIC_INFO, DATE_CAPTURE_NOTE } from "@/lib/scorecard/metric-descriptions";
+import { SCORE_SCALE } from "@/lib/scorecard/config";
 import { fetchScorecards, fetchScorecardDetail } from "./data";
+import { getVisibleColumns } from "./visible-columns";
 import { ReviewControls } from "./controls";
 import { LeaderboardTable } from "./leaderboard-table";
 import { ScoringGuide } from "./scoring-guide";
+import { ColumnPicker } from "./column-picker";
+import { MetricMeaningModal } from "./metric-meaning-modal";
+import { LocSyncStatusModal } from "@/components/loc-sync-status-modal";
+import { FeatureTasksTable } from "./feature-tasks-table";
+import { formatComplexityAccuracy } from "./complexity-accuracy-stat";
+import { complexTasksCalc, findComplexTasksMetric } from "./rating-calc";
 
 type SearchParams = Promise<{ quarter?: string; person?: string }>;
 
@@ -58,6 +68,61 @@ function JiraKeyLink({ item }: { item: { key: string; url?: string } }) {
   );
 }
 
+const SCORE_NSA_E_INFO =
+  "Same formula as Score (Bug Quality + MTTR + Sprint Commitment + Complex Tasks), but computed with self-assigned Jiras excluded and Complex Tasks weighted by LOC-predicted complexity instead of marked. Unlike Complex. NSA. (E) below (Complex Tasks contribution alone, 0-30), this is the full four-metric composite, 0-100 — directly comparable to Score.";
+
+/** One Complexity Accuracy reading: correct/checked (pct%), or a dash. */
+function ComplexityAccuracyStat({
+  correct,
+  checked,
+}: {
+  correct: number;
+  checked: number;
+}) {
+  return <>{formatComplexityAccuracy(correct, checked)}</>;
+}
+
+/** One KPI card in the metrics grid: label, detail line, and a points/weight/contribution stat row. */
+function MetricCard({
+  label,
+  detail,
+  points,
+  weight,
+  contribution,
+  dimmed,
+}: {
+  label: string;
+  detail: ReactNode;
+  points: ReactNode;
+  weight?: number;
+  contribution?: ReactNode;
+  dimmed?: boolean;
+}) {
+  return (
+    <Card className={cn("gap-1 py-3", dimmed && "opacity-50")}>
+      <CardHeader className="gap-0.5 px-4">
+        <CardTitle className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          {label}
+        </CardTitle>
+        <p className="text-xs text-zinc-600 dark:text-zinc-400">{detail}</p>
+      </CardHeader>
+      <CardContent className="px-4">
+        <div className="flex items-baseline justify-between">
+          <span className="text-2xl font-semibold tabular-nums">{points}</span>
+          {weight != null && (
+            <span className="text-xs text-zinc-500">weight {weight.toFixed(2)}</span>
+          )}
+        </div>
+        {contribution != null && (
+          <p className="mt-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+            {contribution}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default async function PerformanceReviewPage({
   searchParams,
 }: {
@@ -75,6 +140,39 @@ export default async function PerformanceReviewPage({
   // ---- Drill-down: one developer's full breakdown ----
   if (sp.person) {
     const detail = await fetchScorecardDetail(sp.person, quarterKey);
+
+    // Cards that render un-dimmed in the Metrics tab: every available (m.available)
+    // base metric, plus the 6 Complex Tasks sub-cards (Complex./Complex. NSA./
+    // Complexity Accuracy — see the complexTasks branch below), which never dim.
+    // Currently always 4 + 6 = 10 (Bug Quality/MTTR/Sprint Commitment/Complex
+    // Tasks are the only data-backed metrics; Code Churn/AI Tasks/Effort are
+    // permanently untracked here — see the footnote below), but derived rather
+    // than hardcoded so it stays correct if that ever changes.
+    const activeMetricCount = detail
+      ? detail.breakdown.metrics.filter((m) => m.available).length +
+        (detail.breakdown.metrics.some((m) => m.key === "complexTasks") ? 6 : 0)
+      : 0;
+
+    // Display order for the Metrics tab grid — Code Churn is a simple, always-
+    // dimmed "not tracked" card, so it sits with its fellow untracked metrics
+    // (AI Tasks, Effort) at the end instead of interrupting the flow right
+    // after Bug Quality. The 6 Complex Tasks sub-cards anchor off complexTasks
+    // (a real, populated card) rather than codeChurn, so they read as a
+    // natural continuation instead of needing their own category divider.
+    const METRIC_DISPLAY_ORDER = [
+      "bugQuality",
+      "mttr",
+      "sprintCommitment",
+      "complexTasks",
+      "codeChurn",
+      "effort",
+      "aiTasks",
+    ];
+    const orderedMetrics = detail
+      ? [...detail.breakdown.metrics].sort(
+          (a, b) => METRIC_DISPLAY_ORDER.indexOf(a.key) - METRIC_DISPLAY_ORDER.indexOf(b.key),
+        )
+      : [];
 
     return (
       <div className="flex min-h-svh flex-col bg-zinc-50 dark:bg-zinc-950">
@@ -104,99 +202,171 @@ export default async function PerformanceReviewPage({
               </p>
             ) : (
               <>
-                <div>
-                  <h1 className="text-2xl font-semibold tracking-tight">
-                    {detail.name}
-                  </h1>
-                  <p className="mt-1 font-mono text-xs text-zinc-500">
-                    {detail.email}
-                  </p>
-                  <p className="mt-3 text-sm text-zinc-500">
-                    Suggested rating for <strong>{quarterLabel}</strong>:{" "}
-                    <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-                      {detail.finalScore.toFixed(1)}
-                    </span>{" "}
-                    / 100
-                  </p>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h1 className="text-2xl font-semibold tracking-tight">
+                      {detail.name}
+                    </h1>
+                    <p className="mt-1 font-mono text-xs text-zinc-500">
+                      {detail.email}
+                    </p>
+                    <p className="mt-4 text-sm text-zinc-500">
+                      Score for <strong>{quarterLabel}</strong>:{" "}
+                      <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                        {detail.finalScore.toFixed(1)}
+                      </span>{" "}
+                      / 100
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-500" title={SCORE_NSA_E_INFO}>
+                      Score NSA. (E) for <strong>{quarterLabel}</strong>:{" "}
+                      <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                        {detail.scoreNsaExpected.toFixed(1)}
+                      </span>{" "}
+                      / 100
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <LocSyncStatusModal email={detail.email} quarterKey={quarterKey} />
+                    <MetricMeaningModal detail={detail} />
+                  </div>
                 </div>
 
-                <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/80">
-                        <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                          Metric
-                        </th>
-                        <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                          Detail
-                        </th>
-                        <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                          Points
-                        </th>
-                        <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                          Weight
-                        </th>
-                        <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                          Contribution
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.breakdown.metrics.map((m) => (
-                        <tr
-                          key={m.key}
-                          className={
-                            "border-b border-zinc-100 last:border-0 dark:border-zinc-800/60 " +
-                            (m.available ? "" : "opacity-50")
-                          }
-                        >
-                          <td className="px-4 py-3 align-top font-medium text-zinc-900 dark:text-zinc-100">
-                            {m.label}
-                          </td>
-                          <td className="px-4 py-3 align-top text-zinc-600 dark:text-zinc-400">
-                            {m.available ? m.raw : "N/A — not tracked"}
-                          </td>
-                          <td className="px-4 py-3 text-right align-top tabular-nums">
-                            {m.available ? fmtPoints(m.points) : "N/A"}
-                          </td>
-                          <td className="px-4 py-3 text-right align-top tabular-nums text-zinc-500">
-                            {m.weight.toFixed(2)}
-                          </td>
-                          <td className="px-4 py-3 text-right align-top font-semibold tabular-nums">
-                            {m.available ? (
-                              <>
-                                {m.contribution.toFixed(2)}
-                                <span className="font-normal text-zinc-400">
-                                  {" "}
-                                  / {(m.weight * 5 * SCORE_SCALE).toFixed(2)}
-                                </span>
-                              </>
-                            ) : (
-                              "—"
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                      <tr className="bg-zinc-50 dark:bg-zinc-900/60">
-                        <td
-                          colSpan={4}
-                          className="px-4 py-3 text-right text-sm font-semibold"
-                        >
-                          Final score
-                        </td>
-                        <td className="px-4 py-3 text-right text-sm font-bold tabular-nums">
-                          {detail.finalScore.toFixed(1)}
-                          <span className="font-normal text-zinc-400">
-                            {" "}
-                            /{" "}
-                            {detail.breakdown.metrics
-                              .reduce((s, m) => s + m.weight * 5 * SCORE_SCALE, 0)
-                              .toFixed(0)}
-                          </span>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
+                <Tabs defaultValue="metrics" className="w-full">
+                  <div className="overflow-x-auto">
+                    <TabsList>
+                      <TabsTrigger value="metrics">
+                        Metrics ({activeMetricCount})
+                      </TabsTrigger>
+                      <TabsTrigger value="bugs">
+                        Weighted bugs ({detail.weightedBugItems.length})
+                      </TabsTrigger>
+                      <TabsTrigger value="features">
+                        Feature tasks ({detail.featureItems.length})
+                      </TabsTrigger>
+                      <TabsTrigger value="mttr">
+                        MTTR samples ({detail.mttrItems.length})
+                      </TabsTrigger>
+                      <TabsTrigger value="complexity">
+                        Complexity ({detail.complexTasksCount})
+                      </TabsTrigger>
+                      <TabsTrigger value="expected-complexity">
+                        Expected Complexity ({detail.complexTasksCount})
+                      </TabsTrigger>
+                      <TabsTrigger value="missing-dates">
+                        Missing dates ({detail.missingActualDateItems.length})
+                      </TabsTrigger>
+                    </TabsList>
+                  </div>
+
+                  <TabsContent value="metrics" className="space-y-6 pt-8 pb-8">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {orderedMetrics.map((m) => (
+                    <Fragment key={m.key}>
+                      <MetricCard
+                        label={m.label}
+                        detail={m.available ? m.raw : "N/A — not tracked"}
+                        points={m.available ? fmtPoints(m.points) : "N/A"}
+                        weight={m.weight}
+                        contribution={
+                          m.available
+                            ? `${m.contribution.toFixed(2)} / ${(m.weight * 5 * SCORE_SCALE).toFixed(2)}`
+                            : "—"
+                        }
+                        dimmed={!m.available}
+                      />
+                      {m.key === "complexTasks" && (
+                        <>
+                          <MetricCard
+                            label="Complex. (M)"
+                            detail={(() => {
+                              const cm = findComplexTasksMetric(detail.breakdown.metrics);
+                              return cm ? complexTasksCalc(cm) : "Recompute to see the breakdown";
+                            })()}
+                            points={`${detail.markedComplexityScoreAll.toFixed(1)} / 30`}
+                          />
+                          <MetricCard
+                            label="Complex. (E)"
+                            detail={(() => {
+                              const ce = findComplexTasksMetric(detail.breakdown.expectedAllMetrics);
+                              return ce ? complexTasksCalc(ce) : "Recompute to see the breakdown";
+                            })()}
+                            points={`${detail.expectedComplexityScoreAll.toFixed(1)} / 30`}
+                          />
+                          <MetricCard
+                            label="Complex. NSA. (M)"
+                            detail={(() => {
+                              const nm = findComplexTasksMetric(detail.breakdown.nsaMetrics);
+                              return nm ? complexTasksCalc(nm) : "Recompute to see the breakdown";
+                            })()}
+                            points={`${detail.markedComplexityScore.toFixed(1)} / 30`}
+                          />
+                          <MetricCard
+                            label="Complex. NSA. (E)"
+                            detail={(() => {
+                              const ne = findComplexTasksMetric(detail.breakdown.nsaExpectedMetrics);
+                              return ne ? complexTasksCalc(ne) : "Recompute to see the breakdown";
+                            })()}
+                            points={`${detail.expectedComplexityScore.toFixed(1)} / 30`}
+                          />
+                          <MetricCard
+                            label="Complexity Accuracy (all Jiras)"
+                            detail="Marked vs. LOC-predicted complexity, every Jira"
+                            points={
+                              <ComplexityAccuracyStat
+                                correct={detail.complexityAccuracyAllCorrect}
+                                checked={detail.complexityAccuracyAllChecked}
+                              />
+                            }
+                          />
+                          <MetricCard
+                            label="Complexity Accuracy (NSA only)"
+                            detail="Same, self-assigned Jiras excluded"
+                            points={
+                              <ComplexityAccuracyStat
+                                correct={detail.complexityAccuracyCorrect}
+                                checked={detail.complexityAccuracyChecked}
+                              />
+                            }
+                          />
+                        </>
+                      )}
+                    </Fragment>
+                  ))}
+                  <Card className="gap-1 border-zinc-300 bg-zinc-50 py-3 dark:border-zinc-700 dark:bg-zinc-900/60">
+                    <CardHeader className="gap-0.5 px-4">
+                      <CardTitle className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                        Final score
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="px-4">
+                      <span className="text-2xl font-bold tabular-nums">
+                        {detail.finalScore.toFixed(1)}
+                      </span>
+                      <span className="font-normal text-zinc-400">
+                        {" "}
+                        /{" "}
+                        {detail.breakdown.metrics
+                          .reduce((s, m) => s + m.weight * 5 * SCORE_SCALE, 0)
+                          .toFixed(0)}
+                      </span>
+                    </CardContent>
+                  </Card>
+                  <Card
+                    className="gap-1 border-zinc-300 bg-zinc-50/60 py-3 dark:border-zinc-700 dark:bg-zinc-900/40"
+                    title={SCORE_NSA_E_INFO}
+                  >
+                    <CardHeader className="gap-0.5 px-4">
+                      <CardTitle className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                        Score NSA. (E)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="px-4">
+                      <span className="text-2xl font-bold tabular-nums">
+                        {detail.scoreNsaExpected.toFixed(1)}
+                      </span>
+                      <span className="font-normal text-zinc-400"> / 100</span>
+                    </CardContent>
+                  </Card>
                 </div>
 
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -206,7 +376,9 @@ export default async function PerformanceReviewPage({
                   and AI Tasks is currently excluded from the rating — all three
                   carry weight 0, so they don&apos;t affect the score.
                 </p>
+                  </TabsContent>
 
+                  <TabsContent value="bugs" className="pt-6">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     Weighted bugs ({detail.weightedBugItems.length}) ·{" "}
@@ -278,71 +450,17 @@ export default async function PerformanceReviewPage({
                     </table>
                   </div>
                 </section>
+                  </TabsContent>
 
-                <section className="space-y-3">
-                  <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-                    Feature tasks ({detail.featureItems.length})
-                  </h2>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    Non-bug tasks the developer completed this quarter, counted as
-                    feature output for the Bug Quality score.
-                  </p>
-                  <div className="max-h-96 overflow-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0">
-                        <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/95">
-                          <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                            Key
-                          </th>
-                          <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                            Summary
-                          </th>
-                          <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                            Complexity
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detail.featureItems.map((t) => (
-                          <tr
-                            key={t.key}
-                            className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60"
-                          >
-                            <td className="whitespace-nowrap px-4 py-2.5 align-top font-mono text-xs text-zinc-600 dark:text-zinc-300">
-                              <JiraKeyLink item={t} />
-                            </td>
-                            <td className="px-4 py-2.5 align-top text-zinc-700 dark:text-zinc-300">
-                              {t.summary}
-                            </td>
-                            <td className="px-4 py-2.5 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
-                              {t.complexity != null ? (
-                                t.complexity
-                              ) : (
-                                <span
-                                  title="Complexity not set in Jira — defaults to C1 (weight 1)"
-                                  className="text-zinc-400"
-                                >
-                                  1*
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                        {detail.featureItems.length === 0 && (
-                          <tr>
-                            <td
-                              colSpan={3}
-                              className="px-4 py-8 text-center text-sm text-zinc-400"
-                            >
-                              No feature tasks completed this quarter.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
+                  <TabsContent value="features" className="pt-6">
+                <FeatureTasksTable
+                  items={detail.featureItems}
+                  isSuperuser={canRecompute}
+                  quarterKey={quarterKey}
+                />
+                  </TabsContent>
 
+                  <TabsContent value="mttr" className="pt-6">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     MTTR samples ({detail.mttrItems.length})
@@ -355,7 +473,7 @@ export default async function PerformanceReviewPage({
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
                     P1/P2 bugs owned by this developer (Issue Owner, assignee
                     fallback). Resolution time spans the developer work-window — see
-                    “How dates are captured” below — not the full ticket lifetime.
+                    “How dates are captured” above — not the full ticket lifetime.
                     Their average drives the MTTR score; with no samples the metric
                     defaults to a full 5.
                   </p>
@@ -412,7 +530,9 @@ export default async function PerformanceReviewPage({
                     </table>
                   </div>
                 </section>
+                  </TabsContent>
 
+                  <TabsContent value="complexity" className="pt-6">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     Complexity distribution ({detail.complexTasksCount} task
@@ -502,79 +622,105 @@ export default async function PerformanceReviewPage({
                     </table>
                   </div>
                 </section>
+                  </TabsContent>
 
+                  <TabsContent value="expected-complexity" className="pt-6">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-                    What each metric means
+                    Expected Complexity distribution ({detail.complexTasksCount} task
+                    {detail.complexTasksCount === 1 ? "" : "s"})
                   </h2>
-                  <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-4 dark:border-blue-900/60 dark:bg-blue-950/30">
-                    <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                      {DATE_CAPTURE_NOTE.title}
-                    </p>
-                    <p className="mt-1.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-                      {DATE_CAPTURE_NOTE.intro}
-                    </p>
-                    <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-                      {DATE_CAPTURE_NOTE.steps.map((step, i) => (
-                        <li key={i}>{step}</li>
-                      ))}
-                    </ol>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Sibling of the distribution above, using each task&apos;s
+                    LOC-predicted complexity instead of the marked value — same
+                    weights (C1 = 1, C2 = 3, C3 = 5, C4 = 7, C5 = 10), same
+                    tasks, just bucketed by what the code actually looked like
+                    rather than what was marked in Jira. Feeds Complex. (E) /
+                    Complex. NSA. (E) the same way the distribution above feeds
+                    Complex. (M) / Complex. NSA. (M).
+                  </p>
+                  <div className="overflow-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/95">
+                          <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            Complexity
+                          </th>
+                          <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            Tasks
+                          </th>
+                          <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            Weight each
+                          </th>
+                          <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            Total weight
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.expectedComplexityBuckets.map((c) => (
+                          <tr
+                            key={c.label}
+                            className="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60"
+                          >
+                            <td className="whitespace-nowrap px-4 py-2.5 align-top font-medium text-zinc-900 dark:text-zinc-100">
+                              {c.label}
+                            </td>
+                            <td className="px-4 py-2.5 text-right align-top tabular-nums text-zinc-700 dark:text-zinc-300">
+                              {c.count}
+                            </td>
+                            <td className="px-4 py-2.5 text-right align-top tabular-nums text-zinc-600 dark:text-zinc-400">
+                              {c.weightEach}
+                            </td>
+                            <td className="px-4 py-2.5 text-right align-top font-semibold tabular-nums">
+                              {c.totalWeight}
+                            </td>
+                          </tr>
+                        ))}
+                        {detail.expectedComplexityBuckets.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={4}
+                              className="px-4 py-8 text-center text-sm text-zinc-400"
+                            >
+                              No tasks completed this quarter.
+                            </td>
+                          </tr>
+                        ) : (
+                          (() => {
+                            const tasks = detail.expectedComplexityBuckets.reduce(
+                              (s, c) => s + c.count,
+                              0
+                            );
+                            const weight = detail.expectedComplexityBuckets.reduce(
+                              (s, c) => s + c.totalWeight,
+                              0
+                            );
+                            return (
+                              <tr className="bg-zinc-50 dark:bg-zinc-900/60">
+                                <td className="px-4 py-2.5 text-sm font-semibold">
+                                  Total
+                                </td>
+                                <td className="px-4 py-2.5 text-right text-sm font-semibold tabular-nums">
+                                  {tasks}
+                                </td>
+                                <td className="px-4 py-2.5 text-right text-xs text-zinc-500">
+                                  avg {(weight / tasks).toFixed(2)}
+                                </td>
+                                <td className="px-4 py-2.5 text-right text-sm font-bold tabular-nums">
+                                  {weight}
+                                </td>
+                              </tr>
+                            );
+                          })()
+                        )}
+                      </tbody>
+                    </table>
                   </div>
-                  <dl className="space-y-3">
-                    {detail.breakdown.metrics.map((m) => {
-                      const info = METRIC_INFO[m.key];
-                      return (
-                        <div
-                          key={m.key}
-                          className={
-                            "rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 " +
-                            (m.available ? "" : "opacity-70")
-                          }
-                        >
-                          <dt className="flex flex-wrap items-center gap-2">
-                            <span className="font-medium text-zinc-900 dark:text-zinc-100">
-                              {m.label}
-                            </span>
-                            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                              weight {m.weight.toFixed(2)}
-                            </span>
-                            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                              range {info.range}
-                            </span>
-                            {m.weight === 0 && (
-                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-400">
-                                does not affect score
-                              </span>
-                            )}
-                          </dt>
-                          <dd className="mt-1.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-                            {info.detail}
-                          </dd>
-                          <dd className="mt-2 text-xs text-zinc-500 dark:text-zinc-500">
-                            This developer:{" "}
-                            <span className="text-zinc-700 dark:text-zinc-300">
-                              {m.available ? m.raw : "N/A — not tracked"}
-                            </span>{" "}
-                            →{" "}
-                            <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                              {m.available
-                                ? `${fmtPoints(m.points)} points`
-                                : "no points"}
-                            </span>
-                            {m.available && m.weight > 0 && (
-                              <>
-                                {" "}
-                                (contributes {m.contribution.toFixed(2)} to the
-                                final score)
-                              </>
-                            )}
-                          </dd>
-                        </div>
-                      );
-                    })}
-                  </dl>
                 </section>
+                  </TabsContent>
 
+                  <TabsContent value="missing-dates" className="pt-6">
                 <section className="space-y-3">
                   <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     Issues missing Actual start / end ({detail.missingActualDateItems.length})
@@ -662,6 +808,8 @@ export default async function PerformanceReviewPage({
                     </table>
                   </div>
                 </section>
+                  </TabsContent>
+                </Tabs>
               </>
             )}
           </div>
@@ -673,6 +821,7 @@ export default async function PerformanceReviewPage({
   // ---- Leaderboard ----
   const rows = await fetchScorecards(quarterKey);
   const computedAt = rows[0]?.computedAt ?? null;
+  const visibleColumns = await getVisibleColumns();
 
   return (
     <div className="flex min-h-svh flex-col bg-zinc-50 dark:bg-zinc-950">
@@ -686,20 +835,22 @@ export default async function PerformanceReviewPage({
         </Breadcrumb>
       </PageHeader>
 
-      <main className="flex-1 p-6">
+      <main className="flex-1 p-6 pb-0">
         <div className="mx-auto max-w-5xl space-y-6">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              Performance Review
-            </h1>
-            <p className="mt-1 max-w-3xl text-sm text-zinc-500">
-              Suggested quarterly ratings for developers, scored out of 100 and
-              derived from synced Jira data across four weighted metrics — Bug
-              Quality ({WEIGHTS.bugQuality}), Complex Tasks ({WEIGHTS.complexTasks}),
-              Sprint Commitment ({WEIGHTS.sprintCommitment}), and MTTR ({WEIGHTS.mttr}).
-              Scores are a decision aid, not a verdict. Click a name for the full
-              breakdown.
-            </p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">
+                Performance Review
+              </h1>
+              <p className="mt-1 max-w-2xl text-sm text-zinc-500">
+                Suggested quarterly ratings for developers, scored out of 100
+                from synced Jira data. A decision aid, not a verdict.
+              </p>
+            </div>
+            <div className="flex flex-col items-end gap-1">
+              <ScoringGuide />
+              {canRecompute && <ColumnPicker visibleColumns={visibleColumns} />}
+            </div>
           </div>
 
           <ReviewControls
@@ -709,12 +860,11 @@ export default async function PerformanceReviewPage({
             canRecompute={canRecompute}
           />
 
-          <ScoringGuide />
-
           <LeaderboardTable
             rows={rows}
             quarterKey={quarterKey}
             quarterLabel={quarterLabel}
+            visibleColumns={visibleColumns}
           />
         </div>
       </main>

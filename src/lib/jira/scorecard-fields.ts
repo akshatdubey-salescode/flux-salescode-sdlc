@@ -56,17 +56,27 @@ export function extractIssueOwnerEmail(
 
 /**
  * Who a *task* (non-bug issue) is credited to in the performance review: the
- * "Dev Owner" user-picker when set, else the issue Assignee. Both are resolved
- * to a normalized email (Dev Owner via the same user-picker logic as Issue
- * Owner, since it's the same field type). Returns null when neither is present —
- * such a task is credited to nobody.
+ * "Dev Owner" user-picker when set, else the issue Assignee — UNLESS
+ * loc-sync found a matched PR and knows exactly who wrote it
+ * (locCreditedEmail), in which case that person wins outright, replacing
+ * whichever of Dev Owner/Assignee the field-based guess would have picked.
+ * loc-sync itself already prefers a Dev Owner-authored PR over an Assignee-
+ * authored one when both exist for the same Jira (see resolvePrCredit in
+ * loc-sync.ts) — this function doesn't need to re-decide between them, only
+ * trust the answer once it exists, since a real PR proves who wrote the code
+ * more reliably than a Jira field that can go stale after a handoff. Both
+ * fallback fields are resolved to a normalized email (Dev Owner via the same
+ * user-picker logic as Issue Owner, since it's the same field type). Returns
+ * null when nothing at all is present — such a task is credited to nobody.
  */
 export function resolveTaskOwnerEmail(
   cf: CustomFields | null | undefined,
   devOwnerFieldIds: string[] | null,
   assigneeEmail: string | null | undefined,
-  accountIdEmailMap?: Map<string, string> | null
+  accountIdEmailMap?: Map<string, string> | null,
+  locCreditedEmail?: string | null
 ): string | null {
+  if (locCreditedEmail) return locCreditedEmail;
   return (
     extractIssueOwnerEmail(cf, devOwnerFieldIds, accountIdEmailMap) ??
     normalizeEmail(assigneeEmail)

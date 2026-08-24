@@ -1,4 +1,5 @@
 import { cacheLife, cacheTag } from "next/cache";
+import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { featureFlags } from "@/lib/db/schema";
 import type { FeatureFlag } from "@/lib/db/schema";
@@ -15,6 +16,9 @@ export type FlagKey = keyof typeof defaultFlags;
 // known FlagKey — a typo here is a compile error.
 export const FEATURE_FLAGS = {
   REQUIREMENT_BUILDER: "enableRequirementBuilder",
+  COMPLEXITY_LOC_RANGES: "complexityLocRanges",
+  PERFORMANCE_REVIEW_VISIBLE_COLUMNS: "performanceReviewVisibleColumns",
+  BUG_BOARD_OPEN_COLUMN: "showBugBoardOpenColumn",
 } as const satisfies Record<string, FlagKey>;
 
 // ---------------------------------------------------------------------------
@@ -50,6 +54,24 @@ export async function getFlag(key: FlagKey): Promise<unknown> {
  */
 export async function isEnabled(key: FlagKey): Promise<boolean> {
   return (await getFlag(key)) === true;
+}
+
+/**
+ * Same as getFlag, but reads straight from the DB every call — no "use
+ * cache", no cacheTag, no staleness window at all. For config that must
+ * reflect an edit immediately the next time it's read (e.g. a value fetched
+ * fresh on every scoring run), where an hours-long cache would silently
+ * serve a stale number. Costs a query per call by design; only use this for
+ * flags read at a low, deliberate frequency (once per job run, not per
+ * request).
+ */
+export async function getFlagUncached(key: FlagKey): Promise<unknown> {
+  const [row] = await db
+    .select()
+    .from(featureFlags)
+    .where(eq(featureFlags.key, key))
+    .limit(1);
+  return row ? row.value : defaultFlags[key];
 }
 
 // ---------------------------------------------------------------------------
