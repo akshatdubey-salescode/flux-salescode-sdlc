@@ -491,6 +491,9 @@ function DeliveryCard({
   const [alertCopied, setAlertCopied] = useState(false);
   const [exporting, setExporting] = useState(false);
 
+  // Lets the picker gray out issues this delivery already contains.
+  const existingIssueIds = useMemo(() => new Set(delivery.items.map((i) => i.issueId)), [delivery.items]);
+
   const today = localDateStr(new Date());
   const daysToGo = daysBetween(delivery.deliveryDate, today);
   const overdue = daysToGo < 0;
@@ -720,15 +723,15 @@ function DeliveryCard({
       </div>
 
       {canManage && !isComplete && (
-        <div className="flex items-center gap-2 border-b border-border p-2.5">
-          <div className="flex-1">
-            <IssueMultiPicker projectId={delivery.projectId} value={addingIssues} onChange={setAddingIssues} />
-          </div>
-          {addingIssues.length > 0 && (
-            <Button size="sm" onClick={handleAddIssues} disabled={adding}>
-              {adding ? "Adding…" : `Add ${addingIssues.length}`}
-            </Button>
-          )}
+        <div className="border-b border-border p-2.5">
+          <IssueMultiPicker
+            projectId={delivery.projectId}
+            value={addingIssues}
+            onChange={setAddingIssues}
+            existingIssueIds={existingIssueIds}
+            onSubmit={handleAddIssues}
+            submitting={adding}
+          />
         </div>
       )}
 
