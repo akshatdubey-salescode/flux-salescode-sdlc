@@ -11,10 +11,19 @@ import { useCallback, useSyncExternalStore } from "react";
  *   • `null` (no entry)  → no preference saved yet, so every item is shown.
  *   • `string[]`         → an explicit allow-list; only these hrefs are shown.
  *
+ * Alongside it we store the *known* set — every href that existed in the
+ * catalog when the preference was last saved. An href absent from the known
+ * set is a nav item shipped AFTER the user customised their sidebar, and it
+ * defaults to visible; a bare allow-list would silently hide every new
+ * feature from every user with a saved preference. Preferences saved before
+ * the known set existed fall back to plain allow-list behaviour until the
+ * user next saves.
+ *
  * Unknown hrefs (e.g. a menu item that was later removed) are ignored by
  * consumers, so stale entries never break the sidebar.
  */
 export const SIDEBAR_PREFS_KEY = "sidebar.visibleItems";
+export const SIDEBAR_KNOWN_KEY = "sidebar.knownItems";
 
 // Dispatched on the window so the live sidebar updates the moment preferences
 // change in the *same* tab — the native `storage` event only fires in *other*
@@ -62,6 +71,27 @@ export function readVisibleHrefs(): string[] | null {
   return cachedVisibleHrefs;
 }
 
+// Same reference-stability contract as readVisibleHrefs, for the known set.
+let cachedKnownRaw: string | null | undefined;
+let cachedKnownHrefs: string[] | null = null;
+
+export function readKnownHrefs(): string[] | null {
+  if (typeof window === "undefined") return null;
+
+  let raw: string | null;
+  try {
+    raw = window.localStorage.getItem(SIDEBAR_KNOWN_KEY);
+  } catch {
+    return null;
+  }
+
+  if (raw !== cachedKnownRaw) {
+    cachedKnownRaw = raw;
+    cachedKnownHrefs = parseVisibleHrefs(raw);
+  }
+  return cachedKnownHrefs;
+}
+
 // Distinct from `null` (a legitimate "no preference saved" value) — lets us
 // tell "haven't hydrated yet" apart from "hydrated, nothing saved".
 function getServerSnapshot(): string[] | null | undefined {
@@ -70,7 +100,9 @@ function getServerSnapshot(): string[] | null | undefined {
 
 function subscribe(callback: () => void): () => void {
   const onStorage = (e: StorageEvent) => {
-    if (e.key === null || e.key === SIDEBAR_PREFS_KEY) callback();
+    if (e.key === null || e.key === SIDEBAR_PREFS_KEY || e.key === SIDEBAR_KNOWN_KEY) {
+      callback();
+    }
   };
   window.addEventListener(PREFS_CHANGE_EVENT, callback);
   window.addEventListener("storage", onStorage);
@@ -87,27 +119,45 @@ export function useSidebarPreferences() {
   // markup, no hydration mismatch), then syncs to the real value right after
   // mount and on every subsequent local/cross-tab change.
   const snapshot = useSyncExternalStore(subscribe, readVisibleHrefs, getServerSnapshot);
+  const knownSnapshot = useSyncExternalStore(subscribe, readKnownHrefs, getServerSnapshot);
   const hydrated = snapshot !== undefined;
   const visibleHrefs = hydrated ? snapshot : null;
+  const knownHrefs = knownSnapshot === undefined ? null : knownSnapshot;
 
-  /** Persist the visible set. Pass `null` to clear the preference (show all). */
-  const saveVisibleHrefs = useCallback((hrefs: string[] | null) => {
-    try {
-      if (hrefs === null) {
-        window.localStorage.removeItem(SIDEBAR_PREFS_KEY);
-      } else {
-        window.localStorage.setItem(SIDEBAR_PREFS_KEY, JSON.stringify(hrefs));
+  /**
+   * Persist the visible set. Pass `null` to clear the preference (show all).
+   * `knownHrefs` should be the full catalog of hrefs the save was made
+   * against — anything shipped later then defaults to visible.
+   */
+  const saveVisibleHrefs = useCallback(
+    (hrefs: string[] | null, knownCatalog?: string[]) => {
+      try {
+        if (hrefs === null) {
+          window.localStorage.removeItem(SIDEBAR_PREFS_KEY);
+          window.localStorage.removeItem(SIDEBAR_KNOWN_KEY);
+        } else {
+          window.localStorage.setItem(SIDEBAR_PREFS_KEY, JSON.stringify(hrefs));
+          if (knownCatalog) {
+            window.localStorage.setItem(SIDEBAR_KNOWN_KEY, JSON.stringify(knownCatalog));
+          }
+        }
+      } catch {
+        // ignore (quota exceeded, private browsing, etc.)
       }
-    } catch {
-      // ignore (quota exceeded, private browsing, etc.)
-    }
-    window.dispatchEvent(new Event(PREFS_CHANGE_EVENT));
-  }, []);
-
-  const isVisible = useCallback(
-    (href: string) => visibleHrefs === null || visibleHrefs.includes(href),
-    [visibleHrefs]
+      window.dispatchEvent(new Event(PREFS_CHANGE_EVENT));
+    },
+    []
   );
 
-  return { visibleHrefs, isVisible, saveVisibleHrefs, hydrated };
+  const isVisible = useCallback(
+    (href: string) =>
+      visibleHrefs === null ||
+      visibleHrefs.includes(href) ||
+      // Shipped after the user's last save → visible by default. Without a
+      // stored known set (legacy saves) fall back to the plain allow-list.
+      (knownHrefs !== null && !knownHrefs.includes(href)),
+    [visibleHrefs, knownHrefs]
+  );
+
+  return { visibleHrefs, knownHrefs, isVisible, saveVisibleHrefs, hydrated };
 }

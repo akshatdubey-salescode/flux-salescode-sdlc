@@ -28,7 +28,7 @@ export function CustomiseSidebarClient({
   isSuperuser,
   requirementBuilderEnabled,
 }: Props) {
-  const { visibleHrefs, saveVisibleHrefs, hydrated } = useSidebarPreferences();
+  const { visibleHrefs, knownHrefs, saveVisibleHrefs, hydrated } = useSidebarPreferences();
 
   // The set of items the user could put in their sidebar, respecting the same
   // role / feature-flag gating the live sidebar applies.
@@ -54,14 +54,25 @@ export function CustomiseSidebarClient({
   const allHrefs = useMemo(() => catalog.map((c) => c.href), [catalog]);
 
   // Effective visible set. `null` (no saved preference) means "show everything".
+  // Items shipped after the last save (absent from the known set) count as
+  // visible, matching the live sidebar's isVisible().
   const visibleSet = useMemo(() => {
     if (visibleHrefs === null) return new Set(allHrefs);
-    return new Set(visibleHrefs.filter((h) => allHrefs.includes(h)));
-  }, [visibleHrefs, allHrefs]);
+    const set = new Set(visibleHrefs.filter((h) => allHrefs.includes(h)));
+    if (knownHrefs !== null) {
+      for (const h of allHrefs) if (!knownHrefs.includes(h)) set.add(h);
+    }
+    return set;
+  }, [visibleHrefs, knownHrefs, allHrefs]);
 
-  // Persist the new set, always in catalog order so storage stays tidy.
+  // Persist the new set, always in catalog order so storage stays tidy. The
+  // full catalog is stored alongside as the known set, so anything shipped
+  // after this save defaults to visible instead of silently disappearing.
   function commit(next: Set<string>) {
-    saveVisibleHrefs(allHrefs.filter((h) => next.has(h)));
+    saveVisibleHrefs(
+      allHrefs.filter((h) => next.has(h)),
+      allHrefs
+    );
   }
 
   function setItemVisible(href: string, visible: boolean) {
