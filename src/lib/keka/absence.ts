@@ -22,6 +22,13 @@ async function loadLeaveRows(start: string, end: string): Promise<Row[]> {
   // Approved leave (status=1) expanded to one row per leave date within
   // [start, end], joined to people on employee_number. Weekends are dropped —
   // a Fri–Mon leave shouldn't paint Sat/Sun (which are non-working anyway).
+  //
+  // A day is excluded here if keka_attendance shows a real clock-in (first_in
+  // IS NOT NULL) for that same employee/date — an approved leave request that
+  // overlaps a day the person actually showed up and worked (a late arrival
+  // being the common real-world case) must not paint the whole day "On
+  // leave"; a genuine full-day leave has no attendance row at all for that
+  // date, so this exclusion never fires for the real case.
   const res = await db.execute(sql`
     SELECT lower(ke.email) AS email,
            to_char(d, 'YYYY-MM-DD') AS date,
@@ -33,11 +40,15 @@ async function loadLeaveRows(start: string, end: string): Promise<Row[]> {
       least(kl.to_date, ${end}::date),
       interval '1 day'
     ) AS d
+    LEFT JOIN keka_attendance ka
+      ON ka.employee_number = kl.employee_number
+      AND ka.attendance_date = d
     WHERE kl.status = 1
       AND ke.email IS NOT NULL
       AND kl.from_date <= ${end}::date
       AND kl.to_date >= ${start}::date
       AND extract(dow from d) NOT IN (0, 6)
+      AND ka.first_in IS NULL
   `);
   return res.rows as Row[];
 }
