@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { format, parseISO } from "date-fns";
 import type { DateRange as DayPickerRange } from "react-day-picker";
 import {
@@ -48,6 +48,7 @@ export function FilterBar({
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
   const [calOpen, setCalOpen] = useState(false);
   const [calRange, setCalRange] = useState<DayPickerRange | undefined>({
@@ -74,14 +75,16 @@ export function FilterBar({
     q?: string;
     departments?: string[];
   }) {
-    const params = new URLSearchParams({
-      start: next.start ?? start,
-      end: next.end ?? end,
-    });
+    // Start from the current URL so unrelated params (sort/dir) survive.
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("start", next.start ?? start);
+    params.set("end", next.end ?? end);
     const nextQ = (next.q ?? q).trim();
     if (nextQ) params.set("q", nextQ);
+    else params.delete("q");
     const nextDepts = next.departments ?? selectedDepartments;
     if (nextDepts.length) params.set("dept", nextDepts.join(","));
+    else params.delete("dept");
     startTransition(() => {
       router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     });
