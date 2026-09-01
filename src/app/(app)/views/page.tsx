@@ -11,9 +11,17 @@ import {
   RiUserStarLine,
   RiUserUnfollowLine,
   RiCodeSSlashLine,
+  RiFolderUserLine,
 } from "@remixicon/react";
 
 const VIEWS = [
+  {
+    href: "/views/people-projects",
+    icon: RiFolderUserLine,
+    title: "People & Projects",
+    description:
+      "Shows who is working on which projects — every person with their active projects and issue/task counts, filterable by quarter or custom date range, with Excel export.",
+  },
   {
     href: "/views/lines-of-code",
     icon: RiCodeSSlashLine,
