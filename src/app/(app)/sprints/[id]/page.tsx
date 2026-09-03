@@ -4,7 +4,7 @@ import { canManageDeliveries } from "@/lib/auth/types";
 import { isValidUuid } from "@/lib/validation";
 import { fetchSprintById } from "@/lib/sprints/entries";
 import { db } from "@/lib/db";
-import { jiraProjects } from "@/lib/db/schema";
+import { jiraProjects, observerBoards } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { PageHeader } from "@/components/page-header";
 import {
@@ -30,12 +30,36 @@ export default async function SprintPage(props: { params: Promise<{ id: string }
   const sprint = await fetchSprintById(id);
   if (!sprint) notFound();
 
-  const [project] = await db
-    .select({ id: jiraProjects.id, name: jiraProjects.name })
-    .from(jiraProjects)
-    .where(eq(jiraProjects.id, sprint.projectId))
-    .limit(1);
-  if (!project) notFound();
+  // Breadcrumb parent: the owning project, or the owning Team Pulse board.
+  let parent: { href: string; label: string; rootHref: string; rootLabel: string } | null = null;
+  if (sprint.projectId) {
+    const [project] = await db
+      .select({ id: jiraProjects.id, name: jiraProjects.name })
+      .from(jiraProjects)
+      .where(eq(jiraProjects.id, sprint.projectId))
+      .limit(1);
+    if (!project) notFound();
+    parent = {
+      href: `/projects/${project.id}?tab=sprint-tracker`,
+      label: project.name,
+      rootHref: "/projects",
+      rootLabel: "Projects",
+    };
+  } else if (sprint.boardId) {
+    const [board] = await db
+      .select({ id: observerBoards.id, name: observerBoards.name })
+      .from(observerBoards)
+      .where(eq(observerBoards.id, sprint.boardId))
+      .limit(1);
+    if (!board) notFound();
+    parent = {
+      href: `/observer/${board.id}?tab=sprints`,
+      label: board.name,
+      rootHref: "/observer",
+      rootLabel: "Team Pulse",
+    };
+  }
+  if (!parent) notFound();
 
   return (
     <div className="flex min-h-svh w-full min-w-0 flex-col">
@@ -43,11 +67,11 @@ export default async function SprintPage(props: { params: Promise<{ id: string }
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
-              <BreadcrumbLink href="/projects">Projects</BreadcrumbLink>
+              <BreadcrumbLink href={parent.rootHref}>{parent.rootLabel}</BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
-              <BreadcrumbLink href={`/projects/${project.id}?tab=sprint-tracker`}>{project.name}</BreadcrumbLink>
+              <BreadcrumbLink href={parent.href}>{parent.label}</BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>

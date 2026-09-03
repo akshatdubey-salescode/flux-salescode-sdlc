@@ -12,6 +12,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { SprintWithItems } from "@/lib/sprints/entries";
 
 /**
@@ -21,13 +22,19 @@ import type { SprintWithItems } from "@/lib/sprints/entries";
  */
 export function CreateSprintForm({
   projectId,
+  boardId,
   sprint,
+  workstreams,
   trigger,
   onSaved,
 }: {
-  projectId: string;
+  /** Owner for creation — exactly one of projectId (project sprint) / boardId (Team Pulse board sprint). Ignored when editing. */
+  projectId?: string | null;
+  boardId?: string | null;
   /** When set, this form edits the given sprint instead of creating a new one. */
   sprint?: SprintWithItems;
+  /** Project workstreams — shows an optional "create inside workstream" picker (create mode, project sprints only). */
+  workstreams?: { id: string; name: string }[];
   trigger: React.ReactNode;
   onSaved: (sprint: SprintWithItems) => void;
 }) {
@@ -37,8 +44,10 @@ export function CreateSprintForm({
   const [goal, setGoal] = useState(sprint?.goal ?? "");
   const [startDate, setStartDate] = useState(sprint?.startDate ?? "");
   const [endDate, setEndDate] = useState(sprint?.endDate ?? "");
+  const [workstreamId, setWorkstreamId] = useState<string>("none");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const showWorkstreamPicker = !isEdit && !!projectId && (workstreams?.length ?? 0) > 0;
 
   const canSubmit = !!name.trim() && !!startDate && !!endDate && endDate >= startDate && !submitting;
 
@@ -47,6 +56,7 @@ export function CreateSprintForm({
     setGoal("");
     setStartDate("");
     setEndDate("");
+    setWorkstreamId("none");
     setError(null);
   }
 
@@ -55,10 +65,19 @@ export function CreateSprintForm({
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch(isEdit ? `/api/sprints/${sprint.id}` : `/api/projects/${projectId}/sprints`, {
+      const createUrl = projectId
+        ? `/api/projects/${projectId}/sprints`
+        : `/api/observer/boards/${boardId}/sprints`;
+      const res = await fetch(isEdit ? `/api/sprints/${sprint.id}` : createUrl, {
         method: isEdit ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), goal: goal.trim() || null, startDate, endDate }),
+        body: JSON.stringify({
+          name: name.trim(),
+          goal: goal.trim() || null,
+          startDate,
+          endDate,
+          ...(showWorkstreamPicker && workstreamId !== "none" ? { workstreamId } : {}),
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -106,6 +125,24 @@ export function CreateSprintForm({
               <Input type="date" value={endDate} min={startDate || undefined} onChange={(e) => setEndDate(e.target.value)} />
             </div>
           </div>
+          {showWorkstreamPicker && (
+            <div className="space-y-1">
+              <Label className="text-[11px] text-muted-foreground">Workstream (optional)</Label>
+              <Select value={workstreamId} onValueChange={setWorkstreamId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No workstream</SelectItem>
+                  {workstreams!.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {w.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           {error && <p className="text-xs text-destructive">{error}</p>}
           <Button onClick={handleSubmit} disabled={!canSubmit} className="w-full">
             {submitting ? "Saving…" : isEdit ? "Save changes" : "Create sprint"}

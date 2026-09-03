@@ -519,6 +519,20 @@
       "when": 1788426789149,
       "tag": "0074_shallow_silver_surfer",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1788433132171,
+      "tag": "0075_nasty_iron_lad",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1788434200780,
+      "tag": "0076_wandering_iron_patriot",
+      "breakpoints": true
     }
   ]
 }

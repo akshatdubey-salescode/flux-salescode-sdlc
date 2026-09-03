@@ -30,7 +30,10 @@ export function SprintFocus({ sprintId, canManage }: { sprintId: string; canMana
       const { sprint: loaded } = (await res.json()) as { sprint: SprintWithItems };
       setSprint(loaded);
 
-      const optRes = await fetch(`/api/projects/${loaded.projectId}/sprints?summary=1`, { cache: "no-store" });
+      const optionsUrl = loaded.projectId
+        ? `/api/projects/${loaded.projectId}/sprints?summary=1`
+        : `/api/observer/boards/${loaded.boardId}/sprints?summary=1`;
+      const optRes = await fetch(optionsUrl, { cache: "no-store" });
       if (optRes.ok) {
         const { sprints: options } = (await optRes.json()) as { sprints: SprintOption[] };
         setTargets(options.filter((o) => o.id !== sprintId));

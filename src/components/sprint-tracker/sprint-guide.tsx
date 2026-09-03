@@ -141,7 +141,11 @@ export function SprintGuide({ trigger }: { trigger?: React.ReactNode }) {
               status on the clipboard, ready to paste into a team group. The ⛶ button opens a{" "}
               <span className="font-medium text-foreground">focused view</span> of one sprint (everything works there
               too), and the 🔗 button copies a <span className="font-medium text-foreground">shareable link</span>{" "}
-              straight to that sprint — anyone with project access can open it.
+              straight to that sprint — anyone with project access can open it. Related sprints can be clubbed into a{" "}
+              <span className="font-medium text-foreground">workstream</span> (an initiative inside the project, like
+              “Wholesaler App” holding its Demo sprints): create one with the New workstream button, move sprints in
+              via the picker on each card, and the workstream section shows the combined rollup with its own shareable
+              link and a report covering every sprint in it.
             </p>
           </Section>
 

@@ -63,6 +63,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     .select({
       id: sprints.id,
       projectId: sprints.projectId,
+      boardId: sprints.boardId,
       deletedAt: sprints.deletedAt,
       startedAt: sprints.startedAt,
       completedAt: sprints.completedAt,
@@ -110,7 +111,8 @@ export async function POST(req: NextRequest, { params }: Params) {
   `);
 
   revalidateTag("sprints", "max");
-  revalidateTag(`project:${sprint.projectId}`, "max");
+  if (sprint.projectId) revalidateTag(`project:${sprint.projectId}`, "max");
+  if (sprint.boardId) revalidateTag(`board:${sprint.boardId}`, "max");
 
   const updated = await fetchSprintById(sprintId);
   if (!updated) {
