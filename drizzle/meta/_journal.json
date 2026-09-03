@@ -498,6 +498,27 @@
       "when": 1787583472068,
       "tag": "0071_cooing_lady_deathstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1788424319213,
+      "tag": "0072_redundant_blade",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1788425563953,
+      "tag": "0073_yummy_lockheed",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1788426789149,
+      "tag": "0074_shallow_silver_surfer",
+      "breakpoints": true
     }
   ]
 }
