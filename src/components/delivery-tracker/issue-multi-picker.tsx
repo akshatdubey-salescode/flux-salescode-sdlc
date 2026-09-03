@@ -43,18 +43,22 @@ export function IssueMultiPicker({
   existingIssueIds,
   onSubmit,
   submitting,
+  scopeComment,
 }: {
   projectId: string;
   value: IssueResult[];
   onChange: (issues: IssueResult[]) => void;
   /** Issues already in the delivery — shown as "Already added" and not selectable. */
   existingIssueIds?: ReadonlySet<string>;
-  /** Commits the current selection (the parent owns the POST); the dialog closes after it resolves. */
-  onSubmit?: () => Promise<void> | void;
+  /** Commits the current selection (the parent owns the POST); the dialog closes after it resolves. Receives the scope-change reason when `scopeComment` is set. */
+  onSubmit?: (comment?: string) => Promise<void> | void;
   submitting?: boolean;
+  /** When set (e.g. adding to a started sprint), a REQUIRED reason field is shown and passed to onSubmit — no silent scope change. */
+  scopeComment?: { placeholder: string };
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [comment, setComment] = useState("");
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
   // Not useDebouncedSearch: this view also needs the response's `total`
@@ -102,6 +106,7 @@ export function IssueMultiPicker({
       // visible "pending selection" UI outside this dialog to come back to.
       onChange([]);
       setQuery("");
+      setComment("");
       setCreatedFrom("");
       setCreatedTo("");
     }
@@ -116,11 +121,14 @@ export function IssueMultiPicker({
     );
   }
 
+  const commentMissing = !!scopeComment && !comment.trim();
+
   async function handleAdd() {
-    if (value.length === 0) return;
-    await onSubmit?.();
+    if (value.length === 0 || commentMissing) return;
+    await onSubmit?.(scopeComment ? comment.trim() : undefined);
     setOpen(false);
     setQuery("");
+    setComment("");
   }
 
   return (
@@ -238,6 +246,16 @@ export function IssueMultiPicker({
         </Command>
 
         <div className="space-y-2 border-t border-border px-4 py-3">
+          {scopeComment && value.length > 0 && (
+            <div className="space-y-1">
+              <Label className="text-[11px] text-muted-foreground">Reason for adding mid-sprint (required)</Label>
+              <Input
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder={scopeComment.placeholder}
+              />
+            </div>
+          )}
           {value.length > 0 && (
             <div className="flex flex-wrap items-center gap-1">
               {value.map((i) => (
@@ -273,7 +291,7 @@ export function IssueMultiPicker({
               <Button variant="outline" size="sm" onClick={() => handleOpenChange(false)}>
                 Cancel
               </Button>
-              <Button size="sm" disabled={value.length === 0 || submitting} onClick={handleAdd}>
+              <Button size="sm" disabled={value.length === 0 || commentMissing || submitting} onClick={handleAdd}>
                 {submitting
                   ? "Adding…"
                   : value.length > 0

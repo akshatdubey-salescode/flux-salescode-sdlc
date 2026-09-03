@@ -1838,3 +1838,118 @@ export type DeliveryTransfer = typeof deliveryTransfers.$inferSelect;
 export type NewDeliveryTransfer = typeof deliveryTransfers.$inferInsert;
 export type DeliveryStatusHistoryRow = typeof deliveryStatusHistory.$inferSelect;
 export type NewDeliveryStatusHistoryRow = typeof deliveryStatusHistory.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Sprints — an internal, time-boxed iteration (start → end date) holding Jira
+// issues, tracked natively here because the team's Jira projects are
+// business-type and have no real Jira sprints. Deliberately a separate table
+// from deliveries (not a `kind` flag on it): deliveries are client-facing
+// with their own manual outcome statuses, reminder banners, and cross-surface
+// badges — sprints are internal, and their per-item progress is derived from
+// the issue's synced Jira status, never set by hand. Keeping them apart means
+// no deliveries query can ever accidentally leak a sprint into a client view.
+// ---------------------------------------------------------------------------
+
+export const sprints = pgTable(
+  "sprints",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => jiraProjects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    // Optional sprint goal — the one-line "why this iteration exists".
+    goal: text("goal"),
+    startDate: date("start_date").notNull(),
+    endDate: date("end_date").notNull(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdByName: text("created_by_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Standard Scrum lifecycle: planned → active → closed. A sprint becomes
+    // active by an explicit "start" action (NULL = still planned), not by its
+    // start date arriving — starting is when the commitment snapshot is taken
+    // (every item then in the sprint gets sprint_items.committed = true).
+    // Only one sprint per project may be active at a time (Jira's default);
+    // the PATCH route enforces it.
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    startedBy: text("started_by").references(() => users.id),
+    startedByName: text("started_by_name"),
+    // Soft-delete, same reasoning as deliveries.
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: text("deleted_by").references(() => users.id),
+    deletedByName: text("deleted_by_name"),
+    // Closing a sprint is a calendar event, not a success gate — unlike a
+    // delivery, a sprint completes on schedule with unfinished items still in
+    // it (that's exactly the spillover the tracker exists to expose), so the
+    // PATCH route has no "everything done first" check.
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    completedBy: text("completed_by").references(() => users.id),
+    completedByName: text("completed_by_name"),
+  },
+  (t) => [
+    index("sprints_project_idx").on(t.projectId),
+    index("sprints_dates_idx").on(t.startDate, t.endDate),
+    index("sprints_active_idx").on(t.deletedAt),
+    index("sprints_completed_idx").on(t.completedAt),
+  ]
+);
+
+export const sprintItems = pgTable(
+  "sprint_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sprintId: uuid("sprint_id")
+      .notNull()
+      .references(() => sprints.id, { onDelete: "cascade" }),
+    issueId: uuid("issue_id")
+      .notNull()
+      .references(() => jiraIssues.id, { onDelete: "cascade" }),
+    addedBy: text("added_by")
+      .notNull()
+      .references(() => users.id),
+    addedByName: text("added_by_name"),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+    // The commitment snapshot, Jira Sprint Report semantics: stamped true for
+    // every item in the sprint at the moment it is STARTED. Items added while
+    // the sprint is still planned wait for that stamp; items added after
+    // start keep false — they're the "added after start" scope change the
+    // report calls out (the asterisk convention).
+    committed: boolean("committed").notNull().default(false),
+    // Scope changes on an ACTIVE sprint must carry a reason (enforced by the
+    // routes, shown on the card and in the report) — adding to a planned
+    // sprint is just planning and carries none.
+    addedComment: text("added_comment"),
+    // Scope-change audit for the other direction: removing an item from an
+    // ACTIVE (started) sprint is a soft removal so the sprint report can show
+    // "removed from sprint" — Jira tracks these too. Removals from a sprint
+    // still in planning are hard deletes: backlog grooming isn't scope change.
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    removedBy: text("removed_by").references(() => users.id),
+    removedByName: text("removed_by_name"),
+    removedComment: text("removed_comment"),
+    // Carryover provenance: set when this item spilled over from an earlier
+    // sprint. Denormalized name (deliveryTransfers idiom) so the origin stays
+    // readable even if that sprint is later renamed or soft-deleted. Carryover
+    // COPIES into the next sprint — the unfinished row stays in the closed
+    // sprint as the spillover record.
+    carriedFromSprintId: uuid("carried_from_sprint_id").references(() => sprints.id, {
+      onDelete: "set null",
+    }),
+    carriedFromSprintName: text("carried_from_sprint_name"),
+  },
+  (t) => [
+    // An issue can sit in many sprints over time (that's carryover), just not
+    // the same sprint twice.
+    uniqueIndex("sprint_items_sprint_issue_idx").on(t.sprintId, t.issueId),
+    index("sprint_items_sprint_idx").on(t.sprintId),
+    index("sprint_items_issue_idx").on(t.issueId),
+  ]
+);
+
+export type Sprint = typeof sprints.$inferSelect;
+export type NewSprint = typeof sprints.$inferInsert;
+export type SprintItem = typeof sprintItems.$inferSelect;
+export type NewSprintItem = typeof sprintItems.$inferInsert;
