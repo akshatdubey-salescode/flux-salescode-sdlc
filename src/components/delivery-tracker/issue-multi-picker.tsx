@@ -45,7 +45,8 @@ export function IssueMultiPicker({
   submitting,
   scopeComment,
 }: {
-  projectId: string;
+  /** Scope the search to one project; null/undefined searches across ALL projects (e.g. Team Pulse board sprints). */
+  projectId: string | null | undefined;
   value: IssueResult[];
   onChange: (issues: IssueResult[]) => void;
   /** Issues already in the delivery — shown as "Already added" and not selectable. */
@@ -73,7 +74,8 @@ export function IssueMultiPicker({
     setLoading(true);
     const timeout = setTimeout(async () => {
       try {
-        const params = new URLSearchParams({ projects: projectId, q: query, pageSize: "50" });
+        const params = new URLSearchParams({ q: query, pageSize: "50" });
+        if (projectId) params.set("projects", projectId);
         // dateFrom/dateTo filter on the issue's Jira creation date server-side.
         if (createdFrom) params.set("dateFrom", createdFrom);
         if (createdTo) params.set("dateTo", createdTo);

@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { and, eq, isNull, isNotNull, sql } from "drizzle-orm";
 import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
-import { sprints, sprintItems } from "@/lib/db/schema";
+import { sprints, sprintItems, sprintWorkstreams } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { canManageDeliveries } from "@/lib/auth/types";
 import { authOptions } from "@/lib/auth/nextauth-options";
@@ -80,6 +80,26 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (body.goal !== undefined) {
     updates.goal = parseOptionalText(body.goal) ?? null;
   }
+  // Move into / out of a workstream. null clears; a target workstream must
+  // belong to the sprint's own project.
+  if (body.workstreamId !== undefined) {
+    if (body.workstreamId === null) {
+      updates.workstreamId = null;
+    } else {
+      if (!isValidUuid(body.workstreamId)) {
+        return NextResponse.json({ error: "workstreamId must be a valid UUID or null" }, { status: 400 });
+      }
+      const [ws] = await db
+        .select({ id: sprintWorkstreams.id, projectId: sprintWorkstreams.projectId })
+        .from(sprintWorkstreams)
+        .where(eq(sprintWorkstreams.id, body.workstreamId))
+        .limit(1);
+      if (!ws || ws.projectId !== existing.projectId) {
+        return NextResponse.json({ error: "workstreamId must reference a workstream of the same project" }, { status: 400 });
+      }
+      updates.workstreamId = ws.id;
+    }
+  }
   if (body.startDate !== undefined) {
     if (!isValidDateString(body.startDate)) {
       return NextResponse.json({ error: "startDate must be a valid YYYY-MM-DD date" }, { status: 400 });
@@ -109,13 +129,17 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if (existing.completedAt) {
       return NextResponse.json({ error: "Sprint is already completed" }, { status: 400 });
     }
-    // One active sprint per project (Jira's default, no parallel sprints).
+    // One active sprint per owner — per project (Jira's default, no parallel
+    // sprints) or per Team Pulse board for board-owned sprints.
+    const ownerCondition = existing.projectId
+      ? eq(sprints.projectId, existing.projectId)
+      : eq(sprints.boardId, existing.boardId!);
     const [otherActive] = await db
       .select({ id: sprints.id, name: sprints.name })
       .from(sprints)
       .where(
         and(
-          eq(sprints.projectId, existing.projectId),
+          ownerCondition,
           isNotNull(sprints.startedAt),
           isNull(sprints.completedAt),
           isNull(sprints.deletedAt)
@@ -155,8 +179,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         if (target.completedAt) {
           return NextResponse.json({ error: "Cannot carry work into a completed sprint" }, { status: 400 });
         }
-        if (target.projectId !== existing.projectId) {
-          return NextResponse.json({ error: "Target sprint belongs to a different project" }, { status: 400 });
+        if (target.projectId !== existing.projectId || target.boardId !== existing.boardId) {
+          return NextResponse.json(
+            { error: "Target sprint belongs to a different project or board" },
+            { status: 400 }
+          );
         }
         // Copy unfinished, non-removed items into the target with provenance;
         // rows here stay as the closed sprint's spillover record. Items the
@@ -206,7 +233,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
 
   revalidateTag("sprints", "max");
-  revalidateTag(`project:${existing.projectId}`, "max");
+  if (existing.projectId) revalidateTag(`project:${existing.projectId}`, "max");
+  if (existing.boardId) revalidateTag(`board:${existing.boardId}`, "max");
 
   const sprint = await fetchSprintById(id);
   if (!sprint) {
@@ -233,13 +261,14 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     .update(sprints)
     .set({ deletedAt: new Date(), deletedBy: user.id, deletedByName, updatedAt: new Date() })
     .where(and(eq(sprints.id, id), isNull(sprints.deletedAt)))
-    .returning({ id: sprints.id, projectId: sprints.projectId });
+    .returning({ id: sprints.id, projectId: sprints.projectId, boardId: sprints.boardId });
   if (!deleted) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   revalidateTag("sprints", "max");
-  revalidateTag(`project:${deleted.projectId}`, "max");
+  if (deleted.projectId) revalidateTag(`project:${deleted.projectId}`, "max");
+  if (deleted.boardId) revalidateTag(`board:${deleted.boardId}`, "max");
 
   return NextResponse.json({ ok: true });
 }

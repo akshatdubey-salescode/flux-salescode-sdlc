@@ -85,7 +85,12 @@ export type SprintRollup = {
 
 export type SprintWithItems = {
   id: string;
-  projectId: string;
+  /** Owner: exactly one of projectId (project sprint) / boardId (Team Pulse board sprint). */
+  projectId: string | null;
+  boardId: string | null;
+  /** Optional workstream ("project inside a project") — project sprints only. */
+  workstreamId: string | null;
+  workstreamName: string | null;
   name: string;
   goal: string | null;
   startDate: string;
@@ -122,7 +127,10 @@ function emptyRollup(): SprintRollup {
 
 type SprintHeaderRow = {
   id: string;
-  project_id: string;
+  project_id: string | null;
+  board_id: string | null;
+  workstream_id: string | null;
+  workstream_name: string | null;
   name: string;
   goal: string | null;
   start_date: string;
@@ -158,10 +166,6 @@ type SprintItemJoinRow = {
   end_date_field_ids: string[] | null;
   actual_start_field_ids: string[] | null;
   actual_end_field_ids: string[] | null;
-  dev_started_at: string | null;
-  dev_completed_at: string | null;
-  jira_created_at: string | null;
-  completed_at: string | null;
   committed: boolean;
   added_comment: string | null;
   carried_from_sprint_id: string | null;
@@ -198,19 +202,13 @@ function mapItemRow(r: SprintItemJoinRow): SprintItemRow {
     addedAt: r.added_at,
     startDate: extractStartDate(cf, r.start_date_field_ids),
     dueDate: extractDueDate(cf, r.end_date_field_ids),
-    // Same 3-level preference order as the delivery items table: the
-    // actual-start/end custom field, then the changelog-derived dev window,
-    // then the issue's own raw created/completed timestamps.
-    actualStart: toIso(
-      extractActualStart(cf, r.actual_start_field_ids) ??
-        (r.dev_started_at ? new Date(r.dev_started_at) : null) ??
-        (r.jira_created_at ? new Date(r.jira_created_at) : null)
-    ),
-    actualEnd: toIso(
-      extractActualEnd(cf, r.actual_end_field_ids) ??
-        (r.dev_completed_at ? new Date(r.dev_completed_at) : null) ??
-        (r.completed_at ? new Date(r.completed_at) : null)
-    ),
+    // Actual Start/End come ONLY from the project's configured Jira
+    // custom fields (jira_projects.actual_start/end_field_ids) — no
+    // changelog/dev-window or created/completed fallbacks, so the column
+    // shows exactly what's recorded in Jira and stays blank otherwise.
+    // (The delivery items table keeps its own fallback chain.)
+    actualStart: toIso(extractActualStart(cf, r.actual_start_field_ids)),
+    actualEnd: toIso(extractActualEnd(cf, r.actual_end_field_ids)),
     committed: r.committed,
     addedComment: r.added_comment,
     carriedFromSprintId: r.carried_from_sprint_id,
@@ -236,7 +234,7 @@ async function fetchItemsForSprints(
         si.removed_at, si.removed_by_name, si.removed_comment,
         ji.jira_key, ji.summary, ji.status AS jira_status, ji.status_category,
         ji.issue_type, ji.priority, ji.assignee_email, ji.assignee_name,
-        ji.custom_fields, ji.dev_started_at, ji.dev_completed_at, ji.jira_created_at, ji.completed_at,
+        ji.custom_fields,
         jp.jira_base_url AS jira_base_url,
         jp.start_date_field_ids, jp.end_date_field_ids,
         jp.actual_start_field_ids, jp.actual_end_field_ids
@@ -281,6 +279,9 @@ function headerToSprint(
   return {
     id: h.id,
     projectId: h.project_id,
+    boardId: h.board_id,
+    workstreamId: h.workstream_id,
+    workstreamName: h.workstream_name,
     name: h.name,
     goal: h.goal,
     startDate: h.start_date,
@@ -300,9 +301,10 @@ function headerToSprint(
 }
 
 const SPRINT_HEADER_COLUMNS = sql`
-  id, project_id, name, goal, start_date, end_date,
+  id, project_id, board_id, workstream_id, name, goal, start_date, end_date,
   created_by, created_by_name, created_at, updated_at,
-  started_at, started_by_name, completed_at, completed_by_name
+  started_at, started_by_name, completed_at, completed_by_name,
+  (SELECT w.name FROM sprint_workstreams w WHERE w.id = sprints.workstream_id) AS workstream_name
 `;
 
 /** Every active sprint for a project with items + rollup, newest start first (current sprint on top). Completed sprints are included — the client default-hides them behind a toggle, matching the deliveries tab. */
@@ -323,6 +325,37 @@ export async function fetchProjectSprints(projectId: string): Promise<SprintWith
   });
 }
 
+/** Every active sprint owned by a Team Pulse board, items + rollup — the board-sprint mirror of fetchProjectSprints. */
+export async function fetchBoardSprints(boardId: string): Promise<SprintWithItems[]> {
+  const headers = (
+    await db.execute(sql`
+      SELECT ${SPRINT_HEADER_COLUMNS}
+      FROM sprints
+      WHERE board_id = ${boardId} AND deleted_at IS NULL
+      ORDER BY start_date DESC, created_at DESC
+    `)
+  ).rows as unknown as SprintHeaderRow[];
+
+  const itemsBySprint = await fetchItemsForSprints(headers.map((h) => h.id));
+  return headers.map((h) => {
+    const entry = itemsBySprint.get(h.id) ?? { items: [], removed: [] };
+    return headerToSprint(h, entry.items, entry.removed);
+  });
+}
+
+/** Open board sprints as spillover targets — the board mirror of fetchProjectSprintOptions. */
+export async function fetchBoardSprintOptions(boardId: string): Promise<SprintOption[]> {
+  const rows = (
+    await db.execute(sql`
+      SELECT id, name, start_date, end_date
+      FROM sprints
+      WHERE board_id = ${boardId} AND deleted_at IS NULL AND completed_at IS NULL
+      ORDER BY start_date ASC
+    `)
+  ).rows as unknown as { id: string; name: string; start_date: string; end_date: string }[];
+  return rows.map((r) => ({ id: r.id, name: r.name, startDate: r.start_date, endDate: r.end_date }));
+}
+
 /** Light {id, name, dates} list of OPEN sprints — backs the spillover target picker in the close flow. Excludes completed sprints: work carries forward into an open iteration, never a closed one. */
 export async function fetchProjectSprintOptions(projectId: string): Promise<SprintOption[]> {
   const rows = (
@@ -334,6 +367,92 @@ export async function fetchProjectSprintOptions(projectId: string): Promise<Spri
     `)
   ).rows as unknown as { id: string; name: string; start_date: string; end_date: string }[];
   return rows.map((r) => ({ id: r.id, name: r.name, startDate: r.start_date, endDate: r.end_date }));
+}
+
+export type SprintWorkstream = {
+  id: string;
+  projectId: string;
+  name: string;
+  description: string | null;
+  createdByName: string | null;
+  createdAt: string;
+  /** Non-deleted sprints currently in the workstream. */
+  sprintCount: number;
+};
+
+type WorkstreamRow = {
+  id: string;
+  project_id: string;
+  name: string;
+  description: string | null;
+  created_by_name: string | null;
+  created_at: string;
+  sprint_count: number;
+};
+
+function mapWorkstream(r: WorkstreamRow): SprintWorkstream {
+  return {
+    id: r.id,
+    projectId: r.project_id,
+    name: r.name,
+    description: r.description,
+    createdByName: r.created_by_name,
+    createdAt: r.created_at,
+    sprintCount: r.sprint_count,
+  };
+}
+
+/** All workstreams of a project with live sprint counts, oldest first (stable section order). */
+export async function fetchProjectWorkstreams(projectId: string): Promise<SprintWorkstream[]> {
+  const rows = (
+    await db.execute(sql`
+      SELECT
+        w.id, w.project_id, w.name, w.description, w.created_by_name, w.created_at,
+        COUNT(s.id) FILTER (WHERE s.deleted_at IS NULL)::int AS sprint_count
+      FROM sprint_workstreams w
+      LEFT JOIN sprints s ON s.workstream_id = w.id
+      WHERE w.project_id = ${projectId}
+      GROUP BY w.id
+      ORDER BY w.created_at ASC
+    `)
+  ).rows as unknown as WorkstreamRow[];
+  return rows.map(mapWorkstream);
+}
+
+/** One workstream plus its sprints (full items + rollups) — backs the /workstreams/[id] page. */
+export async function fetchWorkstreamById(
+  workstreamId: string
+): Promise<{ workstream: SprintWorkstream; sprints: SprintWithItems[] } | null> {
+  const rows = (
+    await db.execute(sql`
+      SELECT
+        w.id, w.project_id, w.name, w.description, w.created_by_name, w.created_at,
+        COUNT(s.id) FILTER (WHERE s.deleted_at IS NULL)::int AS sprint_count
+      FROM sprint_workstreams w
+      LEFT JOIN sprints s ON s.workstream_id = w.id
+      WHERE w.id = ${workstreamId}
+      GROUP BY w.id
+      LIMIT 1
+    `)
+  ).rows as unknown as WorkstreamRow[];
+  const row = rows[0];
+  if (!row) return null;
+
+  const headers = (
+    await db.execute(sql`
+      SELECT ${SPRINT_HEADER_COLUMNS}
+      FROM sprints
+      WHERE workstream_id = ${workstreamId} AND deleted_at IS NULL
+      ORDER BY start_date DESC, created_at DESC
+    `)
+  ).rows as unknown as SprintHeaderRow[];
+
+  const itemsBySprint = await fetchItemsForSprints(headers.map((h) => h.id));
+  const sprints = headers.map((h) => {
+    const entry = itemsBySprint.get(h.id) ?? { items: [], removed: [] };
+    return headerToSprint(h, entry.items, entry.removed);
+  });
+  return { workstream: mapWorkstream(row), sprints };
 }
 
 /** One sprint, fully joined — returned fresh after every mutation. */

@@ -1850,13 +1850,44 @@ export type NewDeliveryStatusHistoryRow = typeof deliveryStatusHistory.$inferIns
 // no deliveries query can ever accidentally leak a sprint into a client view.
 // ---------------------------------------------------------------------------
 
-export const sprints = pgTable(
-  "sprints",
+// A workstream clubs related sprints inside one project — "a project inside a
+// project" (e.g. the "Wholesaler App" initiative holding its Demo 1/2/3
+// sprints). Sprints reference it optionally; deleting a workstream releases
+// its sprints (SET NULL) rather than deleting them.
+export const sprintWorkstreams = pgTable(
+  "sprint_workstreams",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     projectId: uuid("project_id")
       .notNull()
       .references(() => jiraProjects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdByName: text("created_by_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("sprint_workstreams_project_idx").on(t.projectId)]
+);
+
+export const sprints = pgTable(
+  "sprints",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // A sprint is owned by EITHER a Jira project OR a Team Pulse board
+    // (exactly one — the API enforces it; the schema can't). Board sprints
+    // may pull issues from ANY project, so their items carry per-issue
+    // project context.
+    projectId: uuid("project_id").references(() => jiraProjects.id, { onDelete: "cascade" }),
+    boardId: uuid("board_id").references(() => observerBoards.id, { onDelete: "cascade" }),
+    // Optional grouping into a workstream (project sprints only; must belong
+    // to the same project — the API validates).
+    workstreamId: uuid("workstream_id").references(() => sprintWorkstreams.id, {
+      onDelete: "set null",
+    }),
     name: text("name").notNull(),
     // Optional sprint goal — the one-line "why this iteration exists".
     goal: text("goal"),
@@ -1894,6 +1925,8 @@ export const sprints = pgTable(
     index("sprints_dates_idx").on(t.startDate, t.endDate),
     index("sprints_active_idx").on(t.deletedAt),
     index("sprints_completed_idx").on(t.completedAt),
+    index("sprints_workstream_idx").on(t.workstreamId),
+    index("sprints_board_idx").on(t.boardId),
   ]
 );
 

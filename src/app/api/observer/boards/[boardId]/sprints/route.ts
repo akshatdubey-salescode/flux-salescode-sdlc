@@ -1,49 +1,53 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
-import { sprints, sprintItems, jiraProjects, sprintWorkstreams } from "@/lib/db/schema";
+import { sprints, sprintItems, observerBoards } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { canManageDeliveries } from "@/lib/auth/types";
 import { authOptions } from "@/lib/auth/nextauth-options";
 import { isValidUuid, isValidDateString, parseOptionalText } from "@/lib/validation";
 import {
-  fetchProjectSprints,
-  fetchProjectSprintOptions,
+  fetchBoardSprints,
+  fetchBoardSprintOptions,
   fetchSprintById,
   type SprintWithItems,
   type SprintOption,
 } from "@/lib/sprints/entries";
 
-type Params = { params: Promise<{ id: string }> };
+type Params = { params: Promise<{ boardId: string }> };
 
-export type ProjectSprintsResponse = { sprints: SprintWithItems[] };
-export type ProjectSprintOptionsResponse = { sprints: SprintOption[] };
+export type BoardSprintsResponse = { sprints: SprintWithItems[] };
+export type BoardSprintOptionsResponse = { sprints: SprintOption[] };
 
-/** List active sprints for a project. `?summary=1` returns the light {id,name,dates}[] shape for the carryover picker. */
+/**
+ * Team Pulse board sprints — same engine as project sprints, but owned by a
+ * board, and free to pull issues from ANY project. `?summary=1` returns the
+ * light {id,name,dates}[] shape for the carryover picker.
+ */
 export async function GET(req: NextRequest, { params }: Params) {
   await requireAuth();
-  const { id } = await params;
-  if (!isValidUuid(id)) {
-    return NextResponse.json({ error: "id must be a valid UUID" }, { status: 400 });
+  const { boardId } = await params;
+  if (!isValidUuid(boardId)) {
+    return NextResponse.json({ error: "boardId must be a valid UUID" }, { status: 400 });
   }
 
   if (req.nextUrl.searchParams.get("summary") === "1") {
-    const options = await fetchProjectSprintOptions(id);
-    return NextResponse.json({ sprints: options } satisfies ProjectSprintOptionsResponse);
+    const options = await fetchBoardSprintOptions(boardId);
+    return NextResponse.json({ sprints: options } satisfies BoardSprintOptionsResponse);
   }
 
-  const list = await fetchProjectSprints(id);
-  return NextResponse.json({ sprints: list } satisfies ProjectSprintsResponse);
+  const list = await fetchBoardSprints(boardId);
+  return NextResponse.json({ sprints: list } satisfies BoardSprintsResponse);
 }
 
-/** Create a sprint. Sprint management shares the delivery-manager gate — same people plan both trackers. */
+/** Create a board sprint. Same manager gate as project sprint planning. */
 export async function POST(req: NextRequest, { params }: Params) {
   const user = await requireAuth();
-  const { id: projectId } = await params;
-  if (!isValidUuid(projectId)) {
-    return NextResponse.json({ error: "id must be a valid UUID" }, { status: 400 });
+  const { boardId } = await params;
+  if (!isValidUuid(boardId)) {
+    return NextResponse.json({ error: "boardId must be a valid UUID" }, { status: 400 });
   }
   if (!canManageDeliveries(user)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -71,33 +75,13 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "endDate must not be before startDate" }, { status: 400 });
   }
 
-  const [project] = await db
-    .select({ id: jiraProjects.id })
-    .from(jiraProjects)
-    .where(and(eq(jiraProjects.id, projectId), eq(jiraProjects.isActive, true)))
+  const [board] = await db
+    .select({ id: observerBoards.id })
+    .from(observerBoards)
+    .where(eq(observerBoards.id, boardId))
     .limit(1);
-  if (!project) {
-    return NextResponse.json({ error: "Project not found" }, { status: 404 });
-  }
-
-  // Optional: create the sprint directly inside a workstream of this project.
-  let workstreamId: string | null = null;
-  if (body.workstreamId !== undefined && body.workstreamId !== null) {
-    if (typeof body.workstreamId !== "string" || !isValidUuid(body.workstreamId)) {
-      return NextResponse.json({ error: "workstreamId must be a valid UUID or null" }, { status: 400 });
-    }
-    const [ws] = await db
-      .select({ id: sprintWorkstreams.id, projectId: sprintWorkstreams.projectId })
-      .from(sprintWorkstreams)
-      .where(eq(sprintWorkstreams.id, body.workstreamId))
-      .limit(1);
-    if (!ws || ws.projectId !== projectId) {
-      return NextResponse.json(
-        { error: "workstreamId must reference a workstream of this project" },
-        { status: 400 }
-      );
-    }
-    workstreamId = ws.id;
+  if (!board) {
+    return NextResponse.json({ error: "Board not found" }, { status: 404 });
   }
 
   const session = await getServerSession(authOptions);
@@ -105,7 +89,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const [created] = await db
     .insert(sprints)
-    .values({ projectId, workstreamId, name, goal, startDate, endDate, createdBy: user.id, createdByName })
+    .values({ boardId, projectId: null, name, goal, startDate, endDate, createdBy: user.id, createdByName })
     .returning({ id: sprints.id });
 
   const initialIssueIds = Array.isArray(body.initialIssueIds) ? body.initialIssueIds : [];
@@ -117,7 +101,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
 
   revalidateTag("sprints", "max");
-  revalidateTag(`project:${projectId}`, "max");
+  revalidateTag(`board:${boardId}`, "max");
 
   const sprint = await fetchSprintById(created.id);
   if (!sprint) {

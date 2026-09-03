@@ -13,6 +13,7 @@ import {
 } from "@remixicon/react";
 import { TeamTimelineClient, type AddTarget } from "@/components/observer/team-timeline-client";
 import { BugTracker } from "@/components/bug-summary";
+import { SprintTrackerTab } from "@/components/sprint-tracker/sprint-tracker-tab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
@@ -60,14 +61,17 @@ type Props = {
   /** The board the viewer manages, if different from this one — lets them pull
    *  members shown here onto their own board ("Track on my board"). */
   addTarget?: AddTarget | null;
+  /** Sprint planning shares the delivery-manager gate — same people plan both trackers. */
+  canManageSprints: boolean;
 };
 
-export function BoardDetailClient({ board, initialMembers, isOwner, addTarget }: Props) {
+export function BoardDetailClient({ board, initialMembers, isOwner, addTarget, canManageSprints }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Persist the active view (Timeline / Bugs) in the URL so it survives reloads
   // and is shareable.
-  const boardTab = searchParams.get("tab") === "bugs" ? "bugs" : "timeline";
+  const tabParam = searchParams.get("tab");
+  const boardTab = tabParam === "bugs" || tabParam === "sprints" ? tabParam : "timeline";
   function handleTabChange(value: string) {
     const params = new URLSearchParams(searchParams.toString());
     if (value === "timeline") params.delete("tab");
@@ -240,6 +244,7 @@ export function BoardDetailClient({ board, initialMembers, isOwner, addTarget }:
             <TabsList>
               <TabsTrigger value="timeline">Timeline</TabsTrigger>
               <TabsTrigger value="bugs">Bugs</TabsTrigger>
+              <TabsTrigger value="sprints">Sprints</TabsTrigger>
             </TabsList>
             <TabsContent value="timeline" className="outline-none">
               <TeamTimelineClient
@@ -259,6 +264,10 @@ export function BoardDetailClient({ board, initialMembers, isOwner, addTarget }:
                 exportTitle={board.name}
                 showProject
               />
+            </TabsContent>
+            <TabsContent value="sprints" className="outline-none">
+              {/* Board sprints: same engine as project sprints, but issues can come from ANY project. */}
+              <SprintTrackerTab boardId={board.id} canManage={canManageSprints} />
             </TabsContent>
           </Tabs>
         )}

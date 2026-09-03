@@ -4,6 +4,7 @@ import { eq, desc, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
+import { canManageDeliveries } from "@/lib/auth/types";
 import { PageHeader } from "@/components/page-header";
 import {
   Breadcrumb,
@@ -120,6 +121,7 @@ export default async function BoardDetailPage({ params, searchParams }: Props) {
           initialMembers={members}
           isOwner={board.createdBy === user.id || board.managerEmail?.toLowerCase() === user.email.toLowerCase()}
           addTarget={addTarget}
+          canManageSprints={canManageDeliveries(user)}
         />
       </main>
     </div>

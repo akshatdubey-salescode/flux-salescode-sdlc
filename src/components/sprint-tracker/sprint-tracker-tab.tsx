@@ -17,6 +17,9 @@ import {
   RiCheckLine,
   RiFullscreenLine,
   RiLinkM,
+  RiArrowDownSLine,
+  RiArrowRightSLine,
+  RiStackLine,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +36,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -49,7 +53,12 @@ import { localDateStr } from "@/lib/date-utils";
 import { classifyIssue } from "@/lib/jira/estimate";
 import { statusCategoryStyles, priorityStyles, issueTypeStyles } from "@/components/project-tracking/helpers";
 import { IssueMultiPicker, type IssueResult } from "@/components/delivery-tracker/issue-multi-picker";
-import type { SprintWithItems, SprintItemRow } from "@/lib/sprints/entries";
+import type {
+  SprintWithItems,
+  SprintItemRow,
+  SprintItemProgress,
+  SprintWorkstream,
+} from "@/lib/sprints/entries";
 import { CreateSprintForm } from "./create-sprint-form";
 import { SprintGuide } from "./sprint-guide";
 import { ItemCommentsModal } from "./item-comments-modal";
@@ -161,10 +170,25 @@ function sprintLink(sprintId: string): string {
   return `${window.location.origin}/sprints/${sprintId}`;
 }
 
-export function SprintTrackerTab({ projectId, canManage }: { projectId: string; canManage: boolean }) {
+/** The shareable deep link to a workstream's page — all its sprints in one view. */
+function workstreamLink(workstreamId: string): string {
+  return `${window.location.origin}/workstreams/${workstreamId}`;
+}
+
+export function SprintTrackerTab({
+  projectId,
+  boardId,
+  canManage,
+}: {
+  /** Owner — exactly one of projectId (project sprints) / boardId (Team Pulse board sprints, cross-project issues). */
+  projectId?: string | null;
+  boardId?: string | null;
+  canManage: boolean;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [sprints, setSprints] = useState<SprintWithItems[] | null>(null);
+  const [workstreams, setWorkstreams] = useState<SprintWorkstream[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showCompleted, setShowCompleted] = useState(false);
@@ -176,18 +200,31 @@ export function SprintTrackerTab({ projectId, canManage }: { projectId: string; 
     if (legacyFocusId) router.replace(`/sprints/${legacyFocusId}`);
   }, [legacyFocusId, router]);
 
+  const listUrl = projectId
+    ? `/api/projects/${projectId}/sprints`
+    : `/api/observer/boards/${boardId}/sprints`;
+
   const load = useCallback(() => {
     // no-store for the same reason the deliveries tab uses it: this list is
     // re-fetched right after mutations, and a browser-cached response would
     // silently undo the reload.
-    fetch(`/api/projects/${projectId}/sprints`, { cache: "no-store" })
+    fetch(listUrl, { cache: "no-store" })
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
       .then((d: SprintsResponse) => setSprints(d.sprints))
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load"));
-  }, [projectId]);
+    // Workstreams are a project-sprint concept; board sprints skip the fetch
+    // and the state stays []. Loaded independently — a failure here degrades
+    // to the flat list rather than blocking the sprints themselves.
+    if (projectId) {
+      fetch(`/api/projects/${projectId}/workstreams`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : { workstreams: [] }))
+        .then((d: { workstreams: SprintWorkstream[] }) => setWorkstreams(d.workstreams ?? []))
+        .catch(() => setWorkstreams([]));
+    }
+  }, [listUrl, projectId]);
 
   useEffect(() => {
     load();
@@ -249,9 +286,22 @@ export function SprintTrackerTab({ projectId, canManage }: { projectId: string; 
         )}
         <div className="flex-1" />
         <SprintGuide />
+        {canManage && projectId && (
+          <WorkstreamDialog
+            projectId={projectId}
+            trigger={
+              <Button variant="outline" size="sm">
+                <RiStackLine className="size-3.5" /> New workstream
+              </Button>
+            }
+            onSaved={load}
+          />
+        )}
         {canManage && (
           <CreateSprintForm
             projectId={projectId}
+            boardId={boardId}
+            workstreams={workstreams.map((w) => ({ id: w.id, name: w.name }))}
             trigger={
               <Button size="sm">
                 <RiAddLine className="size-3.5" /> New sprint
@@ -280,20 +330,401 @@ export function SprintTrackerTab({ projectId, canManage }: { projectId: string; 
           )}
         </div>
       ) : (
-        visibleSprints.map((sprint) => (
-          <SprintCard
-            key={sprint.id}
-            sprint={sprint}
-            canManage={canManage}
-            onChanged={load}
-            onZoom={() => router.push(`/sprints/${sprint.id}`)}
-            spilloverTargets={(sprints ?? [])
-              .filter((s) => s.id !== sprint.id && !s.completedAt)
-              .map((s) => ({ id: s.id, name: s.name, startDate: s.startDate, endDate: s.endDate }))}
-          />
-        ))
+        <GroupedSprintList
+          sprints={visibleSprints}
+          allSprints={sprints}
+          workstreams={workstreams}
+          canManage={canManage}
+          searching={search.trim() !== ""}
+          onChanged={load}
+          onZoom={(id) => router.push(`/sprints/${id}`)}
+        />
       )}
     </div>
+  );
+}
+
+/**
+ * Sprints grouped by workstream: one collapsible section per workstream (with
+ * its own rollup + share link), then the ungrouped rest. Projects with no
+ * workstreams render the same flat list as before.
+ */
+function GroupedSprintList({
+  sprints: visibleSprints,
+  allSprints,
+  workstreams,
+  canManage,
+  searching,
+  onChanged,
+  onZoom,
+}: {
+  sprints: SprintWithItems[];
+  allSprints: SprintWithItems[];
+  workstreams: SprintWorkstream[];
+  canManage: boolean;
+  searching: boolean;
+  onChanged: () => void;
+  onZoom: (sprintId: string) => void;
+}) {
+  const workstreamOptions = useMemo(
+    () => workstreams.map((w) => ({ id: w.id, name: w.name })),
+    [workstreams]
+  );
+
+  const renderCard = useCallback(
+    (sprint: SprintWithItems, defaultCollapsed = false) => (
+      <SprintCard
+        key={sprint.id}
+        sprint={sprint}
+        canManage={canManage}
+        onChanged={onChanged}
+        onZoom={() => onZoom(sprint.id)}
+        workstreams={workstreamOptions}
+        defaultCollapsed={defaultCollapsed}
+        spilloverTargets={allSprints
+          .filter((s) => s.id !== sprint.id && !s.completedAt)
+          .map((s) => ({ id: s.id, name: s.name, startDate: s.startDate, endDate: s.endDate }))}
+      />
+    ),
+    [allSprints, canManage, onChanged, onZoom, workstreamOptions]
+  );
+
+  if (workstreams.length === 0) {
+    return <>{visibleSprints.map((s) => renderCard(s))}</>;
+  }
+
+  const byWorkstream = new Map<string, SprintWithItems[]>();
+  const ungrouped: SprintWithItems[] = [];
+  for (const s of visibleSprints) {
+    if (s.workstreamId) {
+      const list = byWorkstream.get(s.workstreamId) ?? [];
+      list.push(s);
+      byWorkstream.set(s.workstreamId, list);
+    } else {
+      ungrouped.push(s);
+    }
+  }
+
+  return (
+    <>
+      {workstreams.map((ws) => {
+        const wsSprints = byWorkstream.get(ws.id) ?? [];
+        // While searching, hide workstreams with no matching sprints; idle,
+        // show even empty ones so they're visible, renameable, deletable.
+        if (searching && wsSprints.length === 0) return null;
+        return (
+          <WorkstreamSection
+            key={ws.id}
+            workstream={ws}
+            sprints={wsSprints}
+            canManage={canManage}
+            onChanged={onChanged}
+            renderCard={renderCard}
+          />
+        );
+      })}
+      {ungrouped.length > 0 && (
+        <div className="space-y-4">
+          {byWorkstream.size > 0 || workstreams.length > 0 ? (
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Not in a workstream
+            </p>
+          ) : null}
+          {ungrouped.map((s) => renderCard(s))}
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * True when this sprint is the one running "now": explicitly started, or —
+ * while still planned — today falls inside its date box. Drives which sprint
+ * inside a workstream renders expanded.
+ */
+function isCurrentSprint(s: SprintWithItems, today: string): boolean {
+  if (s.completedAt) return false;
+  if (s.startedAt) return true;
+  return s.startDate <= today && today <= s.endDate;
+}
+
+/** Collapsible section for one workstream: header rollup across its sprints, share link, report, rename/delete. */
+function WorkstreamSection({
+  workstream,
+  sprints,
+  canManage,
+  onChanged,
+  renderCard,
+}: {
+  workstream: SprintWorkstream;
+  sprints: SprintWithItems[];
+  canManage: boolean;
+  onChanged: () => void;
+  renderCard: (sprint: SprintWithItems, defaultCollapsed?: boolean) => React.ReactNode;
+}) {
+  const [open, setOpen] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+
+  // Cross-sprint rollup — the "initiative view" this grouping exists for.
+  const agg = useMemo(() => {
+    const out = {
+      committed: 0,
+      committedDone: 0,
+      done: 0,
+      total: 0,
+      addedAfterStart: 0,
+      active: 0,
+      planned: 0,
+      completed: 0,
+      minStart: null as string | null,
+      maxEnd: null as string | null,
+    };
+    for (const s of sprints) {
+      out.committed += s.rollup.committed;
+      out.committedDone += s.rollup.committedDone;
+      out.done += s.rollup.done;
+      out.total += s.rollup.total;
+      out.addedAfterStart += s.rollup.addedAfterStart;
+      if (s.completedAt) out.completed += 1;
+      else if (s.startedAt) out.active += 1;
+      else out.planned += 1;
+      if (!out.minStart || s.startDate < out.minStart) out.minStart = s.startDate;
+      if (!out.maxEnd || s.endDate > out.maxEnd) out.maxEnd = s.endDate;
+    }
+    return out;
+  }, [sprints]);
+
+  async function handleExport() {
+    if (sprints.length === 0) return;
+    setExporting(true);
+    try {
+      const res = await fetch("/api/sprints/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sprints }),
+      });
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const safeName = workstream.name.replace(/[^\w-]+/g, "_");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${safeName}-workstream-report.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Export failed — try again");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleDelete() {
+    const res = await fetch(`/api/workstreams/${workstream.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      toast.error(body.error ?? "Failed to delete workstream");
+      return;
+    }
+    toast.success(`Workstream deleted — its sprints are back in the main list`);
+    onChanged();
+  }
+
+  const pct = agg.committed > 0 ? Math.round((agg.committedDone / agg.committed) * 100) : 0;
+
+  return (
+    <div className="rounded-lg border border-border bg-muted/10">
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex min-w-0 items-center gap-2 text-left"
+          title={open ? "Collapse workstream" : "Expand workstream"}
+        >
+          {open ? (
+            <RiArrowDownSLine className="size-4 shrink-0 text-muted-foreground" />
+          ) : (
+            <RiArrowRightSLine className="size-4 shrink-0 text-muted-foreground" />
+          )}
+          <RiStackLine className="size-4 shrink-0 text-muted-foreground" />
+          <span className="truncate text-sm font-medium">{workstream.name}</span>
+        </button>
+        <span className="text-[11px] text-muted-foreground">
+          {sprints.length === 0 ? (
+            "No sprints yet — move sprints in via the card's workstream picker"
+          ) : (
+            <>
+              {agg.minStart} → {agg.maxEnd} · {sprints.length} sprint{sprints.length === 1 ? "" : "s"}
+              {agg.active > 0 && ` (${agg.active} active)`}
+              {agg.committed > 0 && (
+                <>
+                  {" "}
+                  · committed {agg.committed} · done {agg.committedDone} ({pct}%)
+                </>
+              )}
+              {agg.addedAfterStart > 0 && ` · ${agg.addedAfterStart} added after start`}
+            </>
+          )}
+        </span>
+        <div className="flex-1" />
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          title="Copy shareable link to this workstream"
+          onClick={() => {
+            navigator.clipboard.writeText(workstreamLink(workstream.id));
+            toast.success("Workstream link copied — anyone with project access can open it");
+          }}
+        >
+          <RiLinkM className="size-3.5" />
+        </Button>
+        {sprints.length > 0 && (
+          <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={handleExport} disabled={exporting}>
+            <RiDownload2Line className="size-3.5" />
+            {exporting ? "Exporting…" : "Report"}
+          </Button>
+        )}
+        {canManage && (
+          <>
+            <WorkstreamDialog
+              projectId={workstream.projectId}
+              workstream={workstream}
+              trigger={
+                <Button variant="ghost" size="icon-sm" title="Rename workstream">
+                  <RiPencilLine className="size-3.5" />
+                </Button>
+              }
+              onSaved={onChanged}
+            />
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title="Delete workstream (its sprints are kept)"
+              onClick={() => setConfirmDeleteOpen(true)}
+            >
+              <RiDeleteBinLine className="size-3.5" />
+            </Button>
+            <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete workstream “{workstream.name}”?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Only the grouping is deleted — its {sprints.length} sprint{sprints.length === 1 ? "" : "s"} (and
+                    their items and reports) stay, back in the main list.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDelete}>Delete workstream</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </>
+        )}
+      </div>
+      {workstream.description && open && (
+        <p className="px-9 pb-2 text-[11px] text-muted-foreground">{workstream.description}</p>
+      )}
+      {open && sprints.length > 0 && (
+        <div className="space-y-4 border-t border-border p-3">
+          {/* Only the sprint running today opens expanded; the rest start collapsed. */}
+          {(() => {
+            const today = localDateStr(new Date());
+            return sprints.map((s) => renderCard(s, !isCurrentSprint(s, today)));
+          })()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Create (no `workstream`) or rename/edit (with it) a workstream. */
+function WorkstreamDialog({
+  projectId,
+  workstream,
+  trigger,
+  onSaved,
+}: {
+  projectId: string;
+  workstream?: SprintWorkstream;
+  trigger: React.ReactNode;
+  onSaved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(workstream?.name ?? "");
+  const [description, setDescription] = useState(workstream?.description ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      const res = workstream
+        ? await fetch(`/api/workstreams/${workstream.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: name.trim(), description: description.trim() || null }),
+          })
+        : await fetch(`/api/projects/${projectId}/workstreams`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: name.trim(), description: description.trim() || null }),
+          });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        toast.error(body.error ?? "Failed to save workstream");
+        return;
+      }
+      setOpen(false);
+      if (!workstream) {
+        setName("");
+        setDescription("");
+      }
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{workstream ? "Edit workstream" : "New workstream"}</DialogTitle>
+          <DialogDescription>
+            A workstream clubs related sprints inside this project — an initiative like “Wholesaler App” holding its
+            Demo 1/2/3 sprints, with a combined rollup and shareable page.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label className="text-[11px] text-muted-foreground">Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Wholesaler App" autoFocus />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[11px] text-muted-foreground">Description (optional)</Label>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="What this initiative covers"
+              rows={2}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button size="sm" disabled={!name.trim() || saving} onClick={handleSave}>
+            {saving ? "Saving…" : workstream ? "Save" : "Create workstream"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -305,6 +736,8 @@ export function SprintCard({
   onChanged,
   onZoom,
   spilloverTargets,
+  workstreams,
+  defaultCollapsed = false,
 }: {
   sprint: SprintWithItems;
   canManage: boolean;
@@ -312,7 +745,12 @@ export function SprintCard({
   /** Opens the sprint's full-screen page; absent when already on it. */
   onZoom?: () => void;
   spilloverTargets: SpilloverTarget[];
+  /** Project workstreams for the move picker; omit to hide it (e.g. the focus page). */
+  workstreams?: { id: string; name: string }[];
+  /** Start with the body (picker + items) hidden — used inside workstream sections so they read as a tidy list. */
+  defaultCollapsed?: boolean;
 }) {
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [addingIssues, setAddingIssues] = useState<IssueResult[]>([]);
   const [adding, setAdding] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -409,6 +847,20 @@ export function SprintCard({
     setTimeout(() => setUpdateCopied(false), 2000);
   }
 
+  async function handleMoveWorkstream(value: string) {
+    const res = await fetch(`/api/sprints/${sprint.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workstreamId: value === "none" ? null : value }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      toast.error(body.error ?? "Failed to move sprint");
+      return;
+    }
+    onChanged();
+  }
+
   /** Per-sprint report download — same endpoint shape as the deliveries export, single-sprint body. */
   async function handleExport() {
     setExporting(true);
@@ -456,6 +908,14 @@ export function SprintCard({
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border p-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCollapsed((v) => !v)}
+              title={collapsed ? "Expand sprint" : "Collapse sprint"}
+              className="-ml-1 text-muted-foreground hover:text-foreground"
+            >
+              {collapsed ? <RiArrowRightSLine className="size-4" /> : <RiArrowDownSLine className="size-4" />}
+            </button>
             <h3 className="text-sm font-medium">{sprint.name}</h3>
             <span
               className={cn(
@@ -480,6 +940,25 @@ export function SprintCard({
           )}
         </div>
         <div className="flex items-center gap-1">
+          {canManage && workstreams && workstreams.length > 0 && (
+            <Select value={sprint.workstreamId ?? "none"} onValueChange={handleMoveWorkstream}>
+              <SelectTrigger
+                className="h-7 w-auto gap-1 px-2 text-[11px]"
+                title="Move this sprint into a workstream"
+              >
+                <RiStackLine className="size-3 shrink-0 text-muted-foreground" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No workstream</SelectItem>
+                {workstreams.map((w) => (
+                  <SelectItem key={w.id} value={w.id}>
+                    {w.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           {onZoom && (
             <Button variant="ghost" size="icon-sm" title="Open focused view" onClick={onZoom}>
               <RiFullscreenLine className="size-3.5" />
@@ -577,7 +1056,7 @@ export function SprintCard({
         </div>
       )}
 
-      {canManage && phase !== "completed" && (
+      {!collapsed && canManage && phase !== "completed" && (
         <div className="border-b border-border p-2.5">
           <IssueMultiPicker
             projectId={sprint.projectId}
@@ -595,17 +1074,18 @@ export function SprintCard({
         </div>
       )}
 
-      {sprint.items.length === 0 ? (
-        <p className="p-6 text-center text-xs text-muted-foreground">
-          {phase === "planned"
-            ? "No issues planned yet — add the candidate work, then start the sprint to lock the commitment."
-            : "No issues in this sprint."}
-        </p>
-      ) : (
-        <SprintItemsTable sprint={sprint} phase={phase} canManage={canManage} onRemoveItem={handleRemoveItem} />
-      )}
+      {!collapsed &&
+        (sprint.items.length === 0 ? (
+          <p className="p-6 text-center text-xs text-muted-foreground">
+            {phase === "planned"
+              ? "No issues planned yet — add the candidate work, then start the sprint to lock the commitment."
+              : "No issues in this sprint."}
+          </p>
+        ) : (
+          <SprintItemsTable sprint={sprint} phase={phase} canManage={canManage} onRemoveItem={handleRemoveItem} />
+        ))}
 
-      {sprint.removedItems.length > 0 && (
+      {!collapsed && sprint.removedItems.length > 0 && (
         <div className="border-t border-border px-3 py-2">
           <button
             type="button"
@@ -669,6 +1149,86 @@ function SprintReportLine({ sprint, phase }: { sprint: SprintWithItems; phase: S
   );
 }
 
+// ---- Per-sprint item sorting + filtering ------------------------------------
+
+type SortCol =
+  | "key"
+  | "status"
+  | "risk"
+  | "priority"
+  | "assignee"
+  | "start"
+  | "due"
+  | "actualStart"
+  | "actualEnd";
+
+const PROGRESS_ORDER: Record<SprintItemProgress, number> = { todo: 0, in_progress: 1, done: 2 };
+const RISK_ORDER: Record<Exclude<ItemRisk, null>, number> = { overdue: 0, at_risk: 1, unplanned: 2 };
+
+/** "P1" → 1 … "P5" → 5; anything else (incl. null) sorts last. */
+function priorityRank(p: string | null): number {
+  const m = (p ?? "").trim().match(/^p([1-9])$/i);
+  return m ? Number(m[1]) : 9;
+}
+
+/** Numeric tail of a Jira key ("CPE-847" → 847) so keys sort naturally. */
+function keyNum(jiraKey: string): number {
+  const n = Number(jiraKey.split("-").pop());
+  return Number.isNaN(n) ? 0 : n;
+}
+
+/** Sort value per column; null means "no value — always last". */
+function sortValue(row: { item: SprintItemRow; risk: ItemRisk }, col: SortCol): number | string | null {
+  const { item, risk } = row;
+  switch (col) {
+    case "key":
+      return keyNum(item.jiraKey);
+    case "status":
+      return PROGRESS_ORDER[item.progress];
+    case "risk":
+      return risk === null ? null : RISK_ORDER[risk];
+    case "priority":
+      return item.priority ? priorityRank(item.priority) : null;
+    case "assignee":
+      return item.assigneeName?.toLowerCase() ?? null;
+    case "start":
+      return item.startDate;
+    case "due":
+      return item.dueDate;
+    case "actualStart":
+      return item.actualStart;
+    case "actualEnd":
+      return item.actualEnd;
+  }
+}
+
+function SortableTh({
+  label,
+  col,
+  sort,
+  onToggle,
+}: {
+  label: string;
+  col: SortCol;
+  sort: { col: SortCol; dir: "asc" | "desc" } | null;
+  onToggle: (col: SortCol) => void;
+}) {
+  const active = sort?.col === col;
+  return (
+    <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">
+      <button
+        type="button"
+        onClick={() => onToggle(col)}
+        className="inline-flex items-center gap-1 hover:text-foreground"
+        title={`Sort by ${label}`}
+      >
+        {label}
+        {active && <span className="text-[9px]">{sort!.dir === "desc" ? "▼" : "▲"}</span>}
+      </button>
+    </th>
+  );
+}
+
 function SprintItemsTable({
   sprint,
   phase,
@@ -686,27 +1246,188 @@ function SprintItemsTable({
   // grooming and go straight through.
   const [removeTarget, setRemoveTarget] = useState<SprintItemRow | null>(null);
 
+  const [search, setSearch] = useState("");
+  const [progressFilter, setProgressFilter] = useState<"all" | SprintItemProgress>("all");
+  const [riskFilter, setRiskFilter] = useState<"all" | "overdue" | "at_risk" | "unplanned" | "none">("all");
+  const [assigneeFilter, setAssigneeFilter] = useState("all");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [sort, setSort] = useState<{ col: SortCol; dir: "asc" | "desc" } | null>(null);
+
+  // Risk per item, computed once per items change (same classification the
+  // row badges show — SprintItemRowView recomputes its own for display).
+  const rows = useMemo(() => {
+    const now = new Date();
+    const nowStr = `${localDateStr(now)}T${now.toTimeString().slice(0, 8)}`;
+    return sprint.items.map((item) => ({ item, risk: itemRisk(item, nowStr) }));
+  }, [sprint.items]);
+
+  const assignees = useMemo(
+    () =>
+      [...new Set(rows.map((r) => r.item.assigneeName ?? "Unassigned"))].sort((a, b) =>
+        a.localeCompare(b)
+      ),
+    [rows]
+  );
+
+  const priorities = useMemo(
+    () =>
+      [...new Set(rows.map((r) => r.item.priority ?? "No priority"))].sort(
+        (a, b) => priorityRank(a === "No priority" ? null : a) - priorityRank(b === "No priority" ? null : b)
+      ),
+    [rows]
+  );
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let out = rows;
+    if (q) {
+      out = out.filter(
+        (r) =>
+          r.item.jiraKey.toLowerCase().includes(q) ||
+          r.item.summary.toLowerCase().includes(q) ||
+          (r.item.assigneeName ?? "").toLowerCase().includes(q)
+      );
+    }
+    if (progressFilter !== "all") out = out.filter((r) => r.item.progress === progressFilter);
+    if (riskFilter !== "all") {
+      out = out.filter((r) => (riskFilter === "none" ? r.risk === null : r.risk === riskFilter));
+    }
+    if (assigneeFilter !== "all") {
+      out = out.filter((r) => (r.item.assigneeName ?? "Unassigned") === assigneeFilter);
+    }
+    if (priorityFilter !== "all") {
+      out = out.filter((r) => (r.item.priority ?? "No priority") === priorityFilter);
+    }
+    return out;
+  }, [rows, search, progressFilter, riskFilter, assigneeFilter, priorityFilter]);
+
+  const sorted = useMemo(() => {
+    if (!sort) return filtered;
+    const mul = sort.dir === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const va = sortValue(a, sort.col);
+      const vb = sortValue(b, sort.col);
+      // Missing values sink to the bottom in either direction.
+      if (va === null && vb === null) return 0;
+      if (va === null) return 1;
+      if (vb === null) return -1;
+      if (typeof va === "string") return mul * va.localeCompare(vb as string);
+      return mul * (va - (vb as number));
+    });
+  }, [filtered, sort]);
+
+  function toggleSort(col: SortCol) {
+    setSort((cur) => (cur?.col === col ? { col, dir: cur.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" }));
+  }
+
+  const filtersActive =
+    search.trim() !== "" ||
+    progressFilter !== "all" ||
+    riskFilter !== "all" ||
+    assigneeFilter !== "all" ||
+    priorityFilter !== "all";
+
+  const selectTriggerCls = "h-7 w-auto gap-1 px-2 text-xs";
+
   return (
     <div className="overflow-x-auto">
+      {sprint.items.length > 3 && (
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-2.5 py-2">
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter by key, summary, assignee…"
+            className="h-7 w-52 text-xs"
+          />
+          <Select value={progressFilter} onValueChange={(v) => setProgressFilter(v as typeof progressFilter)}>
+            <SelectTrigger className={selectTriggerCls}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="todo">To do</SelectItem>
+              <SelectItem value="in_progress">In progress</SelectItem>
+              <SelectItem value="done">Done</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={riskFilter} onValueChange={(v) => setRiskFilter(v as typeof riskFilter)}>
+            <SelectTrigger className={selectTriggerCls}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All risk</SelectItem>
+              <SelectItem value="overdue">Overdue</SelectItem>
+              <SelectItem value="at_risk">At risk</SelectItem>
+              <SelectItem value="unplanned">Unplanned</SelectItem>
+              <SelectItem value="none">On track / done</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+            <SelectTrigger className={selectTriggerCls}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All priorities</SelectItem>
+              {priorities.map((p) => (
+                <SelectItem key={p} value={p}>
+                  {p}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+            <SelectTrigger className={selectTriggerCls}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All assignees</SelectItem>
+              {assignees.map((a) => (
+                <SelectItem key={a} value={a}>
+                  {a}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {filtersActive && (
+            <span className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground">
+              {sorted.length} of {sprint.items.length} shown
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch("");
+                  setProgressFilter("all");
+                  setRiskFilter("all");
+                  setAssigneeFilter("all");
+                  setPriorityFilter("all");
+                }}
+                className="underline-offset-2 hover:text-foreground hover:underline"
+              >
+                Clear
+              </button>
+            </span>
+          )}
+        </div>
+      )}
+
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-border bg-muted/20">
-            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Key</th>
+            <SortableTh label="Key" col="key" sort={sort} onToggle={toggleSort} />
             <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Summary</th>
-            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
-            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Risk</th>
-            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Priority</th>
-            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Assignee</th>
-            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Start Date</th>
-            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">End Date</th>
-            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Actual Start</th>
-            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Actual End</th>
+            <SortableTh label="Status" col="status" sort={sort} onToggle={toggleSort} />
+            <SortableTh label="Risk" col="risk" sort={sort} onToggle={toggleSort} />
+            <SortableTh label="Priority" col="priority" sort={sort} onToggle={toggleSort} />
+            <SortableTh label="Assignee" col="assignee" sort={sort} onToggle={toggleSort} />
+            <SortableTh label="Start Date" col="start" sort={sort} onToggle={toggleSort} />
+            <SortableTh label="End Date" col="due" sort={sort} onToggle={toggleSort} />
+            <SortableTh label="Actual Start" col="actualStart" sort={sort} onToggle={toggleSort} />
+            <SortableTh label="Actual End" col="actualEnd" sort={sort} onToggle={toggleSort} />
             <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Scope</th>
             <th className="px-3 py-2" />
           </tr>
         </thead>
         <tbody>
-          {sprint.items.map((item) => (
+          {sorted.map(({ item }) => (
             <SprintItemRowView
               key={item.id}
               item={item}
@@ -716,6 +1437,13 @@ function SprintItemsTable({
               onComments={() => setCommentsItem(item)}
             />
           ))}
+          {sorted.length === 0 && (
+            <tr>
+              <td colSpan={12} className="px-3 py-6 text-center text-xs text-muted-foreground">
+                No items match the current filters.
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
       {commentsItem && (

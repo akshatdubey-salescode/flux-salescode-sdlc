@@ -29,7 +29,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   }
 
   const [sprint] = await db
-    .select({ id: sprints.id, projectId: sprints.projectId, startedAt: sprints.startedAt })
+    .select({ id: sprints.id, projectId: sprints.projectId, boardId: sprints.boardId, startedAt: sprints.startedAt })
     .from(sprints)
     .where(eq(sprints.id, sprintId))
     .limit(1);
@@ -67,7 +67,8 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   }
 
   revalidateTag("sprints", "max");
-  revalidateTag(`project:${sprint.projectId}`, "max");
+  if (sprint.projectId) revalidateTag(`project:${sprint.projectId}`, "max");
+  if (sprint.boardId) revalidateTag(`board:${sprint.boardId}`, "max");
 
   return NextResponse.json({ ok: true });
 }
