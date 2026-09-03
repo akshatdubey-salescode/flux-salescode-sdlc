@@ -14,6 +14,20 @@ type Params = { params: Promise<{ id: string }> };
 
 export type SprintResponse = { sprint: SprintWithItems; carried?: number };
 
+/** One sprint, fully joined — backs the standalone /sprints/[id] page. */
+export async function GET(_req: NextRequest, { params }: Params) {
+  await requireAuth();
+  const { id } = await params;
+  if (!isValidUuid(id)) {
+    return NextResponse.json({ error: "id must be a valid UUID" }, { status: 400 });
+  }
+  const sprint = await fetchSprintById(id);
+  if (!sprint) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  return NextResponse.json({ sprint } satisfies SprintResponse);
+}
+
 /**
  * Edit a sprint's fields, or drive its lifecycle:
  *

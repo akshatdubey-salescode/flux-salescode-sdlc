@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import ExcelJS from "exceljs";
 import { requireAuth } from "@/lib/auth/server";
+import { classifyIssue } from "@/lib/jira/estimate";
 import type { SprintWithItems, SprintItemRow } from "@/lib/sprints/entries";
 
 // Same rows-in-body pattern (and visual theme) as the deliveries export —
@@ -39,7 +40,35 @@ export async function POST(req: NextRequest) {
   });
 }
 
-const HEADERS = ["Jira Key", "Summary", "Status", "Priority", "Assignee", "Scope", "Reason", "Added On", "Added By"];
+const HEADERS = [
+  "Jira Key",
+  "Summary",
+  "Status",
+  "Risk",
+  "Priority",
+  "Assignee",
+  "Start Date",
+  "End Date",
+  "Actual Start",
+  "Actual End",
+  "Scope",
+  "Reason",
+  "Added On",
+  "Added By",
+];
+
+const RED = "FFB91C1C";
+
+/** Same classification the Team Tracking views and the on-screen sprint table use. */
+function riskLabel(item: SprintItemRow, nowStr: string): string {
+  const cat = (item.statusCategory ?? "").toLowerCase();
+  if (cat === "done" || cat.includes("complete")) return "";
+  if (!item.startDate || !item.dueDate) return "Unplanned";
+  const label = classifyIssue(item.statusCategory, item.startDate, item.dueDate, nowStr);
+  if (label === "overdue") return "Overdue";
+  if (label === "at_risk") return "At risk";
+  return "";
+}
 
 function phaseLabel(s: SprintWithItems): string {
   if (s.completedAt) return "Completed";
@@ -195,6 +224,7 @@ async function buildWorkbook(sprints: SprintWithItems[]): Promise<ArrayBuffer> {
   headerRow.height = 22;
 
   const widths = HEADERS.map((h) => h.length);
+  const nowStr = new Date().toISOString().slice(0, 19);
   let r = 4;
 
   for (const sprint of sprints) {
@@ -236,12 +266,19 @@ async function buildWorkbook(sprints: SprintWithItems[]): Promise<ArrayBuffer> {
       // silent scope change" rule, visible in the report.
       const reason = removed ? (item.removedComment ?? "") : !item.committed && started ? (item.addedComment ?? "") : "";
 
+      const risk = removed ? "" : riskLabel(item, nowStr);
+
       const values: [string, string][] = [
         ["jiraKey", item.jiraKey],
         ["summary", item.summary],
         ["status", item.jiraStatus],
+        ["risk", risk],
         ["priority", item.priority ?? ""],
         ["assignee", item.assigneeName ?? ""],
+        ["startDate", item.startDate ?? ""],
+        ["dueDate", item.dueDate ?? ""],
+        ["actualStart", item.actualStart ? item.actualStart.slice(0, 10) : ""],
+        ["actualEnd", item.actualEnd ? item.actualEnd.slice(0, 10) : ""],
         ["scope", scope],
         ["reason", reason],
         ["addedOn", item.addedAt.slice(0, 10)],
@@ -272,9 +309,15 @@ async function buildWorkbook(sprints: SprintWithItems[]): Promise<ArrayBuffer> {
                   ? MUTED
                   : removed
                     ? MUTED
-                    : key === "scope" && scope.startsWith("Added after start")
-                      ? AMBER
-                      : TEXT,
+                    : key === "risk"
+                      ? risk === "Overdue"
+                        ? RED
+                        : risk === "At risk"
+                          ? AMBER
+                          : MUTED
+                      : key === "scope" && scope.startsWith("Added after start")
+                        ? AMBER
+                        : TEXT,
             },
             strike: removed && key !== "reason",
           };

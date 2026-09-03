@@ -138,7 +138,10 @@ export function SprintGuide({ trigger }: { trigger?: React.ReactNode }) {
               on each sprint downloads the full sprint report as Excel: a summary sheet, every item with its scope
               origin and reason, and the removed-after-start list.{" "}
               <span className="font-medium text-foreground">Copy update</span> puts a plain-text version of the same
-              status on the clipboard, ready to paste into a team group.
+              status on the clipboard, ready to paste into a team group. The ⛶ button opens a{" "}
+              <span className="font-medium text-foreground">focused view</span> of one sprint (everything works there
+              too), and the 🔗 button copies a <span className="font-medium text-foreground">shareable link</span>{" "}
+              straight to that sprint — anyone with project access can open it.
             </p>
           </Section>
 

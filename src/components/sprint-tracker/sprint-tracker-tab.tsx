@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   RiAddLine,
@@ -14,6 +15,8 @@ import {
   RiChat3Line,
   RiFileCopyLine,
   RiCheckLine,
+  RiFullscreenLine,
+  RiLinkM,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +46,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { localDateStr } from "@/lib/date-utils";
+import { classifyIssue } from "@/lib/jira/estimate";
 import { statusCategoryStyles, priorityStyles, issueTypeStyles } from "@/components/project-tracking/helpers";
 import { IssueMultiPicker, type IssueResult } from "@/components/delivery-tracker/issue-multi-picker";
 import type { SprintWithItems, SprintItemRow } from "@/lib/sprints/entries";
@@ -69,6 +73,42 @@ const PHASE_STYLES: Record<SprintPhase, string> = {
   planned: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
   active: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
   completed: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+};
+
+function formatPlanDate(dateStr: string | null): string {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** Actual Start/End are full datetimes, so parse the ISO string directly (same as the delivery table). */
+function formatActualDate(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+type ItemRisk = "overdue" | "at_risk" | "unplanned" | null;
+
+/**
+ * Same classification the Team Tracking at-risk/overdue/unplanned views use
+ * (classifyIssue: overdue = due date past; at risk = ≤20% of working hours
+ * left), applied per sprint item. Missing dates → "unplanned", done → null.
+ */
+function itemRisk(item: SprintItemRow, nowStr: string): ItemRisk {
+  if (item.progress === "done") return null;
+  if (!item.startDate || !item.dueDate) return "unplanned";
+  const label = classifyIssue(item.statusCategory, item.startDate, item.dueDate, nowStr);
+  if (label === "overdue" || label === "at_risk") return label;
+  return null;
+}
+
+const RISK_STYLES: Record<Exclude<ItemRisk, null>, { label: string; badge: string }> = {
+  overdue: { label: "Overdue", badge: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
+  at_risk: { label: "At risk", badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" },
+  unplanned: { label: "Unplanned", badge: "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400" },
 };
 
 const PROGRESS_LABELS: Record<SprintItemRow["progress"], string> = {
@@ -116,11 +156,25 @@ function sprintMatchesSearch(sprint: SprintWithItems, query: string): boolean {
   return false;
 }
 
+/** The shareable deep link to one sprint's full-screen page — resolves for anyone who can open the project. */
+function sprintLink(sprintId: string): string {
+  return `${window.location.origin}/sprints/${sprintId}`;
+}
+
 export function SprintTrackerTab({ projectId, canManage }: { projectId: string; canManage: boolean }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [sprints, setSprints] = useState<SprintWithItems[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showCompleted, setShowCompleted] = useState(false);
+
+  // Compat: earlier shared links used ?sprint=<id> on this tab — forward them
+  // to the sprint's full-screen page, which is where zoom lives now.
+  const legacyFocusId = searchParams.get("sprint");
+  useEffect(() => {
+    if (legacyFocusId) router.replace(`/sprints/${legacyFocusId}`);
+  }, [legacyFocusId, router]);
 
   const load = useCallback(() => {
     // no-store for the same reason the deliveries tab uses it: this list is
@@ -232,6 +286,7 @@ export function SprintTrackerTab({ projectId, canManage }: { projectId: string; 
             sprint={sprint}
             canManage={canManage}
             onChanged={load}
+            onZoom={() => router.push(`/sprints/${sprint.id}`)}
             spilloverTargets={(sprints ?? [])
               .filter((s) => s.id !== sprint.id && !s.completedAt)
               .map((s) => ({ id: s.id, name: s.name, startDate: s.startDate, endDate: s.endDate }))}
@@ -242,17 +297,20 @@ export function SprintTrackerTab({ projectId, canManage }: { projectId: string; 
   );
 }
 
-type SpilloverTarget = { id: string; name: string; startDate: string; endDate: string };
+export type SpilloverTarget = { id: string; name: string; startDate: string; endDate: string };
 
-function SprintCard({
+export function SprintCard({
   sprint,
   canManage,
   onChanged,
+  onZoom,
   spilloverTargets,
 }: {
   sprint: SprintWithItems;
   canManage: boolean;
   onChanged: () => void;
+  /** Opens the sprint's full-screen page; absent when already on it. */
+  onZoom?: () => void;
   spilloverTargets: SpilloverTarget[];
 }) {
   const [addingIssues, setAddingIssues] = useState<IssueResult[]>([]);
@@ -422,6 +480,22 @@ function SprintCard({
           )}
         </div>
         <div className="flex items-center gap-1">
+          {onZoom && (
+            <Button variant="ghost" size="icon-sm" title="Open focused view" onClick={onZoom}>
+              <RiFullscreenLine className="size-3.5" />
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title="Copy shareable link to this sprint"
+            onClick={() => {
+              navigator.clipboard.writeText(sprintLink(sprint.id));
+              toast.success("Sprint link copied — anyone with project access can open it");
+            }}
+          >
+            <RiLinkM className="size-3.5" />
+          </Button>
           {(sprint.items.length > 0 || sprint.removedItems.length > 0) && (
             <>
               <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={handleCopyUpdate} title="Copy a plain-text sprint update for pasting into a group chat">
@@ -617,12 +691,17 @@ function SprintItemsTable({
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-border bg-muted/20">
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Key</th>
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Summary</th>
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Priority</th>
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Assignee</th>
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Scope</th>
+            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Key</th>
+            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Summary</th>
+            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
+            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Risk</th>
+            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Priority</th>
+            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Assignee</th>
+            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Start Date</th>
+            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">End Date</th>
+            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Actual Start</th>
+            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Actual End</th>
+            <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-muted-foreground">Scope</th>
             <th className="px-3 py-2" />
           </tr>
         </thead>
@@ -725,10 +804,14 @@ function SprintItemRowView({
   const priority = priorityStyles(item.priority);
   const type = issueTypeStyles(item.issueType ?? "");
   const addedDate = item.addedAt.slice(0, 10);
+  // Local datetime without tz suffix — the format classifyIssue expects
+  // (same as the team views' `now` param).
+  const now = new Date();
+  const risk = itemRisk(item, `${localDateStr(now)}T${now.toTimeString().slice(0, 8)}`);
 
   return (
     <tr className="border-b border-border/50 last:border-0">
-      <td className="px-3 py-2">
+      <td className="px-3 py-2 whitespace-nowrap">
         <a
           href={`${item.jiraBaseUrl}/browse/${item.jiraKey}`}
           target="_blank"
@@ -743,8 +826,19 @@ function SprintItemRowView({
         </a>
       </td>
       <td className="max-w-md truncate px-3 py-2">{item.summary}</td>
-      <td className="px-3 py-2">
-        <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", status.badge)}>{item.jiraStatus}</span>
+      <td className="px-3 py-2 whitespace-nowrap">
+        <span className={cn("inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium", status.badge)}>
+          {item.jiraStatus}
+        </span>
+      </td>
+      <td className="px-3 py-2 whitespace-nowrap">
+        {risk ? (
+          <span className={cn("inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium", RISK_STYLES[risk].badge)}>
+            {RISK_STYLES[risk].label}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
       </td>
       <td className="px-3 py-2">
         {item.priority ? (
@@ -757,6 +851,17 @@ function SprintItemRowView({
         )}
       </td>
       <td className="px-3 py-2 text-muted-foreground">{item.assigneeName ?? "Unassigned"}</td>
+      <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatPlanDate(item.startDate)}</td>
+      <td
+        className={cn(
+          "px-3 py-2 whitespace-nowrap",
+          risk === "overdue" ? "font-medium text-red-600 dark:text-red-400" : "text-muted-foreground"
+        )}
+      >
+        {formatPlanDate(item.dueDate)}
+      </td>
+      <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatActualDate(item.actualStart)}</td>
+      <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatActualDate(item.actualEnd)}</td>
       <td className="px-3 py-2">
         {phase === "planned" ? (
           <span className="text-[11px] text-muted-foreground">Planned</span>

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { extractStartDate, extractDueDate, extractActualStart, extractActualEnd } from "@/lib/jira/dates";
 
 // ---------------------------------------------------------------------------
 // Sprint read layer — mirrors lib/deliveries/entries.ts (header + items join,
@@ -43,6 +44,13 @@ export type SprintItemRow = {
   addedBy: string;
   addedByName: string | null;
   addedAt: string;
+  // Planned Start/Due and Actual Start/End — same extraction (and same
+  // per-project custom-field config, dev-window fallbacks included) the
+  // delivery items table uses; see lib/deliveries/entries.ts.
+  startDate: string | null;
+  dueDate: string | null;
+  actualStart: string | null;
+  actualEnd: string | null;
   /** In the commitment snapshot taken when the sprint was started. */
   committed: boolean;
   /** Required reason when the item was added to an already-started sprint. */
@@ -145,6 +153,15 @@ type SprintItemJoinRow = {
   added_by: string;
   added_by_name: string | null;
   added_at: string;
+  custom_fields: Record<string, unknown> | null;
+  start_date_field_ids: string[] | null;
+  end_date_field_ids: string[] | null;
+  actual_start_field_ids: string[] | null;
+  actual_end_field_ids: string[] | null;
+  dev_started_at: string | null;
+  dev_completed_at: string | null;
+  jira_created_at: string | null;
+  completed_at: string | null;
   committed: boolean;
   added_comment: string | null;
   carried_from_sprint_id: string | null;
@@ -154,7 +171,15 @@ type SprintItemJoinRow = {
   removed_comment: string | null;
 };
 
+/** ISO string for whichever of a Date/timestamp-string/null we got back — raw db.execute rows aren't guaranteed the query builder's driver-level type mapping (same helper as lib/deliveries/entries.ts). */
+function toIso(val: string | Date | null): string | null {
+  if (!val) return null;
+  const d = val instanceof Date ? val : new Date(val);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 function mapItemRow(r: SprintItemJoinRow): SprintItemRow {
+  const cf = r.custom_fields ?? {};
   return {
     id: r.id,
     issueId: r.issue_id,
@@ -171,6 +196,21 @@ function mapItemRow(r: SprintItemJoinRow): SprintItemRow {
     addedBy: r.added_by,
     addedByName: r.added_by_name,
     addedAt: r.added_at,
+    startDate: extractStartDate(cf, r.start_date_field_ids),
+    dueDate: extractDueDate(cf, r.end_date_field_ids),
+    // Same 3-level preference order as the delivery items table: the
+    // actual-start/end custom field, then the changelog-derived dev window,
+    // then the issue's own raw created/completed timestamps.
+    actualStart: toIso(
+      extractActualStart(cf, r.actual_start_field_ids) ??
+        (r.dev_started_at ? new Date(r.dev_started_at) : null) ??
+        (r.jira_created_at ? new Date(r.jira_created_at) : null)
+    ),
+    actualEnd: toIso(
+      extractActualEnd(cf, r.actual_end_field_ids) ??
+        (r.dev_completed_at ? new Date(r.dev_completed_at) : null) ??
+        (r.completed_at ? new Date(r.completed_at) : null)
+    ),
     committed: r.committed,
     addedComment: r.added_comment,
     carriedFromSprintId: r.carried_from_sprint_id,
@@ -196,7 +236,10 @@ async function fetchItemsForSprints(
         si.removed_at, si.removed_by_name, si.removed_comment,
         ji.jira_key, ji.summary, ji.status AS jira_status, ji.status_category,
         ji.issue_type, ji.priority, ji.assignee_email, ji.assignee_name,
-        jp.jira_base_url AS jira_base_url
+        ji.custom_fields, ji.dev_started_at, ji.dev_completed_at, ji.jira_created_at, ji.completed_at,
+        jp.jira_base_url AS jira_base_url,
+        jp.start_date_field_ids, jp.end_date_field_ids,
+        jp.actual_start_field_ids, jp.actual_end_field_ids
       FROM sprint_items si
       JOIN jira_issues ji ON ji.id = si.issue_id
       JOIN jira_projects jp ON jp.id = ji.project_id
