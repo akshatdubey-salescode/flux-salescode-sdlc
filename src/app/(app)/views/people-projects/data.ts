@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { KEKA_DIRECTORY_TAG, KEKA_ATTENDANCE_TAG } from "@/lib/keka/cache-tags";
 import { loadKekaDirectory } from "@/lib/keka/directory";
+import { isKekaPerson } from "@/lib/keka/people";
 import { GITHUB_STATS_TAG } from "@/lib/github/cache-tags";
 import { BUG_ISSUE_TYPES, BUG_INVALID_STATUSES } from "@/lib/scorecard/config";
 
@@ -223,8 +224,15 @@ export async function fetchPeopleProjects(
           )
         ORDER BY f.ord LIMIT 1
       ) ow ON true
-      LEFT JOIN users uacc
-        ON uacc.jira_account_id = COALESCE(ow.v->>'accountId', ow.v->0->>'accountId')
+      -- LATERAL … LIMIT 1, not a plain join: users.jira_account_id carries no
+      -- unique constraint, so a duplicate mapping (an email change leaving two
+      -- user rows, a bad identity backfill) would fan out this bug row and
+      -- double its contribution to every count below.
+      LEFT JOIN LATERAL (
+        SELECT u.id FROM users u
+        WHERE u.jira_account_id = COALESCE(ow.v->>'accountId', ow.v->0->>'accountId')
+        LIMIT 1
+      ) uacc ON true
       LEFT JOIN LATERAL (
         SELECT b.email FROM observer_board_members b
         WHERE b.jira_account_id = COALESCE(ow.v->>'accountId', ow.v->0->>'accountId')
@@ -306,10 +314,20 @@ export async function fetchPeopleProjects(
 
   const byEmail = new Map<string, PersonProjectsRow>();
 
-  function getOrCreateRow(email: string, fallbackName: string | null): PersonProjectsRow {
+  /**
+   * Row for an email, created on first sight — or null when the email isn't a
+   * current Keka employee. That null is the Keka-only rule
+   * (src/lib/keka/people.ts) applied at the one place rows come into
+   * existence, so it covers both the assignee pairs and the bug-owner pairs
+   * without either loop having to remember: an ex-employee's issues and an
+   * external bug owner never open a row, so they never reach the board or its
+   * totals.
+   */
+  function getOrCreateRow(email: string, fallbackName: string | null): PersonProjectsRow | null {
     let row = byEmail.get(email);
     if (row) return row;
     const e = dir.get(email);
+    if (!e) return null;
     const loc = locByEmail.get(email);
     const att = attByEmail.get(email);
     row = {
@@ -339,8 +357,9 @@ export async function fetchPeopleProjects(
 
   for (const pair of pairs) {
     const row = getOrCreateRow(pair.email, pair.name);
+    if (!row) continue;
     // Primary-assignee rows carry a name; keep the first non-null one when
-    // Keka doesn't know this person.
+    // Keka has the person but no display name for them.
     if (!dir.get(pair.email)?.displayName && pair.name && row.name === pair.email.split("@")[0]) {
       row.name = pair.name;
     }
@@ -365,6 +384,7 @@ export async function fetchPeopleProjects(
   // row, with zero issue/task counts.
   for (const bug of bugPairs) {
     const row = getOrCreateRow(bug.email, bug.name);
+    if (!row) continue;
     const bugTotal = bug.p1_bugs + bug.p2_bugs + bug.p3_bugs;
     let project = row.projects.find((p) => p.projectId === bug.project_id);
     if (!project) {
@@ -477,6 +497,7 @@ export async function fetchOwnedBugs(
   cacheLife("minutes");
   cacheTag("jira-issues");
   cacheTag("projects");
+  cacheTag(KEKA_DIRECTORY_TAG);
 
   const bugTypes = sql.join(
     [...BUG_ISSUE_TYPES].map((t) => sql`${t}`),
@@ -521,8 +542,15 @@ export async function fetchOwnedBugs(
           )
         ORDER BY f.ord LIMIT 1
       ) ow ON true
-      LEFT JOIN users uacc
-        ON uacc.jira_account_id = COALESCE(ow.v->>'accountId', ow.v->0->>'accountId')
+      -- LATERAL … LIMIT 1, not a plain join: users.jira_account_id carries no
+      -- unique constraint, so a duplicate mapping (an email change leaving two
+      -- user rows, a bad identity backfill) would fan out this bug row and
+      -- double its contribution to every count below.
+      LEFT JOIN LATERAL (
+        SELECT u.id FROM users u
+        WHERE u.jira_account_id = COALESCE(ow.v->>'accountId', ow.v->0->>'accountId')
+        LIMIT 1
+      ) uacc ON true
       LEFT JOIN LATERAL (
         SELECT b.email FROM observer_board_members b
         WHERE b.jira_account_id = COALESCE(ow.v->>'accountId', ow.v->0->>'accountId')
@@ -539,6 +567,16 @@ export async function fetchOwnedBugs(
     SELECT *
     FROM bug_base
     WHERE email IS NOT NULL AND trim(email) != ''
+      -- Keka-only rule (src/lib/keka/people.ts), matching how
+      -- fetchPeopleProjects drops non-Keka owners at row creation — so this
+      -- sheet's per-owner bug totals reconcile with the board's.
+      --
+      -- The bug is NOT lost: fetchUnattributedBugs picks up anything this
+      -- rejects, because it asks for bugs with no *live* owner rather than no
+      -- owner field. Between them the two functions still partition every bug
+      -- in the window, exactly as they did before this gate existed — check
+      -- both if you ever change either predicate.
+      AND ${isKekaPerson(sql`lower(email)`)}
     ORDER BY "createdAt" DESC
     LIMIT 20000
   `);
@@ -556,13 +594,33 @@ export type UnattributedBug = {
   createdAt: string;
   assigneeName: string | null;
   assigneeEmail: string | null;
+  // Set only for the "owner has left" case: who the Issue Owner field still
+  // names, even though they're no longer a current employee. null when the
+  // field was simply never filled in. Both cases need an owner assigning; this
+  // says which kind of gap it is and who to ask.
+  formerOwnerName: string | null;
+  formerOwnerEmail: string | null;
 };
 
 /**
- * Bugs created in the window with NO issue owner set — invisible in the
- * per-person counts above. Surfaced (with the assignee for context) so the
- * owner-field gaps feeding this report can be found and fixed. Capped at
- * 20000 rows.
+ * Bugs created in the window that nobody currently owns — invisible in the
+ * per-person counts above. Two kinds of gap, both actionable and both needing
+ * the same fix (set a live Issue Owner):
+ *
+ *   1. The Issue Owner field was never filled in.
+ *   2. It names someone who no longer works here, so the Keka-only rule
+ *      (src/lib/keka/people.ts) means they can't be shown as its owner.
+ *      `formerOwner*` carries who it was — the bug still has to be tracked and
+ *      reassigned, and knowing whose queue it fell out of is the fastest route
+ *      to that.
+ *
+ * Case 2 is why this is "no live owner" and not "no owner field": it's the
+ * other half of fetchOwnedBugs' Keka gate, and together the two functions
+ * cover every bug in the window with no double-counting. A departed owner's
+ * bugs are exactly the ones that would otherwise rot unnoticed, so they must
+ * land somewhere.
+ *
+ * Surfaced with the assignee for context. Capped at 20000 rows.
  */
 export async function fetchUnattributedBugs(
   start: string,
@@ -572,6 +630,7 @@ export async function fetchUnattributedBugs(
   cacheLife("minutes");
   cacheTag("jira-issues");
   cacheTag("projects");
+  cacheTag(KEKA_DIRECTORY_TAG);
 
   const bugTypes = sql.join(
     [...BUG_ISSUE_TYPES].map((t) => sql`${t}`),
@@ -586,12 +645,14 @@ export async function fetchUnattributedBugs(
   const res = await db.execute(sql`
     WITH bug_base AS (
       SELECT
-        -- Same accountId fallback as the count query — a bug is unattributed
-        -- only when NO resolution path yields an email.
+        -- Same accountId fallback as the count query — the owner field alone
+        -- isn't enough, since Atlassian privacy settings strip emailAddress
+        -- from the payload for some users.
         lower(COALESCE(
           ow.v->>'emailAddress', ow.v->0->>'emailAddress',
           uacc.id, obm.email
         )) AS email,
+        COALESCE(ow.v->>'displayName', ow.v->0->>'displayName') AS owner_name,
         ji.jira_key AS "jiraKey",
         ji.summary,
         ji.priority,
@@ -617,8 +678,15 @@ export async function fetchUnattributedBugs(
           )
         ORDER BY f.ord LIMIT 1
       ) ow ON true
-      LEFT JOIN users uacc
-        ON uacc.jira_account_id = COALESCE(ow.v->>'accountId', ow.v->0->>'accountId')
+      -- LATERAL … LIMIT 1, not a plain join: users.jira_account_id carries no
+      -- unique constraint, so a duplicate mapping (an email change leaving two
+      -- user rows, a bad identity backfill) would fan out this bug row and
+      -- double its contribution to every count below.
+      LEFT JOIN LATERAL (
+        SELECT u.id FROM users u
+        WHERE u.jira_account_id = COALESCE(ow.v->>'accountId', ow.v->0->>'accountId')
+        LIMIT 1
+      ) uacc ON true
       LEFT JOIN LATERAL (
         SELECT b.email FROM observer_board_members b
         WHERE b.jira_account_id = COALESCE(ow.v->>'accountId', ow.v->0->>'accountId')
@@ -632,9 +700,22 @@ export async function fetchUnattributedBugs(
         AND ji.jira_created_at::date >= ${start}::date
         AND ji.jira_created_at::date <= ${end}::date
     )
-    SELECT *
+    -- "No live owner" — the two gaps described above. The second disjunct is
+    -- the other half of fetchOwnedBugs' Keka gate: without it, a bug owned by
+    -- someone who has left would appear on neither sheet and quietly stop
+    -- being tracked. formerOwner* is populated only for that case, so the two
+    -- kinds of gap stay distinguishable in the export.
+    SELECT
+      "jiraKey", summary, priority, status, "projectName", "projectKey",
+      "browseUrl", "createdAt", "assigneeName", "assigneeEmail",
+      CASE WHEN email IS NOT NULL AND trim(email) <> ''
+           THEN owner_name END AS "formerOwnerName",
+      CASE WHEN email IS NOT NULL AND trim(email) <> ''
+           THEN email END AS "formerOwnerEmail"
     FROM bug_base
-    WHERE email IS NULL OR trim(email) = ''
+    WHERE email IS NULL
+       OR trim(email) = ''
+       OR NOT ${isKekaPerson(sql`lower(email)`)}
     ORDER BY "createdAt" DESC
     LIMIT 20000
   `);

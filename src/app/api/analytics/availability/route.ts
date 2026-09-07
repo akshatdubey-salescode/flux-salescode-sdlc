@@ -5,8 +5,9 @@ import { cacheLife, cacheTag } from "next/cache";
 import { requireAuth } from "@/lib/auth/server";
 import { stampCache, withCacheMetrics } from "@/lib/cache/metrics";
 import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
-import { KEKA_LEAVE_TAG } from "@/lib/keka/cache-tags";
+import { KEKA_LEAVE_TAG, KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
 import { loadAbsencesByEmail } from "@/lib/keka/absence";
+import { isKekaPerson } from "@/lib/keka/people";
 
 // ── Date helpers (calendar-day granularity) ───────────────────────────────────
 
@@ -185,7 +186,9 @@ async function fetchAvailability(opts: {
 }): Promise<ReturnType<typeof stampCache>> {
   "use cache";
   cacheLife("minutes");
-  cacheTag("jira-issues", "availability", KEKA_LEAVE_TAG);
+  // KEKA_DIRECTORY_TAG: resolvePeople() gates the pool on keka_employees, so a
+  // directory sync (joiner/leaver) must refresh this.
+  cacheTag("jira-issues", "availability", KEKA_LEAVE_TAG, KEKA_DIRECTORY_TAG);
 
   const people = await resolvePeople(opts.scope, opts.projectId, opts.boardId, opts.emails);
 
@@ -395,24 +398,34 @@ function nextFreeSlot(
 // ── People resolution per scope ───────────────────────────────────────────────
 
 /**
- * Resolve display names for an explicit list of emails (board members ∪
- * Jira assignees, same as the old People-scope lookup), keeping every
- * requested email even if no display name was found for it. Shared by the
- * People scope and the Team scope's client-resolved-tree path.
+ * Resolve display names for an explicit list of emails, dropping anyone who
+ * isn't a current Keka employee (src/lib/keka/people.ts). Emails arrive from
+ * the client (the People scope's selection, the Team scope's resolved tree),
+ * so this is also the trust boundary: a caller can't ask for the availability
+ * of an ex-employee or a client contact by putting their address in the query
+ * string. Keka is the name source; Jira's assignee name is the fallback.
+ *
+ * Unlike before, the returned list is NOT guaranteed to cover every requested
+ * email — non-Keka ones are gone, and callers already handle a short list.
  */
 async function resolvePeopleByEmails(emails: string[]): Promise<Person[]> {
   const list = sql.join(emails.map((e) => sql`${e}`), sql`, `);
   const res = await db.execute(sql`
-    SELECT lower(email) AS email, name FROM observer_board_members WHERE lower(email) IN (${list})
-    UNION
-    SELECT lower(assignee_email) AS email, MIN(assignee_name) AS name
-    FROM jira_issues
-    WHERE lower(assignee_email) IN (${list})
-    GROUP BY lower(assignee_email)
+    SELECT ke.email AS email,
+           COALESCE(
+             NULLIF(ke.display_name, ''),
+             (SELECT MIN(ji.assignee_name) FROM jira_issues ji
+              WHERE lower(ji.assignee_email) = ke.email)
+           ) AS name
+    FROM keka_employees ke
+    WHERE ke.email IS NOT NULL AND ke.email IN (${list})
   `);
   const named = toPeople(res.rows as { email: string; name: string | null }[]);
   const haveName = new Map(named.map((p) => [p.email, p]));
-  return emails.map((e) => haveName.get(e) ?? { email: e, name: e.split("@")[0] });
+  return emails.flatMap((e) => {
+    const hit = haveName.get(e);
+    return hit ? [hit] : [];
+  });
 }
 
 async function resolvePeople(
@@ -428,6 +441,7 @@ async function resolvePeople(
       FROM jira_issues
       WHERE project_id = ${projectId}
         AND assignee_email IS NOT NULL AND assignee_email <> ''
+        AND ${isKekaPerson(sql`lower(assignee_email)`)}
       GROUP BY lower(assignee_email)
     `);
     return toPeople(res.rows as { email: string; name: string | null }[]);
@@ -444,11 +458,15 @@ async function resolvePeople(
     if (emails.length > 0) return resolvePeopleByEmails(emails);
     const [members, board] = await Promise.all([
       db.execute(sql`
-        SELECT lower(email) AS email, name FROM observer_board_members WHERE board_id = ${boardId}
+        SELECT lower(email) AS email, name FROM observer_board_members
+        WHERE board_id = ${boardId}
+          AND ${isKekaPerson(sql`lower(email)`)}
       `),
       db.execute(sql`
         SELECT lower(manager_email) AS email, manager_name AS name
-        FROM observer_boards WHERE id = ${boardId} AND manager_email IS NOT NULL
+        FROM observer_boards
+        WHERE id = ${boardId} AND manager_email IS NOT NULL
+          AND ${isKekaPerson(sql`lower(manager_email)`)}
       `),
     ]);
     return toPeople([
@@ -462,17 +480,19 @@ async function resolvePeople(
     return resolvePeopleByEmails(emails);
   }
 
-  // global — every assignee across active projects + all board members
+  // global — every current Keka employee. Deliberately not "every Jira
+  // assignee ∪ every board member": that pool dragged in ex-employees whose
+  // issues outlive them and vendor accounts, and asking "who is free next
+  // Tuesday" about someone who doesn't work here is meaningless.
   const res = await db.execute(sql`
-    SELECT email, name FROM (
-      SELECT lower(ji.assignee_email) AS email, MIN(ji.assignee_name) AS name
-      FROM jira_issues ji
-      JOIN jira_projects jp ON jp.id = ji.project_id AND jp.is_active = true
-      WHERE ji.assignee_email IS NOT NULL AND ji.assignee_email <> ''
-      GROUP BY lower(ji.assignee_email)
-      UNION
-      SELECT lower(email) AS email, name FROM observer_board_members
-    ) t
+    SELECT ke.email AS email,
+           COALESCE(
+             NULLIF(ke.display_name, ''),
+             (SELECT MIN(ji.assignee_name) FROM jira_issues ji
+              WHERE lower(ji.assignee_email) = ke.email)
+           ) AS name
+    FROM keka_employees ke
+    WHERE ke.email IS NOT NULL
   `);
   return toPeople(res.rows as { email: string; name: string | null }[]);
 }

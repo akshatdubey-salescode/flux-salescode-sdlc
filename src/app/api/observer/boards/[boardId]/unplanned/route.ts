@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
-import { sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
+import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
+import { isKekaPerson } from "@/lib/keka/people";
+import { loadKekaDirectory } from "@/lib/keka/directory";
 import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
@@ -88,6 +90,7 @@ async function fetchBoardUnplanned(boardId: string, start: string, end: string) 
   "use cache";
   cacheLife("minutes");
   cacheTag(`board:${boardId}`);
+  cacheTag(KEKA_DIRECTORY_TAG);
 
   const [board] = await db
     .select()
@@ -96,16 +99,31 @@ async function fetchBoardUnplanned(boardId: string, start: string, end: string) 
 
   if (!board) return null;
 
+  const dir = await loadKekaDirectory();
+
+  // Keka-only rule (src/lib/keka/people.ts): board membership is durable, so a
+  // member added before this rule existed — or one who has since left — must
+  // not keep appearing here. Filtered on read as well as on write (see the
+  // members POST route), because the stored rows outlive the UI that added them.
   const members = await db
     .select()
     .from(observerBoardMembers)
-    .where(eq(observerBoardMembers.boardId, boardId));
+    .where(
+      and(
+        eq(observerBoardMembers.boardId, boardId),
+        isKekaPerson(sql`lower(${observerBoardMembers.email})`)
+      )
+    );
 
   const emailToName = new Map<string, { name: string; isManager: boolean }>();
   for (const m of members) {
     emailToName.set(m.email.toLowerCase(), { name: m.name, isManager: false });
   }
-  if (board.managerEmail) {
+  // The board's own manager is a person on this list too, so the same Keka
+  // gate applies (src/lib/keka/people.ts). manager_email is stamped on the
+  // board at creation and never revisited, so a manager who has since left
+  // would otherwise keep their row here for as long as the board exists.
+  if (board.managerEmail && dir.isActive(board.managerEmail)) {
     const mgrKey = board.managerEmail.toLowerCase();
     if (!emailToName.has(mgrKey)) {
       emailToName.set(mgrKey, {

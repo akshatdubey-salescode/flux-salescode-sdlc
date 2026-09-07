@@ -1,6 +1,8 @@
 import { cacheLife, cacheTag } from "next/cache";
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
+import { isKekaPerson } from "@/lib/keka/people";
 
 export type TeamRef = { id: string; name: string };
 
@@ -50,6 +52,7 @@ export async function fetchTopSelfDeassigners(
   cacheLife("minutes");
   cacheTag("jira-issues");
   cacheTag("boards");
+  cacheTag(KEKA_DIRECTORY_TAG);
 
   const sortCol =
     sort === "unassigned"
@@ -73,6 +76,11 @@ export async function fetchTopSelfDeassigners(
       FROM jira_assignee_changes jac
       WHERE jac.is_self_removal = true
         AND jac.author_account_id IS NOT NULL
+        -- Keka-only rule (src/lib/keka/people.ts). Note this also drops rows
+        -- whose author_email is null: an unidentifiable author can't be shown
+        -- to be a colleague, and naming nobody on this particular board is
+        -- worse than naming no one at all.
+        AND ${isKekaPerson(sql`lower(jac.author_email)`)}
         AND jac.changed_at::date >= ${start}::date
         AND jac.changed_at::date <= ${end}::date
     ),
@@ -165,6 +173,7 @@ export async function fetchSelfRemovalEvents(
   "use cache";
   cacheLife("minutes");
   cacheTag("jira-issues");
+  cacheTag(KEKA_DIRECTORY_TAG);
 
   const res = await db.execute(sql`
     SELECT
@@ -183,6 +192,9 @@ export async function fetchSelfRemovalEvents(
     JOIN jira_projects jp ON jp.id = ji.project_id
     WHERE jac.is_self_removal = true
       AND jac.author_account_id = ${accountId}
+      -- Same gate as the ranking above, so a hand-typed accountId can't open a
+      -- drill-down on someone who isn't a current colleague.
+      AND ${isKekaPerson(sql`lower(jac.author_email)`)}
       AND jac.changed_at::date >= ${start}::date
       AND jac.changed_at::date <= ${end}::date
     ORDER BY jac.changed_at DESC

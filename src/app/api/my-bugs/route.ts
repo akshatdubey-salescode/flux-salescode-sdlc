@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cacheLife, cacheTag } from "next/cache";
+import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
 import { requireAuth } from "@/lib/auth/server";
 import { localDateStr } from "@/lib/date-utils";
 import {
@@ -44,6 +45,9 @@ async function fetchMyBugs(
   "use cache";
   cacheLife("minutes");
   cacheTag("projects", `bugs-owner:${email}`);
+  // Owner attribution is gated on keka_employees (loadBugRows), so a
+  // joiner/leaver sync must refresh this.
+  cacheTag(KEKA_DIRECTORY_TAG);
 
   // Bugs I *own* across every project — Issue Owner = me, or (no Issue Owner)
   // assigned to me. Candidate condition is a superset; loadBugRows narrows to

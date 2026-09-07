@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth/server";
 import { sql } from "drizzle-orm";
+import { isKekaPerson } from "@/lib/keka/people";
 
 export async function GET(req: Request) {
   try {
@@ -12,7 +13,9 @@ export async function GET(req: Request) {
       return NextResponse.json([]);
     }
 
-    // Search across board members and Jira issue assignees
+    // Search across board members and Jira issue assignees, gated to current
+    // Keka employees (src/lib/keka/people.ts) — both source tables retain
+    // ex-employees and vendor accounts, and neither may be offered as a person.
     const term = `%${q.toLowerCase()}%`;
 
     const rows = await db.execute(sql`
@@ -23,7 +26,8 @@ export async function GET(req: Request) {
           email,
           'board_member' AS source
         FROM observer_board_members
-        WHERE lower(name) LIKE ${term} OR lower(email) LIKE ${term}
+        WHERE (lower(name) LIKE ${term} OR lower(email) LIKE ${term})
+          AND ${isKekaPerson(sql`lower(email)`)}
 
         UNION ALL
 
@@ -40,6 +44,7 @@ export async function GET(req: Request) {
             lower(assignee_email) LIKE ${term}
             OR lower(COALESCE(custom_fields->>'assignee_display_name', '')) LIKE ${term}
           )
+          AND ${isKekaPerson(sql`lower(assignee_email)`)}
       ) combined
       ORDER BY name
       LIMIT 15

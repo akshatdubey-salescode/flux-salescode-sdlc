@@ -165,6 +165,15 @@ export default async function PeopleProjectsPage({
     fetchPeopleProjects(start, end),
     fetchUnattributedBugs(start, end),
   ]);
+  // "No current owner" spans two gaps — the field was never set, or it names
+  // someone who has left (see fetchUnattributedBugs). Both need an owner
+  // assigning, but the second is worth calling out separately: those bugs were
+  // being tracked by a real person until they left, so they're the ones most
+  // likely to have gone quiet.
+  const departedOwnerCount = unattributedBugs.filter(
+    (b) => b.formerOwnerEmail
+  ).length;
+
   const departments = [
     ...new Set(
       allRows.map((r) => r.department).filter((d): d is string => !!d)
@@ -246,10 +255,19 @@ export default async function PeopleProjectsPage({
             <p className="text-xs text-amber-600 dark:text-amber-500">
               {unattributedBugs.length.toLocaleString()} bug
               {unattributedBugs.length === 1 ? "" : "s"} created in this period
-              {unattributedBugs.length === 1 ? " has" : " have"} no issue owner
-              set and {unattributedBugs.length === 1 ? "isn't" : "aren't"}{" "}
-              counted for anyone above — the &quot;Unowned Bugs&quot; sheet in
-              the downloaded report lists them for fixing.
+              {unattributedBugs.length === 1 ? " has" : " have"} no current
+              issue owner
+              {departedOwnerCount > 0 && (
+                <>
+                  {" "}
+                  ({departedOwnerCount.toLocaleString()} still assigned to
+                  someone who has left)
+                </>
+              )}{" "}
+              and {unattributedBugs.length === 1 ? "isn't" : "aren't"} counted
+              for anyone above — the &quot;Unowned Bugs&quot; sheet in the
+              downloaded report lists them, with the former owner where there
+              was one, for reassigning.
             </p>
           )}
 

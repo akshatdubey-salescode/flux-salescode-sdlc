@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
+import { isKekaPerson } from "@/lib/keka/people";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
@@ -35,10 +36,20 @@ export default async function BoardDetailPage({ params, searchParams }: Props) {
 
   if (!board) notFound();
 
+  // Keka-only rule (src/lib/keka/people.ts): board membership is durable, so a
+  // member added before this rule existed — or one who has since left — must
+  // not keep appearing on the board. Filtered on read as well as on write (see
+  // the members POST route), because the stored rows outlive the UI that
+  // created them.
   const members = await db
     .select()
     .from(observerBoardMembers)
-    .where(eq(observerBoardMembers.boardId, boardId));
+    .where(
+      and(
+        eq(observerBoardMembers.boardId, boardId),
+        isKekaPerson(sql`lower(${observerBoardMembers.email})`)
+      )
+    );
 
   // Resolve the board THIS viewer manages, to target "Track on my board" adds.
   // A viewer manages a board when they are its designated MANAGER
@@ -79,7 +90,12 @@ export default async function BoardDetailPage({ params, searchParams }: Props) {
     const viewerMembers = await db
       .select({ id: observerBoardMembers.id, email: observerBoardMembers.email })
       .from(observerBoardMembers)
-      .where(eq(observerBoardMembers.boardId, viewerBoard.id));
+      .where(
+        and(
+          eq(observerBoardMembers.boardId, viewerBoard.id),
+          isKekaPerson(sql`lower(${observerBoardMembers.email})`)
+        )
+      );
     addTarget = {
       boardId: viewerBoard.id,
       boardName: viewerBoard.name,

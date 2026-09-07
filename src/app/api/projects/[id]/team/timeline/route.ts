@@ -4,8 +4,9 @@ import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import { jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
+import { isKekaPerson } from "@/lib/keka/people";
 import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
-import { KEKA_LEAVE_TAG } from "@/lib/keka/cache-tags";
+import { KEKA_LEAVE_TAG, KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
 import { loadLeaveByEmail } from "@/lib/keka/absence";
 import {
   workingDaysBetween,
@@ -87,6 +88,7 @@ async function fetchProjectTeamTimeline(
   "use cache";
   cacheLife("minutes");
   cacheTag("projects", `project:${projectId}`);
+  cacheTag(KEKA_DIRECTORY_TAG);
   cacheTag(KEKA_LEAVE_TAG);
 
   const [project] = await db.select().from(jiraProjects).where(eq(jiraProjects.id, projectId));
@@ -101,6 +103,11 @@ async function fetchProjectTeamTimeline(
     WHERE ji.project_id = ${projectId}
       AND ji.assignee_email IS NOT NULL
       AND ji.assignee_email != ''
+      -- Keka-only rule (src/lib/keka/people.ts): a project's team is its
+      -- current colleagues, not every address that ever held one of its
+      -- issues. Without this, ex-employees kept their own row on the tab
+      -- forever, since their old issues never stop matching.
+      AND ${isKekaPerson(sql`lower(ji.assignee_email)`)}
     GROUP BY lower(ji.assignee_email)
     ORDER BY name
   `);

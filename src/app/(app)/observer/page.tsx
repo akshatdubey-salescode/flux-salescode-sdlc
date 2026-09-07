@@ -1,4 +1,5 @@
-import { desc } from "drizzle-orm";
+import { desc, sql } from "drizzle-orm";
+import { isKekaPerson } from "@/lib/keka/people";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
@@ -28,6 +29,9 @@ export default async function ObserverPage() {
     .from(observerBoards)
     .orderBy(desc(observerBoards.updatedAt));
 
+  // Member counts apply the same Keka gate as the roster itself, so a
+  // board card's count matches what you see when you open it
+  // (src/lib/keka/people.ts).
   const allMembers =
     boards.length > 0
       ? await db
@@ -36,6 +40,7 @@ export default async function ObserverPage() {
             id: observerBoardMembers.id,
           })
           .from(observerBoardMembers)
+          .where(isKekaPerson(sql`lower(${observerBoardMembers.email})`))
       : [];
 
   const countMap: Record<string, number> = {};

@@ -1,11 +1,31 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
+import { isKekaPerson } from "@/lib/keka/people";
 import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth/server";
 import { BUG_ISSUE_TYPES, BUG_INVALID_STATUSES } from "@/lib/scorecard/config";
 import { currentFiscalQuarterChip } from "@/lib/date-utils";
 import { normalizeEnvironment, priorityBucketSql } from "@/lib/bug-summary";
 import { FRESHDESK_CUSTOM_FIELD } from "@/lib/freshdesk/sync";
+
+// The bug's Issue Owner as a lowercased email. The field itself usually
+// carries emailAddress, but Atlassian privacy settings strip it for some
+// users, so fall back to resolving the accountId through Flux's identity
+// tables (users.id IS the person's email; observer_board_members also stores
+// a resolved accountId). Same two-table fallback /api/bugs uses, so both
+// endpoints agree on who a bug's owner is. Both fallbacks are LIMIT 1 scalar
+// subqueries because neither jira_account_id column is unique — without it, a
+// duplicate mapping makes Postgres raise "more than one row returned by a
+// subquery used as an expression" and this route 500s.
+const OWNER_EMAIL_SQL = `lower(COALESCE(
+          COALESCE(ow.v->>'emailAddress', ow.v->0->>'emailAddress'),
+          (SELECT u.id FROM users u
+            WHERE u.jira_account_id = COALESCE(ow.v->>'accountId', ow.v->0->>'accountId')
+            LIMIT 1),
+          (SELECT b.email FROM observer_board_members b
+            WHERE b.jira_account_id = COALESCE(ow.v->>'accountId', ow.v->0->>'accountId')
+            LIMIT 1)
+        ))`;
 
 // Individual, linkable bug rows for one project (or the no-owner bucket) —
 // the reliable alternative to jiraOwnerBugLink's generated JQL (aggregate.ts),
@@ -115,18 +135,28 @@ async function fetchBugIssues({
   // Mirrors the owner-resolution LATERAL join in fetchBugBoard (/api/bugs) —
   // a project's candidate owner-field IDs, first populated one wins. No
   // populated field anywhere = genuinely unassigned.
+  //
+  // Two ways to land in the board's "Missing Issue Owner" row, and this
+  // drill-down has to reproduce both or it undercounts the row it was opened
+  // from: (1) no owner field is populated at all; (2) one is, but the person
+  // named isn't a current Keka employee, which fetchBugBoard nulls out to
+  // exactly this bucket (see the Keka gate in /api/bugs' resolved CTE and
+  // src/lib/keka/people.ts).
   const unassignedFilter = unassignedOnly
     ? sql`
-      AND NOT EXISTS (
-        SELECT 1
-        FROM unnest(COALESCE(jp.issue_owner_field_ids, '{}'::text[])) AS fid
-        WHERE ji.custom_fields ? fid
-          AND (
-            (jsonb_typeof(ji.custom_fields->fid) = 'object'
-              AND (ji.custom_fields->fid) ? 'accountId')
-            OR (jsonb_typeof(ji.custom_fields->fid) = 'array'
-              AND jsonb_array_length(ji.custom_fields->fid) > 0)
-          )
+      AND (
+        NOT EXISTS (
+          SELECT 1
+          FROM unnest(COALESCE(jp.issue_owner_field_ids, '{}'::text[])) AS fid
+          WHERE ji.custom_fields ? fid
+            AND (
+              (jsonb_typeof(ji.custom_fields->fid) = 'object'
+                AND (ji.custom_fields->fid) ? 'accountId')
+              OR (jsonb_typeof(ji.custom_fields->fid) = 'array'
+                AND jsonb_array_length(ji.custom_fields->fid) > 0)
+            )
+        )
+        OR NOT ${isKekaPerson(sql.raw(OWNER_EMAIL_SQL))}
       )
     `
     : sql``;
@@ -139,6 +169,10 @@ async function fetchBugIssues({
         COALESCE(ow.v->>'emailAddress', ow.v->0->>'emailAddress'),
         COALESCE(ow.v->>'accountId',    ow.v->0->>'accountId')
       ) = ${ownerKey}
+      -- The board can no longer produce a non-Keka owner row, so a key that
+      -- resolves to one is stale or hand-typed: match nothing rather than
+      -- open a drill-down on someone who isn't a current colleague.
+      AND ${isKekaPerson(sql.raw(OWNER_EMAIL_SQL))}
     `
     : sql``;
 

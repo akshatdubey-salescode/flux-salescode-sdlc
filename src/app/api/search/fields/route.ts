@@ -1,4 +1,5 @@
-import { isNotNull, sql, eq } from "drizzle-orm";
+import { isNotNull, sql, eq, and } from "drizzle-orm";
+import { isKekaPerson } from "@/lib/keka/people";
 import { db } from "@/lib/db";
 import { jiraIssues, jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
@@ -27,7 +28,10 @@ export async function GET() {
           name: jiraIssues.assigneeName,
         })
         .from(jiraIssues)
-        .where(isNotNull(jiraIssues.assigneeEmail)),
+        // Keka-only rule (src/lib/keka/people.ts): the assignee filter offers
+        // current colleagues. Reporters deliberately stay unfiltered just
+        // below — clients raise issues and must remain filterable.
+        .where(and(isNotNull(jiraIssues.assigneeEmail), isKekaPerson(sql`lower(${jiraIssues.assigneeEmail})`))),
       db
         .selectDistinct({
           email: jiraIssues.reporterEmail,

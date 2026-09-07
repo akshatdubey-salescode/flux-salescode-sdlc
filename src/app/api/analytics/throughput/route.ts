@@ -38,13 +38,15 @@ export type PersonThroughput = {
   selfReported: number;
   /** Subset closed reported by someone else (assigned / client work). */
   othersReported: number;
-  // Keka org context — null/empty when the person isn't a current employee.
+  // Keka org context. Every ranked person is a current Keka employee (see the
+  // filter in fetchThroughput), so these are only null when Keka itself has no
+  // value for the field — never because the person is unknown to Keka. The old
+  // `isActive` flag is gone with the rows it used to mark.
   department: string | null;
   managerName: string | null;
   managerChain: string[];
   jobTitle: string | null;
   tenureDays: number | null;
-  isActive: boolean;
   issues: ClosedIssue[];
 };
 
@@ -234,6 +236,14 @@ async function fetchThroughput(opts: {
 
   const dir = await loadKekaDirectory();
   const people: PersonThroughput[] = [...byEmail.entries()]
+    // Keka-only rule (src/lib/keka/people.ts): a leaderboard of who closed the
+    // most work is a leaderboard of colleagues. Ex-employees' closed issues,
+    // and the Atlassian service accounts that auto-close tickets, used to rank
+    // right alongside the team. They're dropped here rather than in the SQL so
+    // `totalClosed` above still reflects everything the projects actually
+    // closed — the ranked rows are a subset of that total, not a redefinition
+    // of it.
+    .filter(([email]) => dir.isActive(email))
     .map(([email, a]) => {
       const e = dir.get(email);
       return {
@@ -250,7 +260,6 @@ async function fetchThroughput(opts: {
         managerChain: dir.managerChain(email),
         jobTitle: e?.jobTitle ?? null,
         tenureDays: tenureDays(e?.joiningDate ?? null),
-        isActive: e !== undefined,
         issues: a.issues.sort((x, y) => (x.completedAt < y.completedAt ? 1 : -1)),
       };
     })

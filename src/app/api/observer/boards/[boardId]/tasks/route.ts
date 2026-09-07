@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { eq, and, sql } from "drizzle-orm";
+import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
+import { isKekaPerson } from "@/lib/keka/people";
 import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
@@ -40,11 +42,22 @@ async function fetchBoardTasks(boardId: string, from: string, to: string) {
   "use cache";
   cacheLife("minutes");
   cacheTag(`board:${boardId}`);
+  cacheTag(KEKA_DIRECTORY_TAG);
 
   const members = await db
     .select()
     .from(observerBoardMembers)
-    .where(eq(observerBoardMembers.boardId, boardId));
+    // Keka-only rule (src/lib/keka/people.ts): board membership is durable,
+    // so a member added before this rule existed — or one who has since left
+    // — must not keep appearing here. Filtered on read as well as on write
+    // (see the members POST route), because the stored rows outlive the UI
+    // that created them.
+    .where(
+      and(
+        eq(observerBoardMembers.boardId, boardId),
+        isKekaPerson(sql`lower(${observerBoardMembers.email})`)
+      )
+    );
 
   if (members.length === 0) return stampCache([]);
 

@@ -2,6 +2,7 @@ import { and, eq, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { jiraIssues, jiraProjects, projectStatusMappings } from "@/lib/db/schema";
 import { loadAccountIdEmailMap } from "@/lib/jira/identity";
+import { loadKekaDirectory } from "@/lib/keka/directory";
 import {
   extractIssueOwnerEmail,
   extractIssueOwnerName,
@@ -80,6 +81,7 @@ export async function loadBugRows(
   restrictToOwners?: string[]
 ): Promise<BugRow[]> {
   const accountIdEmailMap = await loadAccountIdEmailMap();
+  const dir = await loadKekaDirectory();
 
   const rows = await db
     .select({
@@ -117,12 +119,22 @@ export async function loadBugRows(
     // bug owner, no matter how tempting a fallback it'd be when the field is
     // empty. A bug with no Issue Owner set is "Missing Issue Owner", full
     // stop; it does not become the assignee's bug.
-    const ownerEmail = extractIssueOwnerEmail(
+    const rawOwnerEmail = extractIssueOwnerEmail(
       r.customFields,
       r.issueOwnerFieldIds,
       accountIdEmailMap
     );
-    const ownerName = extractIssueOwnerName(r.customFields, r.issueOwnerFieldIds) ?? MISSING_ISSUE_OWNER;
+    // Keka-only rule (src/lib/keka/people.ts): an owner who isn't a current
+    // employee is treated as no owner at all, so the bug keeps showing up but
+    // under "Missing Issue Owner" instead of under a name that no longer
+    // belongs to anyone here. Dropping the row instead would hide a real open
+    // bug; this puts it exactly where the board already asks you to look.
+    // Mirrors the SQL gate in /api/bugs so both paths agree.
+    const isKekaOwner = dir.isActive(rawOwnerEmail);
+    const ownerEmail = isKekaOwner ? rawOwnerEmail : null;
+    const ownerName = isKekaOwner
+      ? extractIssueOwnerName(r.customFields, r.issueOwnerFieldIds) ?? MISSING_ISSUE_OWNER
+      : MISSING_ISSUE_OWNER;
     const environment = resolveEnvironment(
       r.customFields as Record<string, unknown> | null,
       r.environmentFieldIds

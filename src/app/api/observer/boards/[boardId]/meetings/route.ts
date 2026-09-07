@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { and, eq, gte, lt, inArray } from "drizzle-orm";
+import { and, eq, gte, lt, inArray, sql } from "drizzle-orm";
+import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
+import { isKekaPerson } from "@/lib/keka/people";
 import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import {
@@ -73,6 +75,7 @@ async function fetchMeetings(
   // calendar sync (their per-user tag). Listing all member tags lets us
   // invalidate precisely without touching unrelated boards.
   cacheTag(`board:${boardId}`);
+  cacheTag(KEKA_DIRECTORY_TAG);
 
   const [board] = await db
     .select({ id: observerBoards.id })
@@ -80,10 +83,19 @@ async function fetchMeetings(
     .where(eq(observerBoards.id, boardId));
   if (!board) return null;
 
+  // Keka-only rule (src/lib/keka/people.ts): board membership is durable, so a
+  // member added before this rule existed — or one who has since left — must
+  // not keep appearing here. Filtered on read as well as on write (see the
+  // members POST route), because the stored rows outlive the UI that added them.
   const members = await db
     .select()
     .from(observerBoardMembers)
-    .where(eq(observerBoardMembers.boardId, boardId));
+    .where(
+      and(
+        eq(observerBoardMembers.boardId, boardId),
+        isKekaPerson(sql`lower(${observerBoardMembers.email})`)
+      )
+    );
 
   for (const m of members) {
     cacheTag(userMeetingsTag(m.email));

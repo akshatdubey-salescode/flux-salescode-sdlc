@@ -4,6 +4,8 @@ import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import { jiraProjects, calendarEvents } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
+import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
+import { isKekaPerson } from "@/lib/keka/people";
 import { userMeetingsTag } from "@/lib/google/cache-tags";
 import { zonedDayStartToUtc } from "@/lib/google/time";
 
@@ -53,6 +55,7 @@ async function fetchMeetings(
   "use cache";
   cacheLife("minutes");
   cacheTag("projects", `project:${projectId}`);
+  cacheTag(KEKA_DIRECTORY_TAG);
 
   const [project] = await db
     .select({ id: jiraProjects.id })
@@ -70,6 +73,11 @@ async function fetchMeetings(
     WHERE ji.project_id = ${projectId}
       AND ji.assignee_email IS NOT NULL
       AND ji.assignee_email != ''
+      -- Keka-only rule (src/lib/keka/people.ts): a project's team is its
+      -- current colleagues, not every address that ever held one of its
+      -- issues. Without this, ex-employees kept their own row on the tab
+      -- forever, since their old issues never stop matching.
+      AND ${isKekaPerson(sql`lower(ji.assignee_email)`)}
     GROUP BY lower(ji.assignee_email)
     ORDER BY name
   `);

@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
 import { cacheLife, cacheTag } from "next/cache";
 import { requireAuth } from "@/lib/auth/server";
+import { loadKekaDirectory } from "@/lib/keka/directory";
 
 type Params = { params: Promise<{ email: string }> };
 
@@ -11,6 +12,14 @@ export async function GET(_req: Request, { params }: Params) {
     await requireAuth();
     const { email } = await params;
     const decodedEmail = decodeURIComponent(email).toLowerCase();
+
+    // Keka-only rule (src/lib/keka/people.ts). Every list that links here is
+    // now gated, so an ungated email arriving at this route is a hand-typed or
+    // bookmarked URL for someone who isn't a current colleague.
+    const dir = await loadKekaDirectory();
+    if (!dir.isActive(decodedEmail)) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     const data = await fetchDeveloperInsights(decodedEmail);
     return NextResponse.json(data);
   } catch (err) {
