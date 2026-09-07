@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { SprintWithItems, SprintOption, SprintWorkstream } from "@/lib/sprints/entries";
 import { SprintCard, type SpilloverTarget } from "./sprint-tracker-tab";
+import { Tip } from "./tip";
+import { EmailUpdateDialog, workstreamEmailDefaults } from "./email-update-dialog";
 
 /**
  * The full-screen body of /workstreams/[id] — one workstream, all its sprints,
@@ -132,22 +134,33 @@ export function WorkstreamFocus({ workstreamId, canManage }: { workstreamId: str
           </p>
         </div>
         <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            title="Copy shareable link to this workstream"
-            onClick={() => {
-              navigator.clipboard.writeText(window.location.href);
-              toast.success("Workstream link copied — anyone with project access can open it");
-            }}
-          >
-            <RiLinkM className="size-3.5" />
-          </Button>
-          {sprints.length > 0 && (
-            <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={handleExport} disabled={exporting}>
-              <RiDownload2Line className="size-3.5" />
-              {exporting ? "Exporting…" : "Report"}
+          <Tip label="Copy a shareable link to this workstream — anyone with access can open it">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => {
+                navigator.clipboard.writeText(window.location.href);
+                toast.success("Workstream link copied — anyone with project access can open it");
+              }}
+            >
+              <RiLinkM className="size-3.5" />
             </Button>
+          </Tip>
+          {sprints.length > 0 && (
+            <Tip label="Download one Excel report covering every sprint in this workstream">
+              <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={handleExport} disabled={exporting}>
+                <RiDownload2Line className="size-3.5" />
+                {exporting ? "Exporting…" : "Report"}
+              </Button>
+            </Tip>
+          )}
+          {canManage && sprints.length > 0 && (
+            <EmailUpdateDialog
+              endpoint={`/api/workstreams/${workstream.id}/email`}
+              projectId={workstream.projectId}
+              entityName={workstream.name}
+              buildDefaults={() => workstreamEmailDefaults(workstream.name, sprints)}
+            />
           )}
         </div>
       </div>
