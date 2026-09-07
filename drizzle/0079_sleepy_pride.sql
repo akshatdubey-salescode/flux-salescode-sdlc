@@ -1,0 +1,1 @@
+ALTER TABLE "scheduled_process_runs" ADD COLUMN "provider_message_ids" text[] DEFAULT '{}'::text[] NOT NULL;

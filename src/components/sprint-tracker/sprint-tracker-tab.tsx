@@ -1042,6 +1042,7 @@ export function SprintCard({
               {canManage && (
                 <EmailUpdateDialog
                   endpoint={`/api/sprints/${sprint.id}/email`}
+                  schedulesEndpoint={`/api/sprints/${sprint.id}/schedules`}
                   projectId={sprint.projectId}
                   entityName={sprint.name}
                   buildDefaults={() => sprintEmailDefaults(sprint)}

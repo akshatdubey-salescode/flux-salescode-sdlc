@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { RiCloseLine, RiMailSendLine } from "@remixicon/react";
+import { RiCloseLine, RiMailSendLine, RiRepeat2Line } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,13 +18,34 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { SprintWithItems } from "@/lib/sprints/entries";
+import { ScheduleList } from "@/components/scheduled-processes/schedule-list";
+import { usePersonSearch, type KnownPerson } from "@/hooks/use-person-search";
+import { istToday, nextRunAfter } from "@/lib/scheduled-processes/recurrence";
+import {
+  SCHEDULE_FREQUENCY_VALUES,
+  WEEKDAY_LABELS,
+  describeCadence,
+  ordinal,
+  validateCadence,
+  type CadenceSpec,
+  type ScheduleFrequency,
+  type ScheduleRow,
+} from "@/lib/scheduled-processes/types";
 import { Tip } from "./tip";
 
 type Stakeholder = { id: string; name: string; email: string };
-type KnownPerson = { email: string; name: string };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+type Tab = "compose" | "preview" | "schedule";
 
 /** Prefilled subject + message for a sprint update. */
 export function sprintEmailDefaults(sprint: SprintWithItems): { subject: string; message: string } {
@@ -57,20 +78,31 @@ export function workstreamEmailDefaults(
 }
 
 /**
- * Manual "send progress to stakeholders" for a sprint or a workstream:
- * recipients from the project's stakeholder list plus anyone known to the
- * system (typeahead over the same org-wide directory the Team Pulse member
+ * "Send progress to stakeholders" for a sprint or a workstream, once or on a
+ * repeat: recipients from the project's stakeholder list plus anyone known to
+ * the system (typeahead over the same org-wide directory the Team Pulse member
  * picker uses) or a raw email; the subject and top message are prefilled and
  * editable; the auto-generated progress view + Excel report ride along.
+ *
+ * The Repeat tab turns the very same compose state into a standing schedule
+ * that the midnight run sends — one form, so a recurring update is composed
+ * and previewed exactly like the one-off it repeats.
  */
 export function EmailUpdateDialog({
   endpoint,
+  schedulesEndpoint,
   projectId,
   entityName,
   buildDefaults,
 }: {
   /** POST target: /api/sprints/[id]/email or /api/workstreams/[id]/email. */
   endpoint: string;
+  /**
+   * GET/POST target for standing schedules, e.g. /api/sprints/[id]/schedules.
+   * Omitted where scheduling isn't wired up yet (workstreams) — the Repeat tab
+   * simply doesn't appear.
+   */
+  schedulesEndpoint?: string;
   /** Owning project for the stakeholder prefill; null for board sprints. */
   projectId: string | null;
   /** Shown in the dialog copy ("progress of X"). */
@@ -82,15 +114,26 @@ export function EmailUpdateDialog({
   const [stakeholders, setStakeholders] = useState<Stakeholder[]>([]);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [extraRecipients, setExtraRecipients] = useState<KnownPerson[]>([]);
-  const [personQuery, setPersonQuery] = useState("");
-  const [suggestions, setSuggestions] = useState<KnownPerson[]>([]);
+  // Shared with the schedule list's recipients editor, so both pickers search
+  // the same directory the same way.
+  const {
+    query: personQuery,
+    setQuery: setPersonQuery,
+    suggestions,
+    clear: clearPersonSearch,
+  } = usePersonSearch();
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
-  const [tab, setTab] = useState<"compose" | "preview">("compose");
+  const [tab, setTab] = useState<Tab>("compose");
+  const [frequency, setFrequency] = useState<ScheduleFrequency>("weekly");
+  const [dayOfWeek, setDayOfWeek] = useState(1);
+  const [dayOfMonth, setDayOfMonth] = useState(1);
+  const [endsOn, setEndsOn] = useState("");
+  const [schedules, setSchedules] = useState<ScheduleRow[]>([]);
+  const [scheduling, setScheduling] = useState(false);
   const [preview, setPreview] = useState<{ subject: string; html: string } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Cleared once the user types in the subject box, so we stop overwriting it. */
   const subjectUntouched = useRef(true);
 
@@ -108,6 +151,20 @@ export function EmailUpdateDialog({
       // one — the only copy that quotes live risk counts — is composed on the
       // server. Ask for it and swap it in, unless the user is already typing.
       void loadServerSubject();
+      void loadSchedules();
+    }
+  }
+
+  /** What's already scheduled on this sprint — the Repeat tab's list. */
+  async function loadSchedules() {
+    if (!schedulesEndpoint) return;
+    try {
+      const res = await fetch(schedulesEndpoint, { cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { schedules: ScheduleRow[] };
+      setSchedules(data.schedules ?? []);
+    } catch {
+      // A failed list shouldn't block composing — the tab just shows none.
     }
   }
 
@@ -152,8 +209,9 @@ export function EmailUpdateDialog({
   }
 
   function handleTabChange(value: string) {
-    setTab(value as "compose" | "preview");
+    setTab(value as Tab);
     if (value === "preview") void loadPreview();
+    if (value === "schedule") void loadSchedules();
   }
 
   // Project stakeholders pre-fill the recipient list (all selected by
@@ -176,31 +234,6 @@ export function EmailUpdateDialog({
     };
   }, [open, projectId]);
 
-  // Typeahead over everyone the system knows (Keka directory + Jira
-  // assignees/reporters + board members) — the same source the Team Pulse
-  // member picker searches.
-  function onPersonQueryChange(value: string) {
-    setPersonQuery(value);
-    if (searchTimer.current) clearTimeout(searchTimer.current);
-    const q = value.trim();
-    if (!q) {
-      setSuggestions([]);
-      return;
-    }
-    searchTimer.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/observer/developers?q=${encodeURIComponent(q)}&limit=8`, {
-          cache: "no-store",
-        });
-        if (!res.ok) throw new Error();
-        const rows = (await res.json()) as { email: string; name: string }[];
-        setSuggestions(rows.map((r) => ({ email: r.email, name: r.name })));
-      } catch {
-        setSuggestions([]);
-      }
-    }, 250);
-  }
-
   const chosenEmails = useMemo(
     () => new Set([...checked, ...extraRecipients.map((p) => p.email.toLowerCase())]),
     [checked, extraRecipients]
@@ -212,8 +245,7 @@ export function EmailUpdateDialog({
     if (!chosenEmails.has(key)) {
       setExtraRecipients((cur) => [...cur, { name: p.name, email: key }]);
     }
-    setPersonQuery("");
-    setSuggestions([]);
+    clearPersonSearch();
   }
 
   function handlePersonKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -257,9 +289,52 @@ export function EmailUpdateDialog({
       );
       setOpen(false);
       setExtraRecipients([]);
-      setPersonQuery("");
+      clearPersonSearch();
     } finally {
       setSending(false);
+    }
+  }
+
+  const cadence: CadenceSpec = { frequency, dayOfWeek, dayOfMonth };
+  const cadenceError = validateCadence(cadence);
+  // Same function the server uses to stamp next_run_on, so the date promised
+  // here is the date the row will actually carry.
+  const firstSend = nextRunAfter(cadence, istToday(), endsOn || null);
+  const canSchedule =
+    !!schedulesEndpoint &&
+    recipients.length > 0 &&
+    !!subject.trim() &&
+    !!message.trim() &&
+    !cadenceError &&
+    !("ended" in firstSend) &&
+    !scheduling;
+
+  async function handleSchedule() {
+    if (!schedulesEndpoint || !canSchedule) return;
+    setScheduling(true);
+    try {
+      const res = await fetch(schedulesEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipients,
+          subject: subject.trim(),
+          message,
+          frequency,
+          dayOfWeek: frequency === "weekly" ? dayOfWeek : null,
+          dayOfMonth: frequency === "monthly" ? dayOfMonth : null,
+          endsOn: endsOn || null,
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(body.error ?? "Couldn't save the schedule");
+        return;
+      }
+      toast.success(`Scheduled — ${describeCadence(cadence).toLowerCase()}`);
+      void loadSchedules();
+    } finally {
+      setScheduling(false);
     }
   }
 
@@ -287,6 +362,14 @@ export function EmailUpdateDialog({
           <TabsList>
             <TabsTrigger value="compose">Compose</TabsTrigger>
             <TabsTrigger value="preview">Preview</TabsTrigger>
+            {schedulesEndpoint && (
+              <TabsTrigger value="schedule">
+                Repeat
+                {schedules.some((row) => !row.pausedAt && !row.stoppedAt) && (
+                  <span className="ml-1 text-[10px] text-emerald-600 dark:text-emerald-400">●</span>
+                )}
+              </TabsTrigger>
+            )}
           </TabsList>
           <TabsContent value="compose" className="mt-3 outline-none">
         <div className="space-y-3">
@@ -332,7 +415,7 @@ export function EmailUpdateDialog({
             <div className="relative">
               <Input
                 value={personQuery}
-                onChange={(e) => onPersonQueryChange(e.target.value)}
+                onChange={(e) => setPersonQuery(e.target.value)}
                 onKeyDown={handlePersonKeyDown}
                 placeholder="Type a name (e.g. Rohit) or an email, Enter to add"
               />
@@ -404,21 +487,141 @@ export function EmailUpdateDialog({
               </div>
             )}
           </TabsContent>
+          {schedulesEndpoint && (
+            <TabsContent value="schedule" className="mt-3 space-y-4 outline-none">
+              <div className="space-y-3 rounded-md border border-border p-3">
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">How often</Label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Select
+                      value={frequency}
+                      onValueChange={(value) => setFrequency(value as ScheduleFrequency)}
+                    >
+                      <SelectTrigger className="h-8 w-[130px] text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SCHEDULE_FREQUENCY_VALUES.map((value) => (
+                          <SelectItem key={value} value={value} className="text-xs">
+                            {value === "daily" ? "Daily" : value === "weekly" ? "Weekly" : "Monthly"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    {frequency === "weekly" && (
+                      <Select
+                        value={String(dayOfWeek)}
+                        onValueChange={(value) => setDayOfWeek(Number(value))}
+                      >
+                        <SelectTrigger className="h-8 w-[140px] text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {WEEKDAY_LABELS.map((label, index) => (
+                            <SelectItem key={label} value={String(index)} className="text-xs">
+                              {label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+
+                    {frequency === "monthly" && (
+                      <Select
+                        value={String(dayOfMonth)}
+                        onValueChange={(value) => setDayOfMonth(Number(value))}
+                      >
+                        <SelectTrigger className="h-8 w-[140px] text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-64">
+                          {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+                            <SelectItem key={day} value={String(day)} className="text-xs">
+                              {ordinal(day)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">
+                    Stop after this date — optional
+                  </Label>
+                  <Input
+                    type="date"
+                    value={endsOn}
+                    min={istToday()}
+                    onChange={(e) => setEndsOn(e.target.value)}
+                    className="h-8 w-[170px] text-xs"
+                  />
+                </div>
+
+                <p className="text-[11px] text-muted-foreground">
+                  {"ended" in firstSend ? (
+                    <span className="text-destructive">
+                      That end date lands before the first send — pick a later one.
+                    </span>
+                  ) : (
+                    <>
+                      {describeCadence(cadence)}, IST. First send{" "}
+                      <span className="font-medium text-foreground">{firstSend.nextRunOn}</span>. Uses
+                      the recipients, subject and message from the Compose tab, but the progress
+                      figures and the attached report are rebuilt from live data on every send.
+                    </>
+                  )}
+                </p>
+                {recipients.length === 0 && (
+                  <p className="text-[11px] text-destructive">
+                    Pick recipients on the Compose tab first.
+                  </p>
+                )}
+
+                <Button size="sm" disabled={!canSchedule} onClick={handleSchedule}>
+                  <RiRepeat2Line className="size-3.5" />
+                  {scheduling ? "Scheduling…" : "Schedule it"}
+                </Button>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-[11px] text-muted-foreground">
+                  Scheduled for this sprint
+                </Label>
+                <ScheduleList
+                  schedules={schedules}
+                  onChanged={loadSchedules}
+                  emptyLabel="Nothing scheduled yet — set a cadence above and this update will go out on its own."
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Scheduled updates go out at midnight IST. When the sprint closes, one final
+                  wrap-up is sent and the schedule stops on its own.
+                </p>
+              </div>
+            </TabsContent>
+          )}
         </Tabs>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button
-            size="sm"
-            disabled={recipients.length === 0 || !subject.trim() || !message.trim() || sending}
-            onClick={handleSend}
-          >
-            <RiMailSendLine className="size-3.5" />
-            {sending
-              ? "Sending…"
-              : `Send to ${recipients.length || "…"} recipient${recipients.length === 1 ? "" : "s"}`}
-          </Button>
+          {/* The Repeat tab has its own "Schedule it" button, so the one-off
+              Send is hidden there rather than sitting next to it inviting a
+              double action. */}
+          {tab !== "schedule" && (
+            <Button
+              size="sm"
+              disabled={recipients.length === 0 || !subject.trim() || !message.trim() || sending}
+              onClick={handleSend}
+            >
+              <RiMailSendLine className="size-3.5" />
+              {sending
+                ? "Sending…"
+                : `Send to ${recipients.length || "…"} recipient${recipients.length === 1 ? "" : "s"}`}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -17,6 +17,7 @@ import {
 import { sql } from "drizzle-orm";
 import { DELAY_CATEGORY_VALUES } from "../delay-tracker/categories";
 import { DELIVERY_STATUS_VALUES } from "../deliveries/status";
+import { SCHEDULE_FREQUENCY_VALUES } from "../scheduled-processes/types";
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -2034,3 +2035,148 @@ export const sprintNotes = pgTable(
 
 export type SprintNote = typeof sprintNotes.$inferSelect;
 export type NewSprintNote = typeof sprintNotes.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Scheduled Processes — the "run this at midnight" table.
+//
+// One row is one standing instruction: WHAT to run (`process`, the key into
+// the handler registry), WHAT it runs against (`target_id`), the message it
+// carries, and WHEN it next comes due (`next_run_on`). The nightly cron reads
+// every row whose next_run_on has arrived, runs its handler, and advances the
+// row. Nothing else schedules anything — no per-row time of day, no cron
+// expressions in the database.
+//
+// Two deliberate shapes:
+//
+//   * `process` is plain text, not a pg enum, so a second surface (bugs,
+//     deliveries, a delay-tracker digest) becomes a handler in code rather
+//     than a migration. registry.ts is the source of truth for real names.
+//   * `next_run_on` is a materialized DATE rather than a cadence re-derived in
+//     SQL each night, which makes "what's due" one indexed scan and keeps all
+//     recurrence math in one tested function (recurrence.ts).
+//
+// Three ways a schedule can be inactive, and they mean different things:
+// paused_at is a reversible human decision, stopped_at is terminal and system-
+// decided (its target closed or was deleted, or it hit its end date), and
+// deleted_at is the soft-delete idiom used by sprints and delay_logs so a
+// removed schedule's run history stays readable.
+// ---------------------------------------------------------------------------
+
+export const scheduleFrequencyEnum = pgEnum("schedule_frequency", SCHEDULE_FREQUENCY_VALUES);
+
+export const scheduledProcesses = pgTable(
+  "scheduled_processes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Registry key — "sprint_progress_email" today.
+    process: text("process").notNull(),
+    // What the process runs against; a sprint id for every process so far.
+    // Not a foreign key: the column has to address rows in whichever table a
+    // future process targets, and the handler resolves (and re-checks) it.
+    targetId: uuid("target_id").notNull(),
+    recipients: text("recipients")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    subject: text("subject").notNull(),
+    message: text("message").notNull(),
+    // Process-specific extras, for a handler that needs more than the mail
+    // fields above. Nothing reads it yet.
+    params: jsonb("params"),
+    frequency: scheduleFrequencyEnum("frequency").notNull(),
+    // 0–6, Sunday-first (JS getUTCDay). Weekly only.
+    dayOfWeek: integer("day_of_week"),
+    // 1–31, clamped to the month's real length at run time. Monthly only.
+    dayOfMonth: integer("day_of_month"),
+    // The whole scheduler, in one column: an IST calendar day.
+    nextRunOn: date("next_run_on").notNull(),
+    endsOn: date("ends_on"),
+    lastRunOn: date("last_run_on"),
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
+    pausedBy: text("paused_by").references(() => users.id),
+    stoppedAt: timestamp("stopped_at", { withTimezone: true }),
+    // target_closed | target_deleted | ended — see STOP_REASON_VALUES.
+    stopReason: text("stop_reason"),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    // Denormalized (the created_by_name idiom across sprints and deliveries)
+    // so a scheduled mail can name its sender without joining users — the
+    // midnight run has no session to read a name from.
+    createdByName: text("created_by_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: text("deleted_by").references(() => users.id),
+    deletedByName: text("deleted_by_name"),
+  },
+  (t) => [
+    // The nightly query: everything due, still live. Partial, so the index
+    // holds only rows that can actually come due.
+    index("scheduled_processes_due_idx")
+      .on(t.nextRunOn)
+      .where(sql`paused_at IS NULL AND stopped_at IS NULL AND deleted_at IS NULL`),
+    index("scheduled_processes_target_idx").on(t.process, t.targetId),
+    index("scheduled_processes_creator_idx").on(t.createdBy),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Scheduled Process Runs — one row per attempt, and the claim that makes the
+// nightly run idempotent.
+//
+// The cron INSERTs its row (status "running") BEFORE doing any work, so the
+// unique index below is what stops a double trigger — a retried webhook, two
+// overlapping invocations — from mailing the same recipients twice: the second
+// inserter conflicts and skips. The index is partial because "Run now" is a
+// deliberate human action that may legitimately repeat on a day the cron has
+// already covered.
+//
+// It doubles as the answer to the only question anyone asks a schedule list:
+// did Monday's actually go out, and if not, why.
+// ---------------------------------------------------------------------------
+
+export const scheduledProcessRuns = pgTable(
+  "scheduled_process_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    scheduleId: uuid("schedule_id")
+      .notNull()
+      .references(() => scheduledProcesses.id, { onDelete: "cascade" }),
+    // The IST day this run is FOR (not when it happened) — that's what makes
+    // "already done tonight" a uniqueness question.
+    runOn: date("run_on").notNull(),
+    // cron | manual
+    trigger: text("trigger").notNull().default("cron"),
+    // running | sent | failed | skipped
+    status: text("status").notNull().default("running"),
+    recipientCount: integer("recipient_count").notNull().default(0),
+    // What actually went out, so the log survives a later edit to the schedule.
+    subject: text("subject"),
+    // Resend's ids for the message(s) this run sent — one per recipient chunk.
+    // A successful send only means Resend ACCEPTED the mail; these ids are what
+    // let us go back and ask what happened to it afterwards (delivered,
+    // bounced, complained), which is the only honest answer to "did it arrive?".
+    providerMessageIds: text("provider_message_ids")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    // The failure, or why a run was skipped.
+    detail: text("detail"),
+    durationMs: integer("duration_ms"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [
+    // "trigger" is quoted deliberately — drizzle quotes identifiers in the DDL
+    // it generates, so a hand-written predicate has to as well.
+    uniqueIndex("scheduled_process_runs_cron_day_idx")
+      .on(t.scheduleId, t.runOn)
+      .where(sql`"trigger" = 'cron'`),
+    index("scheduled_process_runs_schedule_idx").on(t.scheduleId, t.startedAt),
+  ]
+);
+
+export type ScheduledProcess = typeof scheduledProcesses.$inferSelect;
+export type NewScheduledProcess = typeof scheduledProcesses.$inferInsert;
+export type ScheduledProcessRun = typeof scheduledProcessRuns.$inferSelect;
