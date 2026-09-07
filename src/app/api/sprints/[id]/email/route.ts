@@ -5,18 +5,23 @@ import { canManageDeliveries } from "@/lib/auth/types";
 import { authOptions } from "@/lib/auth/nextauth-options";
 import { isValidUuid } from "@/lib/validation";
 import { fetchSprintById } from "@/lib/sprints/entries";
-import { buildSprintWorkbook } from "@/lib/sprints/report";
-import { buildSprintEmail } from "@/lib/sprints/email-progress";
+import {
+  MAX_MESSAGE,
+  MAX_RECIPIENTS,
+  MAX_SUBJECT,
+  previewSprintProgressEmail,
+  sendSprintProgressEmail,
+} from "@/lib/sprints/send-progress-email";
 
 // Manual "send progress to stakeholders" — an on-demand email with a visual
 // progress summary (bar + stat tiles + item table), a deep link back to the
-// sprint in Flux, and the full Excel report attached. (Scheduling can layer
-// on top of this route later.)
+// sprint in Flux, and the full Excel report attached.
+//
+// Auth, validation and the HTTP response only: the email itself is built and
+// sent by send-progress-email.ts, which the midnight scheduler calls too, so
+// a scheduled update can never drift from what this route previews.
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MAX_RECIPIENTS = 25;
-const MAX_SUBJECT = 200;
-const MAX_MESSAGE = 4000;
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -66,40 +71,29 @@ export async function POST(req: NextRequest, { params }: Params) {
   const session = await getServerSession(authOptions);
   const senderName = session?.user?.name?.trim() || user.email;
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin).replace(/\/$/, "");
-  const sprintUrl = `${appUrl}/sprints/${sprint.id}`;
 
   // Preview mode: return the exact subject + HTML that a send would produce
   // (same builder, same inputs) without sending anything.
   if (isPreview) {
-    const built = buildSprintEmail(sprint, message, senderName, sprintUrl);
-    return NextResponse.json({
-      subject: customSubject || built.subject,
-      html: built.html,
+    return NextResponse.json(
+      previewSprintProgressEmail({ sprint, subject: customSubject, message, senderName, appUrl })
+    );
+  }
+
+  try {
+    const sent = await sendSprintProgressEmail({
+      sprint,
+      recipients,
+      subject: customSubject,
+      message,
+      senderName,
+      appUrl,
     });
+    return NextResponse.json({ ok: true, sent: sent.recipientCount });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Email failed";
+    // A missing API key is configuration, not a transport failure.
+    const status = msg.includes("RESEND_API_KEY") ? 503 : 502;
+    return NextResponse.json({ error: msg }, { status });
   }
-
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: "Email is not configured (RESEND_API_KEY missing)" }, { status: 503 });
-  }
-
-  const workbook = await buildSprintWorkbook([sprint]);
-  const safeName = sprint.name.replace(/[^\w-]+/g, "_");
-
-  const built = buildSprintEmail(sprint, message, senderName, sprintUrl);
-
-  const { Resend } = await import("resend");
-  const client = new Resend(apiKey);
-  const { error } = await client.emails.send({
-    from: process.env.EMAIL_FROM ?? "Flux <noreply@example.com>",
-    to: recipients,
-    subject: customSubject || built.subject,
-    html: built.html,
-    attachments: [{ filename: `${safeName}-report.xlsx`, content: Buffer.from(workbook) }],
-  });
-  if (error) {
-    return NextResponse.json({ error: `Email failed: ${error.message}` }, { status: 502 });
-  }
-
-  return NextResponse.json({ ok: true, sent: recipients.length });
 }

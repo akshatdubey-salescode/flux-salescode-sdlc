@@ -540,6 +540,20 @@
       "when": 1788797846346,
       "tag": "0077_slippery_lily_hollister",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1788802661431,
+      "tag": "0078_overrated_doctor_spectrum",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1788803494868,
+      "tag": "0079_sleepy_pride",
+      "breakpoints": true
     }
   ]
 }

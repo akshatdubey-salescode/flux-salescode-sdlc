@@ -7,7 +7,7 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
-import { RiFlag2Line, RiRefreshLine, RiLightbulbLine, RiDeleteBin2Line, RiCalendarLine, RiCustomerService2Line, RiArrowLeftRightLine, RiGithubLine, RiGitMergeLine, RiGitBranchLine, RiBuilding2Line, RiMegaphoneLine, RiTeamLine, RiGroupLine, RiTruckLine } from "@remixicon/react";
+import { RiFlag2Line, RiRefreshLine, RiLightbulbLine, RiDeleteBin2Line, RiCalendarLine, RiCustomerService2Line, RiArrowLeftRightLine, RiGithubLine, RiGitMergeLine, RiGitBranchLine, RiBuilding2Line, RiMegaphoneLine, RiTeamLine, RiGroupLine, RiTruckLine, RiMailSendLine } from "@remixicon/react";
 
 const TOOLS = [
   {
@@ -57,6 +57,12 @@ const TOOLS = [
     icon: RiLightbulbLine,
     title: "Feature Requests",
     description: "View all feature requests submitted by users across the platform.",
+  },
+  {
+    href: "/superuser/scheduled-emails",
+    icon: RiMailSendLine,
+    title: "Scheduled Emails",
+    description: "Every recurring progress email in Flux — next run, last result, and pause/send-now/delete for any of them.",
   },
   {
     href: "/superuser/calendar-sync",
