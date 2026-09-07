@@ -6,7 +6,7 @@ import { requireAuth } from "@/lib/auth/server";
 import { FRESHDESK_CUSTOM_FIELD } from "@/lib/freshdesk/sync";
 import { BUG_ISSUE_TYPES, BUG_INVALID_STATUSES } from "@/lib/scorecard/config";
 import { currentFiscalQuarterChip } from "@/lib/date-utils";
-import { normalizeEnvironment, priorityBucket, isDoneOrCancelled, MISSING_ISSUE_OWNER, type BugRow } from "@/lib/bug-summary";
+import { normalizeEnvironment, priorityBucket, bugBoardPriorityBucket, isDoneOrCancelled, MISSING_ISSUE_OWNER, type BugRow } from "@/lib/bug-summary";
 
 // Org-wide flat bug list for the Bug Board's "Export to Excel" button.
 // Deliberately its OWN query, not the shared loadBugRows() every other
@@ -54,7 +54,12 @@ export async function GET(request: NextRequest) {
     const rows = await fetchAllBugs(start, end);
 
     const filtered = rows.filter((b) => {
-      if (priorities.size > 0 && !priorities.has((b.priority ?? "").toUpperCase())) return false;
+      // Bucket b.priority the same way the board's own P1-P4 columns/chips
+      // do (bugBoardPriorityBucket) — comparing the raw priority string
+      // directly against the selected P1-P4 chips undercounted every
+      // project using named priorities ("Highest"/"Critical"/etc), the same
+      // bug fixed in fetchBugBoard/fetchBugIssues.
+      if (priorities.size > 0 && !priorities.has(bugBoardPriorityBucket(b.priority))) return false;
       if (env && b.environment !== env) return false;
       if (projectIds.length > 0 && !projectIds.includes(b.projectId)) return false;
       if (ownerKeys.length > 0 && (!b.ownerEmail || !ownerKeys.includes(b.ownerEmail))) return false;

@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth/server";
 import { BUG_ISSUE_TYPES, BUG_INVALID_STATUSES } from "@/lib/scorecard/config";
 import { currentFiscalQuarterChip } from "@/lib/date-utils";
+import { normalizeEnvironment, priorityBucketSql } from "@/lib/bug-summary";
+import { FRESHDESK_CUSTOM_FIELD } from "@/lib/freshdesk/sync";
 
 // Individual, linkable bug rows for one project (or the no-owner bucket) —
 // the reliable alternative to jiraOwnerBugLink's generated JQL (aggregate.ts),
@@ -40,6 +42,8 @@ export async function GET(request: NextRequest) {
     const unassignedOnly = searchParams.get("unassignedOnly") === "true";
     const priority = searchParams.get("priority");
     const ownerKey = searchParams.get("ownerKey");
+    const env = searchParams.get("env");
+    const cfOnly = searchParams.get("cfOnly") === "true";
     if (!projectId && !unassignedOnly) {
       return NextResponse.json({ error: "projectId or unassignedOnly is required" }, { status: 400 });
     }
@@ -50,7 +54,7 @@ export async function GET(request: NextRequest) {
     const from = rawFrom && ISO_DATE.test(rawFrom) ? rawFrom : q?.start;
     const to = rawTo && ISO_DATE.test(rawTo) ? rawTo : q?.end;
 
-    const rows = await fetchBugIssues({ projectId, unassignedOnly, priority, ownerKey, from, to });
+    const rows = await fetchBugIssues({ projectId, unassignedOnly, priority, ownerKey, from, to, env, cfOnly });
     return NextResponse.json({ issues: rows, truncated: rows.length >= MAX_ROWS });
   } catch (err) {
     console.error("[bugs/issues] error:", err);
@@ -66,6 +70,8 @@ export type BugIssueRow = {
   statusCategory: string | null;
   projectName: string;
   jiraBaseUrl: string;
+  environment: string;
+  isCustomerFound: boolean;
 };
 
 async function fetchBugIssues({
@@ -75,6 +81,8 @@ async function fetchBugIssues({
   ownerKey,
   from,
   to,
+  env,
+  cfOnly,
 }: {
   projectId: string | null;
   unassignedOnly: boolean;
@@ -82,15 +90,28 @@ async function fetchBugIssues({
   ownerKey: string | null;
   from?: string;
   to?: string;
+  env: string | null;
+  cfOnly: boolean;
 }): Promise<BugIssueRow[]> {
   const bugTypes = sql.join([...BUG_ISSUE_TYPES].map((t) => sql`${t}`), sql`, `);
   const invalidStatuses = sql.join([...BUG_INVALID_STATUSES].map((s) => sql`${s}`), sql`, `);
   const apostropheClass = "['’`]";
+  const priorityBucketExpr = sql.raw(priorityBucketSql("ji.priority"));
+  const fdField = sql.raw(`'${FRESHDESK_CUSTOM_FIELD}'`);
 
   const fromFilter = from ? sql` AND ji.jira_created_at >= ${from}::date` : sql``;
   const toFilter = to ? sql` AND ji.jira_created_at < (${to}::date + interval '1 day')` : sql``;
   const projectFilter = projectId ? sql` AND jp.id = ${projectId}` : sql``;
-  const priorityFilter = priority ? sql` AND ji.priority = ${priority}` : sql``;
+  // `priority` is one of the Bug Board's bucket keys ("P1".."P4", see
+  // ALL_PRIORITY_COLS's `jql` in bug-board-client.tsx) — must compare
+  // against the SAME bucketing fetchBugBoard uses (priorityBucketSql), not
+  // the raw ji.priority string, or a project using named priorities
+  // ("Highest"/"Critical"/etc) would show 0 rows for every P1-P4 click even
+  // though the summary cell it was clicked from reports a nonzero count.
+  const priorityFilter = priority ? sql` AND (${priorityBucketExpr}) = ${priority}` : sql``;
+  const cfOnlyFilter = cfOnly
+    ? sql` AND ji.custom_fields ? ${fdField} AND COALESCE(ji.custom_fields->>${fdField}, '') <> ''`
+    : sql``;
   // Mirrors the owner-resolution LATERAL join in fetchBugBoard (/api/bugs) —
   // a project's candidate owner-field IDs, first populated one wins. No
   // populated field anywhere = genuinely unassigned.
@@ -121,6 +142,14 @@ async function fetchBugIssues({
     `
     : sql``;
 
+  // The env chip's value is a label normalizeEnvironment() derived from raw
+  // Jira data (see fetchBugBoard) — there's no SQL-side equivalent of that
+  // normalization, so env is matched in JS after fetching env_raw below.
+  // That means it can't be pushed into the SQL LIMIT the way the other
+  // filters are, so fetch a larger candidate set whenever an env filter is
+  // active and only cap the final, env-filtered result to MAX_ROWS.
+  const fetchLimit = env ? MAX_ROWS * 4 : MAX_ROWS;
+
   const res = await db.execute(sql`
     SELECT
       ji.jira_key AS jira_key,
@@ -129,7 +158,12 @@ async function fetchBugIssues({
       ji.status AS status,
       ji.status_category AS status_category,
       jp.name AS project_name,
-      jp.jira_base_url AS jira_base_url
+      jp.jira_base_url AS jira_base_url,
+      (
+        ji.custom_fields ? ${fdField}
+        AND COALESCE(ji.custom_fields->>${fdField}, '') <> ''
+      ) AS is_customer,
+      COALESCE(envf.env_raw, NULLIF(ji.custom_fields->>'environment', '')) AS env_raw
     FROM jira_issues ji
     JOIN jira_projects jp ON jp.id = ji.project_id
     LEFT JOIN LATERAL (
@@ -145,19 +179,32 @@ async function fetchBugIssues({
         )
       ORDER BY f.ord LIMIT 1
     ) ow ON true
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(
+               NULLIF(ji.custom_fields->ef.fid->>'value', ''),
+               NULLIF(ji.custom_fields->>ef.fid, '')
+             ) AS env_raw
+      FROM unnest(COALESCE(jp.environment_field_ids, '{}'::text[]))
+           WITH ORDINALITY AS ef(fid, ord)
+      WHERE COALESCE(
+              NULLIF(ji.custom_fields->ef.fid->>'value', ''),
+              NULLIF(ji.custom_fields->>ef.fid, '')
+            ) IS NOT NULL
+      ORDER BY ef.ord LIMIT 1
+    ) envf ON true
     WHERE lower(trim(ji.issue_type)) IN (${bugTypes})
       AND btrim(lower(regexp_replace(
             regexp_replace(ji.status, ${apostropheClass}, '', 'g'),
             '\s+', ' ', 'g'
           ))) NOT IN (${invalidStatuses})
-      ${fromFilter}${toFilter}${projectFilter}${priorityFilter}${unassignedFilter}${ownerFilter}
+      ${fromFilter}${toFilter}${projectFilter}${priorityFilter}${unassignedFilter}${ownerFilter}${cfOnlyFilter}
     ORDER BY
-      CASE ji.priority WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 WHEN 'P3' THEN 3 WHEN 'P4' THEN 4 ELSE 5 END,
+      CASE (${priorityBucketExpr}) WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 WHEN 'P3' THEN 3 WHEN 'P4' THEN 4 ELSE 5 END,
       ji.jira_created_at DESC
-    LIMIT ${MAX_ROWS}
+    LIMIT ${fetchLimit}
   `);
 
-  return (res.rows as Record<string, unknown>[]).map((r) => ({
+  const rows = (res.rows as Record<string, unknown>[]).map((r) => ({
     jiraKey: r.jira_key as string,
     summary: r.summary as string,
     priority: (r.priority as string | null) ?? null,
@@ -165,5 +212,10 @@ async function fetchBugIssues({
     statusCategory: (r.status_category as string | null) ?? null,
     projectName: r.project_name as string,
     jiraBaseUrl: r.jira_base_url as string,
+    environment: normalizeEnvironment(r.env_raw as string | null),
+    isCustomerFound: r.is_customer === true,
   }));
+
+  const filtered = env ? rows.filter((r) => r.environment === env) : rows;
+  return filtered.slice(0, MAX_ROWS);
 }

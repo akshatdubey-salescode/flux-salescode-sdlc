@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { RiLinkM } from "@remixicon/react";
+import { RiLinkM, RiFolderLine } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { useDebouncedSearch } from "./use-debounced-search";
@@ -28,6 +27,7 @@ export function LinkedIssuePicker({
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<string>(value?.projectId ?? "");
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
 
@@ -55,30 +55,44 @@ export function LinkedIssuePicker({
 
   const selectedProject = projects.find((p) => p.id === projectId);
 
+  function handleProjectSelect(id: string) {
+    setProjectId(id);
+    setQuery("");
+    setProjectMenuOpen(false);
+    // The already-selected issue belongs to the OLD project — clear it
+    // so a stale cross-project pairing can't be submitted while the
+    // dropdown visibly shows the newly picked project.
+    if (value && value.projectId !== id) onChange(null);
+  }
+
   return (
     <div className="flex gap-2">
-      <Select
-        value={projectId}
-        onValueChange={(id) => {
-          setProjectId(id);
-          setQuery("");
-          // The already-selected issue belongs to the OLD project — clear it
-          // so a stale cross-project pairing can't be submitted while the
-          // dropdown visibly shows the newly picked project.
-          if (value && value.projectId !== id) onChange(null);
-        }}
-      >
-        <SelectTrigger size="sm" className="w-36">
-          <SelectValue placeholder="Project…" />
-        </SelectTrigger>
-        <SelectContent>
-          {projects.map((p) => (
-            <SelectItem key={p.id} value={p.id}>
-              {p.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <Popover open={projectMenuOpen} onOpenChange={setProjectMenuOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" size="sm" className="w-36 justify-start gap-1.5">
+            <RiFolderLine className="size-3.5 shrink-0 opacity-60" />
+            <span className={selectedProject ? "truncate" : "truncate text-muted-foreground"}>
+              {selectedProject ? selectedProject.name : "Project…"}
+            </span>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-64 p-0">
+          <Command>
+            <CommandInput placeholder="Search projects…" />
+            <CommandList>
+              <CommandEmpty>No matching project.</CommandEmpty>
+              <CommandGroup>
+                {projects.map((p) => (
+                  <CommandItem key={p.id} value={`${p.name} ${p.jiraProjectKey}`} onSelect={() => handleProjectSelect(p.id)}>
+                    <span className="truncate">{p.name}</span>
+                    <span className="ml-1 shrink-0 text-muted-foreground">{p.jiraProjectKey}</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
 
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>

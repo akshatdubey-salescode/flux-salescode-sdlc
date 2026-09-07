@@ -765,6 +765,8 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
                 dateFrom={resolvedFrom}
                 dateTo={resolvedTo}
                 showOpenColumn={showOpenColumn}
+                env={selEnv ?? undefined}
+                cfOnly={cfOnly}
               />
             </TabsContent>
             <TabsContent value="source" className="mt-3">
@@ -998,13 +1000,18 @@ function FoundBreakdown({ counts, prioritySet }: { counts: Counts; prioritySet: 
 // ---------------------------------------------------------------------------
 
 function ProjectSplit({
-  row, visiblePriorityCols, dateFrom, dateTo, showOpenColumn,
+  row, visiblePriorityCols, dateFrom, dateTo, showOpenColumn, env, cfOnly,
 }: {
   row: OwnerRow;
   visiblePriorityCols: PriorityCol[];
   dateFrom?: string;
   dateTo?: string;
   showOpenColumn: boolean;
+  /** The board's current Env chip / "Customer-found only" toggle — forwarded
+   * to the per-project issue-list modal so it always reflects exactly what
+   * this breakdown table is showing, the same way dateFrom/dateTo already do. */
+  env?: string;
+  cfOnly: boolean;
 }) {
   const projAvgTotal = row.projects.length > 0 ? row.total / row.projects.length : 0;
   // "__total__" is the synthetic grand-total row (everyone, not one person) —
@@ -1059,6 +1066,8 @@ function ProjectSplit({
                 ownerName={row.name}
                 unassignedOnly={row.isUnassigned}
                 showOpenColumn={showOpenColumn}
+                env={env}
+                cfOnly={cfOnly}
               />
             ))}
           </tbody>
@@ -1069,7 +1078,7 @@ function ProjectSplit({
 }
 
 function ProjectRowView({
-  p, ownerTotal, projAvgTotal, visiblePriorityCols, dateFrom, dateTo, ownerKey, ownerName, unassignedOnly, showOpenColumn,
+  p, ownerTotal, projAvgTotal, visiblePriorityCols, dateFrom, dateTo, ownerKey, ownerName, unassignedOnly, showOpenColumn, env, cfOnly,
 }: {
   p: ProjectBreakdown;
   ownerTotal: number;
@@ -1084,6 +1093,8 @@ function ProjectRowView({
   /** True only for the real "no issue owner" bucket — never for the grand-total row. */
   unassignedOnly?: boolean;
   showOpenColumn: boolean;
+  env?: string;
+  cfOnly: boolean;
 }) {
   const contrib = ownerTotal > 0 ? (p.total / ownerTotal) * 100 : 0;
   const state   = rag(p.total, projAvgTotal);
@@ -1150,6 +1161,8 @@ function ProjectRowView({
           to={dateTo}
           ownerKey={ownerKey}
           unassignedOnly={unassignedOnly}
+          env={env}
+          cfOnly={cfOnly}
         />
       </BugModal>
     </>
