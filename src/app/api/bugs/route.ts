@@ -7,7 +7,7 @@ import { requireAuth } from "@/lib/auth/server";
 import { FRESHDESK_CUSTOM_FIELD } from "@/lib/freshdesk/sync";
 import { BUG_ISSUE_TYPES, BUG_INVALID_STATUSES } from "@/lib/scorecard/config";
 import { currentFiscalQuarterChip } from "@/lib/date-utils";
-import { normalizeEnvironment } from "@/lib/bug-summary";
+import { normalizeEnvironment, priorityBucketSql } from "@/lib/bug-summary";
 import { FEATURE_FLAGS, isEnabled } from "@/lib/feature-flags";
 
 export type BugCell = {
@@ -90,10 +90,11 @@ async function fetchBugBoard(from: string | undefined, to: string | undefined, s
   // "is_open" (built into the query below) is what these FILTER on — never
   // the raw status_category directly, see that CTE for why.
   const openExpr  = showOpen ? sql`COUNT(*) FILTER (WHERE is_open)::int` : sql`0`;
-  const open1Expr = showOpen ? sql`COUNT(*) FILTER (WHERE is_open AND priority = 'P1')::int` : sql`0`;
-  const open2Expr = showOpen ? sql`COUNT(*) FILTER (WHERE is_open AND priority = 'P2')::int` : sql`0`;
-  const open3Expr = showOpen ? sql`COUNT(*) FILTER (WHERE is_open AND priority = 'P3')::int` : sql`0`;
-  const open4Expr = showOpen ? sql`COUNT(*) FILTER (WHERE is_open AND priority = 'P4')::int` : sql`0`;
+  const open1Expr = showOpen ? sql`COUNT(*) FILTER (WHERE is_open AND priority_bucket = 'P1')::int` : sql`0`;
+  const open2Expr = showOpen ? sql`COUNT(*) FILTER (WHERE is_open AND priority_bucket = 'P2')::int` : sql`0`;
+  const open3Expr = showOpen ? sql`COUNT(*) FILTER (WHERE is_open AND priority_bucket = 'P3')::int` : sql`0`;
+  const open4Expr = showOpen ? sql`COUNT(*) FILTER (WHERE is_open AND priority_bucket = 'P4')::int` : sql`0`;
+  const priorityBucketExpr = sql.raw(priorityBucketSql("ji.priority"));
 
   const fdField = sql.raw(`'${FRESHDESK_CUSTOM_FIELD}'`);
   const fromFilter = from ? sql` AND ji.jira_created_at >= ${from}::date` : sql``;
@@ -121,6 +122,16 @@ async function fetchBugBoard(from: string | undefined, to: string | undefined, s
     WITH base AS (
       SELECT
         ji.priority,
+        -- Bucket the project's raw Jira priority (numeric "P1".."P4" or named
+        -- "Highest"/"Critical"/"Major"/etc, see priorityBucketSql) so every
+        -- bug lands in one of the board's four severity columns — a bare
+        -- priority = 'P1' string match (the previous version of this query)
+        -- silently zeroed out P1-P4 for any project using named priorities,
+        -- while total (a plain COUNT(*)) kept counting them, which is
+        -- exactly why the summary's Total didn't equal its own
+        -- P1+P2+P3+P4 (and why the Customer-found/QA-found severity
+        -- breakdown came out empty for those projects too).
+        (${priorityBucketExpr}) AS priority_bucket,
         -- "Open" = not DONE and not CANCELLED, per the project's own curated
         -- status mapping (project_status_mappings — the same admin-configured
         -- per-project canonical bucketing the sync's changelog rollup already
@@ -191,7 +202,7 @@ async function fetchBugBoard(from: string | undefined, to: string | undefined, s
     resolved AS (
       SELECT
         project_id, project_name, jira_base_url, jira_project_key,
-        priority, is_open, is_customer, env_raw,
+        priority, priority_bucket, is_open, is_customer, env_raw,
         COALESCE(owner_val->>'emailAddress', owner_val->0->>'emailAddress') AS owner_email,
         COALESCE(owner_val->>'displayName',  owner_val->0->>'displayName')  AS owner_name,
         COALESCE(owner_val->>'accountId',    owner_val->0->>'accountId')    AS owner_account
@@ -204,20 +215,20 @@ async function fetchBugBoard(from: string | undefined, to: string | undefined, s
       owner_email,
       project_id, project_name, jira_base_url, jira_project_key, env_raw,
       COUNT(*)::int                                                                    AS total,
-      COUNT(*) FILTER (WHERE priority = 'P1')::int                                    AS p1,
-      COUNT(*) FILTER (WHERE priority = 'P2')::int                                    AS p2,
-      COUNT(*) FILTER (WHERE priority = 'P3')::int                                    AS p3,
-      COUNT(*) FILTER (WHERE priority = 'P4')::int                                    AS p4,
+      COUNT(*) FILTER (WHERE priority_bucket = 'P1')::int                             AS p1,
+      COUNT(*) FILTER (WHERE priority_bucket = 'P2')::int                             AS p2,
+      COUNT(*) FILTER (WHERE priority_bucket = 'P3')::int                             AS p3,
+      COUNT(*) FILTER (WHERE priority_bucket = 'P4')::int                             AS p4,
       ${openExpr}  AS open,
       ${open1Expr} AS open1,
       ${open2Expr} AS open2,
       ${open3Expr} AS open3,
       ${open4Expr} AS open4,
       COUNT(*) FILTER (WHERE is_customer)::int                                         AS cf_total,
-      COUNT(*) FILTER (WHERE is_customer AND priority = 'P1')::int                    AS cf1,
-      COUNT(*) FILTER (WHERE is_customer AND priority = 'P2')::int                    AS cf2,
-      COUNT(*) FILTER (WHERE is_customer AND priority = 'P3')::int                    AS cf3,
-      COUNT(*) FILTER (WHERE is_customer AND priority = 'P4')::int                    AS cf4
+      COUNT(*) FILTER (WHERE is_customer AND priority_bucket = 'P1')::int             AS cf1,
+      COUNT(*) FILTER (WHERE is_customer AND priority_bucket = 'P2')::int             AS cf2,
+      COUNT(*) FILTER (WHERE is_customer AND priority_bucket = 'P3')::int             AS cf3,
+      COUNT(*) FILTER (WHERE is_customer AND priority_bucket = 'P4')::int             AS cf4
     FROM resolved
     GROUP BY
       COALESCE(owner_email, owner_account), owner_email,

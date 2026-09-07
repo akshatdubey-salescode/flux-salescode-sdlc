@@ -175,6 +175,52 @@ export function priorityBucket(priority: string | null): BugPriorityBucket {
 }
 
 /**
+ * Bug Board severity bucket — P1/P2/P3/P4, matching the board's four fixed
+ * severity columns (ALL_PRIORITY_COLS in bug-board-client.tsx) and
+ * PRIORITY_WEIGHTS' value groupings (scorecard/config.ts). Distinct from
+ * priorityBucket() above, whose 3-bucket-plus-"Other" shape belongs to the
+ * separate per-project Bug Summary tab/export. Anything unmatched (including
+ * a missing priority) folds into P4, the same way PRIORITY_WEIGHTS treats an
+ * unmatched priority the same as P4/Low — so a project's P1+P2+P3+P4 always
+ * reconciles with its total.
+ */
+export function bugBoardPriorityBucket(priority: string | null): "P1" | "P2" | "P3" | "P4" {
+  const p = (priority ?? "").trim().toLowerCase();
+  if (["p0", "p1", "highest", "blocker", "critical"].includes(p)) return "P1";
+  if (["p2", "high", "major"].includes(p)) return "P2";
+  if (["p3", "medium", "moderate"].includes(p)) return "P3";
+  return "P4";
+}
+
+/**
+ * Raw-SQL equivalent of priorityBucket(), for routes that need to bucket a
+ * priority column inside a SQL query rather than after fetching rows into JS
+ * (e.g. Bug Board's per-cell P1..P4 COUNT(*) FILTER aggregates). `column` is
+ * the (already-qualified, if needed) SQL column reference, e.g. "ji.priority"
+ * or "priority" — interpolate the result with sql.raw(...). `column` must
+ * never be built from request/user input; every call site passes a fixed
+ * source-code string.
+ *
+ * Same value groupings as priorityBucket() and PRIORITY_WEIGHTS
+ * (scorecard/config.ts), but folds the "Other" bucket into P4 instead of a
+ * 4th "unclassified" label — the Bug Board has exactly four severity
+ * columns (P1-P4) and needs every bug to land in one of them so a project's
+ * P1+P2+P3+P4 always reconciles with its total, matching how
+ * PRIORITY_WEIGHTS already treats an unmatched priority the same as P4/Low
+ * (both default to weight 1).
+ */
+export function priorityBucketSql(column: string): string {
+  return `
+    CASE
+      WHEN lower(trim(${column})) IN ('p0', 'p1', 'highest', 'blocker', 'critical') THEN 'P1'
+      WHEN lower(trim(${column})) IN ('p2', 'high', 'major') THEN 'P2'
+      WHEN lower(trim(${column})) IN ('p3', 'medium', 'moderate') THEN 'P3'
+      ELSE 'P4'
+    END
+  `;
+}
+
+/**
  * Is this issue done or cancelled — the "not open" side of Open/Closed?
  * Single source of truth for every "is this bug open" check in the app
  * (Bug Board, My Bugs, team board, project bug tracker, Excel export).

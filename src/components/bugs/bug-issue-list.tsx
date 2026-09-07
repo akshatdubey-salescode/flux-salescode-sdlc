@@ -17,6 +17,8 @@ type BugIssueRow = {
   statusCategory: string | null;
   projectName: string;
   jiraBaseUrl: string;
+  environment: string;
+  isCustomerFound: boolean;
 };
 
 type BugIssuesResponse = { issues: BugIssueRow[]; truncated: boolean } | { error: string };
@@ -28,6 +30,8 @@ export function BugIssueList({
   ownerKey,
   from,
   to,
+  env,
+  cfOnly,
 }: {
   projectId?: string;
   unassignedOnly?: boolean;
@@ -36,12 +40,16 @@ export function BugIssueList({
   ownerKey?: string;
   from?: string;
   to?: string;
+  /** Matches the board's Env chip — same normalized label (Prod/UAT/Demo/…). */
+  env?: string;
+  /** Matches the board's "Customer-found only" toggle. */
+  cfOnly?: boolean;
 }) {
   // cacheKey/fetchResult (not a plain setData(null)-then-fetch) so "loading"
   // is derived by comparing keys rather than reset synchronously inside the
   // effect — mirrors BugBoardClient's own top-level fetch, and avoids the
   // extra render pass a direct setState-in-effect call would cost.
-  const cacheKey = JSON.stringify({ projectId, unassignedOnly, priority, ownerKey, from, to });
+  const cacheKey = JSON.stringify({ projectId, unassignedOnly, priority, ownerKey, from, to, env, cfOnly });
   const [fetchResult, setFetchResult] = useState<{ key: string; data: BugIssuesResponse } | null>(null);
 
   useEffect(() => {
@@ -52,12 +60,14 @@ export function BugIssueList({
     if (ownerKey) params.set("ownerKey", ownerKey);
     if (from) params.set("from", from);
     if (to) params.set("to", to);
+    if (env) params.set("env", env);
+    if (cfOnly) params.set("cfOnly", "true");
     fetch(`/api/bugs/issues?${params}`)
       .then((r) => r.json())
       .then((data) => setFetchResult({ key: cacheKey, data }))
       .catch((e) => setFetchResult({ key: cacheKey, data: { error: String(e) } }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, unassignedOnly, priority, ownerKey, from, to]);
+  }, [projectId, unassignedOnly, priority, ownerKey, from, to, env, cfOnly]);
 
   const data = fetchResult?.key === cacheKey ? fetchResult.data : null;
 
@@ -99,7 +109,10 @@ export function BugIssueList({
               </span>
               <RiExternalLinkLine className="size-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-60" />
             </span>
-            <span className="flex w-32 shrink-0 items-center justify-end gap-1.5">
+            <span className="flex w-44 shrink-0 items-center justify-end gap-1.5">
+              <Badge variant="outline" className="shrink-0 text-[10px]">
+                {issue.isCustomerFound ? "Customer" : "QA"}
+              </Badge>
               {issue.priority && <Badge variant="outline" className="shrink-0">{issue.priority}</Badge>}
               <span className="min-w-0 truncate text-[10px] text-muted-foreground" title={issue.status}>
                 {issue.status}

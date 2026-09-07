@@ -181,11 +181,19 @@ type DiscoveredFields = {
 };
 
 /**
- * Disambiguate same-named "Issue Owner" candidate fields down to the one this
- * project actually uses: the candidate populated (as a user object) on the most
- * of the project's already-synced issues. Returns a single-element list, or the
- * candidates unchanged when there's nothing to decide on yet (≤1 candidate, or
- * no populated values — e.g. a project's first sync, before issues exist).
+ * Rank same-named "Issue Owner" candidate fields by how many of the
+ * project's already-synced issues actually populate each one, most-used
+ * first. A project can genuinely use more than one of these fields at once
+ * (e.g. an older field most issues were filled on, plus a newer/differently-
+ * configured one some issues switched to) — every downstream reader (see
+ * extractIssueOwnerEmail/-Name and the bugs/scorecard SQL LATERAL joins)
+ * already tries each field ID in array order per issue and stops at the
+ * first one that's actually populated on that issue, so returning every
+ * candidate (ranked) rather than collapsing to a single "winner" lets those
+ * readers fall back to the less-common field instead of losing that data
+ * entirely. Returns the candidates unchanged when there's nothing to rank
+ * yet (≤1 candidate, or no populated values — e.g. a project's first sync,
+ * before issues exist).
  */
 async function primaryOwnerFieldIds(
   projectId: string,
@@ -207,11 +215,11 @@ async function primaryOwnerFieldIds(
     FROM unnest(${fidArray}) AS f(fid)
     LEFT JOIN jira_issues ji ON ji.project_id = ${projectId}
     GROUP BY f.fid
-    ORDER BY populated DESC
-    LIMIT 1
+    ORDER BY populated DESC, f.fid
   `);
-  const top = res.rows[0] as { fid: string; populated: number } | undefined;
-  return top && Number(top.populated) > 0 ? [top.fid] : candidates;
+  const ranked = res.rows as { fid: string; populated: number }[];
+  const anyPopulated = ranked.some((r) => Number(r.populated) > 0);
+  return anyPopulated ? ranked.map((r) => r.fid) : candidates;
 }
 
 async function discoverProjectFields(
