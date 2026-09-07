@@ -533,6 +533,13 @@
       "when": 1788434200780,
       "tag": "0076_wandering_iron_patriot",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1788797846346,
+      "tag": "0077_slippery_lily_hollister",
+      "breakpoints": true
     }
   ]
 }

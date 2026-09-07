@@ -60,6 +60,7 @@ function mkSprint(items: SprintItemRow[], over: Partial<SprintWithItems> = {}): 
     completedByName: null,
     items,
     removedItems: [],
+    notes: [],
     rollup: {
       total: items.length,
       todo: items.filter((i) => i.progress === "todo").length,
