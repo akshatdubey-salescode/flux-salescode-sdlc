@@ -91,6 +91,8 @@ export function EmailUpdateDialog({
   const [preview, setPreview] = useState<{ subject: string; html: string } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Cleared once the user types in the subject box, so we stop overwriting it. */
+  const subjectUntouched = useRef(true);
 
   // Prefill the editable content when the dialog opens, from live data.
   function handleOpenChange(next: boolean) {
@@ -101,6 +103,31 @@ export function EmailUpdateDialog({
       setMessage(defaults.message);
       setTab("compose");
       setPreview(null);
+      subjectUntouched.current = true;
+      // buildDefaults gives an instant, offline-safe subject; the authoritative
+      // one — the only copy that quotes live risk counts — is composed on the
+      // server. Ask for it and swap it in, unless the user is already typing.
+      void loadServerSubject();
+    }
+  }
+
+  /**
+   * The server's own default subject, fetched by previewing with an empty
+   * subject. Without this the box would send a client-side approximation and
+   * the risk clause the server puts in the subject line would never ship.
+   */
+  async function loadServerSubject() {
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preview: true, subject: "", message: "" }),
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { subject?: string };
+      if (data.subject && subjectUntouched.current) setSubject(data.subject);
+    } catch {
+      // Keep the buildDefaults fallback already in the box.
     }
   }
 
@@ -240,8 +267,10 @@ export function EmailUpdateDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <Tip label={`Email the progress of ${entityName} to stakeholders — summary inline, detailed Excel report attached`}>
         <DialogTrigger asChild>
-          <Button variant="outline" size="sm" className="h-7 text-[11px]">
-            <RiMailSendLine className="size-3.5" /> Email update
+          {/* Icon-only to sit in the header's share cluster beside Copy update
+              and Report; the tooltip above carries the full description. */}
+          <Button variant="ghost" size="icon-sm">
+            <RiMailSendLine className="size-3.5" />
           </Button>
         </DialogTrigger>
       </Tip>
@@ -327,7 +356,13 @@ export function EmailUpdateDialog({
 
           <div className="space-y-1">
             <Label className="text-[11px] text-muted-foreground">Subject</Label>
-            <Input value={subject} onChange={(e) => setSubject(e.target.value)} />
+            <Input
+              value={subject}
+              onChange={(e) => {
+                subjectUntouched.current = false;
+                setSubject(e.target.value);
+              }}
+            />
           </div>
           <div className="space-y-1">
             <Label className="text-[11px] text-muted-foreground">Message — appears at the top of the email</Label>

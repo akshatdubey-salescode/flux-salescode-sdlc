@@ -20,6 +20,7 @@ import {
   RiArrowDownSLine,
   RiArrowRightSLine,
   RiStackLine,
+  RiMore2Line,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +30,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+} from "@/components/ui/dropdown-menu";
 import { Tip } from "./tip";
 import { EmailUpdateDialog, sprintEmailDefaults, workstreamEmailDefaults } from "./email-update-dialog";
 import { buildSprintUpdateMessage } from "./update-message";
@@ -53,7 +67,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { localDateStr } from "@/lib/date-utils";
-import { classifyIssue } from "@/lib/jira/estimate";
+import {
+  classifySprintItemRisk,
+  RISK_ORDER,
+  RISK_LABELS,
+  type SprintItemRisk,
+} from "@/lib/sprints/risk";
 import { statusCategoryStyles, priorityStyles, issueTypeStyles } from "@/components/project-tracking/helpers";
 import { IssueMultiPicker, type IssueResult } from "@/components/delivery-tracker/issue-multi-picker";
 import type {
@@ -109,25 +128,21 @@ function formatActualDate(iso: string | null): string {
   });
 }
 
-type ItemRisk = "overdue" | "at_risk" | "unplanned" | null;
+type ItemRisk = SprintItemRisk;
 
 /**
- * Same classification the Team Tracking at-risk/overdue/unplanned views use
- * (classifyIssue: overdue = due date past; at risk = ≤20% of working hours
- * left), applied per sprint item. Missing dates → "unplanned", done → null.
+ * The shared sprint-item risk classifier — one implementation behind the table,
+ * the Excel report and the stakeholder emails, so the three cannot disagree.
+ * Kept behind the old local name because call sites below read better with it.
+ * Note the table judges risk in the VIEWER's timezone; the server-side report
+ * and emails anchor to IST.
  */
-function itemRisk(item: SprintItemRow, nowStr: string): ItemRisk {
-  if (item.progress === "done") return null;
-  if (!item.startDate || !item.dueDate) return "unplanned";
-  const label = classifyIssue(item.statusCategory, item.startDate, item.dueDate, nowStr);
-  if (label === "overdue" || label === "at_risk") return label;
-  return null;
-}
+const itemRisk = classifySprintItemRisk;
 
 const RISK_STYLES: Record<Exclude<ItemRisk, null>, { label: string; badge: string }> = {
-  overdue: { label: "Overdue", badge: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
-  at_risk: { label: "At risk", badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" },
-  unplanned: { label: "Unplanned", badge: "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400" },
+  overdue: { label: RISK_LABELS.overdue, badge: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
+  at_risk: { label: RISK_LABELS.at_risk, badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" },
+  unplanned: { label: RISK_LABELS.unplanned, badge: "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400" },
 };
 
 
@@ -439,6 +454,7 @@ function WorkstreamSection({
   const [open, setOpen] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   // Cross-sprint rollup — the "initiative view" this grouping exists for.
   const agg = useMemo(() => {
@@ -545,6 +561,8 @@ function WorkstreamSection({
           )}
         </span>
         <div className="flex-1" />
+        {/* Same three groups as the sprint card header: link, share, then manage
+            behind an overflow — so the two headers on this page read alike. */}
         <Tip label="Copy a shareable link to this workstream — anyone with access can open it">
           <Button
             variant="ghost"
@@ -558,39 +576,51 @@ function WorkstreamSection({
           </Button>
         </Tip>
         {sprints.length > 0 && (
-          <Tip label="Download one Excel report covering every sprint in this workstream">
-            <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={handleExport} disabled={exporting}>
-              <RiDownload2Line className="size-3.5" />
-              {exporting ? "Exporting…" : "Report"}
-            </Button>
-          </Tip>
-        )}
-        {canManage && sprints.length > 0 && (
-          <EmailUpdateDialog
-            endpoint={`/api/workstreams/${workstream.id}/email`}
-            projectId={workstream.projectId}
-            entityName={workstream.name}
-            buildDefaults={() => workstreamEmailDefaults(workstream.name, sprints)}
-          />
+          <>
+            <Separator orientation="vertical" className="mx-1 h-5" />
+            <Tip label="Download one Excel report covering every sprint in this workstream">
+              <Button variant="ghost" size="icon-sm" onClick={handleExport} disabled={exporting}>
+                <RiDownload2Line className="size-3.5" />
+              </Button>
+            </Tip>
+            {canManage && (
+              <EmailUpdateDialog
+                endpoint={`/api/workstreams/${workstream.id}/email`}
+                projectId={workstream.projectId}
+                entityName={workstream.name}
+                buildDefaults={() => workstreamEmailDefaults(workstream.name, sprints)}
+              />
+            )}
+          </>
         )}
         {canManage && (
           <>
+            <Separator orientation="vertical" className="mx-1 h-5" />
+            <DropdownMenu>
+              <Tip label="Rename or delete this workstream">
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon-sm">
+                    <RiMore2Line className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </Tip>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem onSelect={() => setEditOpen(true)}>
+                  <RiPencilLine /> Rename or edit description
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={() => setConfirmDeleteOpen(true)}>
+                  <RiDeleteBinLine /> Delete workstream
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <WorkstreamDialog
               projectId={workstream.projectId}
               workstream={workstream}
-              trigger={
-                <Button variant="ghost" size="icon-sm">
-                  <RiPencilLine className="size-3.5" />
-                </Button>
-              }
-              triggerTooltip="Rename this workstream or edit its description"
+              open={editOpen}
+              onOpenChange={setEditOpen}
               onSaved={onChanged}
             />
-            <Tip label="Delete this workstream — its sprints are kept, just ungrouped">
-              <Button variant="ghost" size="icon-sm" onClick={() => setConfirmDeleteOpen(true)}>
-                <RiDeleteBinLine className="size-3.5" />
-              </Button>
-            </Tip>
             <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
               <AlertDialogContent>
                 <AlertDialogHeader>
@@ -632,15 +662,26 @@ function WorkstreamDialog({
   trigger,
   triggerTooltip,
   onSaved,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   projectId: string;
   workstream?: SprintWorkstream;
-  trigger: React.ReactNode;
+  /** Omit when driving the dialog with `open` from a menu item instead. */
+  trigger?: React.ReactNode;
   /** Tooltip on the trigger — needed for icon-only triggers. */
   triggerTooltip?: string;
   onSaved: () => void;
+  /** Controlled mode: opening from somewhere that unmounts on click, e.g. a dropdown item. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = (next: boolean) => {
+    if (controlledOpen === undefined) setUncontrolledOpen(next);
+    onOpenChange?.(next);
+  };
   const [name, setName] = useState(workstream?.name ?? "");
   const [description, setDescription] = useState(workstream?.description ?? "");
   const [saving, setSaving] = useState(false);
@@ -678,13 +719,15 @@ function WorkstreamDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      {triggerTooltip ? (
-        <Tip label={triggerTooltip}>
+      {trigger ? (
+        triggerTooltip ? (
+          <Tip label={triggerTooltip}>
+            <DialogTrigger asChild>{trigger}</DialogTrigger>
+          </Tip>
+        ) : (
           <DialogTrigger asChild>{trigger}</DialogTrigger>
-        </Tip>
-      ) : (
-        <DialogTrigger asChild>{trigger}</DialogTrigger>
-      )}
+        )
+      ) : null}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{workstream ? "Edit workstream" : "New workstream"}</DialogTitle>
@@ -747,6 +790,7 @@ export function SprintCard({
   const [addingIssues, setAddingIssues] = useState<IssueResult[]>([]);
   const [adding, setAdding] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
   const [showRemoved, setShowRemoved] = useState(false);
@@ -934,24 +978,7 @@ export function SprintCard({
           )}
         </div>
         <div className="flex items-center gap-1">
-          {canManage && workstreams && workstreams.length > 0 && (
-            <Select value={sprint.workstreamId ?? "none"} onValueChange={handleMoveWorkstream}>
-              <Tip label="Move this sprint into a workstream (a group of related sprints)">
-                <SelectTrigger className="h-7 w-auto gap-1 px-2 text-[11px]">
-                  <RiStackLine className="size-3 shrink-0 text-muted-foreground" />
-                  <SelectValue />
-                </SelectTrigger>
-              </Tip>
-              <SelectContent>
-                <SelectItem value="none">No workstream</SelectItem>
-                {workstreams.map((w) => (
-                  <SelectItem key={w.id} value={w.id}>
-                    {w.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
+          {/* Group 1 — view and link. Always available, no data needed. */}
           {onZoom && (
             <Tip label="Open this sprint full-screen">
               <Button variant="ghost" size="icon-sm" onClick={onZoom}>
@@ -971,25 +998,25 @@ export function SprintCard({
               <RiLinkM className="size-3.5" />
             </Button>
           </Tip>
+
+          {/* Group 2 — get this sprint's state out to someone. Icon-only: three
+              labelled buttons crowded out the one action that matters, and every
+              icon carries its full explanation in a tooltip. */}
           {(sprint.items.length > 0 || sprint.removedItems.length > 0) && (
             <>
+              <Separator orientation="vertical" className="mx-1 h-5" />
               <Tip label="Copy a plain-text status update, ready to paste into a team group chat">
-                <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={handleCopyUpdate}>
+                <Button variant="ghost" size="icon-sm" onClick={handleCopyUpdate}>
                   {updateCopied ? (
-                    <>
-                      <RiCheckLine className="size-3.5" /> Copied!
-                    </>
+                    <RiCheckLine className="size-3.5 text-emerald-600" />
                   ) : (
-                    <>
-                      <RiFileCopyLine className="size-3.5" /> Copy update
-                    </>
+                    <RiFileCopyLine className="size-3.5" />
                   )}
                 </Button>
               </Tip>
               <Tip label="Download this sprint's full report as Excel (items, scope changes, removals)">
-                <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={handleExport} disabled={exporting}>
+                <Button variant="ghost" size="icon-sm" onClick={handleExport} disabled={exporting}>
                   <RiDownload2Line className="size-3.5" />
-                  {exporting ? "Exporting…" : "Report"}
                 </Button>
               </Tip>
               {canManage && (
@@ -1002,66 +1029,107 @@ export function SprintCard({
               )}
             </>
           )}
+
+          {/* Group 3 — the sprint's own lifecycle. The only labelled button, so
+              "what do I do next with this sprint" is unmissable. Editing, moving
+              and deleting are rare or destructive, so they sit in the overflow. */}
           {canManage && (
-          <div className="flex items-center gap-1">
-            {phase === "planned" && (
-              <Tip label="Start the sprint — locks the current items in as the committed scope">
-                <Button size="sm" className="h-7 text-[11px]" disabled={starting} onClick={handleStart}>
-                  <RiPlayLine className="size-3.5" />
-                  {starting ? "Starting…" : "Start sprint"}
-                </Button>
-              </Tip>
-            )}
-            {phase === "active" && (
-              <Tip label="Close the sprint — unfinished items can carry over to another open sprint">
-                <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={() => setCloseOpen(true)}>
-                  <RiCheckboxCircleLine className="size-3.5" /> Complete sprint
-                </Button>
-              </Tip>
-            )}
-            {phase === "completed" && (
-              <Tip label="Reopen this completed sprint">
-                <Button variant="ghost" size="sm" className="h-7 text-[11px]" onClick={handleReopen}>
-                  Reopen
-                </Button>
-              </Tip>
-            )}
-            <CreateSprintForm
-              projectId={sprint.projectId}
-              sprint={sprint}
-              trigger={
-                <Button variant="ghost" size="icon-sm">
-                  <RiPencilLine className="size-3.5" />
-                </Button>
-              }
-              triggerTooltip="Edit the sprint's name, goal, or dates"
-              onSaved={onChanged}
-            />
-            <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-              <Tip label="Delete this sprint (items stay in history)">
-                <Button variant="ghost" size="icon-sm" onClick={() => setConfirmDeleteOpen(true)}>
-                  <RiDeleteBinLine className="size-3.5" />
-                </Button>
-              </Tip>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete this sprint?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Its items stay in the database for history, but the sprint stops counting anywhere in the tracker.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction variant="destructive" onClick={handleDelete}>
-                    Delete
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
+            <>
+              <Separator orientation="vertical" className="mx-1 h-5" />
+              {phase === "planned" && (
+                <Tip label="Start the sprint — locks the current items in as the committed scope">
+                  <Button size="sm" className="h-7 text-[11px]" disabled={starting} onClick={handleStart}>
+                    <RiPlayLine className="size-3.5" />
+                    {starting ? "Starting…" : "Start sprint"}
+                  </Button>
+                </Tip>
+              )}
+              {phase === "active" && (
+                <Tip label="Close the sprint — unfinished items can carry over to another open sprint">
+                  <Button size="sm" className="h-7 text-[11px]" onClick={() => setCloseOpen(true)}>
+                    <RiCheckboxCircleLine className="size-3.5" /> Complete sprint
+                  </Button>
+                </Tip>
+              )}
+              {phase === "completed" && (
+                <Tip label="Reopen this completed sprint">
+                  <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={handleReopen}>
+                    Reopen
+                  </Button>
+                </Tip>
+              )}
+              <DropdownMenu>
+                <Tip label="Edit, move or delete this sprint">
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon-sm">
+                      <RiMore2Line className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </Tip>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem onSelect={() => setEditOpen(true)}>
+                    <RiPencilLine /> Edit name, goal or dates
+                  </DropdownMenuItem>
+                  {workstreams && workstreams.length > 0 && (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <RiStackLine /> Move to workstream
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>
+                        <DropdownMenuRadioGroup
+                          value={sprint.workstreamId ?? "none"}
+                          onValueChange={handleMoveWorkstream}
+                        >
+                          <DropdownMenuRadioItem value="none">No workstream</DropdownMenuRadioItem>
+                          {workstreams.map((w) => (
+                            <DropdownMenuRadioItem key={w.id} value={w.id}>
+                              {w.name}
+                            </DropdownMenuRadioItem>
+                          ))}
+                        </DropdownMenuRadioGroup>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem variant="destructive" onSelect={() => setConfirmDeleteOpen(true)}>
+                    <RiDeleteBinLine /> Delete sprint
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
           )}
         </div>
       </div>
+
+      {/* Opened from the overflow menu, so they cannot live inside it — selecting
+          a menu item closes the menu and would unmount the dialog with it. */}
+      {canManage && (
+        <>
+          <CreateSprintForm
+            projectId={sprint.projectId}
+            sprint={sprint}
+            open={editOpen}
+            onOpenChange={setEditOpen}
+            onSaved={onChanged}
+          />
+          <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete this sprint?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Its items stay in the database for history, but the sprint stops counting anywhere in the tracker.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction variant="destructive" onClick={handleDelete}>
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
+      )}
 
       {sprint.rollup.total > 0 && (
         <div className="flex items-center gap-2 border-b border-border px-3 py-2">
@@ -1180,7 +1248,6 @@ type SortCol =
   | "actualEnd";
 
 const PROGRESS_ORDER: Record<SprintItemProgress, number> = { todo: 0, in_progress: 1, done: 2 };
-const RISK_ORDER: Record<Exclude<ItemRisk, null>, number> = { overdue: 0, at_risk: 1, unplanned: 2 };
 
 /** "P1" → 1 … "P5" → 5; anything else (incl. null) sorts last. */
 function priorityRank(p: string | null): number {

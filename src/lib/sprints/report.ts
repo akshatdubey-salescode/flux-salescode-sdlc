@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import { classifyIssue } from "@/lib/jira/estimate";
+import { classifySprintItemRisk, istNowStr, RISK_LABELS } from "@/lib/sprints/risk";
 import type { SprintWithItems, SprintItemRow } from "@/lib/sprints/entries";
 
 // The sprint report workbook (Summary + Items sheets, deliveries-export
@@ -33,15 +33,10 @@ const HEADERS = [
 
 const RED = "FFB91C1C";
 
-/** Same classification the Team Tracking views and the on-screen sprint table use. */
+/** Display form of the shared classifier the sprint table and emails also use. */
 function riskLabel(item: SprintItemRow, nowStr: string): string {
-  const cat = (item.statusCategory ?? "").toLowerCase();
-  if (cat === "done" || cat.includes("complete")) return "";
-  if (!item.startDate || !item.dueDate) return "Unplanned";
-  const label = classifyIssue(item.statusCategory, item.startDate, item.dueDate, nowStr);
-  if (label === "overdue") return "Overdue";
-  if (label === "at_risk") return "At risk";
-  return "";
+  const risk = classifySprintItemRisk(item, nowStr);
+  return risk ? RISK_LABELS[risk] : "";
 }
 
 /**
@@ -220,7 +215,9 @@ export async function buildSprintWorkbook(sprints: SprintWithItems[]): Promise<A
   headerRow.height = 22;
 
   const widths = HEADERS.map((h) => h.length);
-  const nowStr = new Date().toISOString().slice(0, 19);
+  // IST, not UTC — see istNowStr: a UTC "today" under-reports overdue items
+  // for the first 5.5 hours of every Indian day.
+  const nowStr = istNowStr();
   let r = 4;
 
   for (const sprint of sprints) {

@@ -29,6 +29,8 @@ export function CreateSprintForm({
   trigger,
   triggerTooltip,
   onSaved,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   /** Owner for creation — exactly one of projectId (project sprint) / boardId (Team Pulse board sprint). Ignored when editing. */
   projectId?: string | null;
@@ -37,13 +39,22 @@ export function CreateSprintForm({
   sprint?: SprintWithItems;
   /** Project workstreams — shows an optional "create inside workstream" picker (create mode, project sprints only). */
   workstreams?: { id: string; name: string }[];
-  trigger: React.ReactNode;
+  /** Omit when driving the dialog with `open` from a menu item instead. */
+  trigger?: React.ReactNode;
   /** Tooltip on the trigger — needed for icon-only triggers. */
   triggerTooltip?: string;
   onSaved: (sprint: SprintWithItems) => void;
+  /** Controlled mode: opening this form from somewhere that unmounts on click, e.g. a dropdown item. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const isEdit = !!sprint;
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = (next: boolean) => {
+    if (controlledOpen === undefined) setUncontrolledOpen(next);
+    onOpenChange?.(next);
+  };
   const [name, setName] = useState(sprint?.name ?? "");
   const [goal, setGoal] = useState(sprint?.goal ?? "");
   const [startDate, setStartDate] = useState(sprint?.startDate ?? "");
@@ -100,13 +111,15 @@ export function CreateSprintForm({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      {triggerTooltip ? (
-        <Tip label={triggerTooltip}>
+      {trigger ? (
+        triggerTooltip ? (
+          <Tip label={triggerTooltip}>
+            <DialogTrigger asChild>{trigger}</DialogTrigger>
+          </Tip>
+        ) : (
           <DialogTrigger asChild>{trigger}</DialogTrigger>
-        </Tip>
-      ) : (
-        <DialogTrigger asChild>{trigger}</DialogTrigger>
-      )}
+        )
+      ) : null}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit sprint" : "Create sprint"}</DialogTitle>
