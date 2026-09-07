@@ -13,6 +13,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tip } from "./tip";
 import type { SprintWithItems } from "@/lib/sprints/entries";
 
 /**
@@ -26,6 +27,7 @@ export function CreateSprintForm({
   sprint,
   workstreams,
   trigger,
+  triggerTooltip,
   onSaved,
 }: {
   /** Owner for creation — exactly one of projectId (project sprint) / boardId (Team Pulse board sprint). Ignored when editing. */
@@ -36,6 +38,8 @@ export function CreateSprintForm({
   /** Project workstreams — shows an optional "create inside workstream" picker (create mode, project sprints only). */
   workstreams?: { id: string; name: string }[];
   trigger: React.ReactNode;
+  /** Tooltip on the trigger — needed for icon-only triggers. */
+  triggerTooltip?: string;
   onSaved: (sprint: SprintWithItems) => void;
 }) {
   const isEdit = !!sprint;
@@ -96,7 +100,13 @@ export function CreateSprintForm({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      {triggerTooltip ? (
+        <Tip label={triggerTooltip}>
+          <DialogTrigger asChild>{trigger}</DialogTrigger>
+        </Tip>
+      ) : (
+        <DialogTrigger asChild>{trigger}</DialogTrigger>
+      )}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit sprint" : "Create sprint"}</DialogTitle>

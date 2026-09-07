@@ -29,6 +29,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tip } from "./tip";
+import { EmailUpdateDialog, sprintEmailDefaults, workstreamEmailDefaults } from "./email-update-dialog";
+import { buildSprintUpdateMessage } from "./update-message";
 import {
   Dialog,
   DialogContent,
@@ -91,12 +94,19 @@ function formatPlanDate(dateStr: string | null): string {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-/** Actual Start/End are full datetimes, so parse the ISO string directly (same as the delivery table). */
+/** Actual Start/End are date+time fields in Jira, so show both — parse the ISO string directly. */
 function formatActualDate(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return d.toLocaleString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
 
 type ItemRisk = "overdue" | "at_risk" | "unplanned" | null;
@@ -120,42 +130,6 @@ const RISK_STYLES: Record<Exclude<ItemRisk, null>, { label: string; badge: strin
   unplanned: { label: "Unplanned", badge: "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400" },
 };
 
-const PROGRESS_LABELS: Record<SprintItemRow["progress"], string> = {
-  todo: "To Do",
-  in_progress: "In Progress",
-  done: "Done",
-};
-
-/** Plain-text sprint update for pasting into Slack/WhatsApp groups — mirrors buildDeliveryAlertMessage's shape on the deliveries tab. */
-function buildSprintUpdateMessage(sprint: SprintWithItems, phaseText: string): string {
-  const r = sprint.rollup;
-  const dateLabel = new Date().toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" });
-  const pct = r.committed > 0 ? Math.round((r.committedDone / r.committed) * 100) : 0;
-  const lines: string[] = [
-    `🏃 ${sprint.name} — ${sprint.startDate} → ${sprint.endDate} (${phaseText}) — as of ${dateLabel}`,
-  ];
-  if (sprint.goal) lines.push(`Goal: ${sprint.goal}`);
-  if (sprint.startedAt) {
-    lines.push(
-      `Committed ${r.committed} · Completed ${r.committedDone} of ${r.committed} (${pct}%)` +
-        (r.addedAfterStart > 0 ? ` · Added after start ${r.addedAfterStart}` : "") +
-        (r.removed > 0 ? ` · Removed ${r.removed}` : "") +
-        (r.carriedOver > 0 ? ` · Carried in ${r.carriedOver}` : "")
-    );
-  }
-  lines.push(`Overall: ${r.done} done · ${r.inProgress} in progress · ${r.todo} to do (of ${r.total})`);
-  for (const item of sprint.items) {
-    const scope = !sprint.startedAt ? "" : item.committed ? "" : " *added mid-sprint*";
-    lines.push(`  • ${item.jiraKey} — ${item.summary} [${PROGRESS_LABELS[item.progress]}]${scope}`);
-  }
-  if (sprint.removedItems.length > 0) {
-    lines.push(`Removed after start:`);
-    for (const item of sprint.removedItems) {
-      lines.push(`  • ${item.jiraKey} — ${item.summary}${item.removedComment ? ` ("${item.removedComment}")` : ""}`);
-    }
-  }
-  return lines.join("\n");
-}
 
 function sprintMatchesSearch(sprint: SprintWithItems, query: string): boolean {
   const q = query.toLowerCase();
@@ -538,20 +512,21 @@ function WorkstreamSection({
   return (
     <div className="rounded-lg border border-border bg-muted/10">
       <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="flex min-w-0 items-center gap-2 text-left"
-          title={open ? "Collapse workstream" : "Expand workstream"}
-        >
-          {open ? (
-            <RiArrowDownSLine className="size-4 shrink-0 text-muted-foreground" />
-          ) : (
-            <RiArrowRightSLine className="size-4 shrink-0 text-muted-foreground" />
-          )}
-          <RiStackLine className="size-4 shrink-0 text-muted-foreground" />
-          <span className="truncate text-sm font-medium">{workstream.name}</span>
-        </button>
+        <Tip label={open ? "Collapse this workstream's sprints" : "Expand this workstream's sprints"}>
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="flex min-w-0 items-center gap-2 text-left"
+          >
+            {open ? (
+              <RiArrowDownSLine className="size-4 shrink-0 text-muted-foreground" />
+            ) : (
+              <RiArrowRightSLine className="size-4 shrink-0 text-muted-foreground" />
+            )}
+            <RiStackLine className="size-4 shrink-0 text-muted-foreground" />
+            <span className="truncate text-sm font-medium">{workstream.name}</span>
+          </button>
+        </Tip>
         <span className="text-[11px] text-muted-foreground">
           {sprints.length === 0 ? (
             "No sprints yet — move sprints in via the card's workstream picker"
@@ -570,22 +545,33 @@ function WorkstreamSection({
           )}
         </span>
         <div className="flex-1" />
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          title="Copy shareable link to this workstream"
-          onClick={() => {
-            navigator.clipboard.writeText(workstreamLink(workstream.id));
-            toast.success("Workstream link copied — anyone with project access can open it");
-          }}
-        >
-          <RiLinkM className="size-3.5" />
-        </Button>
-        {sprints.length > 0 && (
-          <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={handleExport} disabled={exporting}>
-            <RiDownload2Line className="size-3.5" />
-            {exporting ? "Exporting…" : "Report"}
+        <Tip label="Copy a shareable link to this workstream — anyone with access can open it">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => {
+              navigator.clipboard.writeText(workstreamLink(workstream.id));
+              toast.success("Workstream link copied — anyone with project access can open it");
+            }}
+          >
+            <RiLinkM className="size-3.5" />
           </Button>
+        </Tip>
+        {sprints.length > 0 && (
+          <Tip label="Download one Excel report covering every sprint in this workstream">
+            <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={handleExport} disabled={exporting}>
+              <RiDownload2Line className="size-3.5" />
+              {exporting ? "Exporting…" : "Report"}
+            </Button>
+          </Tip>
+        )}
+        {canManage && sprints.length > 0 && (
+          <EmailUpdateDialog
+            endpoint={`/api/workstreams/${workstream.id}/email`}
+            projectId={workstream.projectId}
+            entityName={workstream.name}
+            buildDefaults={() => workstreamEmailDefaults(workstream.name, sprints)}
+          />
         )}
         {canManage && (
           <>
@@ -593,20 +579,18 @@ function WorkstreamSection({
               projectId={workstream.projectId}
               workstream={workstream}
               trigger={
-                <Button variant="ghost" size="icon-sm" title="Rename workstream">
+                <Button variant="ghost" size="icon-sm">
                   <RiPencilLine className="size-3.5" />
                 </Button>
               }
+              triggerTooltip="Rename this workstream or edit its description"
               onSaved={onChanged}
             />
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              title="Delete workstream (its sprints are kept)"
-              onClick={() => setConfirmDeleteOpen(true)}
-            >
-              <RiDeleteBinLine className="size-3.5" />
-            </Button>
+            <Tip label="Delete this workstream — its sprints are kept, just ungrouped">
+              <Button variant="ghost" size="icon-sm" onClick={() => setConfirmDeleteOpen(true)}>
+                <RiDeleteBinLine className="size-3.5" />
+              </Button>
+            </Tip>
             <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
               <AlertDialogContent>
                 <AlertDialogHeader>
@@ -646,11 +630,14 @@ function WorkstreamDialog({
   projectId,
   workstream,
   trigger,
+  triggerTooltip,
   onSaved,
 }: {
   projectId: string;
   workstream?: SprintWorkstream;
   trigger: React.ReactNode;
+  /** Tooltip on the trigger — needed for icon-only triggers. */
+  triggerTooltip?: string;
   onSaved: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -691,7 +678,13 @@ function WorkstreamDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      {triggerTooltip ? (
+        <Tip label={triggerTooltip}>
+          <DialogTrigger asChild>{trigger}</DialogTrigger>
+        </Tip>
+      ) : (
+        <DialogTrigger asChild>{trigger}</DialogTrigger>
+      )}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{workstream ? "Edit workstream" : "New workstream"}</DialogTitle>
@@ -908,14 +901,15 @@ export function SprintCard({
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border p-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setCollapsed((v) => !v)}
-              title={collapsed ? "Expand sprint" : "Collapse sprint"}
-              className="-ml-1 text-muted-foreground hover:text-foreground"
-            >
-              {collapsed ? <RiArrowRightSLine className="size-4" /> : <RiArrowDownSLine className="size-4" />}
-            </button>
+            <Tip label={collapsed ? "Expand this sprint's items" : "Collapse this sprint to just its header"}>
+              <button
+                type="button"
+                onClick={() => setCollapsed((v) => !v)}
+                className="-ml-1 text-muted-foreground hover:text-foreground"
+              >
+                {collapsed ? <RiArrowRightSLine className="size-4" /> : <RiArrowDownSLine className="size-4" />}
+              </button>
+            </Tip>
             <h3 className="text-sm font-medium">{sprint.name}</h3>
             <span
               className={cn(
@@ -942,13 +936,12 @@ export function SprintCard({
         <div className="flex items-center gap-1">
           {canManage && workstreams && workstreams.length > 0 && (
             <Select value={sprint.workstreamId ?? "none"} onValueChange={handleMoveWorkstream}>
-              <SelectTrigger
-                className="h-7 w-auto gap-1 px-2 text-[11px]"
-                title="Move this sprint into a workstream"
-              >
-                <RiStackLine className="size-3 shrink-0 text-muted-foreground" />
-                <SelectValue />
-              </SelectTrigger>
+              <Tip label="Move this sprint into a workstream (a group of related sprints)">
+                <SelectTrigger className="h-7 w-auto gap-1 px-2 text-[11px]">
+                  <RiStackLine className="size-3 shrink-0 text-muted-foreground" />
+                  <SelectValue />
+                </SelectTrigger>
+              </Tip>
               <SelectContent>
                 <SelectItem value="none">No workstream</SelectItem>
                 {workstreams.map((w) => (
@@ -960,72 +953,96 @@ export function SprintCard({
             </Select>
           )}
           {onZoom && (
-            <Button variant="ghost" size="icon-sm" title="Open focused view" onClick={onZoom}>
-              <RiFullscreenLine className="size-3.5" />
-            </Button>
+            <Tip label="Open this sprint full-screen">
+              <Button variant="ghost" size="icon-sm" onClick={onZoom}>
+                <RiFullscreenLine className="size-3.5" />
+              </Button>
+            </Tip>
           )}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            title="Copy shareable link to this sprint"
-            onClick={() => {
-              navigator.clipboard.writeText(sprintLink(sprint.id));
-              toast.success("Sprint link copied — anyone with project access can open it");
-            }}
-          >
-            <RiLinkM className="size-3.5" />
-          </Button>
+          <Tip label="Copy a shareable link to this sprint — anyone with access can open it">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => {
+                navigator.clipboard.writeText(sprintLink(sprint.id));
+                toast.success("Sprint link copied — anyone with project access can open it");
+              }}
+            >
+              <RiLinkM className="size-3.5" />
+            </Button>
+          </Tip>
           {(sprint.items.length > 0 || sprint.removedItems.length > 0) && (
             <>
-              <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={handleCopyUpdate} title="Copy a plain-text sprint update for pasting into a group chat">
-                {updateCopied ? (
-                  <>
-                    <RiCheckLine className="size-3.5" /> Copied!
-                  </>
-                ) : (
-                  <>
-                    <RiFileCopyLine className="size-3.5" /> Copy update
-                  </>
-                )}
-              </Button>
-              <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={handleExport} disabled={exporting}>
-                <RiDownload2Line className="size-3.5" />
-                {exporting ? "Exporting…" : "Report"}
-              </Button>
+              <Tip label="Copy a plain-text status update, ready to paste into a team group chat">
+                <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={handleCopyUpdate}>
+                  {updateCopied ? (
+                    <>
+                      <RiCheckLine className="size-3.5" /> Copied!
+                    </>
+                  ) : (
+                    <>
+                      <RiFileCopyLine className="size-3.5" /> Copy update
+                    </>
+                  )}
+                </Button>
+              </Tip>
+              <Tip label="Download this sprint's full report as Excel (items, scope changes, removals)">
+                <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={handleExport} disabled={exporting}>
+                  <RiDownload2Line className="size-3.5" />
+                  {exporting ? "Exporting…" : "Report"}
+                </Button>
+              </Tip>
+              {canManage && (
+                <EmailUpdateDialog
+                  endpoint={`/api/sprints/${sprint.id}/email`}
+                  projectId={sprint.projectId}
+                  entityName={sprint.name}
+                  buildDefaults={() => sprintEmailDefaults(sprint)}
+                />
+              )}
             </>
           )}
           {canManage && (
           <div className="flex items-center gap-1">
             {phase === "planned" && (
-              <Button size="sm" className="h-7 text-[11px]" disabled={starting} onClick={handleStart}>
-                <RiPlayLine className="size-3.5" />
-                {starting ? "Starting…" : "Start sprint"}
-              </Button>
+              <Tip label="Start the sprint — locks the current items in as the committed scope">
+                <Button size="sm" className="h-7 text-[11px]" disabled={starting} onClick={handleStart}>
+                  <RiPlayLine className="size-3.5" />
+                  {starting ? "Starting…" : "Start sprint"}
+                </Button>
+              </Tip>
             )}
             {phase === "active" && (
-              <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={() => setCloseOpen(true)}>
-                <RiCheckboxCircleLine className="size-3.5" /> Complete sprint
-              </Button>
+              <Tip label="Close the sprint — unfinished items can carry over to another open sprint">
+                <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={() => setCloseOpen(true)}>
+                  <RiCheckboxCircleLine className="size-3.5" /> Complete sprint
+                </Button>
+              </Tip>
             )}
             {phase === "completed" && (
-              <Button variant="ghost" size="sm" className="h-7 text-[11px]" onClick={handleReopen}>
-                Reopen
-              </Button>
+              <Tip label="Reopen this completed sprint">
+                <Button variant="ghost" size="sm" className="h-7 text-[11px]" onClick={handleReopen}>
+                  Reopen
+                </Button>
+              </Tip>
             )}
             <CreateSprintForm
               projectId={sprint.projectId}
               sprint={sprint}
               trigger={
-                <Button variant="ghost" size="icon-sm" title="Edit sprint">
+                <Button variant="ghost" size="icon-sm">
                   <RiPencilLine className="size-3.5" />
                 </Button>
               }
+              triggerTooltip="Edit the sprint's name, goal, or dates"
               onSaved={onChanged}
             />
             <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-              <Button variant="ghost" size="icon-sm" title="Delete sprint" onClick={() => setConfirmDeleteOpen(true)}>
-                <RiDeleteBinLine className="size-3.5" />
-              </Button>
+              <Tip label="Delete this sprint (items stay in history)">
+                <Button variant="ghost" size="icon-sm" onClick={() => setConfirmDeleteOpen(true)}>
+                  <RiDeleteBinLine className="size-3.5" />
+                </Button>
+              </Tip>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete this sprint?</AlertDialogTitle>
@@ -1614,18 +1631,23 @@ function SprintItemRowView({
       </td>
       <td className="px-3 py-2 text-right">
         <div className="flex items-center justify-end gap-0.5">
-          <Button variant="ghost" size="icon-sm" title="Jira comments" onClick={onComments}>
-            <RiChat3Line className="size-3.5" />
-          </Button>
-          {canManage && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              title={phase === "planned" ? "Remove from plan" : "Remove from sprint (tracked as scope change)"}
-              onClick={onRemove}
-            >
-              <RiDeleteBinLine className="size-3.5" />
+          <Tip label="View and add Jira comments on this issue">
+            <Button variant="ghost" size="icon-sm" onClick={onComments}>
+              <RiChat3Line className="size-3.5" />
             </Button>
+          </Tip>
+          {canManage && (
+            <Tip
+              label={
+                phase === "planned"
+                  ? "Remove this issue from the plan"
+                  : "Remove from the sprint — needs a reason and is tracked as a scope change"
+              }
+            >
+              <Button variant="ghost" size="icon-sm" onClick={onRemove}>
+                <RiDeleteBinLine className="size-3.5" />
+              </Button>
+            </Tip>
           )}
         </div>
       </td>
