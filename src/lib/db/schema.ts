@@ -1986,3 +1986,51 @@ export type Sprint = typeof sprints.$inferSelect;
 export type NewSprint = typeof sprints.$inferInsert;
 export type SprintItem = typeof sprintItems.$inferSelect;
 export type NewSprintItem = typeof sprintItems.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Sprint Notes — the running log kept by whoever is driving the sprint:
+// standup takeaways, blockers, decisions, "why we dropped X" — anything that
+// belongs to the ITERATION rather than to one issue. Per-issue discussion
+// stays in Jira (the item comment modal posts straight to the issue); this is
+// deliberately Flux-local because these projects have no real Jira sprint to
+// hang a comment on.
+//
+// A thread of dated entries rather than one editable blob: sprint notes are
+// written a day at a time, and the sprint report is only useful if each entry
+// keeps the date and author it was written with. An entry is editable by its
+// author and soft-deleted (never destroyed) so the history stays intact.
+// ---------------------------------------------------------------------------
+export const sprintNotes = pgTable(
+  "sprint_notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sprintId: uuid("sprint_id")
+      .notNull()
+      .references(() => sprints.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    authorId: text("author_id")
+      .notNull()
+      .references(() => users.id),
+    // Denormalized author name (the created_by_name idiom used across sprints
+    // and deliveries) so a note stays attributable in the Excel report and in
+    // emails without joining users.
+    authorName: text("author_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Stamped the first time the body changes — the note then renders as
+    // "edited", so a rewritten note is never mistaken for what was said live.
+    editedAt: timestamp("edited_at", { withTimezone: true }),
+    // Soft-delete, same reasoning as delay_logs: removing a note deactivates
+    // the row and records who did it, it never destroys the authorship.
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: text("deleted_by").references(() => users.id),
+    deletedByName: text("deleted_by_name"),
+  },
+  (t) => [
+    index("sprint_notes_sprint_idx").on(t.sprintId, t.createdAt),
+    index("sprint_notes_active_idx").on(t.deletedAt),
+  ]
+);
+
+export type SprintNote = typeof sprintNotes.$inferSelect;
+export type NewSprintNote = typeof sprintNotes.$inferInsert;

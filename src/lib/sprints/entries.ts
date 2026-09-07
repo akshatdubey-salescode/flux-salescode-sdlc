@@ -64,6 +64,22 @@ export type SprintItemRow = {
   removedComment: string | null;
 };
 
+/**
+ * One entry in the sprint's note log. Body is plain text (rendered
+ * whitespace-preserved), never ADF — these are Flux-local notes, not Jira
+ * comments.
+ */
+export type SprintNoteRow = {
+  id: string;
+  body: string;
+  /** users.id — the client compares it against the viewer to gate edit/delete. */
+  authorId: string;
+  authorName: string | null;
+  createdAt: string;
+  /** Non-null once the body has been edited. */
+  editedAt: string | null;
+};
+
 /** Jira Sprint Report shape, issue-count based (no story-points field is configured for these projects). */
 export type SprintRollup = {
   /** Active (non-removed) items. */
@@ -106,6 +122,8 @@ export type SprintWithItems = {
   items: SprintItemRow[];
   /** Items soft-removed after the sprint started — the report's "removed from sprint" set. */
   removedItems: SprintItemRow[];
+  /** The sprint's note log, oldest first. Active (non-deleted) entries only. */
+  notes: SprintNoteRow[];
   rollup: SprintRollup;
 };
 
@@ -254,10 +272,51 @@ async function fetchItemsForSprints(
   return bySprint;
 }
 
+type SprintNoteJoinRow = {
+  id: string;
+  sprint_id: string;
+  body: string;
+  author_id: string;
+  author_name: string | null;
+  created_at: string | Date;
+  edited_at: string | Date | null;
+};
+
+/** Active notes for a set of sprints in one query, oldest first — same batched shape as fetchItemsForSprints. */
+async function fetchNotesForSprints(sprintIds: string[]): Promise<Map<string, SprintNoteRow[]>> {
+  const bySprint = new Map<string, SprintNoteRow[]>();
+  if (sprintIds.length === 0) return bySprint;
+
+  const rows = (
+    await db.execute(sql`
+      SELECT id, sprint_id, body, author_id, author_name, created_at, edited_at
+      FROM sprint_notes
+      WHERE deleted_at IS NULL
+        AND sprint_id IN (${sql.join(sprintIds.map((id) => sql`${id}`), sql`, `)})
+      ORDER BY created_at ASC
+    `)
+  ).rows as unknown as SprintNoteJoinRow[];
+
+  for (const r of rows) {
+    const list = bySprint.get(r.sprint_id) ?? [];
+    list.push({
+      id: r.id,
+      body: r.body,
+      authorId: r.author_id,
+      authorName: r.author_name,
+      createdAt: toIso(r.created_at) ?? new Date(0).toISOString(),
+      editedAt: toIso(r.edited_at),
+    });
+    bySprint.set(r.sprint_id, list);
+  }
+  return bySprint;
+}
+
 function headerToSprint(
   h: SprintHeaderRow,
   items: SprintItemRow[],
-  removedItems: SprintItemRow[]
+  removedItems: SprintItemRow[],
+  notes: SprintNoteRow[]
 ): SprintWithItems {
   const rollup = emptyRollup();
   for (const item of items) {
@@ -296,6 +355,7 @@ function headerToSprint(
     completedByName: h.completed_by_name,
     items,
     removedItems,
+    notes,
     rollup,
   };
 }
@@ -318,10 +378,14 @@ export async function fetchProjectSprints(projectId: string): Promise<SprintWith
     `)
   ).rows as unknown as SprintHeaderRow[];
 
-  const itemsBySprint = await fetchItemsForSprints(headers.map((h) => h.id));
+  const sprintIds = headers.map((h) => h.id);
+  const [itemsBySprint, notesBySprint] = await Promise.all([
+    fetchItemsForSprints(sprintIds),
+    fetchNotesForSprints(sprintIds),
+  ]);
   return headers.map((h) => {
     const entry = itemsBySprint.get(h.id) ?? { items: [], removed: [] };
-    return headerToSprint(h, entry.items, entry.removed);
+    return headerToSprint(h, entry.items, entry.removed, notesBySprint.get(h.id) ?? []);
   });
 }
 
@@ -336,10 +400,14 @@ export async function fetchBoardSprints(boardId: string): Promise<SprintWithItem
     `)
   ).rows as unknown as SprintHeaderRow[];
 
-  const itemsBySprint = await fetchItemsForSprints(headers.map((h) => h.id));
+  const sprintIds = headers.map((h) => h.id);
+  const [itemsBySprint, notesBySprint] = await Promise.all([
+    fetchItemsForSprints(sprintIds),
+    fetchNotesForSprints(sprintIds),
+  ]);
   return headers.map((h) => {
     const entry = itemsBySprint.get(h.id) ?? { items: [], removed: [] };
-    return headerToSprint(h, entry.items, entry.removed);
+    return headerToSprint(h, entry.items, entry.removed, notesBySprint.get(h.id) ?? []);
   });
 }
 
@@ -447,10 +515,14 @@ export async function fetchWorkstreamById(
     `)
   ).rows as unknown as SprintHeaderRow[];
 
-  const itemsBySprint = await fetchItemsForSprints(headers.map((h) => h.id));
+  const sprintIds = headers.map((h) => h.id);
+  const [itemsBySprint, notesBySprint] = await Promise.all([
+    fetchItemsForSprints(sprintIds),
+    fetchNotesForSprints(sprintIds),
+  ]);
   const sprints = headers.map((h) => {
     const entry = itemsBySprint.get(h.id) ?? { items: [], removed: [] };
-    return headerToSprint(h, entry.items, entry.removed);
+    return headerToSprint(h, entry.items, entry.removed, notesBySprint.get(h.id) ?? []);
   });
   return { workstream: mapWorkstream(row), sprints };
 }
@@ -468,7 +540,10 @@ export async function fetchSprintById(sprintId: string): Promise<SprintWithItems
   const header = headers[0];
   if (!header) return null;
 
-  const itemsBySprint = await fetchItemsForSprints([sprintId]);
+  const [itemsBySprint, notesBySprint] = await Promise.all([
+    fetchItemsForSprints([sprintId]),
+    fetchNotesForSprints([sprintId]),
+  ]);
   const entry = itemsBySprint.get(sprintId) ?? { items: [], removed: [] };
-  return headerToSprint(header, entry.items, entry.removed);
+  return headerToSprint(header, entry.items, entry.removed, notesBySprint.get(sprintId) ?? []);
 }

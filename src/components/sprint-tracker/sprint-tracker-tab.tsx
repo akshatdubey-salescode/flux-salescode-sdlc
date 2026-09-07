@@ -20,6 +20,7 @@ import {
   RiArrowDownSLine,
   RiArrowRightSLine,
   RiStackLine,
+  RiStickyNoteLine,
   RiMore2Line,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
@@ -84,6 +85,7 @@ import type {
 import { CreateSprintForm } from "./create-sprint-form";
 import { SprintGuide } from "./sprint-guide";
 import { ItemCommentsModal } from "./item-comments-modal";
+import { SprintNotesDialog } from "./sprint-notes-dialog";
 
 type SprintsResponse = { sprints: SprintWithItems[] };
 
@@ -796,6 +798,7 @@ export function SprintCard({
   const [showRemoved, setShowRemoved] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [updateCopied, setUpdateCopied] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
 
   const existingIssueIds = useMemo(() => new Set(sprint.items.map((i) => i.issueId)), [sprint.items]);
 
@@ -998,6 +1001,23 @@ export function SprintCard({
               <RiLinkM className="size-3.5" />
             </Button>
           </Tip>
+          <Tip
+            label={
+              sprint.notes.length > 0
+                ? `Sprint notes — ${sprint.notes.length} note${sprint.notes.length === 1 ? "" : "s"} on this sprint (blockers, decisions, anything about the iteration itself)`
+                : "Sprint notes — keep a running log for this sprint: blockers, decisions, anything that isn't about one issue"
+            }
+          >
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-1.5 text-[11px] font-normal text-muted-foreground hover:text-foreground"
+              onClick={() => setNotesOpen(true)}
+            >
+              <RiStickyNoteLine className="size-3.5" />
+              {sprint.notes.length > 0 && sprint.notes.length}
+            </Button>
+          </Tip>
 
           {/* Group 2 — get this sprint's state out to someone. Icon-only: three
               labelled buttons crowded out the one action that matters, and every
@@ -1194,6 +1214,16 @@ export function SprintCard({
           )}
         </div>
       )}
+
+      <SprintNotesDialog
+        sprintId={sprint.id}
+        sprintName={sprint.name}
+        notes={sprint.notes}
+        canManage={canManage}
+        onChanged={onChanged}
+        open={notesOpen}
+        onOpenChange={setNotesOpen}
+      />
 
       <CompleteSprintDialog
         open={closeOpen}
