@@ -6,6 +6,8 @@ import { requireAuth } from "@/lib/auth/server";
 import { categoryLabel } from "@/lib/delay-tracker/categories";
 import { rankByKey, type DelayLeader } from "@/lib/delay-tracker/leaderboard";
 import { isValidUuid } from "@/lib/delay-tracker/entries";
+import { loadKekaDirectory } from "@/lib/keka/directory";
+import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
 
 export type ProjectDelayCategoryCount = { category: string; label: string; count: number };
 
@@ -44,7 +46,7 @@ async function fetchProjectDelayAnalytics(
 ): Promise<ProjectDelayAnalyticsResponse> {
   "use cache";
   cacheLife("minutes");
-  cacheTag("delay-logs", `project:${projectId}`);
+  cacheTag("delay-logs", `project:${projectId}`, KEKA_DIRECTORY_TAG);
 
   const rows = (
     await db.execute(sql`
@@ -74,7 +76,18 @@ async function fetchProjectDelayAnalytics(
 
   // byUser only makes sense for rows that actually name someone responsible —
   // byCategory above still counts every row, named or not.
-  const userLeaders = rankByKey(rows.filter((r) => r.email), "email", "name");
+  //
+  // The Keka gate (src/lib/keka/people.ts) is applied HERE and not in the
+  // query's WHERE on purpose: delay_logs rows are durable and byCategory is
+  // built from the same row set, so filtering in SQL would quietly shrink the
+  // project's category totals. The delay happened and still counts; it just
+  // stops being attributed to someone who no longer works here.
+  const dir = await loadKekaDirectory();
+  const userLeaders = rankByKey(
+    rows.filter((r) => r.email && dir.isActive(r.email as string)),
+    "email",
+    "name"
+  );
 
   return { total, byCategory: categoryBreakdown, byUser: userLeaders };
 }

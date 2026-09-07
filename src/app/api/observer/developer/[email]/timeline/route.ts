@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
 import { cacheLife, cacheTag } from "next/cache";
 import { getCurrentUser } from "@/lib/auth/server";
+import { loadKekaDirectory } from "@/lib/keka/directory";
 import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
 
 type Params = { params: Promise<{ email: string }> };
@@ -84,6 +85,14 @@ export async function GET(req: Request, { params }: Params) {
   try {
     const { email } = await params;
     const decodedEmail = decodeURIComponent(email).toLowerCase();
+
+    // Keka-only rule (src/lib/keka/people.ts). Every list that links here is
+    // now gated, so an ungated email arriving at this route is a hand-typed or
+    // bookmarked URL for someone who isn't a current colleague.
+    const dir = await loadKekaDirectory();
+    if (!dir.isActive(decodedEmail)) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     const url = new URL(req.url);
     const today = url.searchParams.get("today") ?? new Date().toISOString().split("T")[0];
     const filterStart = url.searchParams.get("start") ?? today;

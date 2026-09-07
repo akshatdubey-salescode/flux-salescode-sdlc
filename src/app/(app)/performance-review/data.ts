@@ -3,6 +3,7 @@ import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { performanceScorecards, jiraProjects, kekaEmployees } from "@/lib/db/schema";
 import { PERFORMANCE_SCORECARDS_TAG } from "@/lib/scorecard/cache-tags";
+import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
 import type { MetricBreakdown } from "@/lib/scorecard/engine";
 
 export type ScorecardRow = {
@@ -192,15 +193,26 @@ const FORMER_MEMBERS = new Set(
   ].map((e) => e.toLowerCase())
 );
 
-/** True for people no longer with the org: a Keka exit date on/before now, or on
- * the manual FORMER_MEMBERS list. People still on notice (future exit) stay. */
+/**
+ * True for people who must not appear on the leaderboard: anyone with no Keka
+ * row at all, anyone with a Keka exit date on/before now, or anyone on the
+ * manual FORMER_MEMBERS list. People still on notice (a future exit date) stay.
+ *
+ * The no-Keka-row case is the Keka-only rule (src/lib/keka/people.ts) and it
+ * is the one this function used to get backwards: `keka` being undefined meant
+ * "no exit date known", which returned false and left the person ranked. But
+ * keka_employees holds every current employee (the sync prunes leavers), so a
+ * missing row is the strongest possible signal that someone doesn't work here
+ * — scorecards persist per quarter and outlive their subject's employment.
+ */
 function isInactive(
   email: string,
   keka: { exitDate: Date | null } | undefined,
   now: Date
 ): boolean {
   if (FORMER_MEMBERS.has(email.toLowerCase())) return true;
-  return keka?.exitDate != null && keka.exitDate <= now;
+  if (!keka) return true;
+  return keka.exitDate != null && keka.exitDate <= now;
 }
 
 /**
@@ -257,6 +269,9 @@ export async function fetchScorecards(quarterKey: string): Promise<ScorecardRow[
   "use cache";
   cacheLife("minutes");
   cacheTag(PERFORMANCE_SCORECARDS_TAG);
+  // Ranking now depends on Keka membership (isInactive), so a joiner/leaver
+  // sync has to refresh this even when no scorecard was recomputed.
+  cacheTag(KEKA_DIRECTORY_TAG);
 
   // Scalar columns only — the breakdown JSONB (which holds the per-issue item
   // lists) can be large, and the leaderboard doesn't need it.
@@ -349,6 +364,7 @@ export async function fetchScorecardDetail(
   "use cache";
   cacheLife("minutes");
   cacheTag(PERFORMANCE_SCORECARDS_TAG);
+  cacheTag(KEKA_DIRECTORY_TAG);
 
   const [r] = await db
     .select()
@@ -359,6 +375,12 @@ export async function fetchScorecardDetail(
     .limit(1);
 
   if (!r) return null;
+
+  // Same gate as the leaderboard (isInactive), so a hand-typed or bookmarked
+  // URL can't open a scorecard for someone the board no longer lists.
+  if (isInactive(r.userEmail, (await kekaMap()).get(r.userEmail.toLowerCase()), new Date())) {
+    return null;
+  }
 
   const names = await nameMap();
   const baseUrls = await jiraBaseUrlByProjectKey();

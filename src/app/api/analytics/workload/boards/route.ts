@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
+import { isKekaPerson } from "@/lib/keka/people";
+import { loadKekaDirectory } from "@/lib/keka/directory";
+import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
 import { cacheLife, cacheTag } from "next/cache";
 import { requireAuth } from "@/lib/auth/server";
 import { stampCache, withCacheMetrics } from "@/lib/cache/metrics";
@@ -124,21 +127,31 @@ async function fetchBoardWorkload(
   // never survived between serverless instances, so this recomputed every time.
   "use cache: remote";
   cacheLife("minutes");
-  cacheTag("jira-issues", "observer-boards", "workload-boards");
+  cacheTag("jira-issues", "observer-boards", "workload-boards", KEKA_DIRECTORY_TAG);
 
-  // Load all boards and their members
+  // Load all boards and their members. Membership — and the board's own
+  // manager below — are gated on the Keka directory (src/lib/keka/people.ts):
+  // both are durable columns that outlive the person, so a board would
+  // otherwise keep counting workload seats for people who have left.
   const [allBoards, allMembers] = await Promise.all([
     db.select().from(observerBoards),
-    db.select().from(observerBoardMembers),
+    db
+      .select()
+      .from(observerBoardMembers)
+      .where(isKekaPerson(sql`lower(${observerBoardMembers.email})`)),
   ]);
 
   if (allBoards.length === 0) return stampCache({ boards: [] });
+
+  const dir = await loadKekaDirectory();
 
   // Build board → email set and email → boardIds mappings
   const boardEmailMap = new Map<string, Set<string>>();
   for (const board of allBoards) {
     const emails = new Set<string>();
-    if (board.managerEmail) emails.add(board.managerEmail.toLowerCase());
+    if (board.managerEmail && dir.isActive(board.managerEmail)) {
+      emails.add(board.managerEmail.toLowerCase());
+    }
     boardEmailMap.set(board.id, emails);
   }
   for (const member of allMembers) {

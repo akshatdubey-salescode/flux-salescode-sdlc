@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
+import { isKekaPerson } from "@/lib/keka/people";
+import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
 import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth/server";
 import { cacheLife, cacheTag } from "next/cache";
@@ -32,7 +34,7 @@ export async function GET() {
 async function fetchDelayAnalytics(): Promise<DelayAnalyticsResponse> {
   "use cache";
   cacheLife("minutes");
-  cacheTag("delay-logs");
+  cacheTag("delay-logs", KEKA_DIRECTORY_TAG);
 
   const [projectRows, userRows] = await Promise.all([
     db.execute(sql`
@@ -48,6 +50,12 @@ async function fetchDelayAnalytics(): Promise<DelayAnalyticsResponse> {
         dl.responsible_email AS email, MAX(dl.responsible_name) AS name, dl.category, COUNT(*)::int AS n
       FROM delay_logs dl
       WHERE dl.responsible_email IS NOT NULL AND dl.deleted_at IS NULL
+        -- Keka-only rule (src/lib/keka/people.ts): delay logs are durable and
+        -- name a responsible person, so without this someone who left keeps a
+        -- row in the by-person breakdown indefinitely. Project- and
+        -- category-level totals above are untouched — the delay itself still
+        -- happened and still counts.
+        AND ${isKekaPerson(sql`lower(dl.responsible_email)`)}
       GROUP BY dl.responsible_email, dl.category
     `),
   ]);

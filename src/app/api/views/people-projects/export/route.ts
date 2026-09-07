@@ -388,18 +388,30 @@ async function buildWorkbook(
     ])
   );
 
-  // --- Sheet 5: bugs with no issue owner (data-hygiene; not people-filtered) ---
+  // --- Sheet 5: bugs nobody currently owns (data-hygiene; not people-filtered) ---
+  // Two kinds of gap share this sheet because they need the same fix — set a
+  // live Issue Owner. "Former Owner" distinguishes them: filled in means the
+  // field still names someone who has left (their bugs are the ones most
+  // likely to rot unnoticed, so they're tracked here rather than dropped);
+  // blank means the field was never set. See fetchUnattributedBugs.
+  const departedOwnerCount = unownedBugs.filter((b) => b.formerOwnerEmail).length;
+  const gapNote =
+    departedOwnerCount > 0
+      ? `${unownedBugs.length - departedOwnerCount} with no owner set · ${departedOwnerCount} owned by someone who has left`
+      : `${unownedBugs.length} with no owner set`;
   addStyledSheet(
     wb,
     "Unowned Bugs",
-    "Bugs Missing an Issue Owner",
-    `${unownedBugs.length} bug${unownedBugs.length === 1 ? "" : "s"} with no owner set · not counted for anyone · not affected by people filters · ${stamp}`,
+    "Bugs With No Current Owner",
+    `${unownedBugs.length} bug${unownedBugs.length === 1 ? "" : "s"} · ${gapNote} · not counted for anyone · not affected by people filters · ${stamp}`,
     [
       { header: "Project", width: 24, min: 14, max: 34 },
       { header: "Jira Key", width: 14, min: 10, max: 18 },
       { header: "Summary", width: 50, min: 30, max: 60, wrap: true },
       { header: "Priority", width: 10, min: 8, max: 12 },
       { header: "Status", width: 16, min: 10, max: 24 },
+      { header: "Former Owner", width: 22, min: 14, max: 30 },
+      { header: "Former Owner Email", width: 28, min: 18, max: 36, muted: true },
       { header: "Assignee", width: 22, min: 14, max: 30 },
       { header: "Assignee Email", width: 28, min: 18, max: 36, muted: true },
       { header: "Created", width: 13, min: 12, max: 14 },
@@ -412,6 +424,8 @@ async function buildWorkbook(
         ? { text: b.priority, color: priorityColor(b.priority) ?? TEXT }
         : "",
       b.status,
+      b.formerOwnerName ?? "",
+      b.formerOwnerEmail ?? "",
       b.assigneeName ?? "",
       b.assigneeEmail ?? "",
       b.createdAt ? new Date(b.createdAt) : null,

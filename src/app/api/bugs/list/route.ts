@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
+import { isKekaPerson } from "@/lib/keka/people";
 import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth/server";
@@ -7,6 +8,22 @@ import { FRESHDESK_CUSTOM_FIELD } from "@/lib/freshdesk/sync";
 import { BUG_ISSUE_TYPES, BUG_INVALID_STATUSES } from "@/lib/scorecard/config";
 import { currentFiscalQuarterChip } from "@/lib/date-utils";
 import { normalizeEnvironment, priorityBucket, bugBoardPriorityBucket, isDoneOrCancelled, MISSING_ISSUE_OWNER, type BugRow } from "@/lib/bug-summary";
+
+// The bug's Issue Owner as a lowercased email, with the same accountId
+// fallbacks /api/bugs uses (Atlassian privacy settings strip emailAddress from
+// the payload for some users; users.id IS the person's email). Both fallbacks
+// are LIMIT 1 scalar subqueries because neither jira_account_id column is
+// unique — without it, a duplicate mapping makes Postgres raise "more than one
+// row returned by a subquery used as an expression" and the export 500s.
+const OWNER_EMAIL_SQL = `lower(COALESCE(
+          COALESCE(owner_val->>'emailAddress', owner_val->0->>'emailAddress'),
+          (SELECT u.id FROM users u
+            WHERE u.jira_account_id = COALESCE(owner_val->>'accountId', owner_val->0->>'accountId')
+            LIMIT 1),
+          (SELECT b.email FROM observer_board_members b
+            WHERE b.jira_account_id = COALESCE(owner_val->>'accountId', owner_val->0->>'accountId')
+            LIMIT 1)
+        ))`;
 
 // Org-wide flat bug list for the Bug Board's "Export to Excel" button.
 // Deliberately its OWN query, not the shared loadBugRows() every other
@@ -162,12 +179,21 @@ async function fetchAllBugs(start: string, end: string): Promise<ExportBugRow[]>
         AND ji.jira_created_at >= ${start}::date
         AND ji.jira_created_at < (${end}::date + interval '1 day')
     )
+    -- Keka gate on the owner, matching fetchBugBoard (/api/bugs): an owner who
+    -- isn't a current employee is treated as NO owner, so the bug still
+    -- exports but under "Missing Issue Owner" — the same bucket the board
+    -- shows it in. See src/lib/keka/people.ts. The accountId fallbacks cover
+    -- owners whose emailAddress Atlassian strips from the issue payload.
     SELECT
       id, jira_key, summary, status, status_category, priority,
       assignee_email, assignee_name, jira_created_at, jira_updated_at,
       project_id, project_name, jira_base_url, jira_project_key, is_customer, env_raw, canonical_status,
-      COALESCE(owner_val->>'emailAddress', owner_val->0->>'emailAddress') AS owner_email,
-      COALESCE(owner_val->>'displayName',  owner_val->0->>'displayName')  AS owner_name
+      CASE WHEN ${isKekaPerson(sql.raw(OWNER_EMAIL_SQL))} THEN
+        COALESCE(owner_val->>'emailAddress', owner_val->0->>'emailAddress')
+      END AS owner_email,
+      CASE WHEN ${isKekaPerson(sql.raw(OWNER_EMAIL_SQL))} THEN
+        COALESCE(owner_val->>'displayName',  owner_val->0->>'displayName')
+      END AS owner_name
     FROM base
   `);
 

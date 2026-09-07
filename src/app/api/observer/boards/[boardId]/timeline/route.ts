@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
-import { sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
+import { isKekaPerson } from "@/lib/keka/people";
 import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
@@ -182,10 +182,23 @@ async function fetchBoardTimeline(
 
   if (!board) return null;
 
+  // Loaded up front: the Keka directory gates who appears on this timeline
+  // (below) and, further down, supplies each member's direct-report count.
+  const directory = await loadKekaDirectory();
+
+  // Keka-only rule (src/lib/keka/people.ts): board membership is durable, so a
+  // member added before this rule existed — or one who has since left — must
+  // not keep appearing here. Filtered on read as well as on write (see the
+  // members POST route), because the stored rows outlive the UI that added them.
   const members = await db
     .select()
     .from(observerBoardMembers)
-    .where(eq(observerBoardMembers.boardId, boardId));
+    .where(
+      and(
+        eq(observerBoardMembers.boardId, boardId),
+        isKekaPerson(sql`lower(${observerBoardMembers.email})`)
+      )
+    );
 
   if (members.length === 0) {
     return {
@@ -200,7 +213,12 @@ async function fetchBoardTimeline(
   }
 
   const emailSet = new Set(members.map((m) => m.email.toLowerCase()));
-  if (board.managerEmail) emailSet.add(board.managerEmail.toLowerCase());
+  // Same Keka gate as the members above: manager_email is stamped on the board
+  // at creation and never revisited, so a manager who has since left would
+  // otherwise keep a lane on this timeline for as long as the board exists.
+  if (board.managerEmail && directory.isActive(board.managerEmail)) {
+    emailSet.add(board.managerEmail.toLowerCase());
+  }
   const emails = [...emailSet];
   const emailsIn = sql.join(emails.map((e) => sql`${e}`), sql`, `);
 
@@ -361,7 +379,7 @@ async function fetchBoardTimeline(
   // Cross-navigation: does each member manage their own team?
   //  - kekaReportCount: # of direct reports in the Keka org tree (0 = not a manager)
   //  - ownedBoardId: a board they already manage (so we link straight to it)
-  const directory = await loadKekaDirectory();
+  // `directory` is loaded near the top of this function.
   const ownedBoardByEmail = new Map<string, string>();
   const ownerRows = await db.execute(sql`
     SELECT id, lower(manager_email) AS manager_email, lower(created_by) AS created_by

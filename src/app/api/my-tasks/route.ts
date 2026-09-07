@@ -16,6 +16,7 @@ import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import { jiraIssues, jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
+import { loadKekaDirectory } from "@/lib/keka/directory";
 import { stampCache, withCacheMetrics, type Stamped } from "@/lib/cache/metrics";
 import { extractStartDate, extractDueDate } from "@/lib/jira/dates";
 import {
@@ -90,8 +91,15 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = req.nextUrl;
 
+  // `forEmail` is the "look at someone else's tasks" override behind
+  // /tasks/[email]. Gated on the Keka directory (src/lib/keka/people.ts): the
+  // picker that produces the link can no longer offer a non-Keka person, and a
+  // hand-typed or bookmarked address for someone who has left must not open
+  // their task list either. Falls back to the caller's own tasks — never a
+  // hard error, since the viewer themselves is legitimately signed in.
   const forEmail = searchParams.get("forEmail")?.trim();
-  const targetEmail = forEmail || user.email;
+  const dir = await loadKekaDirectory();
+  const targetEmail = forEmail && dir.isActive(forEmail) ? forEmail : user.email;
 
   const filters: MyTaskFilters = {
     q: searchParams.get("q")?.trim() ?? "",

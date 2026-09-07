@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
 import { loadKekaDirectory } from "@/lib/keka/directory";
+import { isKekaPerson } from "@/lib/keka/people";
 
 export type TeamRef = { id: string; name: string };
 
@@ -87,6 +88,10 @@ export async function fetchTopUnplannedAssignees(
       LEFT JOIN project_status_mappings psm
         ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
       WHERE ji.assignee_email IS NOT NULL AND trim(ji.assignee_email) != ''
+        -- Keka-only rule (src/lib/keka/people.ts): rank current colleagues,
+        -- not ex-employees whose unplanned issues outlive them. Applied here
+        -- rather than after the LIMIT so the top-30 is 30 real people.
+        AND ${isKekaPerson(sql`lower(ji.assignee_email)`)}
         AND ji.jira_created_at::date >= ${start}::date
         AND ji.jira_created_at::date <= ${end}::date
         -- Grace window: only count issues the person has owned for ≥24h, so
@@ -203,6 +208,7 @@ export async function fetchUnplannedIssuesForAssignee(
   "use cache";
   cacheLife("minutes");
   cacheTag("jira-issues");
+  cacheTag(KEKA_DIRECTORY_TAG);
 
   const excludeDoneCondition = includeCompleted
     ? sql`TRUE`
@@ -227,6 +233,9 @@ export async function fetchUnplannedIssuesForAssignee(
       LEFT JOIN project_status_mappings psm
         ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
       WHERE lower(ji.assignee_email) = ${email}
+        -- Same gate as the ranking query, so a hand-typed email can't open a
+        -- drill-down on someone who isn't a current colleague.
+        AND ${isKekaPerson(sql`lower(ji.assignee_email)`)}
         AND ji.jira_created_at::date >= ${start}::date
         AND ji.jira_created_at::date <= ${end}::date
         -- Same grace window as the ranking query: only issues owned for ≥24h.

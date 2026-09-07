@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { desc } from "drizzle-orm";
+import { desc, sql } from "drizzle-orm";
+import { isKekaPerson } from "@/lib/keka/people";
+import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
 import { cacheLife, cacheTag, revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
@@ -21,6 +23,7 @@ async function fetchObserverBoards() {
   "use cache";
   cacheLife("minutes");
   cacheTag("boards");
+  cacheTag(KEKA_DIRECTORY_TAG);
 
   const boards = await db
     .select({
@@ -36,8 +39,14 @@ async function fetchObserverBoards() {
     .from(observerBoards)
     .orderBy(desc(observerBoards.updatedAt));
 
+  // Member counts apply the same Keka gate as the roster itself, so a
+  // board card's count matches what you see when you open it
+  // (src/lib/keka/people.ts).
   const allMembers = boards.length > 0
-    ? await db.select({ boardId: observerBoardMembers.boardId }).from(observerBoardMembers)
+    ? await db
+        .select({ boardId: observerBoardMembers.boardId })
+        .from(observerBoardMembers)
+        .where(isKekaPerson(sql`lower(${observerBoardMembers.email})`))
     : [];
 
   const countMap: Record<string, number> = {};

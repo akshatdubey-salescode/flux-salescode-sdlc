@@ -16,15 +16,21 @@ export default async function ThroughputPage() {
   // Global people pool for the optional focus filter: every assignee across
   // active projects, plus all observer board members.
   const peopleRes = await db.execute(sql`
-    SELECT email, name FROM (
-      SELECT lower(ji.assignee_email) AS email, MIN(ji.assignee_name) AS name
-      FROM jira_issues ji
-      JOIN jira_projects jp ON jp.id = ji.project_id AND jp.is_active = true
-      WHERE ji.assignee_email IS NOT NULL AND ji.assignee_email <> ''
-      GROUP BY lower(ji.assignee_email)
-      UNION
-      SELECT lower(email) AS email, name FROM observer_board_members
-    ) t
+    -- Every current Keka employee is the pool, full stop: the people who may be
+    -- picked are the people who work here, not the people Jira happens to have a
+    -- row for. Jira's assignee name is only a fallback when Keka has no display
+    -- name. See src/lib/keka/people.ts for why the old
+    -- assignees-UNION-board-members pool was wrong: it offered ex-employees,
+    -- client reporters and Atlassian service accounts as pickable people.
+    SELECT ke.email AS email,
+           COALESCE(
+             NULLIF(ke.display_name, ''),
+             (SELECT MIN(ji.assignee_name) FROM jira_issues ji
+              WHERE lower(ji.assignee_email) = ke.email),
+             split_part(ke.email, '@', 1)
+           ) AS name
+    FROM keka_employees ke
+    WHERE ke.email IS NOT NULL
     ORDER BY name
   `);
 

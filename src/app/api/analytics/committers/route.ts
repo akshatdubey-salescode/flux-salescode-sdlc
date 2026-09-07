@@ -6,6 +6,8 @@ import { requireAuth } from "@/lib/auth/server";
 import { stampCache, withCacheMetrics } from "@/lib/cache/metrics";
 import { GITHUB_STATS_TAG } from "@/lib/github/cache-tags";
 import { currentFiscalQuarterChip } from "@/lib/date-utils";
+import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
+import { isKekaPerson } from "@/lib/keka/people";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -71,6 +73,7 @@ async function fetchTopCommitters(opts: {
   "use cache";
   cacheLife("minutes");
   cacheTag(GITHUB_STATS_TAG);
+  cacheTag(KEKA_DIRECTORY_TAG);
 
   const res = await db.execute(sql`
     SELECT
@@ -86,6 +89,14 @@ async function fetchTopCommitters(opts: {
     JOIN github_accounts ga ON ga.github_login = gcs.github_login
     JOIN users u ON u.id = ga.user_id
     WHERE ga.is_bot = false
+      -- Keka-only rule (src/lib/keka/people.ts): a GitHub account mapped to a
+      -- Flux user who isn't a current employee drops off the leaderboard
+      -- rather than ranking beside the team, bringing this board into
+      -- agreement with Lines of Code. EXISTS rather than a JOIN on purpose —
+      -- keka_employees.email carries a non-unique index, so two rows for one
+      -- address (a rehire, or a data-entry twin) would fan out the commit
+      -- rows and silently double this person's totals.
+      AND ${isKekaPerson(sql`lower(u.id)`)}
       AND gcs.week_start::date >= ${opts.start}::date
       AND gcs.week_start::date <= ${opts.end}::date
     GROUP BY u.id

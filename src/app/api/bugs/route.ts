@@ -1,5 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { sql, inArray } from "drizzle-orm";
+import { isKekaPerson } from "@/lib/keka/people";
+import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
 import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
 import { jiraProjects } from "@/lib/db/schema";
@@ -83,6 +85,9 @@ async function fetchBugBoard(from: string | undefined, to: string | undefined, s
   "use cache";
   cacheLife("minutes");
   cacheTag("projects", "bugs");
+  // Owner attribution is gated on keka_employees, so a joiner/leaver sync must
+  // refresh the board even when no Jira issue changed.
+  cacheTag(KEKA_DIRECTORY_TAG);
 
   // feature_flags.showBugBoardOpenColumn gates this at the source too, not
   // just the UI/Excel display of it — off (the default) means the COUNT(*)
@@ -199,14 +204,57 @@ async function fetchBugBoard(from: string | undefined, to: string | undefined, s
               '\s+', ' ', 'g'
             ))) NOT IN (${invalidStatuses})${fromFilter}${toFilter}
     ),
+    owner_raw AS (
+      SELECT
+        base.*,
+        COALESCE(owner_val->>'emailAddress', owner_val->0->>'emailAddress') AS o_email,
+        COALESCE(owner_val->>'displayName',  owner_val->0->>'displayName')  AS o_name,
+        COALESCE(owner_val->>'accountId',    owner_val->0->>'accountId')    AS o_account
+      FROM base
+    ),
+    -- Resolve the owner to an email even when Atlassian's privacy settings
+    -- strip emailAddress from the issue payload: users.id IS the person's
+    -- email, and observer_board_members carries a resolved accountId too.
+    -- Same two-table fallback the People × Projects view uses.
+    owner_ident AS (
+      SELECT
+        orw.*,
+        lower(COALESCE(orw.o_email, u.id, obm.email)) AS o_resolved_email
+      FROM owner_raw orw
+      -- Both lookups are LATERAL … LIMIT 1, never plain joins: neither
+      -- users.jira_account_id nor observer_board_members.jira_account_id is
+      -- unique, so a duplicate mapping (an email change leaving two user rows,
+      -- a bad backfill, one person on two boards) would fan out this bug row
+      -- and silently double every count on the board — the same class of
+      -- Total-vs-P1+P2+P3+P4 mismatch documented in the base CTE above.
+      LEFT JOIN LATERAL (
+        SELECT u.id FROM users u
+        WHERE u.jira_account_id = orw.o_account
+        LIMIT 1
+      ) u ON true
+      LEFT JOIN LATERAL (
+        SELECT b.email FROM observer_board_members b
+        WHERE b.jira_account_id = orw.o_account
+        LIMIT 1
+      ) obm ON true
+    ),
     resolved AS (
       SELECT
         project_id, project_name, jira_base_url, jira_project_key,
         priority, priority_bucket, is_open, is_customer, env_raw,
-        COALESCE(owner_val->>'emailAddress', owner_val->0->>'emailAddress') AS owner_email,
-        COALESCE(owner_val->>'displayName',  owner_val->0->>'displayName')  AS owner_name,
-        COALESCE(owner_val->>'accountId',    owner_val->0->>'accountId')    AS owner_account
-      FROM base
+        -- Keka-only rule (src/lib/keka/people.ts). An owner who isn't a
+        -- current employee is treated as NO owner: the three owner columns go
+        -- null, owner_key below collapses to null, and the bug lands in the
+        -- board's existing "Missing Issue Owner" row. Deliberately not a
+        -- WHERE — dropping the row would hide a real open bug, whereas this
+        -- keeps every bug counted and puts the ones needing a live owner
+        -- exactly where the board already asks you to look. The raw field
+        -- email (not o_resolved_email) is still what's emitted, so owner_key
+        -- keeps the same shape every caller already filters on.
+        CASE WHEN ${isKekaPerson(sql`o_resolved_email`)} THEN o_email    END AS owner_email,
+        CASE WHEN ${isKekaPerson(sql`o_resolved_email`)} THEN o_name     END AS owner_name,
+        CASE WHEN ${isKekaPerson(sql`o_resolved_email`)} THEN o_account  END AS owner_account
+      FROM owner_ident
     )
     SELECT
       COALESCE(owner_email, owner_account) AS owner_key,

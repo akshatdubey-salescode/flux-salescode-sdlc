@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
+import { isKekaPerson } from "@/lib/keka/people";
 import { cacheLife, cacheTag } from "next/cache";
 import { requireAuth } from "@/lib/auth/server";
 import { stampCache, withCacheMetrics } from "@/lib/cache/metrics";
@@ -209,6 +210,10 @@ async function fetchProjectWorkload(
     WHERE jp.is_active = true
       AND ji.assignee_email IS NOT NULL
       AND ji.assignee_email != ''
+      -- Keka-only rule (src/lib/keka/people.ts): a project's member count and
+      -- its workload seats are about current colleagues. An ex-employee's old
+      -- issues never stop matching, so without this they inflated both forever.
+      AND ${isKekaPerson(sql`lower(ji.assignee_email)`)}
   `);
 
   const memberSet = new Map<string, Set<string>>();

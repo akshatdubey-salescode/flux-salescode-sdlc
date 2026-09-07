@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { cacheLife, cacheTag } from "next/cache";
+import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
 import { jiraIssues } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { localDateStr } from "@/lib/date-utils";
@@ -48,6 +49,9 @@ async function fetchProjectBugs(
   "use cache";
   cacheLife("minutes");
   cacheTag("projects", `project:${projectId}`);
+  // Owner attribution is gated on keka_employees (loadBugRows), so a
+  // joiner/leaver sync must refresh this.
+  cacheTag(KEKA_DIRECTORY_TAG);
 
   return loadBugRows([
     eq(jiraIssues.projectId, projectId),

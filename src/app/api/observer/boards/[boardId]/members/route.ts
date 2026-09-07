@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { observerBoards, observerBoardMembers } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { ensureMemberJiraAccountId } from "@/lib/jira/identity";
+import { loadKekaDirectory } from "@/lib/keka/directory";
 
 type Params = { params: Promise<{ boardId: string }> };
 
@@ -44,12 +45,30 @@ export async function POST(request: Request, { params }: Params) {
       return NextResponse.json({ error: "Name and email are required" }, { status: 400 });
     }
 
+    // The Keka-only rule's write boundary (src/lib/keka/people.ts). The picker
+    // that feeds this form can no longer offer a non-Keka person, but the
+    // board's member list is durable — anything let in here outlives the UI
+    // that added it and reappears on every tab built from board membership.
+    // So the check lives on the API, not just in the picker.
+    const dir = await loadKekaDirectory();
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!dir.isActive(normalizedEmail)) {
+      return NextResponse.json(
+        {
+          error:
+            "Only current employees from the Keka directory can be added to a board. " +
+            "If this person has just joined, run the Keka sync and try again.",
+        },
+        { status: 422 }
+      );
+    }
+
     const [member] = await db
       .insert(observerBoardMembers)
       .values({
         boardId,
         name: name.trim(),
-        email: email.trim().toLowerCase(),
+        email: normalizedEmail,
         jiraAccountId: jiraAccountId?.trim() || null,
       })
       .onConflictDoNothing()
@@ -62,7 +81,7 @@ export async function POST(request: Request, { params }: Params) {
         .where(
           and(
             eq(observerBoardMembers.boardId, boardId),
-            eq(observerBoardMembers.email, email.trim().toLowerCase())
+            eq(observerBoardMembers.email, normalizedEmail)
           )
         );
       return NextResponse.json(
