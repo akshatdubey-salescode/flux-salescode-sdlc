@@ -588,6 +588,8 @@ function WorkstreamSection({
             {canManage && (
               <EmailUpdateDialog
                 endpoint={`/api/workstreams/${workstream.id}/email`}
+                schedulesEndpoint={`/api/workstreams/${workstream.id}/schedules`}
+                targetNoun="workstream"
                 projectId={workstream.projectId}
                 entityName={workstream.name}
                 buildDefaults={() => workstreamEmailDefaults(workstream.name, sprints)}

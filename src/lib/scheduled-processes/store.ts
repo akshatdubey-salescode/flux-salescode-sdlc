@@ -93,13 +93,15 @@ function toScheduleRow(r: RawScheduleRow): ScheduleRow {
 /**
  * The schedule columns plus its most recent attempt.
  *
- * The sprint join is a LEFT JOIN on target_id, which stays correct as other
- * processes arrive — a non-sprint target simply has no name here, and gets its
- * own resolution when there is one to resolve.
+ * Target names come from a LEFT JOIN per targetable table, coalesced: ids are
+ * UUIDs from different tables, so at most one join can match and the pattern
+ * extends to the next process by adding a join and a COALESCE arm. A target
+ * whose row is gone simply has no name here — which is exactly what a list
+ * showing "(deleted sprint)" needs.
  */
 const SCHEDULE_SELECT = sql`
   SELECT
-    sp.id, sp.process, sp.target_id, s.name AS target_name,
+    sp.id, sp.process, sp.target_id, COALESCE(s.name, w.name) AS target_name,
     sp.recipients, sp.subject, sp.message, sp.frequency,
     sp.day_of_week, sp.day_of_month, sp.next_run_on, sp.ends_on, sp.last_run_on,
     sp.paused_at, sp.stopped_at, sp.stop_reason,
@@ -109,6 +111,7 @@ const SCHEDULE_SELECT = sql`
     r.started_at AS last_started_at
   FROM scheduled_processes sp
   LEFT JOIN sprints s ON s.id = sp.target_id
+  LEFT JOIN sprint_workstreams w ON w.id = sp.target_id
   LEFT JOIN LATERAL (
     SELECT run_on, status, "trigger", recipient_count, detail, started_at
     FROM scheduled_process_runs
@@ -118,7 +121,7 @@ const SCHEDULE_SELECT = sql`
   ) r ON TRUE
 `;
 
-/** Every live schedule attached to one target — what the sprint's dialog lists. */
+/** Every live schedule attached to one target — what a sprint's or workstream's dialog lists. */
 export async function listSchedulesForTarget(
   process: string,
   targetId: string

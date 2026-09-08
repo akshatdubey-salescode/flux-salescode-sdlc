@@ -1,6 +1,7 @@
 import type { ScheduledProcess } from "@/lib/db/schema";
 import { SCHEDULED_PROCESS_VALUES, type ScheduledProcessName, type StopReason } from "./types";
 import { runSprintProgressEmail } from "./handlers/sprint-progress-email";
+import { runWorkstreamProgressEmail } from "./handlers/workstream-progress-email";
 
 /**
  * The "process in code" half of the design: the table says what to run, this
@@ -43,6 +44,7 @@ export type ProcessHandler = (
 
 export const PROCESS_HANDLERS = {
   sprint_progress_email: runSprintProgressEmail,
+  workstream_progress_email: runWorkstreamProgressEmail,
 } satisfies Record<ScheduledProcessName, ProcessHandler>;
 
 /**

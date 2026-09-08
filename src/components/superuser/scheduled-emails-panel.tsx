@@ -9,9 +9,9 @@ import { ScheduleList } from "@/components/scheduled-processes/schedule-list";
 import { scheduleState, type ScheduleRow } from "@/lib/scheduled-processes/types";
 
 /**
- * Every standing schedule in the app, across every sprint — the operator's
- * view. Live and soonest-due first, with paused and stopped rows kept below
- * so "why did this stop mailing?" has an answer rather than a gap.
+ * Every standing schedule in the app, across every sprint and workstream — the
+ * operator's view. Live and soonest-due first, with paused and stopped rows
+ * kept below so "why did this stop mailing?" has an answer rather than a gap.
  */
 export function ScheduledEmailsPanel() {
   const [schedules, setSchedules] = useState<ScheduleRow[] | null>(null);
@@ -74,7 +74,7 @@ export function ScheduledEmailsPanel() {
         schedules={schedules}
         onChanged={load}
         showTarget
-        emptyLabel="Nothing is scheduled anywhere yet. Schedules are created from a sprint's email dialog, on its Repeat tab."
+        emptyLabel="Nothing is scheduled anywhere yet. Schedules are created from a sprint's or workstream's email dialog, on its Repeat tab."
       />
     </div>
   );

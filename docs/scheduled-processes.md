@@ -1,9 +1,9 @@
 # Scheduled processes (the midnight run)
 
 One table of standing instructions, one nightly job that runs whatever is due.
-Sprint progress emails are the first — and so far only — process; the shape is
-deliberately generic so a bug digest or a delivery reminder is a handler in
-code rather than a new scheduler.
+Progress emails — for a single sprint, or for a whole workstream — are the
+processes that exist today; the shape is deliberately generic so a bug digest or
+a delivery reminder is a handler in code rather than a new scheduler.
 
 ## The moving parts
 
@@ -17,7 +17,7 @@ code rather than a new scheduler.
 | Process → handler map | `src/lib/scheduled-processes/registry.ts` |
 | The nightly loop | `src/lib/scheduled-processes/dispatch.ts` |
 | The endpoint | `POST|GET /api/cron/scheduled-processes` |
-| Compose + manage (per sprint) | the email dialog's **Repeat** tab |
+| Compose + manage (per sprint / per workstream) | the email dialog's **Repeat** tab |
 | Manage everything | `/superuser/scheduled-emails` |
 
 ## How a night runs
@@ -90,27 +90,40 @@ itself.
 - **Cadence, subject, message** — a full `PATCH` re-validates everything and
   re-bases `next_run_on` when the cadence actually changed.
 
-## Sprint progress emails
+## Progress emails
+
+Two processes, one per altitude — `sprint_progress_email` targets a sprint,
+`workstream_progress_email` targets a workstream and mails the initiative view
+(cross-sprint tiles, a per-sprint breakdown, the combined workbook). Both are
+created from the same dialog, on the same **Repeat** tab.
 
 - Same builders and same transport as the manual send: both go through
   `src/lib/sprints/send-progress-email.ts`, so a scheduled update can't drift
   from what the dialog's Preview tab showed.
 - The sender's name is denormalized onto the schedule at creation
   (`created_by_name`) because midnight has no session to read a name from.
-- **Send once, then stop:** when the sprint is closed (or its end date has
-  passed), the next run sends one wrap-up — with a line saying so — and the
-  schedule retires with `stop_reason = 'target_closed'`. A deleted sprint stops
-  with `target_deleted` and mails nothing.
+- Which sprints a workstream mail covers is resolved at send time, so a sprint
+  moved into the workstream next month is simply in next month's mail.
+- **Send once, then stop:** the next run after the target finishes sends one
+  wrap-up — with a line saying so — and the schedule retires with
+  `stop_reason = 'target_closed'`. *Finished* is one rule in
+  `src/lib/sprints/lifecycle.ts`: a sprint is finished when it's closed or its
+  end date has passed; a workstream when every sprint in it is. A deleted target
+  stops with `target_deleted` and mails nothing.
+- An emptied workstream **skips** rather than stops — sprints get moved in after
+  the fact, so there's no reason to retire the schedule over it.
 
 ## Adding a process
 
 1. Write a handler: `(row, ctx) => Promise<ProcessOutcome>`. Return `sent`, or
    `skipped` with a detail; throw to record a failure. Set `stop` when the target
    can never produce another useful run.
-2. Add its name to `SCHEDULED_PROCESS_VALUES` (+ a label) in
+2. Add its name to `SCHEDULED_PROCESS_VALUES` (+ a label and a target noun) in
    `src/lib/scheduled-processes/types.ts` and to `PROCESS_HANDLERS` in
    `registry.ts`.
 3. Give it a create route (copy `api/sprints/[id]/schedules`) — the shared
    `parseScheduleBody` already enforces the recipient/subject/cadence rules.
+4. If its target lives in a new table, add a `LEFT JOIN` + `COALESCE` arm to
+   `SCHEDULE_SELECT` in `store.ts` so the lists can name it.
 
 No migration, and nothing about the nightly run changes.

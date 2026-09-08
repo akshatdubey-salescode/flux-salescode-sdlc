@@ -29,8 +29,9 @@ export default async function ScheduledEmailsPage() {
             <h1 className="text-2xl font-semibold tracking-tight">Scheduled Emails</h1>
             <p className="text-sm text-zinc-500 mt-1">
               Every standing schedule in Flux, with its next run and whether the last one actually
-              went out. Sends happen at midnight IST; a schedule stops itself when its sprint closes.
-              Pause, send early, or delete any of them here.
+              went out. Sends happen at midnight IST; a schedule stops itself once its sprint — or
+              every sprint in its workstream — has finished. Pause, send early, or delete any of
+              them here.
             </p>
           </div>
           <ScheduledEmailsPanel />
