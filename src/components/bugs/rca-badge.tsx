@@ -68,14 +68,23 @@ export function RcaBadge({ issueId }: { issueId: string }) {
         </TooltipTrigger>
         <TooltipContent onClick={(e) => e.stopPropagation()}>{tooltipText}</TooltipContent>
       </Tooltip>
-      <DialogContent className="max-w-lg sm:max-w-lg" onClick={(e) => e.stopPropagation()}>
+      <DialogContent
+        className="flex max-h-[80vh] max-w-lg flex-col sm:max-w-lg"
+        onClick={(e) => e.stopPropagation()}
+      >
         <DialogHeader>
           <DialogTitle>RCA</DialogTitle>
           <DialogDescription>Root cause analysis entered on this issue in Jira.</DialogDescription>
         </DialogHeader>
-        <p className="whitespace-pre-wrap text-sm text-foreground">
-          {summary.text ?? <span className="text-muted-foreground">RCA not given for this issue.</span>}
-        </p>
+        {/* min-h-0 is what makes flex-1 + overflow-y-auto actually scroll
+            instead of the dialog growing to fit a long RCA — a flex child
+            defaults to min-height: auto (its content's natural size), which
+            overrides max-h-[80vh] above unless explicitly zeroed here. */}
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          <p className="whitespace-pre-wrap text-sm text-foreground">
+            {summary.text ?? <span className="text-muted-foreground">RCA not given for this issue.</span>}
+          </p>
+        </div>
       </DialogContent>
     </Dialog>
   );
