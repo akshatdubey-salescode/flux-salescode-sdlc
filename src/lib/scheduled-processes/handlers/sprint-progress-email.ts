@@ -1,5 +1,6 @@
 import type { ScheduledProcess } from "@/lib/db/schema";
 import { fetchSprintById } from "@/lib/sprints/entries";
+import { sprintHasFinished } from "@/lib/sprints/lifecycle";
 import { sendSprintProgressEmail } from "@/lib/sprints/send-progress-email";
 import type { ProcessContext, ProcessOutcome } from "../registry";
 
@@ -40,7 +41,7 @@ export async function runSprintProgressEmail(
   // "Send once, then stop": a closed sprint (or one whose end date has passed)
   // gets one wrap-up send and the schedule retires. Without this a finished
   // sprint would keep mailing an unchanging report every week.
-  const isFinal = sprint.completedAt !== null || sprint.endDate < ctx.runOn;
+  const isFinal = sprintHasFinished(sprint, ctx.runOn);
   const message = isFinal ? `${row.message}\n\n${FINAL_NOTE}`.trim() : row.message;
 
   const sent = await sendSprintProgressEmail({

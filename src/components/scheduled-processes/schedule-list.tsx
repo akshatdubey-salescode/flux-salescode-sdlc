@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   describeCadence,
   processLabel,
+  processTargetNoun,
   scheduleState,
   stopReasonLabel,
   type ScheduleRow,
@@ -24,9 +25,9 @@ import { RecipientsEditor } from "./recipients-editor";
 import { RunHistory } from "./run-history";
 
 /**
- * The list of standing schedules, shared by the sprint's email dialog and the
- * superuser view so "what is scheduled, when does it next go, did the last one
- * work" reads identically wherever it's asked.
+ * The list of standing schedules, shared by the sprint and workstream email
+ * dialogs and the superuser view so "what is scheduled, when does it next go,
+ * did the last one work" reads identically wherever it's asked.
  *
  * Every row carries its last attempt. That's the whole reason the runs table
  * exists: a list that only showed intent could never answer "did Monday's
@@ -70,7 +71,7 @@ function LastRun({ row }: { row: ScheduleRow }) {
 export function ScheduleList({
   schedules,
   onChanged,
-  /** Superuser view: name the sprint each schedule belongs to. */
+  /** Superuser view: name the sprint or workstream each schedule belongs to. */
   showTarget = false,
   emptyLabel = "No schedules yet.",
 }: {
@@ -120,7 +121,7 @@ export function ScheduleList({
             <div className="flex flex-wrap items-center gap-1.5">
               {showTarget && (
                 <span className="text-xs font-medium">
-                  {row.targetName ?? "(deleted sprint)"}
+                  {row.targetName ?? `(deleted ${processTargetNoun(row.process)})`}
                 </span>
               )}
               <span className="text-xs font-medium">{describeCadence(row)}</span>
@@ -132,7 +133,7 @@ export function ScheduleList({
               {state === "paused" && <Badge variant="secondary">Paused</Badge>}
               {state === "stopped" && (
                 <Badge variant="outline" className="text-muted-foreground">
-                  Stopped — {stopReasonLabel(row.stopReason) ?? "no longer runs"}
+                  Stopped — {stopReasonLabel(row.stopReason, row.process) ?? "no longer runs"}
                 </Badge>
               )}
               {showTarget && (

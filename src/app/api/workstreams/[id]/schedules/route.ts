@@ -1,23 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { eq } from "drizzle-orm";
-import { db } from "@/lib/db";
-import { sprints } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { canManageDeliveries } from "@/lib/auth/types";
 import { authOptions } from "@/lib/auth/nextauth-options";
 import { isValidUuid } from "@/lib/validation";
-import { sprintHasFinished } from "@/lib/sprints/lifecycle";
+import { fetchWorkstreamById } from "@/lib/sprints/entries";
+import { workstreamHasFinished } from "@/lib/sprints/lifecycle";
 import { createSchedule, getScheduleRow, listSchedulesForTarget } from "@/lib/scheduled-processes/store";
 import { firstRunOn, istToday } from "@/lib/scheduled-processes/recurrence";
 import { parseScheduleBody } from "@/lib/scheduled-processes/validate";
 
-// The recurring half of the sprint's email dialog: what's scheduled on this
-// sprint (GET) and "repeat this update" (POST). The one-off send stays at
-// ../email — same recipients, same message, same builders; the only
-// difference is whether it goes now or at midnight.
+// The recurring half of the workstream's email dialog: what's scheduled on
+// this workstream (GET) and "repeat this update" (POST). The sprint twin lives
+// at /api/sprints/[id]/schedules and this is deliberately the same shape —
+// same body, same validation, same store — because the only thing that
+// differs between them is which handler the row names.
 
-const PROCESS = "sprint_progress_email";
+const PROCESS = "workstream_progress_email";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -29,7 +28,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
   }
   // A schedule carries its recipient list and the note that goes with it —
   // manager-level detail, gated like the send itself rather than like the
-  // sprint's public progress.
+  // workstream's public progress.
   if (!canManageDeliveries(user)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -60,28 +59,29 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
 
-  const [sprint] = await db
-    .select({
-      id: sprints.id,
-      deletedAt: sprints.deletedAt,
-      completedAt: sprints.completedAt,
-      endDate: sprints.endDate,
-    })
-    .from(sprints)
-    .where(eq(sprints.id, id))
-    .limit(1);
-  if (!sprint || sprint.deletedAt) {
-    return NextResponse.json({ error: "Sprint not found" }, { status: 404 });
+  // The full read, rather than a count: it's the same data the handler will
+  // judge every night, so "would this schedule ever send anything?" is
+  // answered by exactly the rule that decides the final send.
+  const result = await fetchWorkstreamById(id);
+  if (!result) {
+    return NextResponse.json({ error: "Workstream not found" }, { status: 404 });
   }
-  // A sprint that's closed — or whose end date has gone by — would send one
-  // wrap-up mail and retire on its first run, which is not what anyone means
-  // by "schedule this". Say so instead of accepting a one-shot schedule.
-  if (sprintHasFinished(sprint, istToday())) {
+  const { sprints } = result;
+
+  if (sprints.length === 0) {
+    return NextResponse.json(
+      { error: "This workstream has no sprints yet — move sprints in before scheduling updates" },
+      { status: 409 }
+    );
+  }
+  // Every sprint already finished means one wrap-up mail and retirement on the
+  // first run, which is not what anyone means by "schedule this". Say so
+  // instead of accepting a one-shot schedule.
+  if (workstreamHasFinished(sprints, istToday())) {
     return NextResponse.json(
       {
-        error: sprint.completedAt
-          ? "This sprint is closed — send a one-off update instead of scheduling one"
-          : "This sprint's end date has passed — send a one-off update instead of scheduling one",
+        error:
+          "Every sprint in this workstream has finished — send a one-off update instead of scheduling one",
       },
       { status: 409 }
     );

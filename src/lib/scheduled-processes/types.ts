@@ -24,9 +24,28 @@ export function isScheduleFrequency(value: unknown): value is ScheduleFrequency 
  * migration. The registry is the source of truth for which names are real —
  * every write path checks it.
  */
-export const SCHEDULED_PROCESS_VALUES = ["sprint_progress_email"] as const;
+export const SCHEDULED_PROCESS_VALUES = [
+  "sprint_progress_email",
+  "workstream_progress_email",
+] as const;
 
 export type ScheduledProcessName = (typeof SCHEDULED_PROCESS_VALUES)[number];
+
+/**
+ * What each process runs against, for the copy that has to name it — a stop
+ * reason, or the target column of the superuser table. A name that isn't in
+ * the registry gets the neutral word rather than a wrong one.
+ */
+const PROCESS_TARGET_NOUNS = {
+  sprint_progress_email: "sprint",
+  workstream_progress_email: "workstream",
+} satisfies Record<ScheduledProcessName, string>;
+
+export function processTargetNoun(process: string | undefined): string {
+  return process && Object.prototype.hasOwnProperty.call(PROCESS_TARGET_NOUNS, process)
+    ? PROCESS_TARGET_NOUNS[process as ScheduledProcessName]
+    : "target";
+}
 
 /** Why a schedule stopped for good — as opposed to paused, which is resumable. */
 export const STOP_REASON_VALUES = [
@@ -39,16 +58,17 @@ export const STOP_REASON_VALUES = [
 export type StopReason = (typeof STOP_REASON_VALUES)[number];
 
 const STOP_REASON_LABELS = {
-  target_closed: "the sprint closed — final update sent",
-  target_deleted: "the sprint was deleted",
-  ended: "reached its end date",
-  process_removed: "this kind of scheduled job no longer exists",
-} satisfies Record<StopReason, string>;
+  target_closed: (noun: string) => `the ${noun} finished — final update sent`,
+  target_deleted: (noun: string) => `the ${noun} was deleted`,
+  ended: () => "reached its end date",
+  process_removed: () => "this kind of scheduled job no longer exists",
+} satisfies Record<StopReason, (noun: string) => string>;
 
-export function stopReasonLabel(value: string | null): string | null {
+/** `process` names the thing that closed — a sprint, a workstream. */
+export function stopReasonLabel(value: string | null, process?: string): string | null {
   if (!value) return null;
   return Object.prototype.hasOwnProperty.call(STOP_REASON_LABELS, value)
-    ? STOP_REASON_LABELS[value as StopReason]
+    ? STOP_REASON_LABELS[value as StopReason](processTargetNoun(process))
     : value;
 }
 
@@ -124,6 +144,7 @@ export function validateCadence(spec: CadenceSpec): string | null {
 
 const PROCESS_LABELS = {
   sprint_progress_email: "Sprint progress email",
+  workstream_progress_email: "Workstream progress email",
 } satisfies Record<ScheduledProcessName, string>;
 
 /** Human name for a process, for the schedule list and the superuser table. */
@@ -141,7 +162,7 @@ export type ScheduleRow = {
   id: string;
   process: string;
   targetId: string;
-  /** Resolved name of the thing it runs against (the sprint), for display. */
+  /** Resolved name of the thing it runs against (a sprint, a workstream), for display. */
   targetName: string | null;
   recipients: string[];
   subject: string;

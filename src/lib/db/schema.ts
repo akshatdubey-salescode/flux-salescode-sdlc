@@ -2068,9 +2068,9 @@ export const scheduledProcesses = pgTable(
   "scheduled_processes",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    // Registry key — "sprint_progress_email" today.
+    // Registry key — "sprint_progress_email" / "workstream_progress_email".
     process: text("process").notNull(),
-    // What the process runs against; a sprint id for every process so far.
+    // What the process runs against; a sprint id or a workstream id today.
     // Not a foreign key: the column has to address rows in whichever table a
     // future process targets, and the handler resolves (and re-checks) it.
     targetId: uuid("target_id").notNull(),

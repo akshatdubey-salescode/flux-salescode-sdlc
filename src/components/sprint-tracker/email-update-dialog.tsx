@@ -91,6 +91,7 @@ export function workstreamEmailDefaults(
 export function EmailUpdateDialog({
   endpoint,
   schedulesEndpoint,
+  targetNoun = "sprint",
   projectId,
   entityName,
   buildDefaults,
@@ -98,11 +99,13 @@ export function EmailUpdateDialog({
   /** POST target: /api/sprints/[id]/email or /api/workstreams/[id]/email. */
   endpoint: string;
   /**
-   * GET/POST target for standing schedules, e.g. /api/sprints/[id]/schedules.
-   * Omitted where scheduling isn't wired up yet (workstreams) — the Repeat tab
-   * simply doesn't appear.
+   * GET/POST target for standing schedules, e.g. /api/sprints/[id]/schedules
+   * or /api/workstreams/[id]/schedules. Omitted where scheduling isn't wired
+   * up — the Repeat tab simply doesn't appear.
    */
   schedulesEndpoint?: string;
+  /** What the thing being mailed is called in the Repeat tab's copy. */
+  targetNoun?: "sprint" | "workstream";
   /** Owning project for the stakeholder prefill; null for board sprints. */
   projectId: string | null;
   /** Shown in the dialog copy ("progress of X"). */
@@ -155,7 +158,7 @@ export function EmailUpdateDialog({
     }
   }
 
-  /** What's already scheduled on this sprint — the Repeat tab's list. */
+  /** What's already scheduled on this sprint or workstream — the Repeat tab's list. */
   async function loadSchedules() {
     if (!schedulesEndpoint) return;
     try {
@@ -588,7 +591,7 @@ export function EmailUpdateDialog({
 
               <div className="space-y-2">
                 <Label className="text-[11px] text-muted-foreground">
-                  Scheduled for this sprint
+                  Scheduled for this {targetNoun}
                 </Label>
                 <ScheduleList
                   schedules={schedules}
@@ -596,8 +599,11 @@ export function EmailUpdateDialog({
                   emptyLabel="Nothing scheduled yet — set a cadence above and this update will go out on its own."
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Scheduled updates go out at midnight IST. When the sprint closes, one final
-                  wrap-up is sent and the schedule stops on its own.
+                  Scheduled updates go out at midnight IST. When{" "}
+                  {targetNoun === "workstream"
+                    ? "every sprint in the workstream has finished"
+                    : "the sprint closes"}
+                  , one final wrap-up is sent and the schedule stops on its own.
                 </p>
               </div>
             </TabsContent>
