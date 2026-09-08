@@ -9,10 +9,16 @@ import { canManageDeliveries } from "@/lib/auth/types";
 import { authOptions } from "@/lib/auth/nextauth-options";
 import { isValidUuid, isValidDateString, parseOptionalText } from "@/lib/validation";
 import { fetchSprintById, type SprintWithItems } from "@/lib/sprints/entries";
+import { parseNewSprintSpec } from "@/lib/sprints/next-sprint";
 
 type Params = { params: Promise<{ id: string }> };
 
-export type SprintResponse = { sprint: SprintWithItems; carried?: number };
+export type SprintResponse = {
+  sprint: SprintWithItems;
+  carried?: number;
+  /** Set when the close flow created its own spillover target. */
+  carriedToSprintName?: string;
+};
 
 /** One sprint, fully joined — backs the standalone /sprints/[id] page. */
 export async function GET(_req: NextRequest, { params }: Params) {
@@ -34,11 +40,16 @@ export async function GET(_req: NextRequest, { params }: Params) {
  *   { started: true }   planned → active. Takes the commitment snapshot
  *                       (stamps committed = true on every current item) and
  *                       enforces the one-active-sprint-per-project rule.
- *   { completed: true, moveIncompleteToSprintId? }
+ *   { completed: true, moveIncompleteToSprintId? | moveIncompleteToNewSprint? }
  *                       active → closed. Standard close flow: the caller says
  *                       what happens to unfinished items — carry them into
  *                       another open sprint (copied with provenance; the rows
- *                       here remain as the spillover record) or leave them.
+ *                       here remain as the spillover record), into a sprint
+ *                       created right here for the purpose, or leave them.
+ *                       The inline creation exists because closing a sprint is
+ *                       exactly when the next one turns out not to exist yet,
+ *                       and the alternative is abandoning the close to go make
+ *                       one.
  *                       No "everything done first" gate: sprints close on
  *                       schedule with unfinished work, that's the report.
  *   { completed: false } reopen a closed sprint.
@@ -159,6 +170,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   // --- Complete / reopen ---------------------------------------------------
   let carried: number | undefined;
+  let carriedToSprintName: string | undefined;
   if (body.completed !== undefined) {
     if (typeof body.completed !== "boolean") {
       return NextResponse.json({ error: "completed must be a boolean" }, { status: 400 });
@@ -168,7 +180,38 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         return NextResponse.json({ error: "Start the sprint before completing it" }, { status: 400 });
       }
       const moveTo = body.moveIncompleteToSprintId;
-      if (moveTo !== undefined && moveTo !== null) {
+      const moveToNew = body.moveIncompleteToNewSprint;
+      const hasMoveTo = moveTo !== undefined && moveTo !== null;
+      const hasMoveToNew = moveToNew !== undefined && moveToNew !== null;
+      if (hasMoveTo && hasMoveToNew) {
+        return NextResponse.json(
+          { error: "Provide at most one of moveIncompleteToSprintId or moveIncompleteToNewSprint" },
+          { status: 400 }
+        );
+      }
+
+      // Spillover target, either named or created. A sprint created here is
+      // planned and inherits this sprint's owner and workstream, so the
+      // same-project invariant the named path checks holds by construction.
+      let spilloverTarget: { id: string; name: string } | null = null;
+      if (hasMoveToNew) {
+        const parsed = parseNewSprintSpec(moveToNew);
+        if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+        const [created] = await db
+          .insert(sprints)
+          .values({
+            projectId: existing.projectId,
+            boardId: existing.boardId,
+            workstreamId: existing.workstreamId,
+            name: parsed.spec.name,
+            startDate: parsed.spec.startDate,
+            endDate: parsed.spec.endDate,
+            createdBy: user.id,
+            createdByName: actorName,
+          })
+          .returning({ id: sprints.id, name: sprints.name });
+        spilloverTarget = created;
+      } else if (hasMoveTo) {
         if (typeof moveTo !== "string" || !isValidUuid(moveTo) || moveTo === id) {
           return NextResponse.json({ error: "moveIncompleteToSprintId must be a different sprint's UUID" }, { status: 400 });
         }
@@ -185,6 +228,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
             { status: 400 }
           );
         }
+        spilloverTarget = { id: target.id, name: target.name };
+      }
+
+      if (spilloverTarget) {
         // Copy unfinished, non-removed items into the target with provenance;
         // rows here stay as the closed sprint's spillover record. Items the
         // target already holds are skipped. If the target is still planned,
@@ -193,7 +240,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         carried = (
           await db.execute(sql`
             INSERT INTO sprint_items (sprint_id, issue_id, added_by, added_by_name, added_comment, carried_from_sprint_id, carried_from_sprint_name)
-            SELECT ${moveTo}, si.issue_id, ${user.id}, ${actorName}, ${"Carried over from " + existing.name}, ${id}, ${existing.name}
+            SELECT ${spilloverTarget.id}, si.issue_id, ${user.id}, ${actorName}, ${"Carried over from " + existing.name}, ${id}, ${existing.name}
             FROM sprint_items si
             JOIN jira_issues ji ON ji.id = si.issue_id
             WHERE si.sprint_id = ${id}
@@ -203,6 +250,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
             RETURNING id
           `)
         ).rows.length;
+        carriedToSprintName = spilloverTarget.name;
       }
       updates.completedAt = new Date();
       updates.completedBy = user.id;
@@ -240,7 +288,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (!sprint) {
     return NextResponse.json({ error: "Updated sprint could not be loaded" }, { status: 500 });
   }
-  return NextResponse.json({ sprint, ...(carried !== undefined ? { carried } : {}) } satisfies SprintResponse);
+  return NextResponse.json({
+    sprint,
+    ...(carried !== undefined ? { carried } : {}),
+    ...(carriedToSprintName !== undefined ? { carriedToSprintName } : {}),
+  } satisfies SprintResponse);
 }
 
 /** Soft-delete a sprint — items stay in the DB for history, it just stops counting anywhere. */

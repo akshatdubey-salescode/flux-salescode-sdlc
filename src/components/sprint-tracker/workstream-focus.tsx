@@ -41,7 +41,7 @@ export function WorkstreamFocus({ workstreamId, canManage }: { workstreamId: str
       });
       if (optRes.ok) {
         const { sprints: options } = (await optRes.json()) as { sprints: SprintOption[] };
-        setTargets(options.map((o) => ({ id: o.id, name: o.name, startDate: o.startDate, endDate: o.endDate })));
+        setTargets(options);
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load");

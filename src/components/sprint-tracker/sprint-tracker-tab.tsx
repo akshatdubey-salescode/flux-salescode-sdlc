@@ -22,6 +22,7 @@ import {
   RiStackLine,
   RiStickyNoteLine,
   RiMore2Line,
+  RiCornerUpRightLine,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -86,6 +87,13 @@ import { CreateSprintForm } from "./create-sprint-form";
 import { SprintGuide } from "./sprint-guide";
 import { ItemCommentsModal } from "./item-comments-modal";
 import { SprintNotesDialog } from "./sprint-notes-dialog";
+import {
+  SprintTargetPicker,
+  isTargetSelectionReady,
+  selectedTargetHasStarted,
+  NO_TARGET,
+  type SprintTargetSelection,
+} from "./sprint-target-picker";
 
 type SprintsResponse = { sprints: SprintWithItems[] };
 
@@ -374,7 +382,13 @@ function GroupedSprintList({
         defaultCollapsed={defaultCollapsed}
         spilloverTargets={allSprints
           .filter((s) => s.id !== sprint.id && !s.completedAt)
-          .map((s) => ({ id: s.id, name: s.name, startDate: s.startDate, endDate: s.endDate }))}
+          .map((s) => ({
+            id: s.id,
+            name: s.name,
+            startDate: s.startDate,
+            endDate: s.endDate,
+            startedAt: s.startedAt,
+          }))}
       />
     ),
     [allSprints, canManage, onChanged, onZoom, workstreamOptions]
@@ -766,7 +780,14 @@ function WorkstreamDialog({
   );
 }
 
-export type SpilloverTarget = { id: string; name: string; startDate: string; endDate: string };
+export type SpilloverTarget = {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  /** Non-null once started — a move into it is a scope change and needs a reason. */
+  startedAt: string | null;
+};
 
 export function SprintCard({
   sprint,
@@ -852,6 +873,36 @@ export function SprintCard({
       toast.error(body.error ?? "Failed to remove item");
       return;
     }
+    onChanged();
+  }
+
+  /**
+   * Re-home one item into another open sprint. From an ACTIVE sprint this is
+   * a tracked scope change on both sides (the item stays here, struck through
+   * in "removed after start", and lands there marked "↩ from this sprint");
+   * from a PLANNED one it's a clean hand-off with nothing left behind.
+   */
+  async function handleMoveItem(itemId: string, target: SprintTargetSelection, comment?: string) {
+    if (target.kind === "none") return;
+    const destination =
+      target.kind === "existing" ? { targetSprintId: target.sprintId } : { newSprint: target.spec };
+    const res = await fetch(`/api/sprints/${sprint.id}/items/${itemId}/move`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...destination, ...(comment ? { comment } : {}) }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast.error(body.error ?? "Failed to move item");
+      return;
+    }
+    toast.success(
+      body.createdSprint
+        ? `Created ${body.targetSprintName} and moved the item into it`
+        : body.targetSprintName
+          ? `Moved to ${body.targetSprintName}`
+          : "Item moved"
+    );
     onChanged();
   }
 
@@ -1188,7 +1239,14 @@ export function SprintCard({
               : "No issues in this sprint."}
           </p>
         ) : (
-          <SprintItemsTable sprint={sprint} phase={phase} canManage={canManage} onRemoveItem={handleRemoveItem} />
+          <SprintItemsTable
+            sprint={sprint}
+            phase={phase}
+            canManage={canManage}
+            onRemoveItem={handleRemoveItem}
+            onMoveItem={handleMoveItem}
+            moveTargets={spilloverTargets}
+          />
         ))}
 
       {!collapsed && sprint.removedItems.length > 0 && (
@@ -1349,17 +1407,25 @@ function SprintItemsTable({
   phase,
   canManage,
   onRemoveItem,
+  onMoveItem,
+  moveTargets,
 }: {
   sprint: SprintWithItems;
   phase: SprintPhase;
   canManage: boolean;
   onRemoveItem: (itemId: string, comment?: string) => void;
+  onMoveItem: (itemId: string, target: SprintTargetSelection, comment?: string) => void;
+  /** Other open sprints — the same list the close flow offers as spillover targets. */
+  moveTargets: SpilloverTarget[];
 }) {
   const [commentsItem, setCommentsItem] = useState<SprintItemRow | null>(null);
   // Removing from an ACTIVE sprint is a tracked scope change and needs a
   // reason — route through the dialog. Planned-sprint removals are just
   // grooming and go straight through.
   const [removeTarget, setRemoveTarget] = useState<SprintItemRow | null>(null);
+  // Moving always goes through a dialog — even from a planned sprint you have
+  // to say WHERE it's going.
+  const [moveItem, setMoveItem] = useState<SprintItemRow | null>(null);
 
   const [search, setSearch] = useState("");
   const [progressFilter, setProgressFilter] = useState<"all" | SprintItemProgress>("all");
@@ -1367,6 +1433,12 @@ function SprintItemsTable({
   const [assigneeFilter, setAssigneeFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [sort, setSort] = useState<{ col: SortCol; dir: "asc" | "desc" } | null>(null);
+
+  // Deliberately NOT gated on there being a target: with no other open sprint
+  // the dialog offers to create the next one. Hiding the button instead taught
+  // the user nothing — they couldn't tell a missing feature from a missing
+  // destination. A completed sprint is still reopened first (so does the route).
+  const canMoveOut = canManage && phase !== "completed";
 
   // Risk per item, computed once per items change (same classification the
   // row badges show — SprintItemRowView recomputes its own for display).
@@ -1549,6 +1621,7 @@ function SprintItemsTable({
               phase={phase}
               canManage={canManage}
               onRemove={() => (phase === "active" ? setRemoveTarget(item) : onRemoveItem(item.id))}
+              onMove={canMoveOut && item.progress !== "done" ? () => setMoveItem(item) : undefined}
               onComments={() => setCommentsItem(item)}
             />
           ))}
@@ -1582,7 +1655,100 @@ function SprintItemsTable({
           }}
         />
       )}
+      {moveItem && (
+        <MoveItemDialog
+          item={moveItem}
+          sprint={sprint}
+          phase={phase}
+          targets={moveTargets}
+          onCancel={() => setMoveItem(null)}
+          onConfirm={(target, comment) => {
+            onMoveItem(moveItem.id, target, comment);
+            setMoveItem(null);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * Pick the destination sprint for one item. The reason box appears whenever
+ * either end has a commitment to answer to — leaving an active sprint is a
+ * scope reduction there, landing in one is an addition — and stays hidden for
+ * a planned-to-planned move, which is just grooming.
+ */
+function MoveItemDialog({
+  item,
+  sprint,
+  phase,
+  targets,
+  onCancel,
+  onConfirm,
+}: {
+  item: SprintItemRow;
+  sprint: SprintWithItems;
+  phase: SprintPhase;
+  targets: SpilloverTarget[];
+  onCancel: () => void;
+  onConfirm: (target: SprintTargetSelection, comment?: string) => void;
+}) {
+  const [target, setTarget] = useState<SprintTargetSelection>(NO_TARGET);
+  const [comment, setComment] = useState("");
+  // A reason is owed to whichever END has a commitment: leaving an active
+  // sprint is a scope reduction there, arriving in one is an addition here.
+  // A sprint created inline is planned, so it never demands one.
+  const targetStarted = selectedTargetHasStarted(target, targets);
+  const needsReason = phase === "active" || targetStarted;
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onCancel()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Move {item.jiraKey} to another sprint</DialogTitle>
+          <DialogDescription>
+            {phase === "active"
+              ? `“${sprint.name}” has started, so this is a tracked scope change at both ends: ${item.jiraKey} stays here in the “removed after start” list with your reason, and lands in the target marked “↩ ${sprint.name}”. Both sprint reports show the move.`
+              : `“${sprint.name}” hasn't started, so nothing is committed yet — ${item.jiraKey} simply moves across, leaving nothing behind.${
+                  targetStarted ? " The target HAS started, so it arrives there as scope added after start." : ""
+                }`}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <SprintTargetPicker
+            sprint={sprint}
+            targets={targets}
+            value={target}
+            onChange={setTarget}
+            allowNone={false}
+            label="Move to"
+          />
+          {needsReason && (
+            <div className="space-y-1">
+              <Label className="text-[11px] text-muted-foreground">Reason (required)</Label>
+              <Textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="e.g. Blocked on client sign-off — picking it up next sprint"
+                rows={3}
+              />
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            disabled={!isTargetSelectionReady(target, false) || (needsReason && !comment.trim())}
+            onClick={() => onConfirm(target, needsReason ? comment.trim() : undefined)}
+          >
+            {target.kind === "new" ? "Create sprint and move" : "Move item"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1635,12 +1801,15 @@ function SprintItemRowView({
   phase,
   canManage,
   onRemove,
+  onMove,
   onComments,
 }: {
   item: SprintItemRow;
   phase: SprintPhase;
   canManage: boolean;
   onRemove: () => void;
+  /** Omitted when the item can't be moved — done, or no open sprint to move it to. */
+  onMove?: () => void;
   onComments: () => void;
 }) {
   const status = statusCategoryStyles(item.statusCategory);
@@ -1734,6 +1903,19 @@ function SprintItemRowView({
               <RiChat3Line className="size-3.5" />
             </Button>
           </Tip>
+          {onMove && (
+            <Tip
+              label={
+                phase === "planned"
+                  ? "Move this issue to another sprint"
+                  : "Move to another sprint — needs a reason and is tracked as a scope change on both"
+              }
+            >
+              <Button variant="ghost" size="icon-sm" onClick={onMove}>
+                <RiCornerUpRightLine className="size-3.5" />
+              </Button>
+            </Tip>
+          )}
           {canManage && (
             <Tip
               label={
@@ -1773,8 +1955,17 @@ function CompleteSprintDialog({
   targets: SpilloverTarget[];
   onDone: () => void;
 }) {
-  const [targetId, setTargetId] = useState<string>("none");
+  const [target, setTarget] = useState<SprintTargetSelection>(NO_TARGET);
   const [submitting, setSubmitting] = useState(false);
+
+  // Spillover only travels when there IS spillover; a sprint that finished
+  // everything closes with no destination regardless of what's picked.
+  const destination =
+    unfinished > 0 && target.kind === "existing"
+      ? { moveIncompleteToSprintId: target.sprintId }
+      : unfinished > 0 && target.kind === "new"
+        ? { moveIncompleteToNewSprint: target.spec }
+        : {};
 
   async function handleComplete() {
     setSubmitting(true);
@@ -1782,23 +1973,21 @@ function CompleteSprintDialog({
       const res = await fetch(`/api/sprints/${sprint.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          completed: true,
-          ...(targetId !== "none" && unfinished > 0 ? { moveIncompleteToSprintId: targetId } : {}),
-        }),
+        body: JSON.stringify({ completed: true, ...destination }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         toast.error(body.error ?? "Failed to complete sprint");
         return;
       }
+      const where = body.carriedToSprintName ? ` into ${body.carriedToSprintName}` : "";
       toast.success(
         typeof body.carried === "number"
-          ? `Sprint completed — ${body.carried} unfinished item${body.carried === 1 ? "" : "s"} carried over`
+          ? `Sprint completed — ${body.carried} unfinished item${body.carried === 1 ? "" : "s"} carried over${where}`
           : "Sprint completed"
       );
       onOpenChange(false);
-      setTargetId("none");
+      setTarget(NO_TARGET);
       onDone();
     } finally {
       setSubmitting(false);
@@ -1818,29 +2007,29 @@ function CompleteSprintDialog({
           </DialogDescription>
         </DialogHeader>
         {unfinished > 0 && (
-          <div className="space-y-1">
-            <Label className="text-[11px] text-muted-foreground">Unfinished items</Label>
-            <Select value={targetId} onValueChange={setTargetId}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Leave them here as not done — pick them up later from the backlog</SelectItem>
-                {targets.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    Copy into {t.name} ({t.startDate} → {t.endDate}) — they stay here too, as spillover
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <SprintTargetPicker
+            sprint={sprint}
+            targets={targets}
+            value={target}
+            onChange={setTarget}
+            allowNone
+            noneLabel="Leave them here as not done — pick them up later from the backlog"
+            label="Unfinished items"
+            existingLabel={(t) =>
+              `Copy into ${t.name} (${t.startDate} → ${t.endDate}) — they stay here too, as spillover`
+            }
+          />
         )}
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button size="sm" disabled={submitting} onClick={handleComplete}>
-            {submitting ? "Completing…" : "Complete sprint"}
+          <Button
+            size="sm"
+            disabled={submitting || (unfinished > 0 && !isTargetSelectionReady(target, true))}
+            onClick={handleComplete}
+          >
+            {submitting ? "Completing…" : target.kind === "new" ? "Create sprint and complete" : "Complete sprint"}
           </Button>
         </DialogFooter>
       </DialogContent>
