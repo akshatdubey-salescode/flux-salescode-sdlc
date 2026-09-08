@@ -53,7 +53,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { localDateStr, getQuarterChips } from "@/lib/date-utils";
-import { statusCategoryStyles, priorityStyles } from "@/components/project-tracking/helpers";
+import { statusCategoryStyles, priorityStyles, issueTypeStyles } from "@/components/project-tracking/helpers";
 import {
   DELIVERY_STATUSES,
   deliveryStatusStyles,
@@ -811,6 +811,7 @@ function DeliveryItemsTable({
           {items.map((item) => {
             const sStyles = statusCategoryStyles(item.jiraStatus);
             const pStyles = priorityStyles(item.priority);
+            const tStyles = issueTypeStyles(item.issueType);
             return (
               <tr key={item.id} className="hover:bg-muted/20 transition-colors">
                 {isVisible("key") && (
@@ -821,6 +822,9 @@ function DeliveryItemsTable({
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 font-mono font-medium text-foreground hover:text-primary transition-colors"
                     >
+                      <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none shrink-0", tStyles.bg, tStyles.text)}>
+                        {tStyles.abbr}
+                      </span>
                       {item.jiraKey}
                       <RiExternalLinkLine className="size-3 opacity-40" />
                     </a>
