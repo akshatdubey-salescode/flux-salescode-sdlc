@@ -68,3 +68,38 @@ export function rcaSummary(
   const text = extractRcaText(cf, discovered);
   return { given: text !== null, text };
 }
+
+/**
+ * Raw-SQL equivalent of `extractRcaText(...) !== null` (i.e. rcaSummary(...).given),
+ * for routes that need to know RCA presence inside a SQL aggregate (e.g. the
+ * Bug Board's per-cell "RCA Unavailable" COUNT(*) FILTER). `customFieldsCol`/
+ * `fieldIdsCol` are already-qualified SQL column references (e.g.
+ * "ji.custom_fields" / "jp.rca_field_ids") — interpolate the result with
+ * sql.raw(...). Neither argument must ever be built from request/user input;
+ * every call site passes a fixed source-code string.
+ *
+ * Same duplication tradeoff as priorityBucketSql (bug-summary.ts) — a
+ * hand-maintained SQL mirror of the JS logic above, needed because SQL can't
+ * call extractRcaText directly. Handles the two field shapes real "RCA"
+ * fields on this site actually use (confirmed against live Jira data):
+ * a plain non-empty string, or an Atlassian Document Format document with at
+ * least one non-empty text node anywhere in its tree (jsonb_path_exists'
+ * recursive `$.**` wildcard, rather than a hand-rolled walk). Does not
+ * special-case the `{value: "..."}` select-option shape extractRcaText also
+ * defends against — every real RCA field observed on this site is a
+ * paragraph/textarea type, never a select, so it's not worth the extra SQL
+ * complexity here.
+ */
+export function rcaGivenSql(customFieldsCol: string, fieldIdsCol: string): string {
+  return `
+    EXISTS (
+      SELECT 1
+      FROM unnest(COALESCE(${fieldIdsCol}, '{}'::text[])) AS fid
+      WHERE ${customFieldsCol} ? fid
+        AND (
+          (jsonb_typeof(${customFieldsCol}->fid) = 'string' AND COALESCE(${customFieldsCol}->>fid, '') <> '')
+          OR jsonb_path_exists(${customFieldsCol}->fid, '$.**.text ? (@ != "")')
+        )
+    )
+  `;
+}

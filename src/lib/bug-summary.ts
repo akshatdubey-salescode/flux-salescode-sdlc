@@ -58,6 +58,8 @@ export type OwnerSummary = {
   other: number;
   total: number;
   open: number;
+  /** Bugs with no RCA entry in Jira (any status — open, QA, or closed). */
+  rcaUnavailable: number;
 };
 
 /**
@@ -92,6 +94,7 @@ export function buildOwnerSummaries(bugs: BugRow[]): OwnerSummary[] {
         other: 0,
         total: 0,
         open: 0,
+        rcaUnavailable: 0,
       };
       map.set(key, s);
     }
@@ -101,6 +104,7 @@ export function buildOwnerSummaries(bugs: BugRow[]): OwnerSummary[] {
     else s.other++;
     s.total++;
     if (b.isOpen) s.open++;
+    if (!b.rcaGiven) s.rcaUnavailable++;
   }
   return [...map.values()].sort(
     (a, b) =>

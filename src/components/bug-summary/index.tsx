@@ -287,9 +287,10 @@ export function BugTracker({
           acc.other += s.other;
           acc.total += s.total;
           acc.open += s.open;
+          acc.rcaUnavailable += s.rcaUnavailable;
           return acc;
         },
-        { p1: 0, p2: 0, p3: 0, other: 0, total: 0, open: 0 }
+        { p1: 0, p2: 0, p3: 0, other: 0, total: 0, open: 0, rcaUnavailable: 0 }
       ),
     [summaries]
   );
@@ -577,6 +578,9 @@ export function BugTracker({
                       {hasOther && <th className={cn("px-3 py-2.5 text-center w-16 font-semibold", BUCKET_COLORS.Other)}>Other</th>}
                       <th className="px-3 py-2.5 text-center w-20">Total</th>
                       <th className="px-3 py-2.5 text-center w-16">Open</th>
+                      <th className="px-3 py-2.5 text-center w-20" title="Bugs with no RCA entered in Jira (any status)">
+                        RCA Unavail
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/80">
@@ -631,6 +635,13 @@ export function BugTracker({
                           <td className="px-3 py-2 text-center font-medium text-zinc-700 dark:text-zinc-300">
                             {s.open}
                           </td>
+                          <td className="px-3 py-2 text-center">
+                            {s.rcaUnavailable ? (
+                              <span className="font-medium text-amber-600 dark:text-amber-400">{s.rcaUnavailable}</span>
+                            ) : (
+                              <span className="text-zinc-300 dark:text-zinc-600">—</span>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
@@ -644,6 +655,7 @@ export function BugTracker({
                       {hasOther && <td className="px-3 py-2.5 text-center">{totals.other}</td>}
                       <td className="px-3 py-2.5 text-center">{totals.total}</td>
                       <td className="px-3 py-2.5 text-center">{totals.open}</td>
+                      <td className="px-3 py-2.5 text-center">{totals.rcaUnavailable}</td>
                     </tr>
                   </tfoot>
                 </table>
