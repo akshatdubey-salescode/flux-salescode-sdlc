@@ -93,6 +93,47 @@ export function SprintGuide({ trigger }: { trigger?: React.ReactNode }) {
             </p>
           </Section>
 
+          <Section title="Moving an item to another sprint">
+            <p>
+              The <span className="font-medium text-foreground">↱</span> button on any item re-homes it in one step,
+              and what that means depends on the phase of the sprint it is leaving. From a{" "}
+              <span className="font-medium text-foreground">planned</span> sprint it is a clean hand-off — the item
+              simply moves and leaves nothing behind, because nothing was ever committed to it. From an{" "}
+              <span className="font-medium text-foreground">active</span> sprint it is a tracked scope change at both
+              ends: it <span className="font-medium text-foreground">requires a reason</span>, the item stays here in
+              the “removed after start” list recording where it went, and it arrives in the target marked{" "}
+              <span className="font-medium text-foreground">“↩ from &lt;sprint&gt;”</span> — exactly like a carry-over
+              at close time. A sprint&apos;s completion rate can never be quietly improved by moving work out of it.
+            </p>
+            <p>
+              Two moves are deliberately refused. An item already in a{" "}
+              <span className="font-medium text-foreground">done</span> status cannot be moved: finished work stays in
+              the sprint that finished it, or the credit would land on a sprint that did none of it. And work cannot
+              be moved out of a <span className="font-medium text-foreground">completed</span> sprint — reopen it,
+              move, and close it again, so that editing a finished report leaves a visible trail.
+            </p>
+            <p>
+              A reason is owed to whichever end has a commitment: leaving an active sprint is a scope reduction there,
+              and landing in one is an addition. Moving between two planned sprints is just planning and asks for
+              nothing.
+            </p>
+          </Section>
+
+          <Section title="When the next sprint doesn’t exist yet">
+            <p>
+              Both the move dialog and the Complete sprint dialog can{" "}
+              <span className="font-medium text-foreground">create the destination on the spot</span>, so neither ever
+              dead-ends for want of somewhere to put the work. The new sprint is pre-filled to start the day after the
+              current one ends and to run the same length, with the number in its name bumped (“Demo 2” → “Demo 3”),
+              and it is created in the same workstream. Every field is editable before you confirm.
+            </p>
+            <p>
+              A sprint made this way is always <span className="font-medium text-foreground">planned</span>, never
+              started — so the work arriving in it is ordinary planned scope, and becomes part of its commitment only
+              when someone presses Start.
+            </p>
+          </Section>
+
           <Section title="Progress comes from Jira, never by hand">
             <p>
               An item counts as to&nbsp;do / in&nbsp;progress / done purely from its live Jira status. Nobody marks a
@@ -112,8 +153,10 @@ export function SprintGuide({ trigger }: { trigger?: React.ReactNode }) {
               marked “↩ from &lt;sprint&gt;”. They also stay in the closed sprint as its spillover record — the closed
               sprint&apos;s report keeps telling the truth about what didn&apos;t get done. Or{" "}
               <span className="font-medium text-foreground">leave them</span>, and decide later from the backlog.
-              Carried items joining a sprint that already started count as scope added after start; joining a planned
-              sprint, they become part of its commitment when it starts.
+              If the next sprint does not exist yet, the same dialog will{" "}
+              <span className="font-medium text-foreground">create it</span> for you. Carried items joining a sprint
+              that already started count as scope added after start; joining a planned sprint, they become part of its
+              commitment when it starts.
             </p>
           </Section>
 

@@ -127,7 +127,14 @@ export type SprintWithItems = {
   rollup: SprintRollup;
 };
 
-export type SprintOption = { id: string; name: string; startDate: string; endDate: string };
+export type SprintOption = {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  /** Non-null once the sprint has been STARTED — callers gate the "reason required" scope-change rule on it. */
+  startedAt: string | null;
+};
 
 function emptyRollup(): SprintRollup {
   return {
@@ -411,30 +418,48 @@ export async function fetchBoardSprints(boardId: string): Promise<SprintWithItem
   });
 }
 
+type SprintOptionRow = {
+  id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  started_at: string | Date | null;
+};
+
+function mapSprintOption(r: SprintOptionRow): SprintOption {
+  return {
+    id: r.id,
+    name: r.name,
+    startDate: r.start_date,
+    endDate: r.end_date,
+    startedAt: toIso(r.started_at),
+  };
+}
+
 /** Open board sprints as spillover targets — the board mirror of fetchProjectSprintOptions. */
 export async function fetchBoardSprintOptions(boardId: string): Promise<SprintOption[]> {
   const rows = (
     await db.execute(sql`
-      SELECT id, name, start_date, end_date
+      SELECT id, name, start_date, end_date, started_at
       FROM sprints
       WHERE board_id = ${boardId} AND deleted_at IS NULL AND completed_at IS NULL
       ORDER BY start_date ASC
     `)
-  ).rows as unknown as { id: string; name: string; start_date: string; end_date: string }[];
-  return rows.map((r) => ({ id: r.id, name: r.name, startDate: r.start_date, endDate: r.end_date }));
+  ).rows as unknown as SprintOptionRow[];
+  return rows.map(mapSprintOption);
 }
 
 /** Light {id, name, dates} list of OPEN sprints — backs the spillover target picker in the close flow. Excludes completed sprints: work carries forward into an open iteration, never a closed one. */
 export async function fetchProjectSprintOptions(projectId: string): Promise<SprintOption[]> {
   const rows = (
     await db.execute(sql`
-      SELECT id, name, start_date, end_date
+      SELECT id, name, start_date, end_date, started_at
       FROM sprints
       WHERE project_id = ${projectId} AND deleted_at IS NULL AND completed_at IS NULL
       ORDER BY start_date ASC
     `)
-  ).rows as unknown as { id: string; name: string; start_date: string; end_date: string }[];
-  return rows.map((r) => ({ id: r.id, name: r.name, startDate: r.start_date, endDate: r.end_date }));
+  ).rows as unknown as SprintOptionRow[];
+  return rows.map(mapSprintOption);
 }
 
 export type SprintWorkstream = {
