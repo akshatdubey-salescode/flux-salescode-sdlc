@@ -82,6 +82,23 @@ function deliveryMatchesSearch(delivery: DeliveryWithItems, query: string): bool
   return false;
 }
 
+/** "P1" → 1 … "P5" → 5; anything else (incl. null) sorts last. Same ranking the sprint tracker's filter bar uses. */
+function priorityRank(p: string | null): number {
+  const m = (p ?? "").trim().match(/^p([1-9])$/i);
+  return m ? Number(m[1]) : 9;
+}
+
+/** What the per-delivery filter bar's text box searches — key, summary, assignee. Mirrors the sprint tracker's itemMatchesQuery. */
+function deliveryItemMatchesQuery(item: DeliveryItemRow, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    item.jiraKey.toLowerCase().includes(q) ||
+    item.summary.toLowerCase().includes(q) ||
+    (item.assigneeName ?? "").toLowerCase().includes(q)
+  );
+}
+
 /** Plain-text summary of ONE delivery's (currently-filtered) items — for pasting into Slack/email. Mirrors team-timeline-client's buildAlertMessage shape. */
 function buildDeliveryAlertMessage(delivery: DeliveryWithItems, items: DeliveryItemRow[]): string {
   const dateLabel = new Date().toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" });
@@ -176,12 +193,14 @@ export function DeliveryTrackerTab({ projectId, canManage }: { projectId: string
 
   const hasActiveFilter = !!search.trim() || !!dateFrom || !!dateTo || statusFilter.size > 0;
 
-  // Sends exactly what's currently on screen (post search/date/status/
-  // show-completed filters) — there's no server-side query to re-run with
+  // Sends every delivery the TAB-level filters leave (post search/date/
+  // status/show-completed) — there's no server-side query to re-run with
   // the same filters the way Project Tracking's export does, since all of
-  // this filtering already happens client-side above. Column visibility
-  // never factors in; the export's columns are fixed (see the export
-  // route), regardless of what's toggled hidden on screen.
+  // this filtering already happens client-side above. Each card's own item
+  // filter bar is deliberately NOT applied (same as the sprint tracker's):
+  // it narrows one table's view, it isn't a statement about scope. Column
+  // visibility never factors in either; the export's columns are fixed
+  // (see the export route), regardless of what's toggled hidden on screen.
   async function handleExport() {
     if (!filteredDeliveries) return;
     setExporting(true);
@@ -787,8 +806,154 @@ function DeliveryItemsTable({
   const [detailItem, setDetailItem] = useState<DeliveryItemRow | null>(null);
   const isVisible = (key: ColumnKey) => visibleColumns.has(key);
 
+  // Per-delivery item filter bar, the same four-select + search shape the
+  // sprint tracker's SprintItemsTable carries. The tab-level controls
+  // (search / date range / delivery-status multi-select) have already
+  // narrowed `items` before it gets here, so these refine what's left rather
+  // than fighting it — Jira status and priority/assignee lists are built
+  // from THIS delivery's items, so a card never offers a value it can't show.
+  // Like the sprint bar, this narrows the table only: the card's Export and
+  // Copy buttons still act on the delivery's tab-filtered items.
+  const [search, setSearch] = useState("");
+  const [jiraStatusFilter, setJiraStatusFilter] = useState("all");
+  const [deliveryStatusFilter, setDeliveryStatusFilter] = useState<"all" | DeliveryStatusValue>("all");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [assigneeFilter, setAssigneeFilter] = useState("all");
+
+  const jiraStatuses = useMemo(
+    () => [...new Set(items.map((i) => i.jiraStatus))].sort((a, b) => a.localeCompare(b)),
+    [items]
+  );
+
+  const priorities = useMemo(
+    () =>
+      [...new Set(items.map((i) => i.priority ?? "No priority"))].sort(
+        (a, b) =>
+          priorityRank(a === "No priority" ? null : a) - priorityRank(b === "No priority" ? null : b)
+      ),
+    [items]
+  );
+
+  const assignees = useMemo(
+    () =>
+      [...new Set(items.map((i) => i.assigneeName ?? "Unassigned"))].sort((a, b) =>
+        a.localeCompare(b)
+      ),
+    [items]
+  );
+
+  const filtered = useMemo(() => {
+    let out = items;
+    if (search.trim()) out = out.filter((i) => deliveryItemMatchesQuery(i, search));
+    if (jiraStatusFilter !== "all") out = out.filter((i) => i.jiraStatus === jiraStatusFilter);
+    if (deliveryStatusFilter !== "all") out = out.filter((i) => i.status === deliveryStatusFilter);
+    if (priorityFilter !== "all") {
+      out = out.filter((i) => (i.priority ?? "No priority") === priorityFilter);
+    }
+    if (assigneeFilter !== "all") {
+      out = out.filter((i) => (i.assigneeName ?? "Unassigned") === assigneeFilter);
+    }
+    return out;
+  }, [items, search, jiraStatusFilter, deliveryStatusFilter, priorityFilter, assigneeFilter]);
+
+  const filtersActive =
+    search.trim() !== "" ||
+    jiraStatusFilter !== "all" ||
+    deliveryStatusFilter !== "all" ||
+    priorityFilter !== "all" ||
+    assigneeFilter !== "all";
+
+  function clearFilters() {
+    setSearch("");
+    setJiraStatusFilter("all");
+    setDeliveryStatusFilter("all");
+    setPriorityFilter("all");
+    setAssigneeFilter("all");
+  }
+
+  const selectTriggerCls = "h-7 w-auto gap-1 px-2 text-xs";
+  // Toggleable columns actually on screen, plus the always-present actions
+  // cell and the manage cell — the colSpan the "nothing matched" row needs.
+  const colCount = visibleColumns.size + 1 + (canManage ? 1 : 0);
+
   return (
     <div className="overflow-x-auto">
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-2.5 py-2">
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Filter by key, summary, assignee…"
+          className="h-7 w-52 text-xs"
+        />
+        <Select value={jiraStatusFilter} onValueChange={setJiraStatusFilter}>
+          <SelectTrigger className={selectTriggerCls}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            {jiraStatuses.map((s) => (
+              <SelectItem key={s} value={s}>
+                {s}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={deliveryStatusFilter}
+          onValueChange={(v) => setDeliveryStatusFilter(v as typeof deliveryStatusFilter)}
+        >
+          <SelectTrigger className={selectTriggerCls}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All delivery statuses</SelectItem>
+            {DELIVERY_STATUSES.map((s) => (
+              <SelectItem key={s.value} value={s.value}>
+                {s.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+          <SelectTrigger className={selectTriggerCls}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All priorities</SelectItem>
+            {priorities.map((p) => (
+              <SelectItem key={p} value={p}>
+                {p}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+          <SelectTrigger className={selectTriggerCls}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All assignees</SelectItem>
+            {assignees.map((a) => (
+              <SelectItem key={a} value={a}>
+                {a}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {filtersActive && (
+          <span className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground">
+            {filtered.length} of {items.length} shown
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="underline-offset-2 hover:text-foreground hover:underline"
+            >
+              Clear
+            </button>
+          </span>
+        )}
+      </div>
+
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-border bg-muted/20">
@@ -808,7 +973,7 @@ function DeliveryItemsTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-border/50">
-          {items.map((item) => {
+          {filtered.map((item) => {
             const sStyles = statusCategoryStyles(item.jiraStatus);
             const pStyles = priorityStyles(item.priority);
             const tStyles = issueTypeStyles(item.issueType);
@@ -913,6 +1078,13 @@ function DeliveryItemsTable({
               </tr>
             );
           })}
+          {filtered.length === 0 && (
+            <tr>
+              <td colSpan={colCount} className="px-3 py-6 text-center text-xs text-muted-foreground">
+                No items match the current filters.
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
       {detailItem && (
