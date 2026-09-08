@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
+import { RcaBadge } from "@/components/bugs/rca-badge";
 import { subscribeToDeliveryListChanges } from "@/components/delivery-tracker/delivery-summary-cache";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -892,6 +893,7 @@ function TimelineTableRow({ issue, estimateThreshold }: { issue: TimelineIssue; 
       </td>
       <td className="px-2 py-2.5">
         <DelayLogButton issueId={issue.id} />
+        <RcaBadge issueId={issue.id} />
         <DeliveryBadge issueId={issue.id} />
       </td>
     </tr>
@@ -1539,6 +1541,7 @@ function UnplannedTableRow({ issue, preview }: { issue: UnplannedIssue; preview?
           </td>
           <td className="px-2 py-2">
             <DelayLogButton issueId={issue.id} />
+            <RcaBadge issueId={issue.id} />
             <DeliveryBadge issueId={issue.id} />
           </td>
         </>
@@ -2204,6 +2207,7 @@ function AtRiskIssueRow({ issue, estimateThreshold }: { issue: AtRiskIssueItem; 
       </td>
       <td className="px-2 py-2.5">
         <DelayLogButton issueId={issue.id} />
+        <RcaBadge issueId={issue.id} />
         <DeliveryBadge issueId={issue.id} />
       </td>
     </tr>
@@ -2751,6 +2755,7 @@ function OverdueIssueRow({ issue, estimateThreshold }: { issue: OverdueIssueItem
       </td>
       <td className="px-2 py-2.5">
         <DelayLogButton issueId={issue.id} />
+        <RcaBadge issueId={issue.id} />
         <DeliveryBadge issueId={issue.id} />
       </td>
     </tr>
@@ -3544,6 +3549,7 @@ function UnassignedTab({ projectId, filterStart, filterEnd }: { projectId: strin
                       </td>
                       <td className="px-2 py-2.5">
                         <DelayLogButton issueId={issue.id} />
+                        <RcaBadge issueId={issue.id} />
                         <DeliveryBadge issueId={issue.id} />
                       </td>
                     </tr>

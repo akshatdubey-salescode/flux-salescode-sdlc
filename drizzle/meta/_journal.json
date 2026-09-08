@@ -554,6 +554,13 @@
       "when": 1788803494868,
       "tag": "0079_sleepy_pride",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1788854193045,
+      "tag": "0080_sparkling_clea",
+      "breakpoints": true
     }
   ]
 }

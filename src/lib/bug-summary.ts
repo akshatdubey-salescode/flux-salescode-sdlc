@@ -19,6 +19,10 @@ export type BugRow = {
   priorityBucket: BugPriorityBucket;
   /** Normalized environment label; "—" when unset. */
   environment: string;
+  /** True iff the Jira "RCA" custom field has a non-empty entry. */
+  rcaGiven: boolean;
+  /** Plain-text RCA content; null when not given (or no RCA field discovered). */
+  rcaText: string | null;
   /** Resolved owner: the Issue Owner field ONLY (never the assignee), else "Missing Issue Owner". */
   ownerName: string;
   /** Owner email (attribution key); null when the Issue Owner field is unset. */

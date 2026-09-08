@@ -17,6 +17,7 @@ import {
 import type { IssueDeliveriesDetail, IssueDeliveryMembership } from "@/lib/deliveries/entries";
 import { patchDeliverySummary } from "./delivery-summary-cache";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
+import { RcaBadge } from "@/components/bugs/rca-badge";
 import { DeliveryHistory } from "./delivery-history";
 
 /**
@@ -105,6 +106,7 @@ export function DeliveryItemPanel({
                   <RiExternalLinkLine className="size-3 opacity-60" />
                 </a>
                 <DelayLogButton issueId={issueId} />
+                <RcaBadge issueId={issueId} />
               </div>
               <span className="text-[11px] text-muted-foreground">{detail.issue.projectName}</span>
             </div>

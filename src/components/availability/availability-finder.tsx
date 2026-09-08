@@ -42,6 +42,7 @@ import type {
 } from "@/app/api/analytics/availability/route";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
+import { RcaBadge } from "@/components/bugs/rca-badge";
 import { TeamTreeSelect, collectSubtreeEmails } from "@/components/availability/team-tree-select";
 import type { TeamTreeNode } from "@/lib/keka/directory";
 import type { TeamTreeResponse } from "@/app/api/keka/team-tree/route";
@@ -770,6 +771,7 @@ function PersonRow({
                 <RiExternalLinkLine className="size-3 shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground" />
               </a>
               <DelayLogButton issueId={c.id} />
+              <RcaBadge issueId={c.id} />
               <DeliveryBadge issueId={c.id} />
             </div>
           ))}

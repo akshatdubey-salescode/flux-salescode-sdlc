@@ -9,6 +9,7 @@ import {
 } from "@remixicon/react";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
+import { RcaBadge } from "@/components/bugs/rca-badge";
 
 type ActiveIssue = {
   jiraIssueId: string;
@@ -231,6 +232,7 @@ function IssueRow({ issue }: { issue: ActiveIssue }) {
               </>
             )}
             <DelayLogButton issueId={issue.jiraIssueId} />
+            <RcaBadge issueId={issue.jiraIssueId} />
             <DeliveryBadge issueId={issue.jiraIssueId} />
           </div>
         </div>

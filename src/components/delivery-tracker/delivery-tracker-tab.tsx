@@ -63,6 +63,7 @@ import {
 } from "@/lib/deliveries/status";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import { DeliveryBadge } from "./delivery-badge";
+import { RcaBadge } from "@/components/bugs/rca-badge";
 import { refreshDeliverySummary, subscribeToDeliveryListChanges } from "./delivery-summary-cache";
 import { CreateDeliveryForm } from "./create-delivery-form";
 import { IssueMultiPicker, type IssueResult } from "./issue-multi-picker";
@@ -873,6 +874,7 @@ function DeliveryItemsTable({
                 <td className="px-2 py-2">
                   <div className="flex items-center gap-0.5">
                     <DelayLogButton issueId={item.issueId} />
+                    <RcaBadge issueId={item.issueId} />
                     <DeliveryBadge issueId={item.issueId} canManage={canManage} onChanged={onChanged} />
                     <Button
                       variant="ghost"

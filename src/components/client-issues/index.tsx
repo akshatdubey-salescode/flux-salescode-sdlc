@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
+import { RcaBadge } from "@/components/bugs/rca-badge";
 import type { FreshdeskTicket } from "@/lib/db/schema";
 
 type TicketWithJiraDate = FreshdeskTicket & {
@@ -1047,6 +1048,7 @@ export function ClientIssuesTab({ projectId, projectName }: { projectId: string;
                                 {ticket.linkedJiraIssueId && (
                                   <>
                                     <DelayLogButton issueId={ticket.linkedJiraIssueId} />
+                                    <RcaBadge issueId={ticket.linkedJiraIssueId} />
                                     <DeliveryBadge issueId={ticket.linkedJiraIssueId} />
                                   </>
                                 )}

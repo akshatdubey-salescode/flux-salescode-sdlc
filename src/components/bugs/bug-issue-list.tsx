@@ -8,8 +8,10 @@ import { useEffect, useState } from "react";
 import { RiExternalLinkLine } from "@remixicon/react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { RcaBadge } from "./rca-badge";
 
 type BugIssueRow = {
+  id: string;
   jiraKey: string;
   summary: string;
   priority: string | null;
@@ -110,6 +112,7 @@ export function BugIssueList({
               <RiExternalLinkLine className="size-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-60" />
             </span>
             <span className="flex w-44 shrink-0 items-center justify-end gap-1.5">
+              <RcaBadge issueId={issue.id} />
               <Badge variant="outline" className="shrink-0 text-[10px]">
                 {issue.isCustomerFound ? "Customer" : "QA"}
               </Badge>
