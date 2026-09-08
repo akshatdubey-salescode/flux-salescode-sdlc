@@ -22,6 +22,7 @@ import { MyMeetings } from "./my-meetings";
 import { BugTracker } from "@/components/bug-summary";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
+import { RcaBadge } from "@/components/bugs/rca-badge";
 import { subscribeToDeliveryListChanges } from "@/components/delivery-tracker/delivery-summary-cache";
 import { usePinnedTasks } from "./use-pinned-tasks";
 import {
@@ -319,6 +320,7 @@ export function MyTasksView({
     ((issue: TrackingIssue) => (
       <div className="flex items-center gap-0.5">
         <DelayLogButton issueId={issue.id} />
+        <RcaBadge issueId={issue.id} />
         <DeliveryBadge issueId={issue.id} onChanged={loadTasks} />
       </div>
     ));

@@ -121,7 +121,8 @@ type BugColKey =
   | "createdAt"
   | "updatedAt"
   | "open"
-  | "project";
+  | "project"
+  | "rca";
 
 type BugCol = { header: string; key: BugColKey; width?: number; min: number; max: number };
 
@@ -140,6 +141,7 @@ function bugColumns(showProject: boolean): BugCol[] {
     { header: "Environment", key: "environment", min: 11, max: 16 },
     { header: "Status", key: "status", min: 12, max: 26 },
     { header: "Open", key: "open", min: 6, max: 8 },
+    { header: "RCA", key: "rca", min: 9, max: 12 },
     { header: "Created", key: "createdAt", min: 12, max: 14 },
     { header: "Updated", key: "updatedAt", min: 12, max: 14 }
   );
@@ -258,6 +260,17 @@ function addBugsSheet(wb: ExcelJS.Workbook, rows: BugRow[], opts: Opts) {
           display = bug.environment === ENV_UNSET ? "" : bug.environment;
           cell.value = display;
           cell.font = { name: "Calibri", size: 11, color: { argb: TEXT } };
+          break;
+        }
+        case "rca": {
+          display = bug.rcaGiven ? "Given" : "Not given";
+          cell.value = display;
+          cell.font = {
+            name: "Calibri",
+            size: 11,
+            bold: !bug.rcaGiven,
+            color: { argb: bug.rcaGiven ? MUTED : "FFB45309" },
+          };
           break;
         }
         case "ownerEmail":
@@ -402,6 +415,7 @@ function devDetailColumns(showProject: boolean, showOpen: boolean): DevDetailCol
   );
   if (showOpen) cols.push({ header: "Open", key: "open", min: 6, max: 8 });
   cols.push(
+    { header: "RCA", key: "rca", min: 9, max: 12 },
     { header: "Owner", key: "ownerName", min: 14, max: 28 },
     { header: "Assignee", key: "assigneeName", min: 14, max: 28 },
     { header: "Created", key: "createdAt", min: 12, max: 14 },
@@ -528,6 +542,17 @@ function addDeveloperDetailSheet(
             display = bug.environment === ENV_UNSET ? "" : bug.environment;
             cell.value = display;
             cell.font = { name: "Calibri", size: 11, color: { argb: TEXT } };
+            break;
+          }
+          case "rca": {
+            display = bug.rcaGiven ? "Given" : "Not given";
+            cell.value = display;
+            cell.font = {
+              name: "Calibri",
+              size: 11,
+              bold: !bug.rcaGiven,
+              color: { argb: bug.rcaGiven ? MUTED : "FFB45309" },
+            };
             break;
           }
           case "createdAt":

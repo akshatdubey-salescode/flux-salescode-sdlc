@@ -10,6 +10,7 @@ import {
   RiArrowRightUpLine,
   RiBugLine,
   RiUserUnfollowLine,
+  RiSearchEyeLine,
   RiDownload2Line,
 } from "@remixicon/react";
 import {
@@ -296,12 +297,16 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
       total: 0, p1: 0, p2: 0, p3: 0, p4: 0,
       open: 0, open1: 0, open2: 0, open3: 0, open4: 0,
       cfTotal: 0, cf1: 0, cf2: 0, cf3: 0, cf4: 0,
+      rcaMissingTotal: 0, rcaMissing1: 0, rcaMissing2: 0, rcaMissing3: 0, rcaMissing4: 0,
     };
     for (const r of displayRows) {
       acc.total += r.total; acc.p1 += r.p1; acc.p2 += r.p2;
       acc.p3 += r.p3; acc.p4 += r.p4; acc.open += r.open;
       acc.open1 += r.open1; acc.open2 += r.open2; acc.open3 += r.open3; acc.open4 += r.open4;
       acc.cfTotal += r.cfTotal; acc.cf1 += r.cf1; acc.cf2 += r.cf2; acc.cf3 += r.cf3; acc.cf4 += r.cf4;
+      acc.rcaMissingTotal += r.rcaMissingTotal;
+      acc.rcaMissing1 += r.rcaMissing1; acc.rcaMissing2 += r.rcaMissing2;
+      acc.rcaMissing3 += r.rcaMissing3; acc.rcaMissing4 += r.rcaMissing4;
     }
     return acc;
   }, [displayRows]);
@@ -315,6 +320,9 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
         ex.total += p.total; ex.p1 += p.p1; ex.p2 += p.p2; ex.p3 += p.p3; ex.p4 += p.p4;
         ex.open += p.open; ex.open1 += p.open1; ex.open2 += p.open2; ex.open3 += p.open3; ex.open4 += p.open4;
         ex.cfTotal += p.cfTotal; ex.cf1 += p.cf1; ex.cf2 += p.cf2; ex.cf3 += p.cf3; ex.cf4 += p.cf4;
+        ex.rcaMissingTotal += p.rcaMissingTotal;
+        ex.rcaMissing1 += p.rcaMissing1; ex.rcaMissing2 += p.rcaMissing2;
+        ex.rcaMissing3 += p.rcaMissing3; ex.rcaMissing4 += p.rcaMissing4;
       }
     }
     return [...map.values()].sort((a, b) => b.total - a.total);
@@ -328,6 +336,11 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
 
   const missingOwnerCount = useMemo(
     () => displayRows.find((r) => r.isUnassigned)?.total ?? 0,
+    [displayRows],
+  );
+
+  const missingRcaCount = useMemo(
+    () => displayRows.reduce((s, r) => s + r.rcaMissingTotal, 0),
     [displayRows],
   );
 
@@ -354,8 +367,8 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
   const resolvedFrom = start || undefined;
   const resolvedTo = end || undefined;
 
-  // # + Developer + visible-priority cols + Total + (Open, if flagged on) + % Share
-  const colSpan = 2 + visiblePriorityCols.length + 2 + (showOpenColumn ? 1 : 0);
+  // # + Developer + visible-priority cols + Total + (Open, if flagged on) + RCA Unavail + % Share
+  const colSpan = 2 + visiblePriorityCols.length + 3 + (showOpenColumn ? 1 : 0);
 
   const [exporting, setExporting] = useState(false);
 
@@ -442,6 +455,16 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
                   <span className="font-semibold tabular-nums">{missingOwnerCount}</span>
                   <span>missing owner</span>
                 </button>
+              )}
+              {missingRcaCount > 0 && (
+                <span
+                  className="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-1.5 py-px text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-400"
+                  title="Bugs with no RCA entered in Jira (any status)"
+                >
+                  <RiSearchEyeLine size={11} />
+                  <span className="font-semibold tabular-nums">{missingRcaCount}</span>
+                  <span>missing RCA</span>
+                </span>
               )}
               <span className="text-muted-foreground/50">·</span>
               <span className="inline-flex items-center gap-2">
@@ -653,6 +676,12 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
                     className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
                   />
                 )}
+                <th
+                  className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
+                  title="Bugs with no RCA entered in Jira (any status)"
+                >
+                  RCA Unavail
+                </th>
                 {/* % Share has no SortKey of its own — it's directly
                     proportional to Total, so sorting by it would just
                     reproduce Total's own order. Wired to "total" rather
@@ -734,6 +763,9 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
                       {grandTotal.open}
                     </td>
                   )}
+                  <td className="px-3 py-2.5 text-right text-xs font-bold tabular-nums text-amber-700 dark:text-amber-400">
+                    {grandTotal.rcaMissingTotal || <span className="font-normal text-muted-foreground/40">—</span>}
+                  </td>
                   <td className="px-3 py-2.5 text-right text-xs font-bold tabular-nums text-foreground">
                     100%
                   </td>
@@ -865,6 +897,7 @@ function OwnerRowView({
       ))}
       <CountCell value={row.total} avg={team.avg.total} neutral={neutral} bold />
       {showOpenColumn && <CountCell value={row.open} avg={team.avg.open} neutral={neutral} />}
+      <RcaMissingCell value={row.rcaMissingTotal} />
       <ContribCell pct={contrib} value={row.total} avg={team.avg.total} neutral={neutral} />
     </tr>
   );
@@ -931,6 +964,24 @@ function CountCell({
   );
 }
 
+/**
+ * Plain count cell for "RCA Unavail" — not RAG-classified against the team
+ * average like CountCell (missing RCA isn't a "more bugs than usual" kind of
+ * signal), just amber when nonzero so it reads as "needs attention" without
+ * implying a red/green judgment relative to peers.
+ */
+function RcaMissingCell({ value }: { value: number }) {
+  return (
+    <td className="px-3 py-3 text-right tabular-nums text-sm">
+      {value ? (
+        <span className="font-medium text-amber-700 dark:text-amber-400">{value}</span>
+      ) : (
+        <span className="text-muted-foreground/30">—</span>
+      )}
+    </td>
+  );
+}
+
 function ContribCell({
   pct, value, avg, neutral,
 }: {
@@ -958,10 +1009,10 @@ function ContribCell({
 
 function FoundBreakdown({ counts, prioritySet }: { counts: Counts; prioritySet: Set<PriorityKey> }) {
   const rows = [
-    { label: "P1", key: "p1" as PriorityKey, total: counts.p1, cf: counts.cf1 },
-    { label: "P2", key: "p2" as PriorityKey, total: counts.p2, cf: counts.cf2 },
-    { label: "P3", key: "p3" as PriorityKey, total: counts.p3, cf: counts.cf3 },
-    { label: "P4", key: "p4" as PriorityKey, total: counts.p4, cf: counts.cf4 },
+    { label: "P1", key: "p1" as PriorityKey, total: counts.p1, cf: counts.cf1, rcaMissing: counts.rcaMissing1 },
+    { label: "P2", key: "p2" as PriorityKey, total: counts.p2, cf: counts.cf2, rcaMissing: counts.rcaMissing2 },
+    { label: "P3", key: "p3" as PriorityKey, total: counts.p3, cf: counts.cf3, rcaMissing: counts.rcaMissing3 },
+    { label: "P4", key: "p4" as PriorityKey, total: counts.p4, cf: counts.cf4, rcaMissing: counts.rcaMissing4 },
   ].filter((r) => prioritySet.has(r.key));
 
   return (
@@ -988,6 +1039,14 @@ function FoundBreakdown({ counts, prioritySet }: { counts: Counts; prioritySet: 
         {rows.map((r) => (
           <span key={r.label} className="text-right tabular-nums font-medium">
             {r.total - r.cf || <span className="text-muted-foreground/30">—</span>}
+          </span>
+        ))}
+        <span className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
+          <RiSearchEyeLine size={12} />RCA missing
+        </span>
+        {rows.map((r) => (
+          <span key={r.label} className="text-right tabular-nums font-medium">
+            {r.rcaMissing || <span className="text-muted-foreground/30">—</span>}
           </span>
         ))}
       </div>
@@ -1040,6 +1099,12 @@ function ProjectSplit({
               {showOpenColumn && (
                 <th className="w-14 whitespace-nowrap px-2 py-2 text-right font-semibold uppercase tracking-wide text-zinc-500">Open</th>
               )}
+              <th
+                className="w-20 whitespace-nowrap px-2 py-2 text-right font-semibold uppercase tracking-wide text-zinc-500"
+                title="Bugs with no RCA entered in Jira (any status)"
+              >
+                RCA Unavail
+              </th>
               {/* w-20, not w-16 — at w-16 (64px) the "% Share" label itself
                   (tracking-wide uppercase, ~66px) overflowed its own column
                   and got clipped by the wrapper's overflow-hidden, reading as
@@ -1141,6 +1206,13 @@ function ProjectRowView({
         {showOpenColumn && (
           <td className="px-2 py-2 text-right tabular-nums text-foreground">{p.open}</td>
         )}
+        <td className="px-2 py-2 text-right tabular-nums">
+          {p.rcaMissingTotal ? (
+            <span className="font-medium text-amber-700 dark:text-amber-400">{p.rcaMissingTotal}</span>
+          ) : (
+            <span className="text-muted-foreground/30">—</span>
+          )}
+        </td>
         <td className="py-2 pl-2 pr-3 text-right tabular-nums">
           {badge
             ? <span className={badge}>{contrib.toFixed(1)}%</span>

@@ -12,6 +12,7 @@ export type DeliveryItemRow = {
   jiraKey: string;
   jiraBaseUrl: string;
   summary: string;
+  issueType: string;
   jiraStatus: string;
   priority: string | null;
   assigneeEmail: string | null;
@@ -100,6 +101,7 @@ type DeliveryItemJoinRow = {
   jira_key: string;
   jira_base_url: string;
   summary: string;
+  issue_type: string;
   jira_status: string;
   priority: string | null;
   assignee_email: string | null;
@@ -140,6 +142,7 @@ function mapItemRow(r: DeliveryItemJoinRow): DeliveryItemRow {
     jiraKey: r.jira_key,
     jiraBaseUrl: r.jira_base_url,
     summary: r.summary,
+    issueType: r.issue_type,
     jiraStatus: r.jira_status,
     priority: r.priority,
     assigneeEmail: r.assignee_email,
@@ -176,7 +179,7 @@ async function fetchItemsForDeliveries(deliveryIds: string[]): Promise<Map<strin
       SELECT
         di.id, di.delivery_id, di.issue_id, di.added_by, di.added_by_name, di.added_at,
         di.status, di.status_comment, di.status_set_by, di.status_set_by_name, di.status_set_at,
-        ji.jira_key, ji.summary, ji.status AS jira_status, ji.priority,
+        ji.jira_key, ji.summary, ji.issue_type, ji.status AS jira_status, ji.priority,
         ji.assignee_email, ji.assignee_name, jp.jira_base_url AS jira_base_url,
         ji.custom_fields, jp.start_date_field_ids, jp.end_date_field_ids,
         jp.actual_start_field_ids, jp.actual_end_field_ids,

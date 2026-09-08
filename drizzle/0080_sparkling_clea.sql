@@ -1,0 +1,1 @@
+ALTER TABLE "jira_projects" ADD COLUMN "rca_field_ids" text[];

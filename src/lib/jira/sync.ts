@@ -178,6 +178,7 @@ type DiscoveredFields = {
   issueOwnerFieldIds: string[];
   devOwnerFieldIds: string[];
   environmentFieldIds: string[];
+  rcaFieldIds: string[];
 };
 
 /**
@@ -303,6 +304,17 @@ async function discoverProjectFields(
     .filter((f) => f.custom && normName(f.name) === "environment")
     .map((f) => f.id);
 
+  // The "RCA" (Root Cause Analysis) field — bug-only, feeds the Bug Board's
+  // RCA given/not-given indicator. Contains-match (word boundary,
+  // case-insensitive) rather than exact-equals, so "RCA", "RCA Notes",
+  // "Bug RCA", etc. all match — confirmed intentional (not an exact "RCA"
+  // match) since, unlike Issue Owner/Environment, this app has no existing
+  // reference to the field's real name across every site, and a stricter
+  // match risks silently missing it.
+  const rcaFieldIds = fields
+    .filter((f) => f.custom && /\brca\b/i.test(f.name))
+    .map((f) => f.id);
+
   await db
     .update(jiraProjects)
     .set({
@@ -315,6 +327,7 @@ async function discoverProjectFields(
       issueOwnerFieldIds,
       devOwnerFieldIds,
       environmentFieldIds,
+      rcaFieldIds,
     })
     .where(eq(jiraProjects.id, projectId));
 
@@ -328,6 +341,7 @@ async function discoverProjectFields(
     issueOwnerFieldIds,
     devOwnerFieldIds,
     environmentFieldIds,
+    rcaFieldIds,
   };
 }
 
@@ -349,6 +363,7 @@ export async function resolveProjectFieldConfig(
     issueOwnerFieldIds: string[] | null;
     devOwnerFieldIds: string[] | null;
     environmentFieldIds: string[] | null;
+    rcaFieldIds: string[] | null;
   }
 ): Promise<{
   multiAssigneeFieldIds: string[];
@@ -364,6 +379,7 @@ export async function resolveProjectFieldConfig(
   let issueOwnerFieldIds: string[] | null = project.issueOwnerFieldIds;
   let devOwnerFieldIds: string[] | null = project.devOwnerFieldIds;
   let environmentFieldIds: string[] | null = project.environmentFieldIds;
+  let rcaFieldIds: string[] | null = project.rcaFieldIds;
 
   try {
     const discovered = await discoverProjectFields(client, project.id);
@@ -376,6 +392,7 @@ export async function resolveProjectFieldConfig(
     issueOwnerFieldIds = discovered.issueOwnerFieldIds;
     devOwnerFieldIds = discovered.devOwnerFieldIds;
     environmentFieldIds = discovered.environmentFieldIds;
+    rcaFieldIds = discovered.rcaFieldIds;
   } catch (err) {
     // Transient API failure — keep the previously-cached values for this sync.
     console.warn(`[sync] field discovery failed for project ${project.id}:`, err);
@@ -391,6 +408,7 @@ export async function resolveProjectFieldConfig(
   if (issueOwnerFieldIds?.length) extraFields.push(...issueOwnerFieldIds);
   if (devOwnerFieldIds?.length) extraFields.push(...devOwnerFieldIds);
   if (environmentFieldIds?.length) extraFields.push(...environmentFieldIds);
+  if (rcaFieldIds?.length) extraFields.push(...rcaFieldIds);
 
   return {
     multiAssigneeFieldIds: multiAssigneeFieldIds ?? [],

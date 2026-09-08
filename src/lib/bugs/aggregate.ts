@@ -32,6 +32,11 @@ export type Counts = {
   cf2: number;
   cf3: number;
   cf4: number;
+  rcaMissingTotal: number;
+  rcaMissing1: number;
+  rcaMissing2: number;
+  rcaMissing3: number;
+  rcaMissing4: number;
 };
 
 export type ProjectBreakdown = Counts & {
@@ -62,6 +67,7 @@ const ZERO: Counts = {
   total: 0, p1: 0, p2: 0, p3: 0, p4: 0, open: 0,
   open1: 0, open2: 0, open3: 0, open4: 0,
   cfTotal: 0, cf1: 0, cf2: 0, cf3: 0, cf4: 0,
+  rcaMissingTotal: 0, rcaMissing1: 0, rcaMissing2: 0, rcaMissing3: 0, rcaMissing4: 0,
 };
 
 function addInto(acc: Counts, c: BugCell | Counts): void {
@@ -71,6 +77,9 @@ function addInto(acc: Counts, c: BugCell | Counts): void {
   acc.open1 += c.open1; acc.open2 += c.open2; acc.open3 += c.open3; acc.open4 += c.open4;
   acc.cfTotal += c.cfTotal;
   acc.cf1 += c.cf1; acc.cf2 += c.cf2; acc.cf3 += c.cf3; acc.cf4 += c.cf4;
+  acc.rcaMissingTotal += c.rcaMissingTotal;
+  acc.rcaMissing1 += c.rcaMissing1; acc.rcaMissing2 += c.rcaMissing2;
+  acc.rcaMissing3 += c.rcaMissing3; acc.rcaMissing4 += c.rcaMissing4;
 }
 
 /**
@@ -123,6 +132,8 @@ export function buildOwnerRows(
         total: c.total, p1: c.p1, p2: c.p2, p3: c.p3, p4: c.p4, open: c.open,
         open1: c.open1, open2: c.open2, open3: c.open3, open4: c.open4,
         cfTotal: c.cfTotal, cf1: c.cf1, cf2: c.cf2, cf3: c.cf3, cf4: c.cf4,
+        rcaMissingTotal: c.rcaMissingTotal, rcaMissing1: c.rcaMissing1,
+        rcaMissing2: c.rcaMissing2, rcaMissing3: c.rcaMissing3, rcaMissing4: c.rcaMissing4,
       });
     }
   }
@@ -173,6 +184,9 @@ export function computeTeamStats(rows: OwnerRow[]): TeamStats {
       open1: div(sum.open1), open2: div(sum.open2), open3: div(sum.open3), open4: div(sum.open4),
       cfTotal: div(sum.cfTotal),
       cf1: div(sum.cf1), cf2: div(sum.cf2), cf3: div(sum.cf3), cf4: div(sum.cf4),
+      rcaMissingTotal: div(sum.rcaMissingTotal),
+      rcaMissing1: div(sum.rcaMissing1), rcaMissing2: div(sum.rcaMissing2),
+      rcaMissing3: div(sum.rcaMissing3), rcaMissing4: div(sum.rcaMissing4),
     },
   };
 }
@@ -210,6 +224,15 @@ export function effectiveCounts(counts: Counts, sel: Set<PriorityKey>): Counts {
       (sel.has("p2") ? counts.cf2 : 0) +
       (sel.has("p3") ? counts.cf3 : 0) +
       (sel.has("p4") ? counts.cf4 : 0),
+    rcaMissing1: sel.has("p1") ? counts.rcaMissing1 : 0,
+    rcaMissing2: sel.has("p2") ? counts.rcaMissing2 : 0,
+    rcaMissing3: sel.has("p3") ? counts.rcaMissing3 : 0,
+    rcaMissing4: sel.has("p4") ? counts.rcaMissing4 : 0,
+    rcaMissingTotal:
+      (sel.has("p1") ? counts.rcaMissing1 : 0) +
+      (sel.has("p2") ? counts.rcaMissing2 : 0) +
+      (sel.has("p3") ? counts.rcaMissing3 : 0) +
+      (sel.has("p4") ? counts.rcaMissing4 : 0),
   };
 }
 

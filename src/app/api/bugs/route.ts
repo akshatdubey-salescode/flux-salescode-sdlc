@@ -10,6 +10,7 @@ import { FRESHDESK_CUSTOM_FIELD } from "@/lib/freshdesk/sync";
 import { BUG_ISSUE_TYPES, BUG_INVALID_STATUSES } from "@/lib/scorecard/config";
 import { currentFiscalQuarterChip } from "@/lib/date-utils";
 import { normalizeEnvironment, priorityBucketSql } from "@/lib/bug-summary";
+import { rcaGivenSql } from "@/lib/jira/rca";
 import { FEATURE_FLAGS, isEnabled } from "@/lib/feature-flags";
 
 export type BugCell = {
@@ -38,6 +39,12 @@ export type BugCell = {
   cf2: number;
   cf3: number;
   cf4: number;
+  /** Bugs with no RCA entry in Jira (any status — open, QA, or closed). */
+  rcaMissingTotal: number;
+  rcaMissing1: number;
+  rcaMissing2: number;
+  rcaMissing3: number;
+  rcaMissing4: number;
 };
 
 export type BugProject = {
@@ -100,6 +107,7 @@ async function fetchBugBoard(from: string | undefined, to: string | undefined, s
   const open3Expr = showOpen ? sql`COUNT(*) FILTER (WHERE is_open AND priority_bucket = 'P3')::int` : sql`0`;
   const open4Expr = showOpen ? sql`COUNT(*) FILTER (WHERE is_open AND priority_bucket = 'P4')::int` : sql`0`;
   const priorityBucketExpr = sql.raw(priorityBucketSql("ji.priority"));
+  const hasRcaExpr = sql.raw(rcaGivenSql("ji.custom_fields", "jp.rca_field_ids"));
 
   const fdField = sql.raw(`'${FRESHDESK_CUSTOM_FIELD}'`);
   const fromFilter = from ? sql` AND ji.jira_created_at >= ${from}::date` : sql``;
@@ -164,6 +172,13 @@ async function fetchBugBoard(from: string | undefined, to: string | undefined, s
           ji.custom_fields ? ${fdField}
           AND COALESCE(ji.custom_fields->>${fdField}, '') <> ''
         ) AS is_customer,
+        -- Does this bug have a non-empty RCA entry in Jira, checked across
+        -- every candidate "RCA"-named field discovered for the project (see
+        -- rcaGivenSql) — regardless of status: open, QA, or closed bugs are
+        -- all evaluated the same way, per the "RCA Unavailable" stat's own
+        -- definition (a bug missing RCA while still open is still missing
+        -- RCA, not merely "not applicable yet").
+        (${hasRcaExpr}) AS has_rca,
         ow.v AS owner_val,
         -- First populated project-specific environment field, else Jira's
         -- free-text system "environment" field. Normalized in JS.
@@ -241,7 +256,7 @@ async function fetchBugBoard(from: string | undefined, to: string | undefined, s
     resolved AS (
       SELECT
         project_id, project_name, jira_base_url, jira_project_key,
-        priority, priority_bucket, is_open, is_customer, env_raw,
+        priority, priority_bucket, is_open, is_customer, has_rca, env_raw,
         -- Keka-only rule (src/lib/keka/people.ts). An owner who isn't a
         -- current employee is treated as NO owner: the three owner columns go
         -- null, owner_key below collapses to null, and the bug lands in the
@@ -276,7 +291,12 @@ async function fetchBugBoard(from: string | undefined, to: string | undefined, s
       COUNT(*) FILTER (WHERE is_customer AND priority_bucket = 'P1')::int             AS cf1,
       COUNT(*) FILTER (WHERE is_customer AND priority_bucket = 'P2')::int             AS cf2,
       COUNT(*) FILTER (WHERE is_customer AND priority_bucket = 'P3')::int             AS cf3,
-      COUNT(*) FILTER (WHERE is_customer AND priority_bucket = 'P4')::int             AS cf4
+      COUNT(*) FILTER (WHERE is_customer AND priority_bucket = 'P4')::int             AS cf4,
+      COUNT(*) FILTER (WHERE NOT has_rca)::int                                         AS rca_missing_total,
+      COUNT(*) FILTER (WHERE NOT has_rca AND priority_bucket = 'P1')::int             AS rca_missing1,
+      COUNT(*) FILTER (WHERE NOT has_rca AND priority_bucket = 'P2')::int             AS rca_missing2,
+      COUNT(*) FILTER (WHERE NOT has_rca AND priority_bucket = 'P3')::int             AS rca_missing3,
+      COUNT(*) FILTER (WHERE NOT has_rca AND priority_bucket = 'P4')::int             AS rca_missing4
     FROM resolved
     GROUP BY
       COALESCE(owner_email, owner_account), owner_email,
@@ -308,6 +328,11 @@ async function fetchBugBoard(from: string | undefined, to: string | undefined, s
     cf2: Number(r.cf2),
     cf3: Number(r.cf3),
     cf4: Number(r.cf4),
+    rcaMissingTotal: Number(r.rca_missing_total),
+    rcaMissing1: Number(r.rca_missing1),
+    rcaMissing2: Number(r.rca_missing2),
+    rcaMissing3: Number(r.rca_missing3),
+    rcaMissing4: Number(r.rca_missing4),
   }));
 
   const projIds = [...new Set(cells.map((c) => c.projectId))];

@@ -83,6 +83,7 @@ export async function GET(request: NextRequest) {
 }
 
 export type BugIssueRow = {
+  id: string;
   jiraKey: string;
   summary: string;
   priority: string | null;
@@ -186,6 +187,7 @@ async function fetchBugIssues({
 
   const res = await db.execute(sql`
     SELECT
+      ji.id AS id,
       ji.jira_key AS jira_key,
       ji.summary AS summary,
       ji.priority AS priority,
@@ -239,6 +241,7 @@ async function fetchBugIssues({
   `);
 
   const rows = (res.rows as Record<string, unknown>[]).map((r) => ({
+    id: r.id as string,
     jiraKey: r.jira_key as string,
     summary: r.summary as string,
     priority: (r.priority as string | null) ?? null,

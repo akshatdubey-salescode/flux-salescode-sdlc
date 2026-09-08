@@ -28,6 +28,7 @@ import {
 } from "@remixicon/react";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
+import { RcaBadge } from "@/components/bugs/rca-badge";
 
 type UserDashboardData = {
   personalHealth: {
@@ -280,6 +281,7 @@ function MyStaleIssues({
                     {row.project_name}
                   </span>
                   <DelayLogButton issueId={row.id} />
+                  <RcaBadge issueId={row.id} />
                   <DeliveryBadge issueId={row.id} />
                 </div>
               </div>

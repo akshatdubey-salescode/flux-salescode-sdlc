@@ -8,6 +8,7 @@ import { FRESHDESK_CUSTOM_FIELD } from "@/lib/freshdesk/sync";
 import { BUG_ISSUE_TYPES, BUG_INVALID_STATUSES } from "@/lib/scorecard/config";
 import { currentFiscalQuarterChip } from "@/lib/date-utils";
 import { normalizeEnvironment, priorityBucket, bugBoardPriorityBucket, isDoneOrCancelled, MISSING_ISSUE_OWNER, type BugRow } from "@/lib/bug-summary";
+import { rcaSummary } from "@/lib/jira/rca";
 
 // The bug's Issue Owner as a lowercased email, with the same accountId
 // fallbacks /api/bugs uses (Atlassian privacy settings strip emailAddress from
@@ -99,6 +100,8 @@ export async function GET(request: NextRequest) {
       priority: b.priority,
       priorityBucket: b.priorityBucket,
       environment: b.environment,
+      rcaGiven: b.rcaGiven,
+      rcaText: b.rcaText,
       ownerName: b.ownerName,
       ownerEmail: b.ownerEmail,
       assigneeName: b.assigneeName,
@@ -140,7 +143,9 @@ async function fetchAllBugs(start: string, end: string): Promise<ExportBugRow[]>
         ) AS is_customer,
         ow.v AS owner_val,
         COALESCE(env.env_raw, NULLIF(ji.custom_fields->>'environment', '')) AS env_raw,
-        psm.canonical_status AS canonical_status
+        psm.canonical_status AS canonical_status,
+        ji.custom_fields AS custom_fields,
+        jp.rca_field_ids AS rca_field_ids
       FROM jira_issues ji
       JOIN jira_projects jp ON jp.id = ji.project_id
       LEFT JOIN project_status_mappings psm
@@ -188,6 +193,7 @@ async function fetchAllBugs(start: string, end: string): Promise<ExportBugRow[]>
       id, jira_key, summary, status, status_category, priority,
       assignee_email, assignee_name, jira_created_at, jira_updated_at,
       project_id, project_name, jira_base_url, jira_project_key, is_customer, env_raw, canonical_status,
+      custom_fields, rca_field_ids,
       CASE WHEN ${isKekaPerson(sql.raw(OWNER_EMAIL_SQL))} THEN
         COALESCE(owner_val->>'emailAddress', owner_val->0->>'emailAddress')
       END AS owner_email,
@@ -207,6 +213,10 @@ async function fetchAllBugs(start: string, end: string): Promise<ExportBugRow[]>
     // assuming .toISOString() already exists on it.
     const jiraCreatedAt = r.jira_created_at as string | Date | null;
     const jiraUpdatedAt = r.jira_updated_at as string | Date | null;
+    const rca = rcaSummary(
+      r.custom_fields as Record<string, unknown> | null,
+      r.rca_field_ids as string[] | null
+    );
     return {
       id: r.id as string,
       jiraKey: r.jira_key as string,
@@ -220,6 +230,8 @@ async function fetchAllBugs(start: string, end: string): Promise<ExportBugRow[]>
       priority,
       priorityBucket: priorityBucket(priority),
       environment: normalizeEnvironment(r.env_raw as string | null),
+      rcaGiven: rca.given,
+      rcaText: rca.text,
       ownerName,
       ownerEmail,
       assigneeName: (r.assignee_name as string | null)?.trim() || null,

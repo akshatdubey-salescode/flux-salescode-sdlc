@@ -125,6 +125,12 @@ export const jiraProjects = pgTable(
     // `environment` field is an unreliable fallback — most projects record it
     // in this custom select instead. Same null/[]/[...] semantics as above.
     environmentFieldIds: text("environment_field_ids").array(),
+    // Auto-discovered Jira custom field IDs for the "RCA" (Root Cause
+    // Analysis) field — bug-only, feeds the Bug Board's RCA given/not-given
+    // indicator. Contains-matched by name (see discoverProjectFields), not
+    // exact-equals, since sites vary ("RCA", "RCA Notes", "Bug RCA", etc).
+    // Same null/[]/[...] semantics as above.
+    rcaFieldIds: text("rca_field_ids").array(),
     createdBy: text("created_by")
       .notNull()
       .references(() => users.id),

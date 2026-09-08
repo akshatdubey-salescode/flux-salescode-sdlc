@@ -8,6 +8,7 @@ import {
   extractIssueOwnerName,
   normalizeEmail,
 } from "@/lib/jira/scorecard-fields";
+import { rcaSummary } from "@/lib/jira/rca";
 import {
   BUG_ISSUE_TYPES,
   BUG_INVALID_STATUSES,
@@ -98,6 +99,7 @@ export async function loadBugRows(
       jiraUpdatedAt: jiraIssues.jiraUpdatedAt,
       issueOwnerFieldIds: jiraProjects.issueOwnerFieldIds,
       environmentFieldIds: jiraProjects.environmentFieldIds,
+      rcaFieldIds: jiraProjects.rcaFieldIds,
       jiraBaseUrl: jiraProjects.jiraBaseUrl,
       projectKey: jiraProjects.jiraProjectKey,
       projectName: jiraProjects.name,
@@ -139,6 +141,7 @@ export async function loadBugRows(
       r.customFields as Record<string, unknown> | null,
       r.environmentFieldIds
     );
+    const rca = rcaSummary(r.customFields as Record<string, unknown> | null, r.rcaFieldIds);
 
     return {
       id: r.id,
@@ -152,6 +155,8 @@ export async function loadBugRows(
       priority: r.priority,
       priorityBucket: priorityBucket(r.priority),
       environment,
+      rcaGiven: rca.given,
+      rcaText: rca.text,
       ownerName,
       ownerEmail,
       assigneeName: r.assigneeName?.trim() || null,

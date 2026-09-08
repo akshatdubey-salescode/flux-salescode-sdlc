@@ -5,6 +5,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
+import { RcaBadge } from "@/components/bugs/rca-badge";
 import { AddToDeliveryMenu } from "@/components/delivery-tracker/add-to-delivery-menu";
 import { subscribeToDeliveryListChanges } from "@/components/delivery-tracker/delivery-summary-cache";
 import {
@@ -297,6 +298,7 @@ function IssueCard({
           </span>
         </div>
         <DelayLogButton issueId={issue.id} />
+        <RcaBadge issueId={issue.id} />
         <DeliveryBadge issueId={issue.id} canManage={canManageDeliveries} onChanged={onDeliveryChanged} />
         {canManageDeliveries && (
           <AddToDeliveryMenu projectId={projectId} issueId={issue.id} onChanged={onDeliveryChanged} />
