@@ -14,13 +14,45 @@ import {
 // Condition evaluation
 // ---------------------------------------------------------------------------
 
+/**
+ * The "created_at" field compares against issue.jiraCreatedAt (a real
+ * timestamp) rather than a string field, so it's evaluated separately from
+ * the equals/not_equals/in fields below. cond.value is a "YYYY-MM-DD"
+ * calendar date (validated on write in the sla-rules API routes).
+ */
+function evaluateCreatedAtCondition(createdAt: Date | null, cond: SlaCondition): boolean {
+  if (createdAt === null) return false;
+
+  const target = new Date(`${cond.value}T00:00:00.000Z`);
+  if (isNaN(target.getTime())) return false;
+
+  switch (cond.operator) {
+    case "on_or_after":
+      return createdAt.getTime() >= target.getTime();
+    case "on_or_before": {
+      // Inclusive of the whole target day, not just midnight at its start.
+      const endOfDay = new Date(target.getTime() + 24 * 60 * 60 * 1000 - 1);
+      return createdAt.getTime() <= endOfDay.getTime();
+    }
+    case "on_date":
+      return createdAt.toISOString().slice(0, 10) === cond.value;
+    default:
+      return false;
+  }
+}
+
 function evaluateCondition(issue: JiraIssue, cond: SlaCondition): boolean {
+  if (cond.field === "created_at") {
+    return evaluateCreatedAtCondition(issue.jiraCreatedAt, cond);
+  }
+
   const fieldValue = ((): string | null => {
     switch (cond.field) {
       case "status":         return issue.status;
       case "status_category": return issue.statusCategory ?? null;
       case "issue_type":     return issue.issueType;
       case "priority":       return issue.priority ?? null;
+      default:               return null; // "created_at" is handled above and never reaches here
     }
   })();
 
@@ -33,6 +65,8 @@ function evaluateCondition(issue: JiraIssue, cond: SlaCondition): boolean {
       const allowed = cond.value.split(",").map((v) => v.trim());
       return allowed.includes(fieldValue);
     }
+    default:
+      return false;
   }
 }
 
@@ -111,6 +145,9 @@ export async function detectViolations(projectId: string): Promise<ViolationResu
 
   for (const rule of rules) {
     const thresholdMs = parseFloat(rule.thresholdHours) * 60 * 60 * 1000;
+    // Was a hardcoded 2x; now the rule's own configurable multiplier (still
+    // defaults to 2 for existing and new rules alike).
+    const escalationMs = thresholdMs * parseFloat(rule.escalationMultiplier);
 
     // Load existing active violations for this rule (unresolved)
     const activeViolations = await db
@@ -164,7 +201,7 @@ export async function detectViolations(projectId: string): Promise<ViolationResu
             existingViolationId: existing.id,
             tier: 1,
           });
-        } else if (!alreadyEscalated && elapsedMs >= thresholdMs * 2) {
+        } else if (!alreadyEscalated && elapsedMs >= escalationMs) {
           results.push({
             rule,
             issue,

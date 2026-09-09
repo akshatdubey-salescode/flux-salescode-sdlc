@@ -40,8 +40,8 @@ type Props = {
   showPlanned?: boolean;
   /**
    * Set of column keys to render. When omitted, every column is shown.
-   * Keys: type, key, summary, status, priority, assignee, reporter, planned,
-   * created, updated.
+   * Keys: type, key, summary, status, priority, assignee, qaAssignee,
+   * reporter, planned, created, updated.
    */
   visibleColumns?: Set<string>;
 };
@@ -114,7 +114,7 @@ export function ListView({
 
   // Toggleable data columns + optional pin / actions columns.
   const colCount =
-    ["type", "key", "summary", "status", "priority", "assignee", "reporter", "delivery", "created", "updated"].filter(
+    ["type", "key", "summary", "status", "priority", "assignee", "qaAssignee", "reporter", "delivery", "created", "updated"].filter(
       isVisible
     ).length +
     (planVisible ? 1 : 0) +
@@ -172,6 +172,11 @@ export function ListView({
                 {isVisible("assignee") && (
                   <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-20">
                     Assign.
+                  </th>
+                )}
+                {isVisible("qaAssignee") && (
+                  <th className="px-3 py-2.5 text-left font-medium text-zinc-500 w-20">
+                    QA Assign.
                   </th>
                 )}
                 {isVisible("reporter") && (
@@ -495,6 +500,23 @@ function IssueRow({
               title={issue.assigneeName}
             >
               {initials(issue.assigneeName)}
+            </span>
+          ) : (
+            <span className="text-zinc-300 dark:text-zinc-600">—</span>
+          )}
+        </td>
+      )}
+
+      {/* QA Assignee — the "QA Assignee" user-picker custom field, discovered
+          per project the same way Issue Owner/Dev Owner are. */}
+      {isVisible("qaAssignee") && (
+        <td className="px-3 py-2">
+          {issue.qaAssigneeName ? (
+            <span
+              className="flex size-6 items-center justify-center rounded-full bg-zinc-200 text-[9px] font-bold text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"
+              title={issue.qaAssigneeName}
+            >
+              {initials(issue.qaAssigneeName)}
             </span>
           ) : (
             <span className="text-zinc-300 dark:text-zinc-600">—</span>

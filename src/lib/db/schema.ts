@@ -120,6 +120,11 @@ export const jiraProjects = pgTable(
     // fields all named "Dev Owner", so this is disambiguated to the one each
     // project actually populates. Same null/[]/[...] semantics as above.
     devOwnerFieldIds: text("dev_owner_field_ids").array(),
+    // Auto-discovered Jira custom field IDs for the "QA Assignee" user-picker,
+    // shown as its own column in Project Tracking next to Assignee. Same
+    // disambiguation as Issue Owner/Dev Owner (several distinct fields across
+    // the site share this name) and the same null/[]/[...] semantics.
+    qaAssigneeFieldIds: text("qa_assignee_field_ids").array(),
     // Auto-discovered Jira custom field IDs for the "Environment" dropdown
     // (e.g. Prod/Demo/UAT) that feeds the bug-summary env column. The system
     // `environment` field is an unreliable fallback — most projects record it
@@ -344,13 +349,23 @@ export const jiraAssigneeChanges = pgTable(
 // SLA condition types — stored as JSONB in sla_rules.conditions
 // ---------------------------------------------------------------------------
 
-export type SlaConditionField = "status" | "status_category" | "issue_type" | "priority";
-export type SlaConditionOperator = "equals" | "not_equals" | "in";
+export type SlaConditionField = "status" | "status_category" | "issue_type" | "priority" | "created_at";
+export type SlaConditionOperator =
+  | "equals"
+  | "not_equals"
+  | "in"
+  | "on_or_after"
+  | "on_or_before"
+  | "on_date";
 
 export type SlaCondition = {
   field: SlaConditionField;
   operator: SlaConditionOperator;
-  /** For "in" operator, comma-separated values */
+  /**
+   * For "in", comma-separated values. For the "created_at" field's
+   * on_or_after/on_or_before/on_date operators, a single "YYYY-MM-DD"
+   * calendar date. Otherwise the raw field value to compare against.
+   */
   value: string;
 };
 
@@ -379,6 +394,11 @@ export const slaRules = pgTable("sla_rules", {
   // Compound AND/OR condition tree. OR of AND-groups.
   conditions: jsonb("conditions").$type<SlaConditionTree>().notNull(),
   thresholdHours: numeric("threshold_hours", { precision: 10, scale: 2 }).notNull(),
+  // Tier-2 escalation fires at thresholdHours * escalationMultiplier. Was a
+  // hardcoded 2x; now configurable per rule, still defaulting to 2.
+  escalationMultiplier: numeric("escalation_multiplier", { precision: 10, scale: 2 })
+    .notNull()
+    .default("2"),
   notifyAssignee: boolean("notify_assignee").notNull().default(true),
   notifyReporter: boolean("notify_reporter").notNull().default(false),
   additionalEmails: text("additional_emails")

@@ -16,6 +16,7 @@ import { db } from "@/lib/db";
 import { jiraIssues, jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { nearestDeliveryDateSql, nearestDeliveryStatusSql } from "@/lib/deliveries/entries";
+import { extractIssueOwnerName } from "@/lib/jira/scorecard-fields";
 
 type ProjectIssueFilters = {
   q: string;
@@ -165,6 +166,8 @@ async function fetchProjectIssues(projectId: string, filters: ProjectIssueFilter
         jiraBaseUrl: jiraProjects.jiraBaseUrl,
         deliveryDate: nearestDeliveryDateSql(jiraIssues.id).as("delivery_date"),
         deliveryStatus: nearestDeliveryStatusSql(jiraIssues.id).as("delivery_status"),
+        customFields: jiraIssues.customFields,
+        qaAssigneeFieldIds: jiraProjects.qaAssigneeFieldIds,
       })
       .from(jiraIssues)
       .innerJoin(jiraProjects, eq(jiraIssues.projectId, jiraProjects.id))
@@ -180,8 +183,16 @@ async function fetchProjectIssues(projectId: string, filters: ProjectIssueFilter
 
   const total = countResult[0]?.count ?? 0;
 
+  // Compute the derived display value server-side and drop the raw fields it
+  // came from — clients get a plain name, same as assigneeName/reporterName,
+  // not the customFields blob or the project's discovered field-id array.
+  const mappedIssues = issues.map(({ customFields, qaAssigneeFieldIds, ...issue }) => ({
+    ...issue,
+    qaAssigneeName: extractIssueOwnerName(customFields, qaAssigneeFieldIds),
+  }));
+
   return {
-    issues,
+    issues: mappedIssues,
     total,
     page,
     pageSize,

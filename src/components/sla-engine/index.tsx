@@ -17,6 +17,7 @@ export type SlaRule = {
   description: string | null;
   conditions: SlaConditionTree;
   thresholdHours: string;
+  escalationMultiplier: string;
   notifyAssignee: boolean;
   notifyReporter: boolean;
   additionalEmails: string[];

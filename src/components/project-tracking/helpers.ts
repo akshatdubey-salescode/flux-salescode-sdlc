@@ -8,6 +8,7 @@ export type TrackingIssue = {
   priority: string | null;
   assigneeName: string | null;
   assigneeEmail: string | null;
+  qaAssigneeName: string | null;
   reporterName: string | null;
   reporterEmail: string | null;
   labels: string[];

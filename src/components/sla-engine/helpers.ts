@@ -5,12 +5,16 @@ export const FIELD_LABELS: Record<string, string> = {
   status: "Status",
   status_category: "Status Category",
   issue_type: "Issue Type",
+  created_at: "Created Date",
 };
 
 export const OPERATOR_LABELS: Record<string, string> = {
   equals: "is",
   not_equals: "is not",
   in: "is any of",
+  on_or_after: "is on or after",
+  on_or_before: "is on or before",
+  on_date: "is on",
 };
 
 export const CONDITION_FIELDS = [
@@ -18,13 +22,35 @@ export const CONDITION_FIELDS = [
   { value: "status", label: "Status" },
   { value: "status_category", label: "Status Category" },
   { value: "issue_type", label: "Issue Type" },
+  { value: "created_at", label: "Created Date" },
 ] as const;
 
-export const CONDITION_OPERATORS = [
+// "created_at" compares a real timestamp (issue.jiraCreatedAt), so it gets its
+// own operator set instead of the text equals/not_equals/in operators every
+// other field uses — see evaluateCreatedAtCondition in sla-detection.ts.
+export const TEXT_CONDITION_OPERATORS = [
   { value: "equals", label: "is" },
   { value: "not_equals", label: "is not" },
   { value: "in", label: "is any of" },
 ] as const;
+
+export const DATE_CONDITION_OPERATORS = [
+  { value: "on_or_after", label: "is on or after" },
+  { value: "on_or_before", label: "is on or before" },
+  { value: "on_date", label: "is on" },
+] as const;
+
+export function operatorsForField(field: string) {
+  return field === "created_at" ? DATE_CONDITION_OPERATORS : TEXT_CONDITION_OPERATORS;
+}
+
+export function defaultOperatorForField(field: string): string {
+  return operatorsForField(field)[0].value;
+}
+
+export function isDateField(field: string): boolean {
+  return field === "created_at";
+}
 
 export function conditionToHuman(
   field: string,
@@ -52,6 +78,15 @@ export function conditionTreeToHuman(tree: SlaConditionTree): string {
         .join(" AND ")
     )
     .join(" OR ");
+}
+
+export function getEscalationHours(
+  thresholdHours: string | number,
+  escalationMultiplier: string | number
+): number {
+  const h = typeof thresholdHours === "string" ? parseFloat(thresholdHours) : thresholdHours;
+  const m = typeof escalationMultiplier === "string" ? parseFloat(escalationMultiplier) : escalationMultiplier;
+  return h * m;
 }
 
 export function formatThreshold(hours: string | number): string {

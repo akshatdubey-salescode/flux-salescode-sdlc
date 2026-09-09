@@ -22,12 +22,15 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { cn } from "@/lib/utils";
 import {
   CONDITION_FIELDS,
-  CONDITION_OPERATORS,
   conditionTreeToHuman,
   formatThreshold,
+  getEscalationHours,
   defaultCondition,
   defaultGroup,
   defaultConditionTree,
+  operatorsForField,
+  defaultOperatorForField,
+  isDateField,
 } from "./helpers";
 import type { SlaRule } from "./index";
 import type {
@@ -66,6 +69,7 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
   // Step 3
   const [thresholdAmount, setThresholdAmount] = useState("");
   const [thresholdUnit, setThresholdUnit] = useState<"hours" | "days">("hours");
+  const [escalationMultiplier, setEscalationMultiplier] = useState("2");
 
   // Step 4
   const [notifyAssignee, setNotifyAssignee] = useState(true);
@@ -114,6 +118,7 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
         setThresholdUnit("hours");
         setThresholdAmount(String(h));
       }
+      setEscalationMultiplier(rule.escalationMultiplier ?? "2");
       setNotifyAssignee(rule.notifyAssignee);
       setNotifyReporter(rule.notifyReporter);
       setAdditionalEmails(rule.additionalEmails ?? []);
@@ -123,6 +128,7 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
       setConditionTree(defaultConditionTree());
       setThresholdAmount("");
       setThresholdUnit("hours");
+      setEscalationMultiplier("2");
       setNotifyAssignee(true);
       setNotifyReporter(false);
       setAdditionalEmails([]);
@@ -234,7 +240,8 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
     if (step === 2) return isTreeValid(conditionTree);
     if (step === 3) {
       const n = parseFloat(thresholdAmount);
-      return !isNaN(n) && n > 0;
+      const m = parseFloat(escalationMultiplier);
+      return !isNaN(n) && n > 0 && !isNaN(m) && m > 1;
     }
     return true;
   }
@@ -250,6 +257,13 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
     return formatThreshold(getThresholdHours());
   }
 
+  function escalationPreview(): string {
+    const n = parseFloat(thresholdAmount);
+    const m = parseFloat(escalationMultiplier);
+    if (isNaN(n) || n <= 0 || isNaN(m) || m <= 1) return "";
+    return formatThreshold(getEscalationHours(getThresholdHours(), m));
+  }
+
   // ---------------------------------------------------------------------------
   // Save
   // ---------------------------------------------------------------------------
@@ -263,6 +277,7 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
         description: description.trim() || null,
         conditions: conditionTree,
         thresholdHours: getThresholdHours(),
+        escalationMultiplier: parseFloat(escalationMultiplier),
         notifyAssignee,
         notifyReporter,
         additionalEmails,
@@ -498,6 +513,27 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
                 </div>
               </div>
 
+              <div>
+                <label className={labelClass}>
+                  Escalate again after <span className="text-red-500">*</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">threshold ×</span>
+                  <Input
+                    type="number"
+                    min="1.5"
+                    step="0.5"
+                    value={escalationMultiplier}
+                    onChange={(e) => setEscalationMultiplier(e.target.value)}
+                    placeholder="e.g. 2"
+                    className="w-20"
+                  />
+                </div>
+                <p className="mt-1 text-[10px] text-zinc-400">
+                  Must be greater than 1× — escalation has to land after the initial breach, not at or before it.
+                </p>
+              </div>
+
               {thresholdPreview() && (
                 <div className="rounded-md bg-zinc-100 px-3 py-2.5 text-xs dark:bg-zinc-800/60">
                   <span className="text-zinc-500 dark:text-zinc-400">An issue will be flagged after </span>
@@ -505,12 +541,16 @@ export function RuleFormSheet({ projectId, rule, open, onOpenChange, onSaved }: 
                     {thresholdPreview()}
                   </span>
                   <span className="text-zinc-500 dark:text-zinc-400"> without resolution.</span>
-                  <br />
-                  <span className="text-zinc-500 dark:text-zinc-400">Escalation at </span>
-                  <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                    {formatThreshold(getThresholdHours() * 2)}
-                  </span>
-                  <span className="text-zinc-500 dark:text-zinc-400"> (2×).</span>
+                  {escalationPreview() && (
+                    <>
+                      <br />
+                      <span className="text-zinc-500 dark:text-zinc-400">Escalation at </span>
+                      <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                        {escalationPreview()}
+                      </span>
+                      <span className="text-zinc-500 dark:text-zinc-400"> ({escalationMultiplier}×).</span>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -804,8 +844,12 @@ function ConditionRow({
       <select
         value={cond.field}
         onChange={(e) => {
+          const field = e.target.value as SlaCondition["field"];
           onUpdate(groupIdx, condIdx, {
-            field: e.target.value as SlaCondition["field"],
+            field,
+            // The old operator may not be valid for the new field (e.g.
+            // switching to Created Date while "is any of" was selected).
+            operator: defaultOperatorForField(field) as SlaCondition["operator"],
             value: "",
           });
         }}
@@ -829,7 +873,7 @@ function ConditionRow({
         }}
         className={selectClass}
       >
-        {CONDITION_OPERATORS.map((o) => (
+        {operatorsForField(cond.field).map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}
           </option>
@@ -837,7 +881,14 @@ function ConditionRow({
       </select>
 
       {/* Value */}
-      {!isMulti ? (
+      {isDateField(cond.field) ? (
+        <Input
+          type="date"
+          value={cond.value}
+          onChange={(e) => onUpdate(groupIdx, condIdx, { value: e.target.value })}
+          className="h-7 w-36 text-xs"
+        />
+      ) : !isMulti ? (
         valueOptions.length > 0 ? (
           <select
             value={cond.value}

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { RiPencilLine, RiDeleteBinLine } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { conditionTreeToHuman, formatThreshold } from "./helpers";
+import { conditionTreeToHuman, formatThreshold, getEscalationHours } from "./helpers";
 import type { SlaRule } from "./index";
 
 type Props = {
@@ -102,6 +102,11 @@ export function RuleCard({ rule, onEdit, onToggle, onDelete }: Props) {
           <span className="font-semibold text-zinc-900 dark:text-zinc-100">
             {formatThreshold(rule.thresholdHours)}
           </span>
+          {" "}· escalates at{" "}
+          <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+            {formatThreshold(getEscalationHours(rule.thresholdHours, rule.escalationMultiplier))}
+          </span>
+          {" "}({parseFloat(rule.escalationMultiplier)}×)
         </p>
 
         {notifyParts.length > 0 && (

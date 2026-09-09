@@ -177,6 +177,7 @@ type DiscoveredFields = {
   complexityFieldIds: string[];
   issueOwnerFieldIds: string[];
   devOwnerFieldIds: string[];
+  qaAssigneeFieldIds: string[];
   environmentFieldIds: string[];
   rcaFieldIds: string[];
 };
@@ -297,6 +298,16 @@ async function discoverProjectFields(
     .map((f) => f.id);
   const devOwnerFieldIds = await primaryOwnerFieldIds(projectId, devOwnerCandidates);
 
+  // The "QA owner" user-picker (shown as "QA Assignee" in Project Tracking,
+  // right of Assignee — no field on this site is literally named "QA
+  // Assignee", "QA owner" is the real one, verified against live Jira field
+  // metadata). Like Issue Owner/Dev Owner, disambiguate to the one this
+  // project actually populates.
+  const qaAssigneeCandidates = fields
+    .filter((f) => f.custom && normName(f.name) === "qa owner")
+    .map((f) => f.id);
+  const qaAssigneeFieldIds = await primaryOwnerFieldIds(projectId, qaAssigneeCandidates);
+
   // The "Environment" dropdown (Prod/Demo/UAT) that feeds the bug summary.
   // Exact normalized-name match keeps unrelated fields ("Test Environment
   // Notes" etc.) out.
@@ -326,6 +337,7 @@ async function discoverProjectFields(
       complexityFieldIds,
       issueOwnerFieldIds,
       devOwnerFieldIds,
+      qaAssigneeFieldIds,
       environmentFieldIds,
       rcaFieldIds,
     })
@@ -340,6 +352,7 @@ async function discoverProjectFields(
     complexityFieldIds,
     issueOwnerFieldIds,
     devOwnerFieldIds,
+    qaAssigneeFieldIds,
     environmentFieldIds,
     rcaFieldIds,
   };
@@ -362,6 +375,7 @@ export async function resolveProjectFieldConfig(
     complexityFieldIds: string[] | null;
     issueOwnerFieldIds: string[] | null;
     devOwnerFieldIds: string[] | null;
+    qaAssigneeFieldIds: string[] | null;
     environmentFieldIds: string[] | null;
     rcaFieldIds: string[] | null;
   }
@@ -378,6 +392,7 @@ export async function resolveProjectFieldConfig(
   let complexityFieldIds: string[] | null = project.complexityFieldIds;
   let issueOwnerFieldIds: string[] | null = project.issueOwnerFieldIds;
   let devOwnerFieldIds: string[] | null = project.devOwnerFieldIds;
+  let qaAssigneeFieldIds: string[] | null = project.qaAssigneeFieldIds;
   let environmentFieldIds: string[] | null = project.environmentFieldIds;
   let rcaFieldIds: string[] | null = project.rcaFieldIds;
 
@@ -391,6 +406,7 @@ export async function resolveProjectFieldConfig(
     complexityFieldIds = discovered.complexityFieldIds;
     issueOwnerFieldIds = discovered.issueOwnerFieldIds;
     devOwnerFieldIds = discovered.devOwnerFieldIds;
+    qaAssigneeFieldIds = discovered.qaAssigneeFieldIds;
     environmentFieldIds = discovered.environmentFieldIds;
     rcaFieldIds = discovered.rcaFieldIds;
   } catch (err) {
@@ -407,6 +423,7 @@ export async function resolveProjectFieldConfig(
   if (complexityFieldIds?.length) extraFields.push(...complexityFieldIds);
   if (issueOwnerFieldIds?.length) extraFields.push(...issueOwnerFieldIds);
   if (devOwnerFieldIds?.length) extraFields.push(...devOwnerFieldIds);
+  if (qaAssigneeFieldIds?.length) extraFields.push(...qaAssigneeFieldIds);
   if (environmentFieldIds?.length) extraFields.push(...environmentFieldIds);
   if (rcaFieldIds?.length) extraFields.push(...rcaFieldIds);
 
