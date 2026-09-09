@@ -11,6 +11,7 @@ export const TOGGLEABLE_COLUMNS = [
   { key: "jiraStatus", label: "Status" },
   { key: "priority", label: "Priority" },
   { key: "assignee", label: "Assignee" },
+  { key: "qaAssignee", label: "QA Assignee" },
   { key: "delivery", label: "Delivery status" },
   { key: "startDate", label: "Start Date" },
   { key: "dueDate", label: "End Date" },

@@ -88,14 +88,15 @@ function priorityRank(p: string | null): number {
   return m ? Number(m[1]) : 9;
 }
 
-/** What the per-delivery filter bar's text box searches — key, summary, assignee. Mirrors the sprint tracker's itemMatchesQuery. */
+/** What the per-delivery filter bar's text box searches — key, summary, assignee, QA assignee. Mirrors the sprint tracker's itemMatchesQuery. */
 function deliveryItemMatchesQuery(item: DeliveryItemRow, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
   return (
     item.jiraKey.toLowerCase().includes(q) ||
     item.summary.toLowerCase().includes(q) ||
-    (item.assigneeName ?? "").toLowerCase().includes(q)
+    (item.assigneeName ?? "").toLowerCase().includes(q) ||
+    (item.qaAssigneeName ?? "").toLowerCase().includes(q)
   );
 }
 
@@ -962,6 +963,7 @@ function DeliveryItemsTable({
             {isVisible("jiraStatus") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>}
             {isVisible("priority") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Priority</th>}
             {isVisible("assignee") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Assignee</th>}
+            {isVisible("qaAssignee") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">QA Assignee</th>}
             {isVisible("delivery") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Delivery</th>}
             {isVisible("startDate") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Start Date</th>}
             {isVisible("dueDate") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">End Date</th>}
@@ -1017,6 +1019,9 @@ function DeliveryItemsTable({
                 )}
                 {isVisible("assignee") && (
                   <td className="px-3 py-2 text-muted-foreground">{item.assigneeName ?? "—"}</td>
+                )}
+                {isVisible("qaAssignee") && (
+                  <td className="px-3 py-2 text-muted-foreground">{item.qaAssigneeName ?? "—"}</td>
                 )}
                 {isVisible("delivery") && (
                   <td className="px-3 py-2">

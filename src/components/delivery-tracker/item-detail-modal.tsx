@@ -52,6 +52,7 @@ export function ItemDetailModal({
         </Field>
         <Field label="Priority">{item.priority ?? "—"}</Field>
         <Field label="Assignee">{item.assigneeName ?? "—"}</Field>
+        <Field label="QA assignee">{item.qaAssigneeName ?? "—"}</Field>
         <Field label="Delivery status">
           <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold", statusStyles.badge)}>
             {deliveryStatusLabel(item.status)}

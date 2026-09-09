@@ -4,6 +4,7 @@ import { jiraIssues } from "@/lib/db/schema";
 import { getStatusRawSets } from "@/lib/jira/sync";
 import { localDateStr } from "@/lib/date-utils";
 import { extractStartDate, extractDueDate, extractActualStart, extractActualEnd } from "@/lib/jira/dates";
+import { extractIssueOwnerName } from "@/lib/jira/scorecard-fields";
 import type { DeliveryStatusValue } from "@/lib/deliveries/status";
 
 export type DeliveryItemRow = {
@@ -17,6 +18,9 @@ export type DeliveryItemRow = {
   priority: string | null;
   assigneeEmail: string | null;
   assigneeName: string | null;
+  // The "QA Assignee" user-picker (see project-tracking's helpers.ts for the
+  // same field), same per-project discovery/disambiguation as Issue Owner.
+  qaAssigneeName: string | null;
   addedBy: string;
   addedByName: string | null;
   addedAt: string;
@@ -115,6 +119,7 @@ type DeliveryItemJoinRow = {
   status_set_by_name: string | null;
   status_set_at: string | null;
   custom_fields: Record<string, unknown> | null;
+  qa_assignee_field_ids: string[] | null;
   start_date_field_ids: string[] | null;
   end_date_field_ids: string[] | null;
   actual_start_field_ids: string[] | null;
@@ -147,6 +152,7 @@ function mapItemRow(r: DeliveryItemJoinRow): DeliveryItemRow {
     priority: r.priority,
     assigneeEmail: r.assignee_email,
     assigneeName: r.assignee_name,
+    qaAssigneeName: extractIssueOwnerName(cf, r.qa_assignee_field_ids),
     addedBy: r.added_by,
     addedByName: r.added_by_name,
     addedAt: r.added_at,
@@ -181,7 +187,8 @@ async function fetchItemsForDeliveries(deliveryIds: string[]): Promise<Map<strin
         di.status, di.status_comment, di.status_set_by, di.status_set_by_name, di.status_set_at,
         ji.jira_key, ji.summary, ji.issue_type, ji.status AS jira_status, ji.priority,
         ji.assignee_email, ji.assignee_name, jp.jira_base_url AS jira_base_url,
-        ji.custom_fields, jp.start_date_field_ids, jp.end_date_field_ids,
+        ji.custom_fields, jp.qa_assignee_field_ids,
+        jp.start_date_field_ids, jp.end_date_field_ids,
         jp.actual_start_field_ids, jp.actual_end_field_ids,
         ji.dev_started_at, ji.dev_completed_at, ji.jira_created_at, ji.completed_at
       FROM delivery_items di
