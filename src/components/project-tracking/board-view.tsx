@@ -329,7 +329,7 @@ function IssueCard({
         </div>
       )}
 
-      {/* Bottom row: assignee + time */}
+      {/* Bottom row: assignee + QA assignee + time */}
       <div className="flex items-center gap-2 text-zinc-400">
         <span className="ml-auto flex items-center gap-1.5">
           {issue.assigneeName ? (
@@ -341,6 +341,14 @@ function IssueCard({
             </span>
           ) : (
             <span className="size-5 shrink-0 rounded-full border border-dashed border-zinc-300 dark:border-zinc-600" />
+          )}
+          {issue.qaAssigneeName && (
+            <span
+              className="flex size-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[9px] font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+              title={`QA: ${issue.qaAssigneeName}`}
+            >
+              {initials(issue.qaAssigneeName)}
+            </span>
           )}
           <span className="text-[10px]">
             {formatRelativeTime(issue.jiraUpdatedAt)}
