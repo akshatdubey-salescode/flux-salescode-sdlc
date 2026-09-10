@@ -137,8 +137,12 @@ const BUCKET_COLORS: Record<BugPriorityBucket, string> = {
 };
 
 function defaultRange(): { start: string; end: string } {
-  const last30 = getRangePresets().find((p) => p.label === "Last 30 days");
-  return last30 ? { start: last30.start, end: last30.end } : { start: "", end: "" };
+  // Default to the full history: a bug's RCA-completeness (and bug debt in
+  // general) doesn't age out of relevance at 30 days, and RCAs are routinely
+  // backfilled onto months-old bugs — a rolling-30d default silently hid
+  // every such addition. Users can still narrow via the range bar.
+  const allTime = getRangePresets().find((p) => p.label === "All time");
+  return allTime ? { start: allTime.start, end: allTime.end } : { start: "", end: "" };
 }
 
 function asSortKey(v: string | null): DetailSortKey {

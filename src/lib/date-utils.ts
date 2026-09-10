@@ -119,8 +119,15 @@ export function getRangePresets(): RangePreset[] {
     { label: "This month", start: monthStart, end: today },
     { label: "Last month", start: lastMonthStart, end: lastMonthEnd },
     { label: "FY to date", start: `${fyStartYear}-04-01`, end: today },
+    // Everything since before any Jira data on this instance — the DB filters
+    // are `created::date >= start`, so a far-past sentinel start means "no
+    // lower bound" without needing a nullable range everywhere.
+    { label: "All time", start: ALL_TIME_START, end: today },
   ];
 }
+
+/** Sentinel "no lower bound" date for the "All time" range preset. */
+export const ALL_TIME_START = "2000-01-01";
 
 // ---------------------------------------------------------------------------
 // Weekly helpers — GitHub's contributor-stats source is weekly, with each

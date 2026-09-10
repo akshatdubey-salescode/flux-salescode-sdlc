@@ -4,16 +4,16 @@ import { cacheLife, cacheTag } from "next/cache";
 import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
 import { jiraIssues } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
-import { localDateStr } from "@/lib/date-utils";
+import { localDateStr, ALL_TIME_START } from "@/lib/date-utils";
 import { loadBugRows, dateRangeConditions } from "@/lib/bug-summary-query";
 import type { BugRow } from "@/lib/bug-summary";
 
-/** Fallback window when the request omits an explicit range: last 30 days. */
+/** Fallback window when the request omits an explicit range: all time.
+ * Matches the bug-summary client's default (see its defaultRange) — a bug's
+ * RCA-completeness is a whole-history concern, and RCAs get backfilled onto
+ * old bugs, so a rolling window would silently drop those from the count. */
 function defaultRange(): { start: string; end: string } {
-  const now = new Date();
-  const from = new Date(now);
-  from.setDate(from.getDate() - 29);
-  return { start: localDateStr(from), end: localDateStr(now) };
+  return { start: ALL_TIME_START, end: localDateStr(new Date()) };
 }
 
 // Accept only YYYY-MM-DD; anything else falls back so a malformed query param

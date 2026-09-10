@@ -44,6 +44,7 @@ export function DateRangeBar({
   const presets = getRangePresets();
   const last7 = presets.find((p) => p.label === "Last 7 days");
   const last30 = presets.find((p) => p.label === "Last 30 days");
+  const allTime = presets.find((p) => p.label === "All time");
 
   const chips: Chip[] = [
     ...(last7 ? [{ label: "Last 7d", start: last7.start, end: last7.end }] : []),
@@ -55,6 +56,9 @@ export function DateRangeBar({
       // Month range, e.g. "Apr – Jun 2026", shown on hover.
       tooltip: `${format(parseISO(q.start), "MMM")} – ${format(parseISO(q.end), "MMM yyyy")}`,
     })),
+    // "All time" last — it's the widest, and now the default for the bug
+    // board (RCA / bug-debt is a whole-history concern, not a rolling window).
+    ...(allTime ? [{ label: "All time", start: allTime.start, end: allTime.end }] : []),
   ];
 
   const activeChip = chips.find((c) => c.start === start && c.end === end);
