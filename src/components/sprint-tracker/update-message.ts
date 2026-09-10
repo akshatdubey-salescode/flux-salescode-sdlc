@@ -32,13 +32,24 @@ export function buildSprintUpdateMessage(sprint: SprintWithItems, phaseText: str
       `Committed ${r.committed} · Completed ${r.committedDone} of ${r.committed} (${pct}%)` +
         (r.addedAfterStart > 0 ? ` · Added after start ${r.addedAfterStart}` : "") +
         (r.removed > 0 ? ` · Removed ${r.removed}` : "") +
-        (r.carriedOver > 0 ? ` · Carried in ${r.carriedOver}` : "")
+        (r.carriedOver > 0 ? ` · Carried in ${r.carriedOver}` : "") +
+        (r.carriedOut > 0 ? ` · Carried forward ${r.carriedOut}` : "")
     );
+  }
+  if (!sprint.startedAt && r.carriedOver > 0) {
+    lines.push(`Carried in ${r.carriedOver} from an earlier sprint — not started yet, so nothing is committed.`);
   }
   lines.push(`Overall: ${r.done} done · ${r.inProgress} in progress · ${r.todo} to do (of ${r.total})`);
   for (const item of sprint.items) {
     const scope = !sprint.startedAt ? "" : item.committed ? "" : " *added mid-sprint*";
-    lines.push(`  • ${item.jiraKey} — ${item.summary} [${PROGRESS_LABELS[item.progress]}]${scope}`);
+    // Both ends of a spillover, so a pasted update explains itself: where the
+    // item came from (otherwise inherited work reads as fresh scope) and where
+    // it went next (otherwise it looks abandoned sprint after sprint).
+    const from = item.carriedFromSprintName ? ` ↩ carried from ${item.carriedFromSprintName}` : "";
+    const onward = item.carriedToSprintName ? ` ↪ carried to ${item.carriedToSprintName}` : "";
+    lines.push(
+      `  • ${item.jiraKey} — ${item.summary} [${PROGRESS_LABELS[item.progress]}]${scope}${from}${onward}`
+    );
   }
   if (sprint.removedItems.length > 0) {
     lines.push(`Removed after start:`);

@@ -164,6 +164,22 @@ function sprintMatchesSearch(sprint: SprintWithItems, query: string): boolean {
   return false;
 }
 
+/**
+ * Does one sprint item match a free-text query? The single definition of what
+ * "matches" means for item search — the per-sprint filter bar and the
+ * workstream-wide box both call it, so the same query can never mean two
+ * different things depending on which box you typed it into.
+ */
+export function itemMatchesQuery(item: SprintItemRow, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    item.jiraKey.toLowerCase().includes(q) ||
+    item.summary.toLowerCase().includes(q) ||
+    (item.assigneeName ?? "").toLowerCase().includes(q)
+  );
+}
+
 /** The shareable deep link to one sprint's full-screen page — resolves for anyone who can open the project. */
 function sprintLink(sprintId: string): string {
   return `${window.location.origin}/sprints/${sprintId}`;
@@ -799,6 +815,7 @@ export function SprintCard({
   spilloverTargets,
   workstreams,
   defaultCollapsed = false,
+  globalQuery = "",
 }: {
   sprint: SprintWithItems;
   canManage: boolean;
@@ -810,6 +827,8 @@ export function SprintCard({
   workstreams?: { id: string; name: string }[];
   /** Start with the body (picker + items) hidden — used inside workstream sections so they read as a tidy list. */
   defaultCollapsed?: boolean;
+  /** Workstream-wide item search; a card holding a match opens itself and shows only matching rows. */
+  globalQuery?: string;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [addingIssues, setAddingIssues] = useState<IssueResult[]>([]);
@@ -824,6 +843,13 @@ export function SprintCard({
   const [notesOpen, setNotesOpen] = useState(false);
 
   const existingIssueIds = useMemo(() => new Set(sprint.items.map((i) => i.issueId)), [sprint.items]);
+
+  // A workstream-wide search has to reach inside collapsed cards: a sprint
+  // holding a match opens itself, so a hit is never stranded behind a chevron
+  // the searcher had no reason to click. Their own collapse state is kept and
+  // returns intact once the search is cleared.
+  const searching = globalQuery.trim() !== "";
+  const effectiveCollapsed = searching ? false : collapsed;
 
   const today = localDateStr(new Date());
   const phase = sprintPhase(sprint);
@@ -1001,13 +1027,13 @@ export function SprintCard({
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border p-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <Tip label={collapsed ? "Expand this sprint's items" : "Collapse this sprint to just its header"}>
+            <Tip label={effectiveCollapsed ? "Expand this sprint's items" : "Collapse this sprint to just its header"}>
               <button
                 type="button"
                 onClick={() => setCollapsed((v) => !v)}
                 className="-ml-1 text-muted-foreground hover:text-foreground"
               >
-                {collapsed ? <RiArrowRightSLine className="size-4" /> : <RiArrowDownSLine className="size-4" />}
+                {effectiveCollapsed ? <RiArrowRightSLine className="size-4" /> : <RiArrowDownSLine className="size-4" />}
               </button>
             </Tip>
             <h3 className="text-sm font-medium">{sprint.name}</h3>
@@ -1215,7 +1241,7 @@ export function SprintCard({
         </div>
       )}
 
-      {!collapsed && canManage && phase !== "completed" && (
+      {!effectiveCollapsed && canManage && phase !== "completed" && (
         <div className="border-b border-border p-2.5">
           <IssueMultiPicker
             projectId={sprint.projectId}
@@ -1233,7 +1259,7 @@ export function SprintCard({
         </div>
       )}
 
-      {!collapsed &&
+      {!effectiveCollapsed &&
         (sprint.items.length === 0 ? (
           <p className="p-6 text-center text-xs text-muted-foreground">
             {phase === "planned"
@@ -1248,10 +1274,11 @@ export function SprintCard({
             onRemoveItem={handleRemoveItem}
             onMoveItem={handleMoveItem}
             moveTargets={spilloverTargets}
+            globalQuery={globalQuery}
           />
         ))}
 
-      {!collapsed && sprint.removedItems.length > 0 && (
+      {!effectiveCollapsed && sprint.removedItems.length > 0 && (
         <div className="border-t border-border px-3 py-2">
           <button
             type="button"
@@ -1298,6 +1325,26 @@ export function SprintCard({
   );
 }
 
+/**
+ * Where an item came from / went next. Both directions get the same violet
+ * pill, deliberately outside the status and risk palettes: carryover says
+ * WHERE the work lives, not whether it's in trouble.
+ */
+function CarryChip({ direction, sprintName }: { direction: "in" | "out"; sprintName: string }) {
+  return (
+    <span
+      className="inline-flex max-w-48 items-center gap-1 truncate rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-300"
+      title={
+        direction === "in"
+          ? `Carried over from ${sprintName} — it wasn't finished there`
+          : `Carried forward to ${sprintName} — the work continues there`
+      }
+    >
+      {direction === "in" ? "↩" : "↪"} {sprintName}
+    </span>
+  );
+}
+
 /** The Jira-sprint-report line: commitment, completion of commitment, scope changes. */
 function SprintReportLine({ sprint, phase }: { sprint: SprintWithItems; phase: SprintPhase }) {
   const r = sprint.rollup;
@@ -1305,6 +1352,12 @@ function SprintReportLine({ sprint, phase }: { sprint: SprintWithItems; phase: S
     return (
       <p className="mt-0.5 text-[11px] text-muted-foreground">
         {r.total} issue{r.total === 1 ? "" : "s"} planned — the commitment locks when the sprint starts.
+        {r.carriedOver > 0 && (
+          <span className="text-violet-600 dark:text-violet-400">
+            {" "}
+            ↩ {r.carriedOver} carried in from an earlier sprint.
+          </span>
+        )}
       </p>
     );
   }
@@ -1320,7 +1373,12 @@ function SprintReportLine({ sprint, phase }: { sprint: SprintWithItems; phase: S
         <span className="text-amber-600 dark:text-amber-400"> · {r.addedAfterStart} added after start *</span>
       )}
       {r.removed > 0 && <span> · {r.removed} removed</span>}
-      {r.carriedOver > 0 && <span> · {r.carriedOver} carried in</span>}
+      {r.carriedOver > 0 && (
+        <span className="text-violet-600 dark:text-violet-400"> · ↩ {r.carriedOver} carried in</span>
+      )}
+      {r.carriedOut > 0 && (
+        <span className="text-violet-600 dark:text-violet-400"> · {r.carriedOut} carried forward ↪</span>
+      )}
     </p>
   );
 }
@@ -1411,6 +1469,7 @@ function SprintItemsTable({
   onRemoveItem,
   onMoveItem,
   moveTargets,
+  globalQuery = "",
 }: {
   sprint: SprintWithItems;
   phase: SprintPhase;
@@ -1419,6 +1478,8 @@ function SprintItemsTable({
   onMoveItem: (itemId: string, target: SprintTargetSelection, comment?: string) => void;
   /** Other open sprints — the same list the close flow offers as spillover targets. */
   moveTargets: SpilloverTarget[];
+  /** Workstream-wide item search; narrows the rows before this card's own filter bar runs. */
+  globalQuery?: string;
 }) {
   const [commentsItem, setCommentsItem] = useState<SprintItemRow | null>(null);
   // Removing from an ACTIVE sprint is a tracked scope change and needs a
@@ -1467,16 +1528,12 @@ function SprintItemsTable({
   );
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
     let out = rows;
-    if (q) {
-      out = out.filter(
-        (r) =>
-          r.item.jiraKey.toLowerCase().includes(q) ||
-          r.item.summary.toLowerCase().includes(q) ||
-          (r.item.assigneeName ?? "").toLowerCase().includes(q)
-      );
-    }
+    // The workstream-wide box narrows the rows BEFORE this card's own bar, so
+    // the local controls refine what the workstream search left rather than
+    // fighting it.
+    if (globalQuery.trim()) out = out.filter((r) => itemMatchesQuery(r.item, globalQuery));
+    if (search.trim()) out = out.filter((r) => itemMatchesQuery(r.item, search));
     if (progressFilter !== "all") out = out.filter((r) => r.item.progress === progressFilter);
     if (riskFilter !== "all") {
       out = out.filter((r) => (riskFilter === "none" ? r.risk === null : r.risk === riskFilter));
@@ -1488,7 +1545,7 @@ function SprintItemsTable({
       out = out.filter((r) => (r.item.priority ?? "No priority") === priorityFilter);
     }
     return out;
-  }, [rows, search, progressFilter, riskFilter, assigneeFilter, priorityFilter]);
+  }, [rows, globalQuery, search, progressFilter, riskFilter, assigneeFilter, priorityFilter]);
 
   const sorted = useMemo(() => {
     if (!sort) return filtered;
@@ -1520,83 +1577,81 @@ function SprintItemsTable({
 
   return (
     <div className="overflow-x-auto">
-      {sprint.items.length > 3 && (
-        <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-2.5 py-2">
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Filter by key, summary, assignee…"
-            className="h-7 w-52 text-xs"
-          />
-          <Select value={progressFilter} onValueChange={(v) => setProgressFilter(v as typeof progressFilter)}>
-            <SelectTrigger className={selectTriggerCls}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="todo">To do</SelectItem>
-              <SelectItem value="in_progress">In progress</SelectItem>
-              <SelectItem value="done">Done</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={riskFilter} onValueChange={(v) => setRiskFilter(v as typeof riskFilter)}>
-            <SelectTrigger className={selectTriggerCls}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All risk</SelectItem>
-              <SelectItem value="overdue">Overdue</SelectItem>
-              <SelectItem value="at_risk">At risk</SelectItem>
-              <SelectItem value="unplanned">Unplanned</SelectItem>
-              <SelectItem value="none">On track / done</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-            <SelectTrigger className={selectTriggerCls}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All priorities</SelectItem>
-              {priorities.map((p) => (
-                <SelectItem key={p} value={p}>
-                  {p}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
-            <SelectTrigger className={selectTriggerCls}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All assignees</SelectItem>
-              {assignees.map((a) => (
-                <SelectItem key={a} value={a}>
-                  {a}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {filtersActive && (
-            <span className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground">
-              {sorted.length} of {sprint.items.length} shown
-              <button
-                type="button"
-                onClick={() => {
-                  setSearch("");
-                  setProgressFilter("all");
-                  setRiskFilter("all");
-                  setAssigneeFilter("all");
-                  setPriorityFilter("all");
-                }}
-                className="underline-offset-2 hover:text-foreground hover:underline"
-              >
-                Clear
-              </button>
-            </span>
-          )}
-        </div>
-      )}
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-2.5 py-2">
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Filter by key, summary, assignee…"
+          className="h-7 w-52 text-xs"
+        />
+        <Select value={progressFilter} onValueChange={(v) => setProgressFilter(v as typeof progressFilter)}>
+          <SelectTrigger className={selectTriggerCls}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value="todo">To do</SelectItem>
+            <SelectItem value="in_progress">In progress</SelectItem>
+            <SelectItem value="done">Done</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={riskFilter} onValueChange={(v) => setRiskFilter(v as typeof riskFilter)}>
+          <SelectTrigger className={selectTriggerCls}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All risk</SelectItem>
+            <SelectItem value="overdue">Overdue</SelectItem>
+            <SelectItem value="at_risk">At risk</SelectItem>
+            <SelectItem value="unplanned">Unplanned</SelectItem>
+            <SelectItem value="none">On track / done</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+          <SelectTrigger className={selectTriggerCls}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All priorities</SelectItem>
+            {priorities.map((p) => (
+              <SelectItem key={p} value={p}>
+                {p}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+          <SelectTrigger className={selectTriggerCls}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All assignees</SelectItem>
+            {assignees.map((a) => (
+              <SelectItem key={a} value={a}>
+                {a}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {filtersActive && (
+          <span className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground">
+            {sorted.length} of {sprint.items.length} shown
+            <button
+              type="button"
+              onClick={() => {
+                setSearch("");
+                setProgressFilter("all");
+                setRiskFilter("all");
+                setAssigneeFilter("all");
+                setPriorityFilter("all");
+              }}
+              className="underline-offset-2 hover:text-foreground hover:underline"
+            >
+              Clear
+            </button>
+          </span>
+        )}
+      </div>
 
       <table className="w-full text-xs">
         <thead>
@@ -1877,26 +1932,26 @@ function SprintItemRowView({
       <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatActualDate(item.actualStart)}</td>
       <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatActualDate(item.actualEnd)}</td>
       <td className="px-3 py-2">
-        {phase === "planned" ? (
-          <span className="text-[11px] text-muted-foreground">Planned</span>
-        ) : item.committed ? (
-          item.carriedFromSprintName ? (
-            <span className="text-[11px] text-muted-foreground" title={`Carried over from ${item.carriedFromSprintName}`}>
-              Committed · ↩ {item.carriedFromSprintName}
-            </span>
-          ) : (
+        <div className="flex flex-col items-start gap-1">
+          {phase === "planned" ? (
+            <span className="text-[11px] text-muted-foreground">Planned</span>
+          ) : item.committed ? (
             <span className="text-[11px] text-muted-foreground">Committed</span>
-          )
-        ) : (
-          <div title={item.addedComment ? `Added ${addedDate}, after the sprint started: ${item.addedComment}` : `Added ${addedDate}, after the sprint started — a scope change`}>
-            <span className="text-[11px] text-amber-600 dark:text-amber-400">
-              Added {addedDate} *{item.carriedFromSprintName ? ` · ↩ ${item.carriedFromSprintName}` : ""}
-            </span>
-            {item.addedComment && (
-              <p className="max-w-48 truncate text-[10px] text-muted-foreground">“{item.addedComment}”</p>
-            )}
-          </div>
-        )}
+          ) : (
+            <div title={item.addedComment ? `Added ${addedDate}, after the sprint started: ${item.addedComment}` : `Added ${addedDate}, after the sprint started — a scope change`}>
+              <span className="text-[11px] text-amber-600 dark:text-amber-400">Added {addedDate} *</span>
+              {item.addedComment && (
+                <p className="max-w-48 truncate text-[10px] text-muted-foreground">“{item.addedComment}”</p>
+              )}
+            </div>
+          )}
+          {/* Both directions hang off the row itself, NOT off the commitment
+              state: a sprint that hasn't started yet is exactly where inherited
+              work sits waiting, and reading "Planned" with no origin is what
+              made a spillover look like fresh scope. */}
+          {item.carriedFromSprintName && <CarryChip direction="in" sprintName={item.carriedFromSprintName} />}
+          {item.carriedToSprintName && <CarryChip direction="out" sprintName={item.carriedToSprintName} />}
+        </div>
       </td>
       <td className="px-3 py-2 text-right">
         <div className="flex items-center justify-end gap-0.5">

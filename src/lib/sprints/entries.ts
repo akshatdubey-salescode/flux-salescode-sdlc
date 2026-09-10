@@ -57,6 +57,18 @@ export type SprintItemRow = {
   addedComment: string | null;
   carriedFromSprintId: string | null;
   carriedFromSprintName: string | null;
+  /**
+   * The other direction: this issue's work continues in a LATER sprint, whose
+   * row points back here through carried_from_sprint_id. Derived per read, not
+   * stored — a carryover COPIES the issue forward and deliberately leaves the
+   * row here untouched as the spillover record, so the only place the
+   * destination is written down is the destination itself. Reading it back is
+   * what turns "this item was never finished" into "this item was never
+   * finished HERE, and is now sprint N+1's problem".
+   * Null when the issue was dropped rather than carried.
+   */
+  carriedToSprintId: string | null;
+  carriedToSprintName: string | null;
   /** Set only on rows in the removedItems list. */
   removedAt: string | null;
   removedByName: string | null;
@@ -95,6 +107,12 @@ export type SprintRollup = {
   addedAfterStart: number;
   /** Carried over from an earlier sprint. */
   carriedOver: number;
+  /**
+   * Carried FORWARD out of this sprint — the spillover it handed on, counting
+   * both the unfinished items copied on at close and the ones moved out
+   * mid-sprint. Overlaps `removed` for the latter, by design.
+   */
+  carriedOut: number;
   /** Removed from the sprint after it started. */
   removed: number;
 };
@@ -127,6 +145,27 @@ export type SprintWithItems = {
   rollup: SprintRollup;
 };
 
+/**
+ * The order sprints are READ in: start date, then end date, then name. Every
+ * report, mail body and attachment presents them this way, so a reader moving
+ * between the sprint table and the workbook never has to re-find their place —
+ * and so a workstream's story (including work carried from one sprint to the
+ * next) runs down the page in the order it happened.
+ *
+ * Ranking by trouble belongs in the banner that names where trouble is, not in
+ * the sequence itself.
+ */
+export function compareSprintOrder(
+  a: Pick<SprintWithItems, "startDate" | "endDate" | "name">,
+  b: Pick<SprintWithItems, "startDate" | "endDate" | "name">
+): number {
+  return (
+    a.startDate.localeCompare(b.startDate) ||
+    a.endDate.localeCompare(b.endDate) ||
+    a.name.localeCompare(b.name)
+  );
+}
+
 export type SprintOption = {
   id: string;
   name: string;
@@ -146,6 +185,7 @@ function emptyRollup(): SprintRollup {
     committedDone: 0,
     addedAfterStart: 0,
     carriedOver: 0,
+    carriedOut: 0,
     removed: 0,
   };
 }
@@ -195,6 +235,8 @@ type SprintItemJoinRow = {
   added_comment: string | null;
   carried_from_sprint_id: string | null;
   carried_from_sprint_name: string | null;
+  carried_to_sprint_id: string | null;
+  carried_to_sprint_name: string | null;
   removed_at: string | null;
   removed_by_name: string | null;
   removed_comment: string | null;
@@ -238,6 +280,8 @@ function mapItemRow(r: SprintItemJoinRow): SprintItemRow {
     addedComment: r.added_comment,
     carriedFromSprintId: r.carried_from_sprint_id,
     carriedFromSprintName: r.carried_from_sprint_name,
+    carriedToSprintId: r.carried_to_sprint_id,
+    carriedToSprintName: r.carried_to_sprint_name,
     removedAt: r.removed_at,
     removedByName: r.removed_by_name,
     removedComment: r.removed_comment,
@@ -257,6 +301,7 @@ async function fetchItemsForSprints(
         si.id, si.sprint_id, si.issue_id, si.added_by, si.added_by_name, si.added_at,
         si.committed, si.added_comment, si.carried_from_sprint_id, si.carried_from_sprint_name,
         si.removed_at, si.removed_by_name, si.removed_comment,
+        fwd.sprint_id AS carried_to_sprint_id, fwd.sprint_name AS carried_to_sprint_name,
         ji.jira_key, ji.summary, ji.status AS jira_status, ji.status_category,
         ji.issue_type, ji.priority, ji.assignee_email, ji.assignee_name,
         ji.custom_fields,
@@ -266,6 +311,22 @@ async function fetchItemsForSprints(
       FROM sprint_items si
       JOIN jira_issues ji ON ji.id = si.issue_id
       JOIN jira_projects jp ON jp.id = ji.project_id
+      -- Where this row's issue went next. The destination row carries the
+      -- provenance, so the outbound view is a lookahead: any live row in
+      -- another live sprint that names THIS sprint as its origin. Earliest
+      -- destination wins, so an issue that spilled twice reads as the hop it
+      -- actually made from here.
+      LEFT JOIN LATERAL (
+        SELECT s2.id AS sprint_id, s2.name AS sprint_name
+        FROM sprint_items nxt
+        JOIN sprints s2 ON s2.id = nxt.sprint_id
+        WHERE nxt.carried_from_sprint_id = si.sprint_id
+          AND nxt.issue_id = si.issue_id
+          AND nxt.removed_at IS NULL
+          AND s2.deleted_at IS NULL
+        ORDER BY s2.start_date ASC, nxt.added_at ASC
+        LIMIT 1
+      ) fwd ON TRUE
       WHERE si.sprint_id IN (${sql.join(sprintIds.map((id) => sql`${id}`), sql`, `)})
       ORDER BY ji.jira_key ASC
     `)
@@ -340,8 +401,17 @@ function headerToSprint(
       rollup.addedAfterStart += 1;
     }
     if (item.carriedFromSprintId || item.carriedFromSprintName) rollup.carriedOver += 1;
+    if (item.carriedToSprintId) rollup.carriedOut += 1;
   }
   rollup.removed = removedItems.length;
+  // Spillover counts BOTH ways an issue leaves for another sprint: still
+  // sitting here unfinished at close (a live row, copied forward), and moved
+  // out mid-sprint (soft-removed here, re-created there). It deliberately
+  // overlaps `removed` — those answer different questions ("how much scope
+  // left this sprint" vs "how much of it someone is still on the hook for").
+  for (const item of removedItems) {
+    if (item.carriedToSprintId) rollup.carriedOut += 1;
+  }
   return {
     id: h.id,
     projectId: h.project_id,
