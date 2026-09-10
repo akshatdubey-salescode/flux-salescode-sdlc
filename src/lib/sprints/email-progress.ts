@@ -1,4 +1,4 @@
-import type { SprintWithItems } from "@/lib/sprints/entries";
+import { compareSprintOrder, type SprintWithItems, type SprintItemRow } from "@/lib/sprints/entries";
 import {
   esc,
   tile,
@@ -15,6 +15,11 @@ import {
   riskBadge,
   riskTile,
   riskLegend,
+  carryBadge,
+  carryTile,
+  carryCallout,
+  carryCountBadge,
+  carryFlowCallout,
   RISK_EMAIL_STYLES,
   PROGRESS_LABELS,
   PROGRESS_COLORS,
@@ -107,6 +112,28 @@ export function buildSprintEmail(
   const counts = summarizeRisk(s.items, nowStr);
   const clause = riskClause(counts);
 
+  // Issues that crossed a boundary, grouped by the sprint on the other side —
+  // normally one group each way, but a sprint closed twice can hand work to
+  // more than one, and a sprint can inherit from several.
+  //
+  // Outbound spans removed rows too: an item moved out mid-sprint drops out of
+  // the table below entirely, so that line is the only place the mail can
+  // account for it. Inbound reads live rows only — inherited work that has
+  // since been dropped isn't this sprint's story.
+  const groupBy = (rows: typeof s.items, pick: (i: (typeof s.items)[number]) => string | null) => {
+    const by = new Map<string, string[]>();
+    for (const item of rows) {
+      const name = pick(item);
+      if (!name) continue;
+      const keys = by.get(name) ?? [];
+      keys.push(item.jiraKey);
+      by.set(name, keys);
+    }
+    return [...by].map(([sprintName, keys]) => ({ sprintName, keys }));
+  };
+  const carriedOutGroups = groupBy([...s.items, ...s.removedItems], (i) => i.carriedToSprintName);
+  const carriedInGroups = groupBy(s.items, (i) => i.carriedFromSprintName);
+
   const subject = `Sprint update: ${s.name}${
     s.startedAt && r.committed > 0 ? ` — ${committedPct}% of commitment done` : ""
   }${clause ? ` · ${clause}` : ""} (${s.startDate} → ${s.endDate})`;
@@ -149,15 +176,23 @@ export function buildSprintEmail(
         tile("To do", String(r.todo)),
         ...(r.addedAfterStart > 0 ? [tile("Added after start", String(r.addedAfterStart), "#b45309")] : []),
         ...(r.removed > 0 ? [tile("Removed", String(r.removed), "#6b7280")] : []),
+        ...(r.carriedOver > 0 ? [carryTile("Carried in", String(r.carriedOver))] : []),
+        ...(r.carriedOut > 0 ? [carryTile("Carried forward", String(r.carriedOut))] : []),
       ]
     : [
         tile("Planned issues", String(r.total)),
         tile("Done", String(r.done), "#047857"),
         tile("In progress", String(r.inProgress), "#1d4ed8"),
         tile("To do", String(r.todo)),
+        // A sprint that hasn't started is exactly where inherited work waits,
+        // so this tile matters MORE here, not less.
+        ...(r.carriedOver > 0 ? [carryTile("Carried in", String(r.carriedOver))] : []),
       ];
 
   const shown = ranked.slice(0, MAX_INLINE_ITEMS);
+  // Explain the carryover tags only when the table actually carries some —
+  // a legend for a marker that isn't on screen is just noise.
+  const hasCarryTags = shown.some((x) => x.item.carriedFromSprintName || x.item.carriedToSprintName);
   const itemRows = shown
     .map(({ item, risk }, i) => {
       const style = risk ? RISK_EMAIL_STYLES[risk] : null;
@@ -168,12 +203,22 @@ export function buildSprintEmail(
         !s.startedAt || item.committed
           ? ""
           : ` <span style="color:#b45309;font-size:11px;">*added mid-sprint</span>`;
+      // Both directions of carryover, under the summary: where the issue came
+      // from, and — the part the closed sprint's own report could never show —
+      // where it went when this sprint ran out of time.
+      const carry = [
+        item.carriedFromSprintName ? carryBadge("in", item.carriedFromSprintName) : "",
+        item.carriedToSprintName ? carryBadge("out", item.carriedToSprintName) : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const carryHtml = carry ? `<div style="margin-top:3px;">${carry}</div>` : "";
       const link = `${item.jiraBaseUrl.replace(/\/$/, "")}/browse/${item.jiraKey}`;
       const dueColor = risk === "overdue" ? "#b91c1c" : risk === "at_risk" ? "#b45309" : "#6b7280";
       const dueWeight = risk === "overdue" || risk === "at_risk" ? "700" : "400";
       return `<tr style="background:${rowBg};">
         <td style="${cell}white-space:nowrap;border-left:3px solid ${accent};"><a href="${link}" style="color:#0f766e;font-weight:600;text-decoration:none;">${esc(item.jiraKey)}</a></td>
-        <td style="${cell}color:#111827;">${esc(item.summary)}${scope}</td>
+        <td style="${cell}color:#111827;">${esc(item.summary)}${scope}${carryHtml}</td>
         <td style="${cell}white-space:nowrap;">${riskCell(risk, item.progress === "done")}</td>
         <td style="${cell}white-space:nowrap;font-weight:600;color:${PROGRESS_COLORS[item.progress]};">${PROGRESS_LABELS[item.progress]}</td>
         <td style="${cell}white-space:nowrap;color:#6b7280;">${esc(item.assigneeName ?? "Unassigned")}</td>
@@ -191,11 +236,15 @@ export function buildSprintEmail(
     `${s.startDate} → ${s.endDate}${s.goal ? ` · ${esc(s.goal)}` : ""}`,
     `
       ${preheader(
-        `${overallPct}% done${clause ? ` · ${clause}` : " · nothing overdue or at risk"} · ${s.startDate} to ${s.endDate}`
+        `${overallPct}% done${clause ? ` · ${clause}` : " · nothing overdue or at risk"}${
+          r.carriedOver > 0 ? ` · ${r.carriedOver} carried in` : ""
+        }${r.carriedOut > 0 ? ` · ${r.carriedOut} carried forward` : ""} · ${s.startDate} to ${s.endDate}`
       )}
       ${senderLine(phaseBadge(phaseOf(s).label, phaseOf(s).kind), senderName)}
       ${messageBlock(message)}
       ${banner}
+      ${carryCallout("in", carriedInGroups)}
+      ${carryCallout("out", carriedOutGroups)}
       <table role="presentation" cellpadding="0" cellspacing="0"><tr>${tiles.join("")}</tr></table>
       ${riskTiles(counts)}
       <div style="margin:8px 0 4px;font-size:12px;color:#6b7280;">Overall progress — <strong style="color:#111827;">${r.done} of ${r.total} done (${overallPct}%)</strong></div>
@@ -220,7 +269,11 @@ export function buildSprintEmail(
       </table>
       ${riskLegend()}
       ${moreLine}
-      <p style="font-size:12px;color:#6b7280;margin-top:16px;">Risk is judged against IST. The attached Excel report has the complete breakdown — every item with dates, risk, scope changes, and removals. Or <a href="${sprintUrl}" style="color:#0f766e;">open the live sprint in Flux</a>.</p>`
+      <p style="font-size:12px;color:#6b7280;margin-top:16px;">Risk is judged against IST.${
+        hasCarryTags
+          ? ` A <strong style="color:#6d28d9;">&#8617; Carried from</strong> tag means the item came in unfinished from an earlier sprint; <strong style="color:#6d28d9;">&#8618; Carried to</strong> means it moved on to a later one.`
+          : ""
+      } The attached Excel report has the complete breakdown — every item with dates, risk, scope changes, and removals. Or <a href="${sprintUrl}" style="color:#0f766e;">open the live sprint in Flux</a>.</p>`
   );
 
   return { subject, html };
@@ -241,14 +294,19 @@ type Agg = {
   completed: number;
 };
 
-function aggregate(sprints: SprintWithItems[]): Agg {
+function aggregate(sprints: SprintWithItems[], live: (s: SprintWithItems) => SprintItemRow[]): Agg {
   const out: Agg = { committed: 0, committedDone: 0, done: 0, total: 0, addedAfterStart: 0, active: 0, planned: 0, completed: 0 };
   for (const s of sprints) {
+    // Commitment stays a historical fact of the sprint that made it: a sprint
+    // that committed to 26 and delivered 24 committed to 26, whatever became
+    // of the 2 it missed. Deduping these would quietly rewrite it to 24/24.
     out.committed += s.rollup.committed;
     out.committedDone += s.rollup.committedDone;
-    out.done += s.rollup.done;
-    out.total += s.rollup.total;
     out.addedAfterStart += s.rollup.addedAfterStart;
+    // Current state is a question about ISSUES, not rows — see liveItemsOf.
+    const items = live(s);
+    out.total += items.length;
+    out.done += items.filter((i) => i.progress === "done").length;
     if (s.completedAt) out.completed += 1;
     else if (s.startedAt) out.active += 1;
     else out.planned += 1;
@@ -277,17 +335,43 @@ export function buildWorkstreamEmail(
   appUrl: string,
   nowStr: string = istNowStr()
 ): BuiltEmail {
-  const agg = aggregate(sprints);
+  // A carryover leaves a row in BOTH sprints — the record in the one that ran
+  // out of time, the live copy in the one that picked it up — so summing
+  // sprints counts that issue twice, and the risk banner reports two overdue
+  // items where there is one. Whenever both ends are in this mail, the row in
+  // the sprint that handed it on is history: current-state figures count the
+  // live copy only. (A carryover OUT of this workstream keeps its row here,
+  // since its destination isn't in this mail to be counted instead.)
+  const inThisMail = new Set(sprints.map((sp) => sp.id));
+  const liveItemsOf = (sp: SprintWithItems): SprintItemRow[] =>
+    sp.items.filter((i) => !(i.carriedToSprintId && inThisMail.has(i.carriedToSprintId)));
+  const supersededCount = sprints.reduce((n, sp) => n + (sp.items.length - liveItemsOf(sp).length), 0);
+
+  // Movement between the sprints in this mail, as a flow — at this altitude
+  // "a boundary was crossed, between these two sprints" is the story.
+  const flows: { from: string; to: string; keys: string[] }[] = [];
+  {
+    const byPair = new Map<string, { from: string; to: string; keys: string[] }>();
+    for (const sp of sprints) {
+      for (const item of [...sp.items, ...sp.removedItems]) {
+        if (!item.carriedToSprintName) continue;
+        const key = `${sp.name}→${item.carriedToSprintName}`;
+        const entry = byPair.get(key) ?? { from: sp.name, to: item.carriedToSprintName, keys: [] };
+        entry.keys.push(item.jiraKey);
+        byPair.set(key, entry);
+      }
+    }
+    flows.push(...byPair.values());
+  }
+
+  const agg = aggregate(sprints, liveItemsOf);
   const committedPct = agg.committed > 0 ? Math.round((agg.committedDone / agg.committed) * 100) : 0;
   const overallPct = agg.total > 0 ? Math.round((agg.done / agg.total) * 100) : 0;
   const minStart = sprints.reduce<string | null>((m, s) => (m === null || s.startDate < m ? s.startDate : m), null);
   const maxEnd = sprints.reduce<string | null>((m, s) => (m === null || s.endDate > m ? s.endDate : m), null);
 
-  const perSprint = sprints.map((s) => ({ sprint: s, counts: summarizeRisk(s.items, nowStr) }));
-  const counts = summarizeRisk(
-    sprints.flatMap((s) => s.items),
-    nowStr
-  );
+  const perSprint = sprints.map((s) => ({ sprint: s, counts: summarizeRisk(liveItemsOf(s), nowStr) }));
+  const counts = summarizeRisk(sprints.flatMap(liveItemsOf), nowStr);
   const clause = riskClause(counts);
   const sp = plural(sprints.length);
 
@@ -301,6 +385,9 @@ export function buildWorkstreamEmail(
     .filter((x) => x.counts.attention > 0)
     .sort((a, b) => b.counts.overdue - a.counts.overdue || b.counts.at_risk - a.counts.at_risk)
     .slice(0, 4)
+    // Picked by severity, then listed in sprint order — the worst four, but
+    // never in an order that contradicts the table below.
+    .sort((a, b) => compareSprintOrder(a.sprint, b.sprint))
     .map((x) => `${esc(x.sprint.name)} (${riskClause(x.counts)})`);
 
   const banner =
@@ -335,15 +422,13 @@ export function buildWorkstreamEmail(
     ...(agg.addedAfterStart > 0 ? [tile("Added after start", String(agg.addedAfterStart), "#b45309")] : []),
   ];
 
-  // Sprints carrying overdue work first, so the breakdown leads with trouble.
-  const rankedSprints = [...perSprint].sort(
-    (a, b) =>
-      b.counts.overdue - a.counts.overdue ||
-      b.counts.at_risk - a.counts.at_risk ||
-      a.sprint.startDate.localeCompare(b.sprint.startDate)
-  );
+  // Sprint order, not risk order. Trouble is still impossible to miss — the
+  // banner names the sprints it sits in, and each row keeps its red tint and
+  // risk badge — but a breakdown that reshuffles itself as due dates pass is
+  // one the reader has to re-orient in every single week's mail.
+  const orderedSprints = [...perSprint].sort((a, b) => compareSprintOrder(a.sprint, b.sprint));
 
-  const sprintRows = rankedSprints
+  const sprintRows = orderedSprints
     .map(({ sprint: s, counts: c }, i) => {
       const phase = phaseOf(s);
       const r = s.rollup;
@@ -360,7 +445,15 @@ export function buildWorkstreamEmail(
         <td style="${cell}white-space:nowrap;color:#111827;">${
           pct !== null ? `<strong style="color:${pctColor(pct)};">${r.committedDone}/${r.committed} (${pct}%)</strong>` : "—"
         }</td>
-        <td style="${cell}white-space:nowrap;color:#6b7280;">${r.done} done · ${r.inProgress} in progress · ${r.todo} to do</td>
+        <td style="${cell}color:#6b7280;">
+          <span style="white-space:nowrap;">${r.done} done · ${r.inProgress} in progress · ${r.todo} to do</span>${
+            r.carriedOver > 0 || r.carriedOut > 0
+              ? `<div style="margin-top:4px;">${r.carriedOver > 0 ? carryCountBadge("in", r.carriedOver) : ""}${
+                  r.carriedOver > 0 && r.carriedOut > 0 ? " " : ""
+                }${r.carriedOut > 0 ? carryCountBadge("out", r.carriedOut) : ""}</div>`
+              : ""
+          }
+        </td>
       </tr>`;
     })
     .join("");
@@ -381,6 +474,7 @@ export function buildWorkstreamEmail(
       )}
       ${messageBlock(message)}
       ${banner}
+      ${carryFlowCallout(flows)}
       <table role="presentation" cellpadding="0" cellspacing="0"><tr>${tiles.join("")}</tr></table>
       ${riskTiles(counts)}
       <div style="margin:8px 0 4px;font-size:12px;color:#6b7280;">Overall progress across sprints — <strong style="color:#111827;">${agg.done} of ${agg.total} done (${overallPct}%)</strong></div>
@@ -391,7 +485,7 @@ export function buildWorkstreamEmail(
           : ""
       }
       <div style="margin:18px 0;">${ctaButton(workstreamUrl, "Open workstream in Flux →")}</div>
-      <div style="font-size:12px;color:#6b7280;margin-bottom:6px;">Sprints, most overdue work first</div>
+      <div style="font-size:12px;color:#6b7280;margin-bottom:6px;">Sprints, in order</div>
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border:1px solid #e5e7eb;border-collapse:collapse;">
         <tr style="background:#0d9488;color:#ffffff;">
           <th align="left" style="padding:6px 8px;font-size:11px;">Sprint</th>
@@ -404,6 +498,15 @@ export function buildWorkstreamEmail(
         ${sprintRows}
       </table>
       ${riskLegend()}
+      ${
+        supersededCount > 0
+          ? `<p style="font-size:11px;color:#6d28d9;margin-top:10px;">Totals and risk count each issue once: ${supersededCount} carried-over item${
+              supersededCount === 1 ? " is" : "s are"
+            } counted in the sprint holding ${supersededCount === 1 ? "it" : "them"} now, not in the one ${
+              supersededCount === 1 ? "it" : "they"
+            } left. Each sprint's own commitment figures are untouched.</p>`
+          : ""
+      }
       <p style="font-size:12px;color:#6b7280;margin-top:16px;">Risk is judged against IST. The attached Excel report has the complete breakdown of every sprint — all items with dates, risk, scope changes, and removals. Or <a href="${workstreamUrl}" style="color:#0f766e;">open the live workstream in Flux</a>.</p>`
   );
 

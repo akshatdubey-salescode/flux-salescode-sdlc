@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import { classifySprintItemRisk, istNowStr, RISK_LABELS } from "@/lib/sprints/risk";
-import type { SprintWithItems, SprintItemRow } from "@/lib/sprints/entries";
+import { compareSprintOrder, type SprintWithItems, type SprintItemRow } from "@/lib/sprints/entries";
 
 // The sprint report workbook (Summary + Items sheets, deliveries-export
 // theme). Shared by the download route (/api/sprints/export) and the
@@ -134,8 +134,18 @@ function buildSummarySheet(wb: ExcelJS.Workbook, sprints: SprintWithItems[]) {
             ["Scope added after start *", `${rollup.addedAfterStart}`, { amber: rollup.addedAfterStart > 0 }],
             ["Removed after start", `${rollup.removed}`],
             ["Carried in from earlier sprints", `${rollup.carriedOver}`],
+            [
+              "Carried forward to a later sprint",
+              `${rollup.carriedOut}${rollup.carriedOut > 0 ? ` — see the Scope column for where each went` : ""}`,
+              { amber: rollup.carriedOut > 0 },
+            ],
           ] as [string, string, { bold?: boolean; amber?: boolean }?][])
-        : ([["Planned scope", `${rollup.total} issue${rollup.total === 1 ? "" : "s"}`]] as [string, string][])),
+        : ([
+            ["Planned scope", `${rollup.total} issue${rollup.total === 1 ? "" : "s"}`],
+            ...(rollup.carriedOver > 0
+              ? ([["Carried in from earlier sprints", `${rollup.carriedOver}`]] as [string, string][])
+              : []),
+          ] as [string, string][])),
       ["Current progress", `${rollup.done} done · ${rollup.inProgress} in progress · ${rollup.todo} to do (of ${rollup.total})`],
       [
         sprint.completedAt ? "Spillover at close" : "Unfinished right now",
@@ -167,13 +177,23 @@ function buildSummarySheet(wb: ExcelJS.Workbook, sprints: SprintWithItems[]) {
 }
 
 function scopeLabel(item: SprintItemRow, started: boolean): string {
-  if (!started) return "Planned";
+  // Provenance belongs to the ROW, not to the commitment state — a sprint
+  // still in planning is the most likely place for inherited work to be
+  // sitting, so "Planned" alone would hide exactly the case that matters.
   const carried = item.carriedFromSprintName ? ` (carried from ${item.carriedFromSprintName})` : "";
-  if (item.committed) return `Committed${carried}`;
-  return `Added after start *${carried}`;
+  const onward = item.carriedToSprintName ? ` → carried to ${item.carriedToSprintName}` : "";
+  if (!started) return `Planned${carried}${onward}`;
+  if (item.committed) return `Committed${carried}${onward}`;
+  return `Added after start *${carried}${onward}`;
 }
 
-export async function buildSprintWorkbook(sprints: SprintWithItems[]): Promise<ArrayBuffer> {
+export async function buildSprintWorkbook(input: SprintWithItems[]): Promise<ArrayBuffer> {
+  // Callers hand these over in whatever order their query used (the sprint
+  // reads are newest-first, for a UI that puts the current sprint on top).
+  // A report is read front to back, and it travels attached to a mail that
+  // lists the same sprints — so both sheets, and that mail, use one order.
+  const sprints = [...input].sort(compareSprintOrder);
+
   const wb = new ExcelJS.Workbook();
   wb.creator = "Flux";
   wb.created = new Date();
@@ -240,7 +260,7 @@ export async function buildSprintWorkbook(sprints: SprintWithItems[]): Promise<A
     ws.mergeCells(r, 1, r, colCount);
     const mc = ws.getCell(r, 1);
     mc.value = started
-      ? `Committed ${rollup.committed} · Completed ${rollup.committedDone} of ${rollup.committed} (${pct}%) · Added after start ${rollup.addedAfterStart} · Removed ${rollup.removed} · Carried in ${rollup.carriedOver} · Overall done ${rollup.done}/${rollup.total}`
+      ? `Committed ${rollup.committed} · Completed ${rollup.committedDone} of ${rollup.committed} (${pct}%) · Added after start ${rollup.addedAfterStart} · Removed ${rollup.removed} · Carried in ${rollup.carriedOver} · Carried forward ${rollup.carriedOut} · Overall done ${rollup.done}/${rollup.total}`
       : `${rollup.total} issue${rollup.total === 1 ? "" : "s"} planned — commitment locks when the sprint starts`;
     mc.font = { name: "Calibri", size: 10, italic: true, color: { argb: MUTED } };
     mc.alignment = { vertical: "middle", horizontal: "left", indent: 1 };

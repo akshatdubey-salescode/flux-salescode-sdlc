@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { RiArrowLeftLine, RiDownload2Line, RiLinkM, RiStackLine } from "@remixicon/react";
+import { RiArrowLeftLine, RiDownload2Line, RiLinkM, RiSearchLine, RiStackLine } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { SprintWithItems, SprintOption, SprintWorkstream } from "@/lib/sprints/entries";
-import { SprintCard, type SpilloverTarget } from "./sprint-tracker-tab";
+import { SprintCard, itemMatchesQuery, type SpilloverTarget } from "./sprint-tracker-tab";
 import { Tip } from "./tip";
 import { EmailUpdateDialog, workstreamEmailDefaults } from "./email-update-dialog";
 
@@ -23,6 +24,10 @@ export function WorkstreamFocus({ workstreamId, canManage }: { workstreamId: str
   const [targets, setTargets] = useState<SpilloverTarget[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  // One box over every sprint in the workstream. Per-sprint bars only ever
+  // searched inside one card, so finding an issue meant expanding each sprint
+  // and typing the same thing again.
+  const [itemQuery, setItemQuery] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -64,6 +69,27 @@ export function WorkstreamFocus({ workstreamId, canManage }: { workstreamId: str
     }
     return out;
   }, [sprints]);
+
+  // A sprint earns its place in the results if any of its items match; the
+  // card then opens itself and filters down to those items.
+  const visibleSprints = useMemo(() => {
+    const list = sprints ?? [];
+    if (!itemQuery.trim()) return list;
+    return list.filter((s) => s.items.some((i) => itemMatchesQuery(i, itemQuery)));
+  }, [sprints, itemQuery]);
+
+  const matchCount = useMemo(() => {
+    if (!itemQuery.trim()) return 0;
+    return (sprints ?? []).reduce(
+      (n, s) => n + s.items.filter((i) => itemMatchesQuery(i, itemQuery)).length,
+      0
+    );
+  }, [sprints, itemQuery]);
+
+  const totalItems = useMemo(
+    () => (sprints ?? []).reduce((n, s) => n + s.items.length, 0),
+    [sprints]
+  );
 
   async function handleExport() {
     if (!sprints || sprints.length === 0 || !workstream) return;
@@ -170,15 +196,51 @@ export function WorkstreamFocus({ workstreamId, canManage }: { workstreamId: str
           No sprints in this workstream yet — move sprints in from the project&apos;s Sprint Tracker tab.
         </p>
       ) : (
-        sprints.map((sprint) => (
-          <SprintCard
-            key={sprint.id}
-            sprint={sprint}
-            canManage={canManage}
-            onChanged={() => void load()}
-            spilloverTargets={targets.filter((t) => t.id !== sprint.id)}
-          />
-        ))
+        <>
+          {totalItems > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative">
+                <RiSearchLine className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={itemQuery}
+                  onChange={(e) => setItemQuery(e.target.value)}
+                  placeholder="Search items across all sprints — key, summary, assignee…"
+                  className="h-8 w-full pl-7 text-xs sm:w-96"
+                />
+              </div>
+              {itemQuery.trim() !== "" && (
+                <span className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  {matchCount} of {totalItems} item{totalItems === 1 ? "" : "s"} in {visibleSprints.length} sprint
+                  {visibleSprints.length === 1 ? "" : "s"}
+                  <button
+                    type="button"
+                    onClick={() => setItemQuery("")}
+                    className="underline-offset-2 hover:text-foreground hover:underline"
+                  >
+                    Clear
+                  </button>
+                </span>
+              )}
+            </div>
+          )}
+
+          {visibleSprints.length === 0 ? (
+            <p className="p-6 text-center text-xs text-muted-foreground">
+              No items match “{itemQuery.trim()}” in any sprint in this workstream.
+            </p>
+          ) : (
+            visibleSprints.map((sprint) => (
+              <SprintCard
+                key={sprint.id}
+                sprint={sprint}
+                canManage={canManage}
+                onChanged={() => void load()}
+                spilloverTargets={targets.filter((t) => t.id !== sprint.id)}
+                globalQuery={itemQuery}
+              />
+            ))
+          )}
+        </>
       )}
     </div>
   );

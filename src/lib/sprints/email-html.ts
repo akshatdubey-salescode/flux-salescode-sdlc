@@ -123,10 +123,114 @@ export function riskTile(label: string, value: string, risk: Exclude<SprintItemR
   </td>`;
 }
 
+// ---------------------------------------------------------------------------
+// Carryover
+//
+// Violet, deliberately outside the red/amber/green risk family: spillover is a
+// fact about WHERE the work lives, not a judgement about whether it's in
+// trouble, and colouring it like a risk would double-count the same item's
+// lateness. Both directions carry an arrow AND a word, so the pill still reads
+// in a client that strips colour.
+// ---------------------------------------------------------------------------
+
+const CARRY_STYLE = { fg: "#6d28d9", bg: "#f5f3ff", border: "#ddd6fe" };
+
+/** "↪ Carried to X" / "↩ Carried from X" pill. `sprintName` is escaped here. */
+export function carryBadge(direction: "in" | "out", sprintName: string): string {
+  const arrow = direction === "out" ? "&#8618;" : "&#8617;";
+  const word = direction === "out" ? "Carried to" : "Carried from";
+  return `<span style="display:inline-block;background:${CARRY_STYLE.bg};color:${CARRY_STYLE.fg};border:1px solid ${CARRY_STYLE.border};border-radius:999px;padding:1px 8px;font-size:10px;font-weight:700;white-space:nowrap;">${arrow} ${word} ${esc(sprintName)}</span>`;
+}
+
+/** Compact "&#8617; 2 carried in" count pill, for cells too narrow for a sentence. */
+export function carryCountBadge(direction: "in" | "out", n: number): string {
+  const arrow = direction === "out" ? "&#8618;" : "&#8617;";
+  const word = direction === "out" ? "carried forward" : "carried in";
+  return `<span style="display:inline-block;background:${CARRY_STYLE.bg};color:${CARRY_STYLE.fg};border:1px solid ${CARRY_STYLE.border};border-radius:999px;padding:1px 8px;font-size:10px;font-weight:700;white-space:nowrap;">${arrow} ${n} ${word}</span>`;
+}
+
+/** Violet stat tile, matching carryBadge — the spillover counterpart of riskTile. */
+export function carryTile(label: string, value: string): string {
+  return `<td style="padding:0 6px 8px 0;">
+    <div style="border:1px solid ${CARRY_STYLE.border};border-radius:6px;padding:8px 12px;background:${CARRY_STYLE.bg};min-width:78px;">
+      <div style="font-size:18px;font-weight:700;color:${CARRY_STYLE.fg};line-height:1.2;">${value}</div>
+      <div style="font-size:10px;color:${CARRY_STYLE.fg};text-transform:uppercase;letter-spacing:.4px;margin-top:2px;">${label}</div>
+    </div>
+  </td>`;
+}
+
+/**
+ * The spillover banner — a peer of the risk callout, not a footnote under the
+ * items table. Recipients of these mails are stakeholders reading the top of
+ * one message, and the single question a spillover raises ("is this the same
+ * work I saw last time, and who has it now?") has to be answerable there.
+ *
+ * Both directions get one. "Carried forward" tells the sprint that ran out of
+ * time who picked the work up; "carried in" tells the receiving sprint this is
+ * inherited work rather than a fresh idea. Each spells out the consequence in
+ * words — a reader who has never heard the word "spillover" still gets it.
+ *
+ * Empty string when nothing carried, so callers interpolate it unconditionally.
+ */
+export function carryCallout(
+  direction: "in" | "out",
+  groups: { sprintName: string; keys: string[] }[]
+): string {
+  if (groups.length === 0) return "";
+  const total = groups.reduce((n, g) => n + g.keys.length, 0);
+  const s = total === 1 ? "" : "s";
+  const heading =
+    groups.length === 1
+      ? direction === "out"
+        ? `${total} item${s} carried forward to ${esc(groups[0].sprintName)}`
+        : `${total} item${s} carried in from ${esc(groups[0].sprintName)}`
+      : `${total} item${s} carried ${direction === "out" ? "forward to later sprints" : "in from earlier sprints"}`;
+
+  // Long lists get cut the same way the risk banner cuts its named issues —
+  // the point is recognition, not a full manifest.
+  const detail = groups
+    .map((g) => {
+      const shown = g.keys.slice(0, 6).map(esc).join(", ");
+      const keys = g.keys.length > 6 ? `${shown} and ${g.keys.length - 6} more` : shown;
+      return direction === "out"
+        ? `<strong>${keys}</strong> ${g.keys.length === 1 ? "was" : "were"} not finished in this sprint and ${
+            g.keys.length === 1 ? "continues" : "continue"
+          } in ${esc(g.sprintName)}.`
+        : `<strong>${keys}</strong> arrived unfinished from ${esc(g.sprintName)} — inherited work, not new scope.`;
+    })
+    .join("<br>");
+
+  return callout("carry", `${direction === "out" ? "&#8618;" : "&#8617;"} ${heading}`, detail);
+}
+
+/**
+ * The workstream banner: work that moved between the sprints in this mail,
+ * stated as a flow ("out of A, into B"). At sprint altitude the reader needs
+ * one sprint's story; at workstream altitude the interesting fact is that a
+ * boundary was crossed at all, and which two sprints it joined.
+ */
+export function carryFlowCallout(flows: { from: string; to: string; keys: string[] }[]): string {
+  if (flows.length === 0) return "";
+  const total = flows.reduce((n, f) => n + f.keys.length, 0);
+  const detail = flows
+    .map((f) => {
+      const shown = f.keys.slice(0, 6).map(esc).join(", ");
+      const keys = f.keys.length > 6 ? `${shown} and ${f.keys.length - 6} more` : shown;
+      return `<strong>${keys}</strong> moved out of ${esc(f.from)} into ${esc(f.to)}.`;
+    })
+    .join("<br>");
+  return callout(
+    "carry",
+    `&#8618; ${total} item${total === 1 ? "" : "s"} carried between sprints`,
+    detail
+  );
+}
+
 const CALLOUT_TONES = {
   danger: { accent: "#b91c1c", bg: "#fef2f2", border: "#fecaca", fg: "#991b1b", detail: "#7f1d1d" },
   warn: { accent: "#b45309", bg: "#fffbeb", border: "#fde68a", fg: "#92400e", detail: "#78350f" },
   ok: { accent: "#047857", bg: "#ecfdf5", border: "#a7f3d0", fg: "#065f46", detail: "#064e3b" },
+  carry: { accent: "#6d28d9", bg: "#f5f3ff", border: "#ddd6fe", fg: "#5b21b6", detail: "#4c1d95" },
 } as const;
 
 /**
