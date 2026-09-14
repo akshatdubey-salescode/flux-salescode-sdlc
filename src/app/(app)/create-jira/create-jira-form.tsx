@@ -75,6 +75,40 @@ type CreatedIssue = {
   issueUrl: string;
 };
 
+const LAST_PROJECT_STORAGE_KEY = "create-jira:last-project-id";
+const LAST_ASSIGNEE_STORAGE_KEY = "create-jira:last-assignee-id";
+const UNASSIGNED = "__unassigned__";
+
+function readSavedAssignee(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(LAST_ASSIGNEE_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function persistAssignee(nextAssigneeAccountId: string) {
+  try {
+    window.localStorage.setItem(LAST_ASSIGNEE_STORAGE_KEY, nextAssigneeAccountId);
+  } catch {
+    // localStorage is unavailable; the selection still works for this session.
+  }
+}
+
+function initialProjectId(projects: Project[]) {
+  if (typeof window === "undefined") return projects[0]?.id ?? "";
+  try {
+    const saved = window.localStorage.getItem(LAST_PROJECT_STORAGE_KEY);
+    if (saved && projects.some((project) => project.id === saved)) {
+      return saved;
+    }
+  } catch {
+    // localStorage is unavailable; fall through to the default project.
+  }
+  return projects[0]?.id ?? "";
+}
+
 type Props = {
   connected: boolean;
   connectionExpired: boolean;
@@ -121,7 +155,7 @@ function assigneeOptions(options: JiraOptions): SearchableOption[] {
           },
         ]
       : []),
-    { value: "__unassigned__", label: "Unassigned" },
+    { value: UNASSIGNED, label: "Unassigned" },
     ...otherAssignees.map((assignee) => ({
       value: assignee.accountId,
       label: assignee.displayName,
@@ -138,13 +172,17 @@ export function CreateJiraForm({
   const formRef = useRef<HTMLFormElement>(null);
   const summaryRef = useRef<HTMLInputElement>(null);
 
-  const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
+  const [projectId, setProjectId] = useState(() =>
+    initialProjectId(projects)
+  );
   const [options, setOptions] = useState<JiraOptions | null>(null);
   const [optionsLoading, setOptionsLoading] = useState(false);
   const [optionsError, setOptionsError] = useState("");
   const [issueTypeId, setIssueTypeId] = useState("");
   const [priorityName, setPriorityName] = useState("");
-  const [assigneeAccountId, setAssigneeAccountId] = useState("__unassigned__");
+  const [assigneeAccountId, setAssigneeAccountId] = useState(
+    () => readSavedAssignee() ?? UNASSIGNED
+  );
   const [dateFields, setDateFields] = useState<DateFields | null>(null);
   const [dateFieldsLoading, setDateFieldsLoading] = useState(false);
   const [dateFieldsError, setDateFieldsError] = useState("");
@@ -167,7 +205,7 @@ export function CreateJiraForm({
     setOptions(null);
     setIssueTypeId("");
     setPriorityName("");
-    setAssigneeAccountId("__unassigned__");
+    setAssigneeAccountId(UNASSIGNED);
     setDateFields(null);
     setDateFieldsLoading(false);
     setDateFieldsError("");
@@ -191,6 +229,18 @@ export function CreateJiraForm({
         setOptions(data);
         setIssueTypeId(preferredId(data.issueTypes, "Task"));
         setPriorityName(preferredName(data.priorities, "P3"));
+        const savedAssignee = readSavedAssignee();
+        if (
+          savedAssignee === UNASSIGNED ||
+          (savedAssignee &&
+            data.assignees.some(
+              (assignee) => assignee.accountId === savedAssignee
+            ))
+        ) {
+          setAssigneeAccountId(savedAssignee);
+        } else {
+          setAssigneeAccountId(UNASSIGNED);
+        }
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -336,9 +386,7 @@ export function CreateJiraForm({
           issueTypeName: issueType.name,
           priorityName,
           assigneeAccountId:
-            assigneeAccountId === "__unassigned__"
-              ? undefined
-              : assigneeAccountId,
+            assigneeAccountId === UNASSIGNED ? undefined : assigneeAccountId,
           summary: summary.trim(),
           description: description.trim(),
           startDate: startDate || undefined,
@@ -360,11 +408,31 @@ export function CreateJiraForm({
       }
 
       setCreatedIssue(data as CreatedIssue);
+      try {
+        window.localStorage.setItem(LAST_PROJECT_STORAGE_KEY, projectId);
+      } catch {
+        // localStorage is unavailable; the next visit uses the default project.
+      }
+      persistAssignee(assigneeAccountId);
     } catch {
       setSubmitError("Could not reach the server. Please try again.");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function handleProjectChange(nextProjectId: string) {
+    setProjectId(nextProjectId);
+    try {
+      window.localStorage.setItem(LAST_PROJECT_STORAGE_KEY, nextProjectId);
+    } catch {
+      // localStorage is unavailable; the selection still works for this session.
+    }
+  }
+
+  function handleAssigneeChange(nextAssigneeAccountId: string) {
+    setAssigneeAccountId(nextAssigneeAccountId);
+    persistAssignee(nextAssigneeAccountId);
   }
 
   function handleShortcut(event: KeyboardEvent<HTMLFormElement>) {
@@ -510,7 +578,7 @@ export function CreateJiraForm({
             <SearchableSelect
               id="jira-project"
               value={projectId}
-              onValueChange={setProjectId}
+              onValueChange={handleProjectChange}
               options={projects.map((project) => ({
                 value: project.id,
                 label: `${project.key} · ${project.name}`,
@@ -573,7 +641,7 @@ export function CreateJiraForm({
                 <SearchableSelect
                   id="jira-assignee"
                   value={assigneeAccountId}
-                  onValueChange={setAssigneeAccountId}
+                  onValueChange={handleAssigneeChange}
                   options={assigneeOptions(options)}
                   placeholder="Choose assignee"
                   searchPlaceholder="Search assignees…"
