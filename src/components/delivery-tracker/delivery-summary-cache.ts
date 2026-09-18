@@ -199,6 +199,28 @@ export async function refreshDeliverySummary(issueId: string): Promise<void> {
   }
 }
 
+/**
+ * Bulk counterpart of refreshDeliverySummary for a mutation that touched many
+ * issues at once (a delivery created from a whole sprint): drops each cached
+ * summary so every mounted badge refetches in ONE batched request instead of
+ * N per-issue round trips, and tells the list subscribers (Delivery Tracking,
+ * Project Tracking, My Tasks…) to reload. Issues nobody has asked about yet
+ * are skipped — their first read fetches fresh anyway.
+ */
+export function invalidateDeliverySummaries(issueIds: string[]) {
+  for (const issueId of issueIds) {
+    if (!cache.has(issueId) && !inFlight.has(issueId)) continue;
+    cache.delete(issueId);
+    // Makes any in-flight batch response for this issue stale (discarded by
+    // flush), so the refetch queued below is the one that lands.
+    bump(issueId);
+    if (subscribers.get(issueId)?.size) pending.add(issueId);
+    notify(issueId);
+  }
+  if (pending.size > 0) scheduleFlush();
+  notifyListChanged();
+}
+
 /** `undefined` while unresolved, `null` once confirmed not in any delivery, else the summary. */
 export function useDeliverySummary(issueId: string): DeliverySummary | null | undefined {
   const subscribeForIssue = useCallback(

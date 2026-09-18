@@ -750,6 +750,7 @@ function DeliveryCard({
             value={addingIssues}
             onChange={setAddingIssues}
             existingIssueIds={existingIssueIds}
+            excludeOtherDeliveries={{ currentDeliveryId: delivery.id }}
             onSubmit={handleAddIssues}
             submitting={adding}
           />

@@ -21,7 +21,7 @@ type Params = { params: Promise<{ id: string }> };
 export type ProjectSprintsResponse = { sprints: SprintWithItems[] };
 export type ProjectSprintOptionsResponse = { sprints: SprintOption[] };
 
-/** List active sprints for a project. `?summary=1` returns the light {id,name,dates}[] shape for the carryover picker. */
+/** List active sprints for a project. `?summary=1` returns the light {id,name,dates,itemCount}[] shape for the carryover picker (open sprints only); add `&includeCompleted=1` to get closed sprints too (the create-delivery form's sprint source picker). */
 export async function GET(req: NextRequest, { params }: Params) {
   await requireAuth();
   const { id } = await params;
@@ -30,7 +30,8 @@ export async function GET(req: NextRequest, { params }: Params) {
   }
 
   if (req.nextUrl.searchParams.get("summary") === "1") {
-    const options = await fetchProjectSprintOptions(id);
+    const includeCompleted = req.nextUrl.searchParams.get("includeCompleted") === "1";
+    const options = await fetchProjectSprintOptions(id, { includeCompleted });
     return NextResponse.json({ sprints: options } satisfies ProjectSprintOptionsResponse);
   }
 

@@ -45,7 +45,9 @@ export function SprintGuide({ trigger }: { trigger?: React.ReactNode }) {
               A sprint is an internal, time-boxed iteration: a start date, an end date, an optional goal, and the
               Jira issues the team commits to finishing inside that window. Unlike Delivery Tracking (which is a
               promise to a client), sprints exist for the team — they measure how well we plan and what changes
-              mid-flight.
+              mid-flight. When a sprint&apos;s scope IS the client promise, use “Create delivery from this sprint” in
+              the card&apos;s ⋮ menu: it opens a new delivery pre-filled with the sprint&apos;s name, end date and
+              every current item, leaving the sprint itself untouched.
             </p>
           </Section>
 
