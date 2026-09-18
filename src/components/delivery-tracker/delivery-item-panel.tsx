@@ -105,7 +105,7 @@ export function DeliveryItemPanel({
                   {detail.issue.jiraKey}
                   <RiExternalLinkLine className="size-3 opacity-60" />
                 </a>
-                <DelayLogButton issueId={issueId} />
+                <DelayLogButton issueId={issueId} recordedIn="delivery" />
                 <RcaBadge issueId={issueId} />
               </div>
               <span className="text-[11px] text-muted-foreground">{detail.issue.projectName}</span>

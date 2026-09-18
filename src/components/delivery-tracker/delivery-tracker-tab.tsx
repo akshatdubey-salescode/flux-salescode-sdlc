@@ -1047,7 +1047,7 @@ function DeliveryItemsTable({
                 )}
                 <td className="px-2 py-2">
                   <div className="flex items-center gap-0.5">
-                    <DelayLogButton issueId={item.issueId} />
+                    <DelayLogButton issueId={item.issueId} recordedIn="delivery" />
                     <RcaBadge issueId={item.issueId} />
                     <DeliveryBadge issueId={item.issueId} canManage={canManage} onChanged={onChanged} />
                     <Button

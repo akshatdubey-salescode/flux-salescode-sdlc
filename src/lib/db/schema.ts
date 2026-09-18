@@ -1627,6 +1627,14 @@ export type NewJiraSelfAssignedOverride = typeof jiraSelfAssignedOverrides.$infe
 // ---------------------------------------------------------------------------
 
 export const delayReasonCategoryEnum = pgEnum("delay_reason_category", DELAY_CATEGORY_VALUES);
+// Which UI surface a delay was originally logged from. Nullable — only
+// Sprint Tracking's and Delivery Tracking's <DelayLogButton> usages pass
+// this; every other surface (My Tasks, Project Tracking, dashboards, etc.)
+// leaves it unset, and every entry logged before this column existed is
+// null too. Purely informational: a delay is already visible from every
+// surface regardless of this value, since delay_logs is keyed by issue_id,
+// not by where it was recorded — this just labels which one it was.
+export const delayRecordedInEnum = pgEnum("delay_recorded_in", ["sprint", "delivery"]);
 
 export const delayLogs = pgTable(
   "delay_logs",
@@ -1640,6 +1648,7 @@ export const delayLogs = pgTable(
       .notNull()
       .references(() => jiraProjects.id, { onDelete: "cascade" }),
     category: delayReasonCategoryEnum("category").notNull(),
+    recordedIn: delayRecordedInEnum("recorded_in"),
     delayDate: date("delay_date").notNull(),
     // Person responsible for this specific delay — defaults to the issue's
     // resolved owner in the UI, but editable per entry, so it's captured here
@@ -1679,6 +1688,7 @@ export const delayLogs = pgTable(
 export type DelayLog = typeof delayLogs.$inferSelect;
 export type NewDelayLog = typeof delayLogs.$inferInsert;
 export type DelayReasonCategory = (typeof delayReasonCategoryEnum.enumValues)[number];
+export type DelayRecordedIn = (typeof delayRecordedInEnum.enumValues)[number];
 
 // ---------------------------------------------------------------------------
 // Deliveries — a named batch of Jira tasks/bugs committed to ship by one

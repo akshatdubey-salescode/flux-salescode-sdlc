@@ -22,11 +22,14 @@ export function AddDelayForm({
   projectId,
   defaultResponsible,
   onCreated,
+  recordedIn,
 }: {
   issueId: string;
   projectId: string;
   defaultResponsible: { email: string | null; name: string | null };
   onCreated: (entry: DelayLogEntry) => void;
+  /** Stamped onto the created entry — which surface this form was opened from. */
+  recordedIn?: "sprint" | "delivery";
 }) {
   const [category, setCategory] = useState<DelayCategoryValue | "">("");
   const [delayDate, setDelayDate] = useState(localDateStr(new Date()));
@@ -80,6 +83,7 @@ export function AddDelayForm({
           note: note.trim() || null,
           linkedProjectId: needsLink ? linked?.projectId : null,
           linkedIssueId: needsLink ? linked?.issueId : null,
+          recordedIn: recordedIn ?? null,
         }),
       });
       if (!res.ok) {

@@ -51,10 +51,13 @@ import { patchDelaySummary } from "./delay-summary-cache";
 export function DelayTrackerPanel({
   issueId,
   onEntriesChanged,
+  recordedIn,
 }: {
   issueId: string;
   /** Fired after a create/update/delete, so a caller with its own derived view (e.g. a filtered issue table) can refetch/reconcile. */
   onEntriesChanged?: () => void;
+  /** Stamped onto any new entry logged from this panel — which surface it was opened from. */
+  recordedIn?: "sprint" | "delivery";
 }) {
   const [detail, setDetail] = useState<DelayTrackerIssueDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -202,6 +205,7 @@ export function DelayTrackerPanel({
             projectId={detail.issue.projectId}
             defaultResponsible={detail.defaultResponsible}
             onCreated={handleCreated}
+            recordedIn={recordedIn}
           />
         </div>
       )}
@@ -391,6 +395,11 @@ function HistoryRow({
             {categoryLabel(entry.category)}
           </Badge>
           <span className="text-[11px] text-muted-foreground">{entry.delayDate}</span>
+          {recordedInLabel(entry.recordedIn) && (
+            <span className="rounded border border-border/60 px-1 py-0.5 text-[10px] text-muted-foreground/80">
+              {recordedInLabel(entry.recordedIn)}
+            </span>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button variant="ghost" size="icon-sm" onClick={beginEditing} title="Edit" disabled={deleting}>
@@ -456,6 +465,11 @@ function DeletedHistoryRow({ entry }: { entry: DelayLogEntry }) {
           {categoryLabel(entry.category)}
         </Badge>
         <span className="text-[11px] text-muted-foreground">{entry.delayDate}</span>
+        {recordedInLabel(entry.recordedIn) && (
+          <span className="rounded border border-border/60 px-1 py-0.5 text-[10px] text-muted-foreground/80">
+            {recordedInLabel(entry.recordedIn)}
+          </span>
+        )}
       </div>
       {entry.responsibleName && (
         <p className="mt-1 text-xs text-muted-foreground">
@@ -472,6 +486,14 @@ function DeletedHistoryRow({ entry }: { entry: DelayLogEntry }) {
       </p>
     </div>
   );
+}
+
+/** "via Sprint" / "via Delivery" — null (rendered as nothing) for every
+ * other surface and every entry logged before this field existed. */
+function recordedInLabel(value: string | null): string | null {
+  if (value === "sprint") return "via Sprint";
+  if (value === "delivery") return "via Delivery";
+  return null;
 }
 
 function formatDateTime(iso: string): string {

@@ -10,6 +10,9 @@ export { isValidDateString, isValidUuid, parseOptionalText } from "@/lib/validat
 export type DelayLogEntry = {
   id: string;
   category: string;
+  /** Which surface this was logged from ("sprint" | "delivery") — null for
+   * every other surface, and for every entry logged before this existed. */
+  recordedIn: string | null;
   delayDate: string;
   responsibleEmail: string | null;
   responsibleName: string | null;
@@ -33,6 +36,7 @@ export function mapDelayLogRow(r: Record<string, unknown>): DelayLogEntry {
   return {
     id: r.id as string,
     category: r.category as string,
+    recordedIn: (r.recorded_in as string | null) ?? null,
     delayDate: r.delay_date as string,
     responsibleEmail: (r.responsible_email as string | null) ?? null,
     responsibleName: (r.responsible_name as string | null) ?? null,
@@ -56,7 +60,7 @@ export function mapDelayLogRow(r: Record<string, unknown>): DelayLogEntry {
 
 const DELAY_LOG_SELECT = sql`
   SELECT
-    dl.id, dl.category, dl.delay_date, dl.responsible_email, dl.responsible_name,
+    dl.id, dl.category, dl.recorded_in, dl.delay_date, dl.responsible_email, dl.responsible_name,
     dl.note, dl.logged_by, dl.logged_by_name, dl.created_at, dl.updated_at,
     dl.deleted_at, dl.deleted_by, dl.deleted_by_name,
     dl.linked_project_id, dl.linked_issue_id,
