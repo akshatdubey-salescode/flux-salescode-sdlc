@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { eq } from "drizzle-orm";
 import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
-import { delayLogs, delayReasonCategoryEnum, jiraIssues } from "@/lib/db/schema";
+import { delayLogs, delayReasonCategoryEnum, delayRecordedInEnum, jiraIssues } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { authOptions } from "@/lib/auth/nextauth-options";
 import {
@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
   const note = parseOptionalText(body.note) ?? null;
   const linkedProjectId = parseOptionalText(body.linkedProjectId) ?? null;
   const linkedIssueId = parseOptionalText(body.linkedIssueId) ?? null;
+  const recordedIn = parseOptionalText(body.recordedIn) ?? null;
 
   if (!isValidUuid(issueId)) {
     return NextResponse.json({ error: "issueId must be a valid UUID" }, { status: 400 });
@@ -74,6 +75,12 @@ export async function POST(req: NextRequest) {
   if (PERSON_REQUIRED_CATEGORIES.has(category as DelayCategoryValue) && !responsibleEmail) {
     return NextResponse.json(
       { error: "responsibleEmail is required for this category" },
+      { status: 400 }
+    );
+  }
+  if (recordedIn !== null && !(delayRecordedInEnum.enumValues as readonly string[]).includes(recordedIn)) {
+    return NextResponse.json(
+      { error: `recordedIn must be one of: ${delayRecordedInEnum.enumValues.join(", ")}` },
       { status: 400 }
     );
   }
@@ -116,6 +123,7 @@ export async function POST(req: NextRequest) {
       issueId,
       projectId: issue.projectId,
       category: category as (typeof delayReasonCategoryEnum.enumValues)[number],
+      recordedIn: recordedIn as (typeof delayRecordedInEnum.enumValues)[number] | null,
       delayDate,
       responsibleEmail,
       responsibleName,

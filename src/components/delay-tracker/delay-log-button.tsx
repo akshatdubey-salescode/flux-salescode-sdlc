@@ -26,10 +26,16 @@ import { DelayTrackerPanel } from "./delay-tracker-panel";
 export function DelayLogButton({
   issueId,
   onEntriesChanged,
+  recordedIn,
 }: {
   issueId: string;
   /** Fired after a create/update/delete for this issue, so a caller with its own derived view (e.g. a filtered issue table) can refetch/reconcile. */
   onEntriesChanged?: () => void;
+  /** Which surface this button lives on, stamped onto any new entry logged
+   * from here — omitted everywhere except Sprint Tracking/Delivery Tracking,
+   * so every other caller's entries stay unset (unset ≠ hidden: a delay is
+   * visible from every surface regardless, this is purely a label). */
+  recordedIn?: "sprint" | "delivery";
 }) {
   const [open, setOpen] = useState(false);
   const summary = useDelaySummary(issueId);
@@ -90,7 +96,7 @@ export function DelayLogButton({
           <DialogDescription>Jira details and delay history for this issue.</DialogDescription>
         </DialogHeader>
         <div className="max-h-[70vh] overflow-y-auto pr-1">
-          <DelayTrackerPanel issueId={issueId} onEntriesChanged={onEntriesChanged} />
+          <DelayTrackerPanel issueId={issueId} onEntriesChanged={onEntriesChanged} recordedIn={recordedIn} />
         </div>
       </DialogContent>
     </Dialog>

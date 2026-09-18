@@ -77,6 +77,7 @@ import {
 } from "@/lib/sprints/risk";
 import { statusCategoryStyles, priorityStyles, issueTypeStyles } from "@/components/project-tracking/helpers";
 import { IssueMultiPicker, type IssueResult } from "@/components/delivery-tracker/issue-multi-picker";
+import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import type {
   SprintWithItems,
   SprintItemRow,
@@ -1955,6 +1956,7 @@ function SprintItemRowView({
       </td>
       <td className="px-3 py-2 text-right">
         <div className="flex items-center justify-end gap-0.5">
+          <DelayLogButton issueId={item.issueId} recordedIn="sprint" />
           <Tip label="View and add Jira comments on this issue">
             <Button variant="ghost" size="icon-sm" onClick={onComments}>
               <RiChat3Line className="size-3.5" />
