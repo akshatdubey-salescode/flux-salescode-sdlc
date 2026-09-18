@@ -14,7 +14,8 @@ import {
 import { db } from "@/lib/db";
 import { jiraIssues } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
-import { nearestDeliveryDateSql, nearestDeliveryStatusSql } from "@/lib/deliveries/entries";
+import { isValidUuid } from "@/lib/validation";
+import { nearestDeliveryDateSql, nearestDeliveryStatusSql, notInOtherDeliveriesSql } from "@/lib/deliveries/entries";
 
 function buildOrderExpr(sortBy: string, sortDir: string) {
   const isAsc = sortDir === "asc";
@@ -78,6 +79,12 @@ export async function GET(req: NextRequest) {
   const dateTo = searchParams.get("dateTo") ?? "";
   const deliveryDateFrom = searchParams.get("deliveryDateFrom") ?? "";
   const deliveryDateTo = searchParams.get("deliveryDateTo") ?? "";
+  // Delivery pickers: hide issues already committed to another active
+  // delivery. `exceptDeliveryId` (the delivery being added to) keeps that
+  // delivery's own items in the results so they can show as "already added".
+  const excludeDeliveryIssues = searchParams.get("excludeDeliveryIssues") === "1";
+  const exceptDeliveryIdRaw = searchParams.get("exceptDeliveryId") ?? "";
+  const exceptDeliveryId = isValidUuid(exceptDeliveryIdRaw) ? exceptDeliveryIdRaw : null;
   const sortBy = searchParams.get("sortBy") ?? "updated";
   const sortDir = searchParams.get("sortDir") === "asc" ? "asc" : "desc";
   const pageSize = Math.min(
@@ -135,6 +142,7 @@ export async function GET(req: NextRequest) {
   }
   if (deliveryDateFrom) conditions.push(sql`${nearestDeliveryDateSql(jiraIssues.id)} >= ${deliveryDateFrom}::date`);
   if (deliveryDateTo) conditions.push(sql`${nearestDeliveryDateSql(jiraIssues.id)} <= ${deliveryDateTo}::date`);
+  if (excludeDeliveryIssues) conditions.push(notInOtherDeliveriesSql(jiraIssues.id, exceptDeliveryId));
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const orderExpr = buildOrderExpr(sortBy, sortDir);
 

@@ -341,6 +341,26 @@ export function nearestDeliveryStatusSql(issueIdRef: AnyColumn | SQL): SQL {
   )`;
 }
 
+/**
+ * TRUE when the issue referenced by `issueIdRef` is committed to no other
+ * active (non-deleted) delivery. `exceptDeliveryId` ignores membership in that
+ * one delivery, so a picker adding to it can still list its own items as
+ * "already added" while hiding everything committed elsewhere. Completed
+ * deliveries still count — their items shipped, so offering them to a new
+ * delivery is noise; the picker exposes a toggle for the rare deliberate
+ * re-add. Same qualification trick as nearestDeliveryDateSql (delivery_items
+ * also has an `id` column, so an unqualified reference would be ambiguous).
+ */
+export function notInOtherDeliveriesSql(issueIdRef: AnyColumn | SQL, exceptDeliveryId?: string | null): SQL {
+  return sql`NOT EXISTS (
+    SELECT 1
+    FROM delivery_items di_x
+    JOIN deliveries d_x ON d_x.id = di_x.delivery_id AND d_x.deleted_at IS NULL
+    WHERE di_x.issue_id = ${qualified(issueIdRef)}
+    ${exceptDeliveryId ? sql`AND d_x.id <> ${exceptDeliveryId}` : sql``}
+  )`;
+}
+
 export type DeliverySummary = {
   deliveryId: string;
   deliveryName: string;

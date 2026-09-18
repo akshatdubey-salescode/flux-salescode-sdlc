@@ -23,6 +23,7 @@ import {
   RiStickyNoteLine,
   RiMore2Line,
   RiCornerUpRightLine,
+  RiTruckLine,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,6 +79,8 @@ import {
 import { statusCategoryStyles, priorityStyles, issueTypeStyles } from "@/components/project-tracking/helpers";
 import { IssueMultiPicker, type IssueResult } from "@/components/delivery-tracker/issue-multi-picker";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
+import { CreateDeliveryForm } from "@/components/delivery-tracker/create-delivery-form";
+import { invalidateDeliverySummaries } from "@/components/delivery-tracker/delivery-summary-cache";
 import type {
   SprintWithItems,
   SprintItemRow,
@@ -842,6 +845,7 @@ export function SprintCard({
   const [exporting, setExporting] = useState(false);
   const [updateCopied, setUpdateCopied] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [deliveryOpen, setDeliveryOpen] = useState(false);
 
   const existingIssueIds = useMemo(() => new Set(sprint.items.map((i) => i.issueId)), [sprint.items]);
 
@@ -1171,6 +1175,11 @@ export function SprintCard({
                   <DropdownMenuItem onSelect={() => setEditOpen(true)}>
                     <RiPencilLine /> Edit name, goal or dates
                   </DropdownMenuItem>
+                  {sprint.projectId && (
+                    <DropdownMenuItem onSelect={() => setDeliveryOpen(true)}>
+                      <RiTruckLine /> Create delivery from this sprint
+                    </DropdownMenuItem>
+                  )}
                   {workstreams && workstreams.length > 0 && (
                     <DropdownMenuSub>
                       <DropdownMenuSubTrigger>
@@ -1213,6 +1222,27 @@ export function SprintCard({
             onOpenChange={setEditOpen}
             onSaved={onChanged}
           />
+          {sprint.projectId && (
+            <CreateDeliveryForm
+              // The pre-fill is read once at mount — remount when the sprint is
+              // renamed or re-dated so the form never offers stale defaults.
+              key={`${sprint.id}:${sprint.name}:${sprint.endDate}`}
+              projectId={sprint.projectId}
+              fromSprint={{ id: sprint.id, name: sprint.name, endDate: sprint.endDate, itemCount: sprint.items.length }}
+              open={deliveryOpen}
+              onOpenChange={setDeliveryOpen}
+              onSaved={(delivery) => {
+                // Nothing on THIS tab changes, so say what happened — and
+                // refresh the delivery badges/columns elsewhere plus the
+                // Delivery Tracking tab (mounted alongside), which read from a
+                // shared cache this create didn't touch.
+                invalidateDeliverySummaries(delivery.items.map((i) => i.issueId));
+                toast.success(
+                  `Delivery “${delivery.name}” created with ${delivery.items.length} issue${delivery.items.length === 1 ? "" : "s"}`
+                );
+              }}
+            />
+          )}
           <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
             <AlertDialogContent>
               <AlertDialogHeader>

@@ -173,6 +173,10 @@ export type SprintOption = {
   endDate: string;
   /** Non-null once the sprint has been STARTED — callers gate the "reason required" scope-change rule on it. */
   startedAt: string | null;
+  /** Non-null once CLOSED — only ever non-null when the caller asked for completed sprints too. */
+  completedAt: string | null;
+  /** Active (non-removed) items — what "create a delivery from this sprint" carries across. */
+  itemCount: number;
 };
 
 function emptyRollup(): SprintRollup {
@@ -494,7 +498,14 @@ type SprintOptionRow = {
   start_date: string;
   end_date: string;
   started_at: string | Date | null;
+  completed_at: string | Date | null;
+  item_count: number;
 };
+
+const SPRINT_OPTION_COLUMNS = sql`
+  id, name, start_date, end_date, started_at, completed_at,
+  (SELECT count(*)::int FROM sprint_items si WHERE si.sprint_id = sprints.id AND si.removed_at IS NULL) AS item_count
+`;
 
 function mapSprintOption(r: SprintOptionRow): SprintOption {
   return {
@@ -503,6 +514,8 @@ function mapSprintOption(r: SprintOptionRow): SprintOption {
     startDate: r.start_date,
     endDate: r.end_date,
     startedAt: toIso(r.started_at),
+    completedAt: toIso(r.completed_at),
+    itemCount: Number(r.item_count ?? 0),
   };
 }
 
@@ -510,7 +523,7 @@ function mapSprintOption(r: SprintOptionRow): SprintOption {
 export async function fetchBoardSprintOptions(boardId: string): Promise<SprintOption[]> {
   const rows = (
     await db.execute(sql`
-      SELECT id, name, start_date, end_date, started_at
+      SELECT ${SPRINT_OPTION_COLUMNS}
       FROM sprints
       WHERE board_id = ${boardId} AND deleted_at IS NULL AND completed_at IS NULL
       ORDER BY start_date ASC
@@ -519,13 +532,24 @@ export async function fetchBoardSprintOptions(boardId: string): Promise<SprintOp
   return rows.map(mapSprintOption);
 }
 
-/** Light {id, name, dates} list of OPEN sprints — backs the spillover target picker in the close flow. Excludes completed sprints: work carries forward into an open iteration, never a closed one. */
-export async function fetchProjectSprintOptions(projectId: string): Promise<SprintOption[]> {
+/**
+ * Light {id, name, dates, itemCount} list of a project's sprints. By default
+ * OPEN sprints only — the spillover target picker in the close flow, where
+ * work carries forward into an open iteration, never a closed one.
+ * `includeCompleted` adds closed sprints too, for "create a delivery from
+ * this sprint": a sprint that just closed is exactly the scope a client
+ * delivery is cut from.
+ */
+export async function fetchProjectSprintOptions(
+  projectId: string,
+  { includeCompleted = false }: { includeCompleted?: boolean } = {}
+): Promise<SprintOption[]> {
   const rows = (
     await db.execute(sql`
-      SELECT id, name, start_date, end_date, started_at
+      SELECT ${SPRINT_OPTION_COLUMNS}
       FROM sprints
-      WHERE project_id = ${projectId} AND deleted_at IS NULL AND completed_at IS NULL
+      WHERE project_id = ${projectId} AND deleted_at IS NULL
+        ${includeCompleted ? sql`` : sql`AND completed_at IS NULL`}
       ORDER BY start_date ASC
     `)
   ).rows as unknown as SprintOptionRow[];

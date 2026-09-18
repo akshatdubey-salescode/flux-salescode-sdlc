@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
-import { deliveries, deliveryItems, jiraProjects } from "@/lib/db/schema";
+import { deliveries, deliveryItems, jiraProjects, sprints, sprintItems } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { canManageDeliveries } from "@/lib/auth/types";
 import { authOptions } from "@/lib/auth/nextauth-options";
@@ -39,9 +39,15 @@ export async function GET(req: NextRequest, { params }: Params) {
 }
 
 /**
- * Create a delivery. `initialIssueId` lets the Project Tracking "create new
- * delivery" action attach the first item in the same request instead of a
- * second round trip.
+ * Create a delivery. Two ways to seed its items in the same request instead
+ * of a second round trip:
+ *   - `initialIssueId`: the Project Tracking "create new delivery" action
+ *     attaches the one issue it was opened from.
+ *   - `fromSprintId`: "create a delivery from this sprint" — every ACTIVE
+ *     (non-removed) item of that sprint becomes a delivery item. The sprint
+ *     must belong to this project. Sprint membership is left untouched; the
+ *     delivery is the client-facing commitment cut from the sprint's scope.
+ * Both may be given; duplicates collapse to one item.
  */
 export async function POST(req: NextRequest, { params }: Params) {
   const user = await requireAuth();
@@ -66,6 +72,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   const responsibleEmails = Array.isArray(body.responsibleEmails) ? body.responsibleEmails : [];
   const responsibleNames = Array.isArray(body.responsibleNames) ? body.responsibleNames : [];
   const initialIssueId = parseOptionalText(body.initialIssueId) ?? null;
+  const fromSprintId = parseOptionalText(body.fromSprintId) ?? null;
 
   if (!name) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
@@ -82,6 +89,9 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (initialIssueId && !isValidUuid(initialIssueId)) {
     return NextResponse.json({ error: "initialIssueId must be a valid UUID" }, { status: 400 });
   }
+  if (fromSprintId && !isValidUuid(fromSprintId)) {
+    return NextResponse.json({ error: "fromSprintId must be a valid UUID" }, { status: 400 });
+  }
 
   const [project] = await db
     .select({ id: jiraProjects.id })
@@ -92,35 +102,67 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
+  const sprintIssueIds: string[] = [];
+  if (fromSprintId) {
+    const [sprint] = await db
+      .select({ id: sprints.id, projectId: sprints.projectId, deletedAt: sprints.deletedAt })
+      .from(sprints)
+      .where(eq(sprints.id, fromSprintId))
+      .limit(1);
+    if (!sprint || sprint.deletedAt || sprint.projectId !== projectId) {
+      return NextResponse.json({ error: "fromSprintId must reference a sprint of this project" }, { status: 400 });
+    }
+    // Active scope only — items soft-removed from the sprint were taken OUT
+    // of its commitment, so they have no business in a delivery cut from it.
+    const rows = await db
+      .select({ issueId: sprintItems.issueId })
+      .from(sprintItems)
+      .where(and(eq(sprintItems.sprintId, fromSprintId), isNull(sprintItems.removedAt)));
+    for (const r of rows) sprintIssueIds.push(r.issueId);
+  }
+  const initialIssueIds = Array.from(new Set([...(initialIssueId ? [initialIssueId] : []), ...sprintIssueIds]));
+
   const session = await getServerSession(authOptions);
   const createdByName = session?.user?.name?.trim() || null;
 
-  const [created] = await db
-    .insert(deliveries)
-    .values({
-      projectId,
-      name,
-      deliveryDate,
-      notifyDaysBefore,
-      responsibleEmails,
-      responsibleNames,
-      createdBy: user.id,
-      createdByName,
-    })
-    .returning({ id: deliveries.id });
+  // One transaction: a sprint-seeded delivery that lost its items half-way
+  // would look like an empty delivery nobody asked for.
+  const createdId = await db.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(deliveries)
+      .values({
+        projectId,
+        name,
+        deliveryDate,
+        notifyDaysBefore,
+        responsibleEmails,
+        responsibleNames,
+        createdBy: user.id,
+        createdByName,
+      })
+      .returning({ id: deliveries.id });
 
-  if (initialIssueId) {
-    await db
-      .insert(deliveryItems)
-      .values({ deliveryId: created.id, issueId: initialIssueId, addedBy: user.id, addedByName: createdByName })
-      .onConflictDoNothing();
-  }
+    if (initialIssueIds.length > 0) {
+      await tx
+        .insert(deliveryItems)
+        .values(
+          initialIssueIds.map((issueId) => ({
+            deliveryId: created.id,
+            issueId,
+            addedBy: user.id,
+            addedByName: createdByName,
+          }))
+        )
+        .onConflictDoNothing();
+    }
+    return created.id;
+  });
 
   revalidateTag("deliveries", "max");
   revalidateTag(`project:${projectId}`, "max");
   revalidateTag("my-tasks", "max");
 
-  const delivery = await fetchDeliveryById(created.id);
+  const delivery = await fetchDeliveryById(createdId);
   if (!delivery) {
     return NextResponse.json({ error: "Created delivery could not be loaded" }, { status: 500 });
   }
