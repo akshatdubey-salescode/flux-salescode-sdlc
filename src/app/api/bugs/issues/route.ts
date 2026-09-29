@@ -134,33 +134,17 @@ async function fetchBugIssues({
     ? sql` AND ji.custom_fields ? ${fdField} AND COALESCE(ji.custom_fields->>${fdField}, '') <> ''`
     : sql``;
   // Mirrors the owner-resolution LATERAL join in fetchBugBoard (/api/bugs) —
-  // a project's candidate owner-field IDs, first populated one wins. No
-  // populated field anywhere = genuinely unassigned.
+  // a project's candidate owner-field IDs, first populated one wins (ow.v).
   //
-  // Two ways to land in the board's "Missing Issue Owner" row, and this
-  // drill-down has to reproduce both or it undercounts the row it was opened
-  // from: (1) no owner field is populated at all; (2) one is, but the person
-  // named isn't a current Keka employee, which fetchBugBoard nulls out to
-  // exactly this bucket (see the Keka gate in /api/bugs' resolved CTE and
-  // src/lib/keka/people.ts).
-  const unassignedFilter = unassignedOnly
-    ? sql`
-      AND (
-        NOT EXISTS (
-          SELECT 1
-          FROM unnest(COALESCE(jp.issue_owner_field_ids, '{}'::text[])) AS fid
-          WHERE ji.custom_fields ? fid
-            AND (
-              (jsonb_typeof(ji.custom_fields->fid) = 'object'
-                AND (ji.custom_fields->fid) ? 'accountId')
-              OR (jsonb_typeof(ji.custom_fields->fid) = 'array'
-                AND jsonb_array_length(ji.custom_fields->fid) > 0)
-            )
-        )
-        OR NOT ${isKekaPerson(sql.raw(OWNER_EMAIL_SQL))}
-      )
-    `
-    : sql``;
+  // Keka gate, same as fetchBugBoard's resolved CTE: a bug whose owner is set
+  // but isn't a current Keka employee is not on the board at all, so no
+  // drill-down (project, developer or Missing Issue Owner) may list it
+  // either. See src/lib/keka/people.ts.
+  const kekaOwnerFilter = sql`
+      AND (ow.v IS NULL OR ${isKekaPerson(sql.raw(OWNER_EMAIL_SQL))})
+    `;
+  // "Missing Issue Owner" = no owner field populated at all.
+  const unassignedFilter = unassignedOnly ? sql` AND ow.v IS NULL` : sql``;
   // Same COALESCE(email, accountId) precedence as owner_key in /api/bugs, so
   // one developer's row here links to exactly the issues counted under them
   // there — not every bug on the project.
@@ -170,10 +154,6 @@ async function fetchBugIssues({
         COALESCE(ow.v->>'emailAddress', ow.v->0->>'emailAddress'),
         COALESCE(ow.v->>'accountId',    ow.v->0->>'accountId')
       ) = ${ownerKey}
-      -- The board can no longer produce a non-Keka owner row, so a key that
-      -- resolves to one is stale or hand-typed: match nothing rather than
-      -- open a drill-down on someone who isn't a current colleague.
-      AND ${isKekaPerson(sql.raw(OWNER_EMAIL_SQL))}
     `
     : sql``;
 
@@ -233,7 +213,7 @@ async function fetchBugIssues({
             regexp_replace(ji.status, ${apostropheClass}, '', 'g'),
             '\s+', ' ', 'g'
           ))) NOT IN (${invalidStatuses})
-      ${fromFilter}${toFilter}${projectFilter}${priorityFilter}${unassignedFilter}${ownerFilter}${cfOnlyFilter}
+      ${fromFilter}${toFilter}${projectFilter}${priorityFilter}${kekaOwnerFilter}${unassignedFilter}${ownerFilter}${cfOnlyFilter}
     ORDER BY
       CASE (${priorityBucketExpr}) WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 WHEN 'P3' THEN 3 WHEN 'P4' THEN 4 ELSE 5 END,
       ji.jira_created_at DESC
