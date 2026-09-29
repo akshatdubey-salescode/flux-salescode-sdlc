@@ -257,19 +257,20 @@ async function fetchBugBoard(from: string | undefined, to: string | undefined, s
       SELECT
         project_id, project_name, jira_base_url, jira_project_key,
         priority, priority_bucket, is_open, is_customer, has_rca, env_raw,
-        -- Keka-only rule (src/lib/keka/people.ts). An owner who isn't a
-        -- current employee is treated as NO owner: the three owner columns go
-        -- null, owner_key below collapses to null, and the bug lands in the
-        -- board's existing "Missing Issue Owner" row. Deliberately not a
-        -- WHERE — dropping the row would hide a real open bug, whereas this
-        -- keeps every bug counted and puts the ones needing a live owner
-        -- exactly where the board already asks you to look. The raw field
-        -- email (not o_resolved_email) is still what's emitted, so owner_key
-        -- keeps the same shape every caller already filters on.
-        CASE WHEN ${isKekaPerson(sql`o_resolved_email`)} THEN o_email    END AS owner_email,
-        CASE WHEN ${isKekaPerson(sql`o_resolved_email`)} THEN o_name     END AS owner_name,
-        CASE WHEN ${isKekaPerson(sql`o_resolved_email`)} THEN o_account  END AS owner_account
+        -- The raw field email (not o_resolved_email) is what's emitted, so
+        -- owner_key keeps the same shape every caller already filters on.
+        o_email   AS owner_email,
+        o_name    AS owner_name,
+        o_account AS owner_account
       FROM owner_ident
+      -- Keka-only rule (src/lib/keka/people.ts). A bug whose Issue Owner is
+      -- set but isn't a current employee (a leaver, or an owner that can't be
+      -- resolved to an email) is dropped from the board entirely. It must not
+      -- land in "Missing Issue Owner": that row means "nobody set an owner",
+      -- and these bugs do have one. Only a bug with no owner field populated
+      -- at all counts as missing.
+      WHERE owner_val IS NULL
+         OR ${isKekaPerson(sql`o_resolved_email`)}
     )
     SELECT
       COALESCE(owner_email, owner_account) AS owner_key,

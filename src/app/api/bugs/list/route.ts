@@ -184,23 +184,22 @@ async function fetchAllBugs(start: string, end: string): Promise<ExportBugRow[]>
         AND ji.jira_created_at >= ${start}::date
         AND ji.jira_created_at < (${end}::date + interval '1 day')
     )
-    -- Keka gate on the owner, matching fetchBugBoard (/api/bugs): an owner who
-    -- isn't a current employee is treated as NO owner, so the bug still
-    -- exports but under "Missing Issue Owner" — the same bucket the board
-    -- shows it in. See src/lib/keka/people.ts. The accountId fallbacks cover
-    -- owners whose emailAddress Atlassian strips from the issue payload.
     SELECT
       id, jira_key, summary, status, status_category, priority,
       assignee_email, assignee_name, jira_created_at, jira_updated_at,
       project_id, project_name, jira_base_url, jira_project_key, is_customer, env_raw, canonical_status,
       custom_fields, rca_field_ids,
-      CASE WHEN ${isKekaPerson(sql.raw(OWNER_EMAIL_SQL))} THEN
-        COALESCE(owner_val->>'emailAddress', owner_val->0->>'emailAddress')
-      END AS owner_email,
-      CASE WHEN ${isKekaPerson(sql.raw(OWNER_EMAIL_SQL))} THEN
-        COALESCE(owner_val->>'displayName',  owner_val->0->>'displayName')
-      END AS owner_name
+      COALESCE(owner_val->>'emailAddress', owner_val->0->>'emailAddress') AS owner_email,
+      COALESCE(owner_val->>'displayName',  owner_val->0->>'displayName')  AS owner_name
     FROM base
+    -- Keka gate on the owner, matching fetchBugBoard (/api/bugs): a bug whose
+    -- owner is set but isn't a current employee is not on the board, so it
+    -- isn't exported either. Only a bug with no owner at all exports under
+    -- "Missing Issue Owner". See src/lib/keka/people.ts. The accountId
+    -- fallbacks cover owners whose emailAddress Atlassian strips from the
+    -- issue payload.
+    WHERE owner_val IS NULL
+       OR ${isKekaPerson(sql.raw(OWNER_EMAIL_SQL))}
   `);
 
   return (res.rows as Record<string, unknown>[]).map((r): ExportBugRow => {
