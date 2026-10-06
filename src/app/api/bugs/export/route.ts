@@ -3,18 +3,20 @@ import ExcelJS from "exceljs";
 import { requireAuth } from "@/lib/auth/server";
 import {
   buildOwnerSummaries,
+  buildProjectSummaries,
   priorityBucket,
   ENV_UNSET,
   type BugRow,
   type BugPriorityBucket,
   type OwnerSummary,
+  type ProjectSummary,
 } from "@/lib/bug-summary";
 
 type ExportBody = {
   rows: BugRow[];
   title?: string;
   showProject?: boolean;
-  /** "developer" exports only the developer-wise rollup sheet. */
+  /** "developer" exports the developer-wise sheets; "project" the project-wise rollup plus the flat bug list. */
   scope?: ExportScope;
   start?: string;
   end?: string;
@@ -24,7 +26,7 @@ type ExportBody = {
   showOpen?: boolean;
 };
 
-type ExportScope = "all" | "developer";
+type ExportScope = "all" | "developer" | "project";
 
 export async function POST(req: NextRequest) {
   await requireAuth();
@@ -40,7 +42,7 @@ export async function POST(req: NextRequest) {
   const opts: Opts = {
     title: body.title?.trim() || "Bugs",
     showProject: body.showProject === true,
-    scope: body.scope === "developer" ? "developer" : "all",
+    scope: body.scope === "developer" || body.scope === "project" ? body.scope : "all",
     start: body.start ?? "",
     end: body.end ?? "",
     excludeInvalid: body.excludeInvalid !== false,
@@ -50,7 +52,7 @@ export async function POST(req: NextRequest) {
   const buffer = await buildWorkbook(rows, opts);
 
   const safeName = opts.title.replace(/[^\w-]+/g, "_");
-  const tag = opts.scope === "developer" ? "developer-bugs" : "bugs";
+  const tag = opts.scope === "developer" ? "developer-bugs" : opts.scope === "project" ? "project-bugs" : "bugs";
   return new Response(buffer as ArrayBuffer, {
     headers: {
       "Content-Type":
@@ -105,10 +107,17 @@ async function buildWorkbook(rows: BugRow[], opts: Opts): Promise<ArrayBuffer> {
 
   // "developer" scope = the Developer-wise sheets only; "all" also includes the
   // flat detailed bug list sheet.
-  const summaries = buildOwnerSummaries(rows);
-  if (opts.scope !== "developer") addBugsSheet(wb, rows, opts);
-  addDeveloperSheet(wb, summaries, opts);
-  addDeveloperDetailSheet(wb, rows, summaries, opts);
+  if (opts.scope === "project") {
+    // Project-wise rollup, then the flat list (always with its Project column,
+    // since the list is the per-bug detail behind each project's counts).
+    addProjectSheet(wb, buildProjectSummaries(rows), opts);
+    addBugsSheet(wb, rows, { ...opts, showProject: true });
+  } else {
+    const summaries = buildOwnerSummaries(rows);
+    if (opts.scope !== "developer") addBugsSheet(wb, rows, opts);
+    addDeveloperSheet(wb, summaries, opts);
+    addDeveloperDetailSheet(wb, rows, summaries, opts);
+  }
 
   const buffer = await wb.xlsx.writeBuffer();
   return buffer as ArrayBuffer;
@@ -327,17 +336,20 @@ function devHeaders(showOpen: boolean): string[] {
   return headers;
 }
 
-function addDeveloperSheet(wb: ExcelJS.Workbook, summaries: OwnerSummary[], opts: Opts) {
+type RollupItem = { name: string; p1: number; p2: number; p3: number; other: number; total: number; open: number };
+
+function addRollupSheet(
+  wb: ExcelJS.Workbook,
+  cfg: { sheetName: string; nameHeader: string; title: string; subtitle: string; items: RollupItem[] },
+  opts: Opts,
+) {
+  const summaries = cfg.items;
   const headers = devHeaders(opts.showOpen);
-  const ws = wb.addWorksheet("By Developer", { views: [{ state: "frozen", ySplit: 3 }] });
+  headers[0] = cfg.nameHeader;
+  const ws = wb.addWorksheet(cfg.sheetName, { views: [{ state: "frozen", ySplit: 3 }] });
   const colCount = headers.length;
 
-  bannerRows(
-    ws,
-    colCount,
-    `Developer-wise Bug Count — ${opts.title}`,
-    `${summaries.length} developer${summaries.length === 1 ? "" : "s"} · owner = Issue Owner field only (never the assignee)`
-  );
+  bannerRows(ws, colCount, cfg.title, cfg.subtitle);
   headerRow(ws, headers);
 
   const totals = { p1: 0, p2: 0, p3: 0, other: 0, total: 0, open: 0 };
@@ -345,7 +357,7 @@ function addDeveloperSheet(wb: ExcelJS.Workbook, summaries: OwnerSummary[], opts
   summaries.forEach((s, idx) => {
     const row = ws.getRow(idx + 4);
     const zebra = idx % 2 === 1;
-    const values = [s.ownerName, s.p1, s.p2, s.p3, s.other, s.total];
+    const values = [s.name, s.p1, s.p2, s.p3, s.other, s.total];
     if (opts.showOpen) values.push(s.open);
 
     values.forEach((v, ci) => {
@@ -389,6 +401,34 @@ function addDeveloperSheet(wb: ExcelJS.Workbook, summaries: OwnerSummary[], opts
 
   ws.getColumn(1).width = 28;
   for (let c = 2; c <= colCount; c++) ws.getColumn(c).width = 10;
+}
+
+function addDeveloperSheet(wb: ExcelJS.Workbook, summaries: OwnerSummary[], opts: Opts) {
+  addRollupSheet(
+    wb,
+    {
+      sheetName: "By Developer",
+      nameHeader: "Developer",
+      title: `Developer-wise Bug Count — ${opts.title}`,
+      subtitle: `${summaries.length} developer${summaries.length === 1 ? "" : "s"} · owner = Issue Owner field only (never the assignee)`,
+      items: summaries.map((s) => ({ ...s, name: s.ownerName })),
+    },
+    opts,
+  );
+}
+
+function addProjectSheet(wb: ExcelJS.Workbook, summaries: ProjectSummary[], opts: Opts) {
+  addRollupSheet(
+    wb,
+    {
+      sheetName: "By Project",
+      nameHeader: "Project",
+      title: `Project-wise Bug Count — ${opts.title}`,
+      subtitle: `${summaries.length} project${summaries.length === 1 ? "" : "s"}`,
+      items: summaries.map((s) => ({ ...s, name: s.projectName })),
+    },
+    opts,
+  );
 }
 
 // ---- Sheet 3: dev-wise bug detail (the "click a dev" view, materialized) ----

@@ -2,9 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
-  RiArrowDownSLine,
-  RiArrowUpSLine,
   RiSearchLine,
   RiExternalLinkLine,
   RiArrowRightUpLine,
@@ -13,65 +12,50 @@ import {
   RiSearchEyeLine,
   RiDownload2Line,
 } from "@remixicon/react";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DateRangeBar } from "@/components/bug-summary/date-range-bar";
 import { currentFiscalQuarterChip } from "@/lib/date-utils";
 import type { BugBoardResponse, BugProject } from "@/app/api/bugs/route";
 import {
+  applyBoardFilters,
   buildOwnerRows,
+  buildProjectRows,
+  compareCountRows,
+  computeProjectStats,
   computeTeamStats,
   deriveOwnerOptions,
   deriveEnvironments,
-  effectiveCounts,
+  mergeOwnerBreakdowns,
+  sumCounts,
   rag,
   RAG_BADGE,
   PRIORITIES,
   type OwnerRow,
   type ProjectBreakdown,
+  type ProjectRow,
   type Counts,
   type TeamStats,
   type PriorityKey,
+  type SortKey,
 } from "@/lib/bugs/aggregate";
 import { ENV_UNSET, type BugRow } from "@/lib/bug-summary";
 import { BugModal } from "./bug-modal";
 import { BugIssueList } from "./bug-issue-list";
+import {
+  ALL_PRIORITY_COLS,
+  ContribCell,
+  CountCell,
+  FoundBreakdown,
+  RcaMissingCell,
+  SearchableMultiSelect,
+  SortControl,
+  SortableTh,
+  StatChip,
+  type PriorityCol,
+} from "./bug-board-shared";
+import { DeveloperSplit, ProjectBoardTable } from "./bug-board-project-view";
 
-// ---------------------------------------------------------------------------
-// Types + constants
-// ---------------------------------------------------------------------------
-
-type SortKey = "name" | "total" | "p1" | "p2" | "p3" | "p4" | "open";
-type PriorityCol = { key: PriorityKey; label: string; jql: string };
-
-// "open" is appended conditionally (see SORT_OPTS_BASE usage below) — only
-// when feature_flags.showBugBoardOpenColumn is on, matching the column
-// itself being feature-flagged out of the table.
-const SORT_OPTS_BASE: { value: SortKey; label: string }[] = [
-  { value: "total", label: "Total" },
-  { value: "name",  label: "Name"  },
-  { value: "p1",    label: "P1"    },
-  { value: "p2",    label: "P2"    },
-  { value: "p3",    label: "P3"    },
-  { value: "p4",    label: "P4"    },
-];
-
-// Tie-break cascade for any column-wise sort, in this fixed priority order
-// (each descending) — whichever key is the primary sort itself is skipped
-// (comparing it to itself can never break a tie), then Name (ascending) is
-// the always-unique final tiebreaker.
-const TIE_BREAK_ORDER: SortKey[] = ["total", "p1", "p2", "p3", "p4", "open"];
-
-const ALL_PRIORITY_COLS: PriorityCol[] = [
-  { key: "p1", label: "P1", jql: "P1" },
-  { key: "p2", label: "P2", jql: "P2" },
-  { key: "p3", label: "P3", jql: "P3" },
-  { key: "p4", label: "P4", jql: "P4" },
-];
+type BoardView = "developer" | "project";
 
 /**
  * Link to a developer's My Bugs view (the per-user Tasks page, Bugs tab),
@@ -128,6 +112,25 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
   const [breakdownTab, setBreakdownTab] = useState<"project" | "source">("project");
   const [missingOwnerOpen, setMissingOwnerOpen] = useState(false);
 
+  // By Developer (default) | By Project. Mirrored to ?view= so the choice is
+  // linkable and survives a refresh; replaceState (not router.replace) because
+  // nothing server-side depends on it, so no navigation/refetch is needed.
+  const searchParams = useSearchParams();
+  const [view, setViewState] = useState<BoardView>(
+    searchParams.get("view") === "project" ? "project" : "developer",
+  );
+  const setView = (v: BoardView) => {
+    setViewState(v);
+    const url = new URL(window.location.href);
+    if (v === "project") url.searchParams.set("view", "project");
+    else url.searchParams.delete("view");
+    window.history.replaceState(null, "", url);
+  };
+  // Which project's breakdown modal is open in the By Project view — a
+  // synthetic key "__total__" row stands in for the grand-total row.
+  const [projectBreakdownRow, setProjectBreakdownRow] = useState<ProjectRow | null>(null);
+  const [projectBreakdownTab, setProjectBreakdownTab] = useState<"developer" | "source">("developer");
+
   const openBreakdown = (row: OwnerRow, tab: "project" | "source" = "project") => {
     setBreakdownRow(row);
     setBreakdownTab(tab);
@@ -177,7 +180,6 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
     () => new Set(selPriorities) as Set<PriorityKey>,
     [selPriorities],
   );
-  const allPrioritiesSelected = selPriorities.length === 4;
 
   // Env filter is applied at the cell level (before owner aggregation) so the
   // counts, % share, and breakdowns all reflect the selected environment.
@@ -188,18 +190,7 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
   }, [data, projectIdSet, selEnv]);
 
   const effectiveRows: OwnerRow[] = useMemo(() => {
-    const applyFilters = (c: Counts): Partial<Counts> => {
-      const afterPriority = allPrioritiesSelected ? c : effectiveCounts(c, prioritySet);
-      if (!cfOnly) return afterPriority;
-      return {
-        ...afterPriority,
-        total: afterPriority.cfTotal,
-        p1: afterPriority.cf1, p2: afterPriority.cf2,
-        p3: afterPriority.cf3, p4: afterPriority.cf4,
-        // open breakdown not available per source — zero it so cells show "—"
-        open: 0, open1: 0, open2: 0, open3: 0, open4: 0,
-      };
-    };
+    const applyFilters = (c: Counts): Counts => applyBoardFilters(c, prioritySet, cfOnly);
     return ownerRows.map((row) => ({
       ...row,
       ...applyFilters(row),
@@ -214,9 +205,55 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
         .map((p) => ({ ...p, ...applyFilters(p) }))
         .filter((p) => p.total > 0),
     }));
-  }, [ownerRows, allPrioritiesSelected, prioritySet, cfOnly]);
+  }, [ownerRows, prioritySet, cfOnly]);
 
   const teamStats = useMemo(() => computeTeamStats(effectiveRows), [effectiveRows]);
+
+  // ---- By Project pipeline: same env → priority/customer-found filters as
+  // above, but keyed by project. The Developers filter narrows who is counted
+  // into each project (rather than hiding rows), so project totals always equal
+  // the By Developer totals for the same selection.
+  const ownerKeySet = useMemo(() => new Set(selOwners), [selOwners]);
+  const effectiveProjectRows: ProjectRow[] = useMemo(() => {
+    if (!data) return [];
+    const cells = selEnv ? data.cells.filter((c) => c.environment === selEnv) : data.cells;
+    return buildProjectRows(cells, projectIdSet, ownerKeySet).map((row) => ({
+      ...row,
+      ...applyBoardFilters(row, prioritySet, cfOnly),
+      owners: row.owners
+        .map((o) => ({ ...o, ...applyBoardFilters(o, prioritySet, cfOnly) }))
+        .filter((o) => o.total > 0),
+    }));
+  }, [data, selEnv, projectIdSet, ownerKeySet, prioritySet, cfOnly]);
+
+  const projectStats = useMemo(
+    () => computeProjectStats(effectiveProjectRows.filter((r) => r.total > 0)),
+    [effectiveProjectRows],
+  );
+
+  const rankByProject = useMemo(() => {
+    const ranked = effectiveProjectRows
+      .filter((r) => r.total > 0)
+      .sort((a, b) => b.total - a.total);
+    return new Map(ranked.map((r, i) => [r.key, i + 1]));
+  }, [effectiveProjectRows]);
+
+  const displayProjectRows = useMemo(() => {
+    const q = nameQuery.trim().toLowerCase();
+    const rows = effectiveProjectRows.filter(
+      (r) => r.total > 0 && (!q || r.name.toLowerCase().includes(q)),
+    );
+    rows.sort((a, b) => compareCountRows(a, b, sortBy, sortDir));
+    return rows;
+  }, [effectiveProjectRows, nameQuery, sortBy, sortDir]);
+
+  const projectGrandTotal = useMemo(() => sumCounts(displayProjectRows), [displayProjectRows]);
+
+  const projectTotalRow = useMemo<ProjectRow>(() => ({
+    ...projectGrandTotal,
+    key: "__total__", projectId: "__total__", name: "Total",
+    owners: mergeOwnerBreakdowns(displayProjectRows),
+  }), [projectGrandTotal, displayProjectRows]);
 
   const projectOptions = useMemo(
     () => (data?.projects ?? []).map((p) => ({ value: p.id, label: p.name })),
@@ -262,32 +299,10 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
       if (q && !(r.name.toLowerCase().includes(q) || (r.email ?? "").toLowerCase().includes(q))) return false;
       return true;
     });
-    const dir = sortDir === "asc" ? 1 : -1;
     rows.sort((a, b) => {
+      // Missing Issue Owner always sinks to the bottom.
       if (a.isUnassigned !== b.isUnassigned) return a.isUnassigned ? 1 : -1;
-
-      const primary = (() => {
-        if (sortBy === "name") return dir * a.name.localeCompare(b.name);
-        const av = a[sortBy] as number;
-        const bv = b[sortBy] as number;
-        // A "—" (0) in the sorted column has nothing to rank by — it sinks
-        // to the bottom regardless of asc/desc, same as the Missing Issue
-        // Owner row above. Direction only decides order between two real
-        // values.
-        if (!av !== !bv) return av ? -1 : 1;
-        return dir * (av - bv);
-      })();
-      if (primary !== 0) return primary;
-
-      // Deterministic tie-break so equal rows land in the same order on
-      // every render, not whatever order they happened to already be in —
-      // see TIE_BREAK_ORDER above.
-      for (const key of TIE_BREAK_ORDER) {
-        if (key === sortBy) continue;
-        const diff = (b[key] as number) - (a[key] as number);
-        if (diff !== 0) return diff;
-      }
-      return a.name.localeCompare(b.name);
+      return compareCountRows(a, b, sortBy, sortDir);
     });
     return rows;
   }, [effectiveRows, selOwners, nameQuery, sortBy, sortDir]);
@@ -334,14 +349,25 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
     ...grandTotal,
   }), [totalProjectBreakdowns, grandTotal]);
 
+  const isProjectView = view === "project";
+
   const missingOwnerCount = useMemo(
-    () => displayRows.find((r) => r.isUnassigned)?.total ?? 0,
-    [displayRows],
+    () =>
+      isProjectView
+        ? displayProjectRows.reduce(
+            (s, r) => s + (r.owners.find((o) => o.isUnassigned)?.total ?? 0),
+            0,
+          )
+        : displayRows.find((r) => r.isUnassigned)?.total ?? 0,
+    [isProjectView, displayProjectRows, displayRows],
   );
 
   const missingRcaCount = useMemo(
-    () => displayRows.reduce((s, r) => s + r.rcaMissingTotal, 0),
-    [displayRows],
+    () =>
+      isProjectView
+        ? projectGrandTotal.rcaMissingTotal
+        : displayRows.reduce((s, r) => s + r.rcaMissingTotal, 0),
+    [isProjectView, projectGrandTotal, displayRows],
   );
 
   const togglePriority = (key: PriorityKey) =>
@@ -405,7 +431,7 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
           rows: bugs,
           title: "Bug Board",
           showProject: true,
-          scope: "developer",
+          scope: isProjectView ? "project" : "developer",
           start,
           end,
           environment: selEnv,
@@ -419,7 +445,7 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Bug_Board-developer-bugs-${end}.xlsx`;
+      a.download = `Bug_Board-${isProjectView ? "project" : "developer"}-bugs-${end}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -438,13 +464,40 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
         <div>
           <h1 className="flex items-center gap-2 text-lg font-semibold text-foreground">
             <RiBugLine size={18} className="text-red-500" />
-            User wise Bug Count
+            {isProjectView ? "Project wise Bug Count" : "User wise Bug Count"}
           </h1>
+          <div className="mt-1.5 inline-flex rounded-md border border-zinc-200 p-0.5 dark:border-zinc-800" role="tablist" aria-label="Bug board view">
+            {(["developer", "project"] as const).map((v) => (
+              <button
+                key={v}
+                role="tab"
+                aria-selected={view === v}
+                onClick={() => setView(v)}
+                className={`h-6 rounded px-2.5 text-[11px] font-semibold transition-colors ${
+                  view === v
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                {v === "developer" ? "By Owner" : "By Project"}
+              </button>
+            ))}
+          </div>
           {!loading && !error && (
             <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <StatChip label="users" value={teamStats.numOwners} />
-              <StatChip label={cfOnly ? "customer bugs shown" : "bugs shown"} value={displayRows.reduce((s, r) => s + r.total, 0)} />
-              <StatChip label={cfOnly ? "avg CF / user" : "avg / user"} value={Math.round(teamStats.avg.total)} />
+              {isProjectView ? (
+                <>
+                  <StatChip label="projects" value={displayProjectRows.length} />
+                  <StatChip label={cfOnly ? "customer bugs shown" : "bugs shown"} value={projectGrandTotal.total} />
+                  <StatChip label={cfOnly ? "avg CF / project" : "avg / project"} value={Math.round(projectStats.avg.total)} />
+                </>
+              ) : (
+                <>
+                  <StatChip label="users" value={teamStats.numOwners} />
+                  <StatChip label={cfOnly ? "customer bugs shown" : "bugs shown"} value={displayRows.reduce((s, r) => s + r.total, 0)} />
+                  <StatChip label={cfOnly ? "avg CF / user" : "avg / user"} value={Math.round(teamStats.avg.total)} />
+                </>
+              )}
               {missingOwnerCount > 0 && (
                 <button
                   onClick={() => setMissingOwnerOpen(true)}
@@ -580,7 +633,7 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
           <input
             value={nameQuery}
             onChange={(e) => setNameQuery(e.target.value)}
-            placeholder="Search developer…"
+            placeholder={isProjectView ? "Search project…" : "Search developer…"}
             className="h-6 w-44 rounded border border-input bg-background pl-7 pr-2 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
           />
         </div>
@@ -624,7 +677,28 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
       )}
 
       {/* Table */}
-      {!loading && !error && (
+      {!loading && !error && isProjectView && (
+        <ProjectBoardTable
+          rows={displayProjectRows}
+          team={projectStats}
+          grandTotal={projectGrandTotal}
+          rankByKey={rankByProject}
+          sortBy={sortBy}
+          sortDir={sortDir}
+          onSort={toggleSort}
+          visiblePriorityCols={visiblePriorityCols}
+          showOpenColumn={showOpenColumn}
+          onOpenBreakdown={(row, tab) => {
+            setProjectBreakdownRow(row);
+            setProjectBreakdownTab(tab ?? "developer");
+          }}
+          onOpenTotal={() => {
+            setProjectBreakdownRow(projectTotalRow);
+            setProjectBreakdownTab("developer");
+          }}
+        />
+      )}
+      {!loading && !error && !isProjectView && (
         <div className="max-h-screen overflow-auto rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
           <table className="w-full border-collapse text-sm">
             <thead className="sticky top-0">
@@ -809,6 +883,36 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
       </BugModal>
 
       <BugModal
+        open={projectBreakdownRow != null}
+        onOpenChange={(open) => !open && setProjectBreakdownRow(null)}
+        title={projectBreakdownRow ? `Breakdown — ${projectBreakdownRow.name}` : "Breakdown"}
+      >
+        {projectBreakdownRow && (
+          <Tabs value={projectBreakdownTab} onValueChange={(v) => setProjectBreakdownTab(v as "developer" | "source")}>
+            <TabsList>
+              <TabsTrigger value="developer">Developer Breakdown</TabsTrigger>
+              <TabsTrigger value="source">Source Breakdown</TabsTrigger>
+            </TabsList>
+            <TabsContent value="developer" className="mt-3">
+              <DeveloperSplit
+                row={projectBreakdownRow}
+                visiblePriorityCols={visiblePriorityCols}
+                dateFrom={resolvedFrom}
+                dateTo={resolvedTo}
+                showOpenColumn={showOpenColumn}
+                env={selEnv ?? undefined}
+                cfOnly={cfOnly}
+                ownerKeys={selOwners}
+              />
+            </TabsContent>
+            <TabsContent value="source" className="mt-3">
+              <FoundBreakdown counts={projectBreakdownRow} prioritySet={prioritySet} />
+            </TabsContent>
+          </Tabs>
+        )}
+      </BugModal>
+
+      <BugModal
         open={missingOwnerOpen}
         onOpenChange={setMissingOwnerOpen}
         title="Bugs with no issue owner"
@@ -816,19 +920,6 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
         <BugIssueList unassignedOnly from={resolvedFrom} to={resolvedTo} />
       </BugModal>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Stat chip
-// ---------------------------------------------------------------------------
-
-function StatChip({ label, value }: { label: string; value: number }) {
-  return (
-    <span className="inline-flex items-center gap-1 rounded border border-zinc-200 bg-zinc-50 px-1.5 py-px dark:border-zinc-800 dark:bg-zinc-900">
-      <span className="font-semibold tabular-nums text-foreground">{value}</span>
-      <span className="text-muted-foreground">{label}</span>
-    </span>
   );
 }
 
@@ -900,157 +991,6 @@ function OwnerRowView({
       <RcaMissingCell value={row.rcaMissingTotal} />
       <ContribCell pct={contrib} value={row.total} avg={team.avg.total} neutral={neutral} />
     </tr>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Sortable header cell — same ↕/↓/↑ indicator as the Performance Review
-// leaderboard's own column headers, wired to the same sortBy/sortDir state
-// the "Sort:" dropdown already uses (clicking a header is just another way
-// to set it, not a second competing mechanism).
-// ---------------------------------------------------------------------------
-
-function SortableTh({
-  label, sortKey, sortBy, sortDir, onSort, className,
-}: {
-  label: string;
-  sortKey: SortKey;
-  sortBy: SortKey;
-  sortDir: "asc" | "desc";
-  onSort: (key: SortKey) => void;
-  className: string;
-}) {
-  const active = sortBy === sortKey;
-  return (
-    <th className={className}>
-      <button
-        type="button"
-        onClick={() => onSort(sortKey)}
-        className="inline-flex items-center gap-1 uppercase hover:text-foreground"
-      >
-        {label}
-        <span className={active ? "text-zinc-700 dark:text-zinc-300" : "text-zinc-300 dark:text-zinc-600"}>
-          {active ? (sortDir === "desc" ? "↓" : "↑") : "↕"}
-        </span>
-      </button>
-    </th>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Cells
-// ---------------------------------------------------------------------------
-
-function CountCell({
-  value, avg, neutral, bold,
-}: {
-  value: number;
-  avg: number;
-  neutral?: boolean;
-  bold?: boolean;
-}) {
-  const state = neutral ? "neutral" : rag(value, avg);
-  const badge = RAG_BADGE[state];
-  return (
-    <td className="px-3 py-3 text-right tabular-nums text-sm">
-      {value ? (
-        badge
-          ? <span className={badge}>{value}</span>
-          : <span className={bold ? "font-bold text-foreground" : "text-foreground"}>{value}</span>
-      ) : (
-        <span className="text-muted-foreground/30">—</span>
-      )}
-    </td>
-  );
-}
-
-/**
- * Plain count cell for "RCA Unavail" — not RAG-classified against the team
- * average like CountCell (missing RCA isn't a "more bugs than usual" kind of
- * signal), just amber when nonzero so it reads as "needs attention" without
- * implying a red/green judgment relative to peers.
- */
-function RcaMissingCell({ value }: { value: number }) {
-  return (
-    <td className="px-3 py-3 text-right tabular-nums text-sm">
-      {value ? (
-        <span className="font-medium text-amber-700 dark:text-amber-400">{value}</span>
-      ) : (
-        <span className="text-muted-foreground/30">—</span>
-      )}
-    </td>
-  );
-}
-
-function ContribCell({
-  pct, value, avg, neutral,
-}: {
-  pct: number;
-  value: number;
-  avg: number;
-  neutral?: boolean;
-}) {
-  const state = neutral ? "neutral" : rag(value, avg);
-  const badge = RAG_BADGE[state];
-  const text = `${pct.toFixed(1)}%`;
-  return (
-    <td className="px-3 py-3 text-right tabular-nums text-sm">
-      {badge
-        ? <span className={badge}>{text}</span>
-        : <span className="text-foreground">{text}</span>
-      }
-    </td>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Source breakdown panel
-// ---------------------------------------------------------------------------
-
-function FoundBreakdown({ counts, prioritySet }: { counts: Counts; prioritySet: Set<PriorityKey> }) {
-  const rows = [
-    { label: "P1", key: "p1" as PriorityKey, total: counts.p1, cf: counts.cf1, rcaMissing: counts.rcaMissing1 },
-    { label: "P2", key: "p2" as PriorityKey, total: counts.p2, cf: counts.cf2, rcaMissing: counts.rcaMissing2 },
-    { label: "P3", key: "p3" as PriorityKey, total: counts.p3, cf: counts.cf3, rcaMissing: counts.rcaMissing3 },
-    { label: "P4", key: "p4" as PriorityKey, total: counts.p4, cf: counts.cf4, rcaMissing: counts.rcaMissing4 },
-  ].filter((r) => prioritySet.has(r.key));
-
-  return (
-    <div>
-      <div
-        className="inline-grid gap-x-6 gap-y-1.5 rounded-lg border border-zinc-200 bg-white px-4 py-3 text-xs dark:border-zinc-700 dark:bg-zinc-900"
-        style={{ gridTemplateColumns: `auto repeat(${rows.length}, minmax(44px, 1fr))` }}
-      >
-        <span />
-        {rows.map((r) => (
-          <span key={r.label} className="text-right text-[11px] font-semibold uppercase text-muted-foreground">{r.label}</span>
-        ))}
-        <span className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
-          <span className="inline-block size-2 rounded-full bg-amber-400" />Customer-found
-        </span>
-        {rows.map((r) => (
-          <span key={r.label} className="text-right tabular-nums font-medium">
-            {r.cf || <span className="text-muted-foreground/30">—</span>}
-          </span>
-        ))}
-        <span className="flex items-center gap-1.5 font-medium text-blue-600 dark:text-blue-400">
-          <span className="inline-block size-2 rounded-full bg-blue-400" />QA-found
-        </span>
-        {rows.map((r) => (
-          <span key={r.label} className="text-right tabular-nums font-medium">
-            {r.total - r.cf || <span className="text-muted-foreground/30">—</span>}
-          </span>
-        ))}
-        <span className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
-          <RiSearchEyeLine size={12} />RCA missing
-        </span>
-        {rows.map((r) => (
-          <span key={r.label} className="text-right tabular-nums font-medium">
-            {r.rcaMissing || <span className="text-muted-foreground/30">—</span>}
-          </span>
-        ))}
-      </div>
-    </div>
   );
 }
 
@@ -1238,141 +1178,5 @@ function ProjectRowView({
         />
       </BugModal>
     </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Filter controls
-// ---------------------------------------------------------------------------
-
-function SearchableMultiSelect({
-  label, options, selected, onChange,
-}: {
-  label: string;
-  options: { value: string; label: string }[];
-  selected: string[];
-  onChange: (vals: string[]) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const active = selected.length > 0;
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
-  }, [options, query]);
-
-  const toggle = (value: string) =>
-    onChange(selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value]);
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button className={`inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-xs font-medium transition-colors ${
-          active
-            ? "border-primary/40 bg-primary/5 text-primary dark:bg-primary/10"
-            : "border-input bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
-        }`}>
-          {label}
-          {active && (
-            <span className="rounded-full bg-primary px-1 py-px text-[9px] font-bold leading-none text-primary-foreground">
-              {selected.length}
-            </span>
-          )}
-          <RiArrowDownSLine size={12} className="opacity-50" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-56 p-0">
-        <div className="border-b border-border p-2">
-          <div className="relative">
-            <RiSearchLine size={13} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={`Search ${label.toLowerCase()}…`}
-              className="h-7 w-full rounded border border-input bg-background pl-7 pr-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
-            />
-          </div>
-        </div>
-        {filtered.length === 0 ? (
-          <p className="px-3 py-3 text-center text-xs text-muted-foreground">No matches</p>
-        ) : (
-          <div className="max-h-60 overflow-y-auto py-1">
-            {filtered.map((opt) => (
-              <div
-                key={opt.value}
-                onClick={() => toggle(opt.value)}
-                className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted"
-              >
-                <span className={`flex size-3.5 shrink-0 items-center justify-center rounded border ${
-                  selected.includes(opt.value)
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-input"
-                }`}>
-                  {selected.includes(opt.value) && (
-                    <svg viewBox="0 0 10 10" className="size-2.5" fill="none">
-                      <path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  )}
-                </span>
-                <span className="truncate text-foreground">{opt.label}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        {active && (
-          <div className="border-t border-border px-3 py-1.5">
-            <button onClick={() => onChange([])} className="text-xs text-muted-foreground hover:text-foreground">Clear</button>
-          </div>
-        )}
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function SortControl({
-  sortBy, sortDir, onChange, showOpenColumn,
-}: {
-  sortBy: SortKey;
-  sortDir: "asc" | "desc";
-  onChange: (by: SortKey, dir: "asc" | "desc") => void;
-  showOpenColumn: boolean;
-}) {
-  const sortOpts = showOpenColumn
-    ? [...SORT_OPTS_BASE, { value: "open" as const, label: "Open" }]
-    : SORT_OPTS_BASE;
-  const current = sortOpts.find((o) => o.value === sortBy) ?? sortOpts[0];
-  return (
-    <div className="flex items-center gap-0.5">
-      <Popover>
-        <PopoverTrigger asChild>
-          <button className="inline-flex h-7 items-center gap-1 rounded-l-md border border-input bg-background px-2.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
-            Sort: {current.label}
-            <RiArrowDownSLine size={12} className="opacity-50" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-36 p-0">
-          <div className="py-1">
-            {sortOpts.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => onChange(opt.value, sortDir)}
-                className={`flex w-full items-center px-3 py-1.5 text-xs hover:bg-muted ${
-                  sortBy === opt.value ? "font-semibold text-foreground" : "text-muted-foreground"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </PopoverContent>
-      </Popover>
-      <button
-        onClick={() => onChange(sortBy, sortDir === "asc" ? "desc" : "asc")}
-        className="inline-flex h-7 items-center rounded-r-md border border-l-0 border-input bg-background px-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-        title={sortDir === "asc" ? "Ascending" : "Descending"}
-      >
-        {sortDir === "asc" ? <RiArrowUpSLine size={13} /> : <RiArrowDownSLine size={13} />}
-      </button>
-    </div>
   );
 }

@@ -30,6 +30,7 @@ export function BugIssueList({
   unassignedOnly,
   priority,
   ownerKey,
+  ownerKeys,
   from,
   to,
   env,
@@ -40,6 +41,8 @@ export function BugIssueList({
   priority?: string;
   /** Scopes the list to one developer's bugs (email/accountId) — omit for everyone. */
   ownerKey?: string;
+  /** Scopes the list to several developers (the board's Developers filter) — ignored when ownerKey is set. */
+  ownerKeys?: string[];
   from?: string;
   to?: string;
   /** Matches the board's Env chip — same normalized label (Prod/UAT/Demo/…). */
@@ -51,7 +54,7 @@ export function BugIssueList({
   // is derived by comparing keys rather than reset synchronously inside the
   // effect — mirrors BugBoardClient's own top-level fetch, and avoids the
   // extra render pass a direct setState-in-effect call would cost.
-  const cacheKey = JSON.stringify({ projectId, unassignedOnly, priority, ownerKey, from, to, env, cfOnly });
+  const cacheKey = JSON.stringify({ projectId, unassignedOnly, priority, ownerKey, ownerKeys, from, to, env, cfOnly });
   const [fetchResult, setFetchResult] = useState<{ key: string; data: BugIssuesResponse } | null>(null);
 
   useEffect(() => {
@@ -60,6 +63,7 @@ export function BugIssueList({
     if (unassignedOnly) params.set("unassignedOnly", "true");
     if (priority) params.set("priority", priority);
     if (ownerKey) params.set("ownerKey", ownerKey);
+    else if (ownerKeys?.length) params.set("ownerKeys", ownerKeys.join(","));
     if (from) params.set("from", from);
     if (to) params.set("to", to);
     if (env) params.set("env", env);
@@ -69,7 +73,7 @@ export function BugIssueList({
       .then((data) => setFetchResult({ key: cacheKey, data }))
       .catch((e) => setFetchResult({ key: cacheKey, data: { error: String(e) } }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, unassignedOnly, priority, ownerKey, from, to, env, cfOnly]);
+  }, [projectId, unassignedOnly, priority, ownerKey, cacheKey, from, to, env, cfOnly]);
 
   const data = fetchResult?.key === cacheKey ? fetchResult.data : null;
 

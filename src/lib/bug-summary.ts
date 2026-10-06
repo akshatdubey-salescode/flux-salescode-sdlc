@@ -114,6 +114,48 @@ export function buildOwnerSummaries(bugs: BugRow[]): OwnerSummary[] {
   );
 }
 
+/** Per-project rollup — the By Project counterpart of OwnerSummary. */
+export type ProjectSummary = {
+  projectKey: string;
+  projectName: string;
+  p1: number;
+  p2: number;
+  p3: number;
+  other: number;
+  total: number;
+  open: number;
+  rcaUnavailable: number;
+};
+
+/** Aggregate bugs into per-project counts, sorted by total (then open, then name) descending. */
+export function buildProjectSummaries(bugs: BugRow[]): ProjectSummary[] {
+  const map = new Map<string, ProjectSummary>();
+  for (const b of bugs) {
+    let s = map.get(b.projectKey);
+    if (!s) {
+      s = {
+        projectKey: b.projectKey,
+        projectName: b.projectName,
+        p1: 0, p2: 0, p3: 0, other: 0, total: 0, open: 0, rcaUnavailable: 0,
+      };
+      map.set(b.projectKey, s);
+    }
+    if (b.priorityBucket === "P1") s.p1++;
+    else if (b.priorityBucket === "P2") s.p2++;
+    else if (b.priorityBucket === "P3") s.p3++;
+    else s.other++;
+    s.total++;
+    if (b.isOpen) s.open++;
+    if (!b.rcaGiven) s.rcaUnavailable++;
+  }
+  return [...map.values()].sort(
+    (a, b) =>
+      b.total - a.total ||
+      b.open - a.open ||
+      a.projectName.localeCompare(b.projectName)
+  );
+}
+
 /**
  * Collapse Jira's free-text environment field to a canonical label. People
  * type the same environment many ways ("prod" / "Production" / "PRD"), so we

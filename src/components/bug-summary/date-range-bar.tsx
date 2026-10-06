@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { getRangePresets, getQuarterChips } from "@/lib/date-utils";
+import { getRangePresets, getQuarterChips, lastNDaysRange } from "@/lib/date-utils";
 
 type Chip = { label: string; start: string; end: string; tooltip?: string };
 
@@ -48,6 +48,7 @@ export function DateRangeBar({
 
   const chips: Chip[] = [
     ...(last7 ? [{ label: "Last 7d", start: last7.start, end: last7.end }] : []),
+    { label: "Last 10d", ...lastNDaysRange(10) },
     ...(last30 ? [{ label: "Last 30d", start: last30.start, end: last30.end }] : []),
     ...getQuarterChips().map((q) => ({
       label: q.label,
