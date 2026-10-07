@@ -54,12 +54,38 @@ export type OwnerRow = Counts & {
   projects: ProjectBreakdown[];
 };
 
+/** One developer's slice of a single project (the transpose of ProjectBreakdown). */
+export type OwnerBreakdown = Counts & {
+  key: string;
+  name: string;
+  email: string | null;
+  account: string | null;
+  isUnassigned: boolean;
+};
+
+/** One row per project for the By Project board; `name` is the project name so rows sort like OwnerRows. */
+export type ProjectRow = Counts & {
+  /** Same as projectId — the stable React/rank key. */
+  key: string;
+  projectId: string;
+  name: string;
+  owners: OwnerBreakdown[];
+};
+
 export type TeamStats = {
   /** Real developers only (excludes the Unassigned bucket). */
   numOwners: number;
   /** Sum of every shown bug, including the Unassigned bucket (the % denominator). */
   grandTotal: number;
   /** Per-developer averages (Unassigned excluded from the denominator). */
+  avg: Counts;
+};
+
+export type ProjectStats = {
+  numProjects: number;
+  /** Sum of every shown bug across the shown projects (the % denominator). */
+  grandTotal: number;
+  /** Per-project averages. */
   avg: Counts;
 };
 
@@ -145,6 +171,63 @@ export function buildOwnerRows(
 }
 
 /**
+ * Collapse owner×project×env cells into one row per project, the transpose of
+ * buildOwnerRows. Both filters narrow what is COUNTED: an empty project set means
+ * all projects, and a non-empty developer set drops every other developer's
+ * cells (including the no-owner bucket) so project totals match what the
+ * By Developer view shows for the same selection.
+ */
+export function buildProjectRows(
+  cells: BugCell[],
+  selectedProjectIds: Set<string>,
+  selectedOwnerKeys: Set<string>,
+): ProjectRow[] {
+  const projectFilterOn = selectedProjectIds.size > 0;
+  const ownerFilterOn = selectedOwnerKeys.size > 0;
+  const byProject = new Map<string, ProjectRow>();
+  const ownersByProject = new Map<string, Map<string, OwnerBreakdown>>();
+
+  for (const c of cells) {
+    if (projectFilterOn && !selectedProjectIds.has(c.projectId)) continue;
+    if (ownerFilterOn && (c.ownerKey == null || !selectedOwnerKeys.has(c.ownerKey))) continue;
+
+    let row = byProject.get(c.projectId);
+    if (!row) {
+      row = { ...ZERO, key: c.projectId, projectId: c.projectId, name: c.projectName, owners: [] };
+      byProject.set(c.projectId, row);
+      ownersByProject.set(c.projectId, new Map());
+    }
+    addInto(row, c);
+
+    const ownerKey = c.ownerKey ?? UNASSIGNED_KEY;
+    const ownerMap = ownersByProject.get(c.projectId)!;
+    let owner = ownerMap.get(ownerKey);
+    if (!owner) {
+      owner = {
+        ...ZERO,
+        key: ownerKey,
+        name: c.ownerName ?? c.ownerEmail ?? MISSING_ISSUE_OWNER,
+        email: c.ownerEmail,
+        account: c.ownerAccount,
+        isUnassigned: c.ownerKey == null,
+      };
+      ownerMap.set(ownerKey, owner);
+    }
+    if (owner.name === MISSING_ISSUE_OWNER && c.ownerName) owner.name = c.ownerName;
+    if (!owner.account && c.ownerAccount) owner.account = c.ownerAccount;
+    addInto(owner, c);
+  }
+
+  for (const [projectId, row] of byProject) {
+    row.owners = [...ownersByProject.get(projectId)!.values()].sort((a, b) => {
+      if (a.isUnassigned !== b.isUnassigned) return a.isUnassigned ? 1 : -1;
+      return b.total - a.total;
+    });
+  }
+  return [...byProject.values()];
+}
+
+/**
  * Distinct environment labels present across the cells, in a stable preferred
  * order (Prod, Demo, UAT first; the rest alphabetical; "no env" last). Drives
  * the Env filter chips. Mirrors the ordering used by the per-project boards.
@@ -160,35 +243,58 @@ export function deriveEnvironments(cells: BugCell[]): string[] {
   return [...ordered, ...rest];
 }
 
+/** Field-wise sum of every Counts in the list (the grand-total row). */
+export function sumCounts(rows: Counts[]): Counts {
+  const sum: Counts = { ...ZERO };
+  for (const r of rows) addInto(sum, r);
+  return sum;
+}
+
+/** Collapse the per-project developer slices into one slice per developer (the Total row's Developer Breakdown). */
+export function mergeOwnerBreakdowns(rows: ProjectRow[]): OwnerBreakdown[] {
+  const byOwner = new Map<string, OwnerBreakdown>();
+  for (const row of rows) {
+    for (const o of row.owners) {
+      const ex = byOwner.get(o.key);
+      if (ex) addInto(ex, o);
+      else byOwner.set(o.key, { ...o });
+    }
+  }
+  return [...byOwner.values()].sort((a, b) => {
+    if (a.isUnassigned !== b.isUnassigned) return a.isUnassigned ? 1 : -1;
+    return b.total - a.total;
+  });
+}
+
+/** Per-row average of every Counts field (zero when there are no rows). */
+function averageCounts(rows: Counts[]): Counts {
+  const sum: Counts = { ...ZERO };
+  for (const r of rows) addInto(sum, r);
+  const avg: Counts = { ...ZERO };
+  for (const k of Object.keys(ZERO) as (keyof Counts)[]) {
+    avg[k] = rows.length > 0 ? sum[k] / rows.length : 0;
+  }
+  return avg;
+}
+
 /** Team benchmark: averages over real developers; grand total over everyone. */
 export function computeTeamStats(rows: OwnerRow[]): TeamStats {
-  const sum: Counts = { ...ZERO };
-  let numOwners = 0;
   let grandTotal = 0;
+  const developers: OwnerRow[] = [];
 
   for (const r of rows) {
     grandTotal += r.total;
-    if (r.isUnassigned) continue;
-    numOwners++;
-    addInto(sum, r);
+    if (!r.isUnassigned) developers.push(r);
   }
 
-  const div = (n: number) => (numOwners > 0 ? n / numOwners : 0);
-  return {
-    numOwners,
-    grandTotal,
-    avg: {
-      total: div(sum.total),
-      p1: div(sum.p1), p2: div(sum.p2), p3: div(sum.p3), p4: div(sum.p4),
-      open: div(sum.open),
-      open1: div(sum.open1), open2: div(sum.open2), open3: div(sum.open3), open4: div(sum.open4),
-      cfTotal: div(sum.cfTotal),
-      cf1: div(sum.cf1), cf2: div(sum.cf2), cf3: div(sum.cf3), cf4: div(sum.cf4),
-      rcaMissingTotal: div(sum.rcaMissingTotal),
-      rcaMissing1: div(sum.rcaMissing1), rcaMissing2: div(sum.rcaMissing2),
-      rcaMissing3: div(sum.rcaMissing3), rcaMissing4: div(sum.rcaMissing4),
-    },
-  };
+  return { numOwners: developers.length, grandTotal, avg: averageCounts(developers) };
+}
+
+/** Project benchmark for the By Project board: averages over every shown project. */
+export function computeProjectStats(rows: ProjectRow[]): ProjectStats {
+  let grandTotal = 0;
+  for (const r of rows) grandTotal += r.total;
+  return { numProjects: rows.length, grandTotal, avg: averageCounts(rows) };
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +340,64 @@ export function effectiveCounts(counts: Counts, sel: Set<PriorityKey>): Counts {
       (sel.has("p3") ? counts.rcaMissing3 : 0) +
       (sel.has("p4") ? counts.rcaMissing4 : 0),
   };
+}
+
+/**
+ * The board's Priority + "Customer-found only" filters applied to one row's
+ * counts. Shared by the By Developer and By Project views so both always agree.
+ * Customer-found only re-points the priority columns at the customer-found
+ * counts and zeroes Open (it has no per-source split).
+ */
+export function applyBoardFilters(c: Counts, sel: Set<PriorityKey>, cfOnly: boolean): Counts {
+  const afterPriority = effectiveCounts(c, sel);
+  if (!cfOnly) return afterPriority;
+  return {
+    ...afterPriority,
+    total: afterPriority.cfTotal,
+    p1: afterPriority.cf1, p2: afterPriority.cf2,
+    p3: afterPriority.cf3, p4: afterPriority.cf4,
+    open: 0, open1: 0, open2: 0, open3: 0, open4: 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Sorting
+// ---------------------------------------------------------------------------
+
+export type SortKey = "name" | "total" | "p1" | "p2" | "p3" | "p4" | "open";
+
+// Tie-break cascade for any column-wise sort, in this fixed priority order
+// (each descending) — whichever key is the primary sort itself is skipped
+// (comparing it to itself can never break a tie), then Name (ascending) is
+// the always-unique final tiebreaker.
+const TIE_BREAK_ORDER: SortKey[] = ["total", "p1", "p2", "p3", "p4", "open"];
+
+/** Comparator for board rows (developers or projects) by the active column, with the deterministic tie-break cascade. */
+export function compareCountRows<T extends Counts & { name: string }>(
+  a: T,
+  b: T,
+  sortBy: SortKey,
+  sortDir: "asc" | "desc",
+): number {
+  const dir = sortDir === "asc" ? 1 : -1;
+  const primary = (() => {
+    if (sortBy === "name") return dir * a.name.localeCompare(b.name);
+    const av = a[sortBy] as number;
+    const bv = b[sortBy] as number;
+    // A "—" (0) in the sorted column has nothing to rank by — it sinks to the
+    // bottom regardless of asc/desc. Direction only decides order between two
+    // real values.
+    if (!av !== !bv) return av ? -1 : 1;
+    return dir * (av - bv);
+  })();
+  if (primary !== 0) return primary;
+
+  for (const key of TIE_BREAK_ORDER) {
+    if (key === sortBy) continue;
+    const diff = (b[key] as number) - (a[key] as number);
+    if (diff !== 0) return diff;
+  }
+  return a.name.localeCompare(b.name);
 }
 
 // ---------------------------------------------------------------------------

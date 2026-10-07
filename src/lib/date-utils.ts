@@ -86,6 +86,14 @@ export function getRelevantQuarters() {
 
 export type RangePreset = { label: string; start: string; end: string };
 
+/** Rolling window of `n` days ending today, inclusive of today (same convention as "Last 7 days" = today + 6 before). */
+export function lastNDaysRange(n: number): { start: string; end: string } {
+  const now = new Date();
+  const d = new Date(now);
+  d.setDate(d.getDate() - (n - 1));
+  return { start: localDateStr(d), end: localDateStr(now) };
+}
+
 /**
  * Relative quick-select ranges (rolling windows + calendar/fiscal periods) for
  * filter bars. End-inclusive YYYY-MM-DD strings. Rolling windows include today,

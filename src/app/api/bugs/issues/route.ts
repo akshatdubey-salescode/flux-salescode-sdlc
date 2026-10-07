@@ -62,6 +62,9 @@ export async function GET(request: NextRequest) {
     const unassignedOnly = searchParams.get("unassignedOnly") === "true";
     const priority = searchParams.get("priority");
     const ownerKey = searchParams.get("ownerKey");
+    // Multi-developer scope for the By Project view's Developers filter —
+    // ignored when a single ownerKey is given.
+    const ownerKeys = (searchParams.get("ownerKeys") ?? "").split(",").map((k) => k.trim()).filter(Boolean);
     const env = searchParams.get("env");
     const cfOnly = searchParams.get("cfOnly") === "true";
     if (!projectId && !unassignedOnly) {
@@ -74,7 +77,7 @@ export async function GET(request: NextRequest) {
     const from = rawFrom && ISO_DATE.test(rawFrom) ? rawFrom : q?.start;
     const to = rawTo && ISO_DATE.test(rawTo) ? rawTo : q?.end;
 
-    const rows = await fetchBugIssues({ projectId, unassignedOnly, priority, ownerKey, from, to, env, cfOnly });
+    const rows = await fetchBugIssues({ projectId, unassignedOnly, priority, ownerKey, ownerKeys, from, to, env, cfOnly });
     return NextResponse.json({ issues: rows, truncated: rows.length >= MAX_ROWS });
   } catch (err) {
     console.error("[bugs/issues] error:", err);
@@ -100,6 +103,7 @@ async function fetchBugIssues({
   unassignedOnly,
   priority,
   ownerKey,
+  ownerKeys,
   from,
   to,
   env,
@@ -109,6 +113,7 @@ async function fetchBugIssues({
   unassignedOnly: boolean;
   priority: string | null;
   ownerKey: string | null;
+  ownerKeys: string[];
   from?: string;
   to?: string;
   env: string | null;
@@ -148,14 +153,15 @@ async function fetchBugIssues({
   // Same COALESCE(email, accountId) precedence as owner_key in /api/bugs, so
   // one developer's row here links to exactly the issues counted under them
   // there — not every bug on the project.
-  const ownerFilter = ownerKey
-    ? sql`
-      AND COALESCE(
+  const ownerExpr = sql`COALESCE(
         COALESCE(ow.v->>'emailAddress', ow.v->0->>'emailAddress'),
         COALESCE(ow.v->>'accountId',    ow.v->0->>'accountId')
-      ) = ${ownerKey}
-    `
-    : sql``;
+      )`;
+  const ownerFilter = ownerKey
+    ? sql` AND ${ownerExpr} = ${ownerKey}`
+    : ownerKeys.length > 0
+      ? sql` AND ${ownerExpr} IN (${sql.join(ownerKeys.map((k) => sql`${k}`), sql`, `)})`
+      : sql``;
 
   // The env chip's value is a label normalizeEnvironment() derived from raw
   // Jira data (see fetchBugBoard) — there's no SQL-side equivalent of that

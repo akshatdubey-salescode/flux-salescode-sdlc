@@ -62,3 +62,19 @@ test("out-of-range hour or minute falls back rather than producing nonsense", ()
   assert.equal(bucketNowForCache("2026-08-20T99:07:00"), "2026-08-20T99:07:00");
   assert.equal(bucketNowForCache("2026-08-20T10:77:00"), "2026-08-20T10:77:00");
 });
+
+test("lastNDaysRange is a rolling window that includes today", async () => {
+  const { lastNDaysRange, getRangePresets } = await import("./date-utils");
+  const days = (r: { start: string; end: string }) =>
+    Math.round((Date.parse(`${r.end}T00:00:00Z`) - Date.parse(`${r.start}T00:00:00Z`)) / 86_400_000) + 1;
+
+  assert.equal(days(lastNDaysRange(10)), 10);
+  assert.equal(days(lastNDaysRange(1)), 1);
+
+  // Same convention as the existing presets, so the 10d chip lines up with 7d/30d.
+  const presets = getRangePresets();
+  const last7 = presets.find((p) => p.label === "Last 7 days")!;
+  const last30 = presets.find((p) => p.label === "Last 30 days")!;
+  assert.deepEqual(lastNDaysRange(7), { start: last7.start, end: last7.end });
+  assert.deepEqual(lastNDaysRange(30), { start: last30.start, end: last30.end });
+});
