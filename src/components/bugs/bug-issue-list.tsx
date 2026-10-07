@@ -4,11 +4,13 @@
 // jira_issues read, no JQL involved) and rendered as a plain list, each
 // linking straight to the issue in Jira. Shared by the project-Jira modal
 // and the missing-issue-owner modal.
-import { useEffect, useState } from "react";
-import { RiExternalLinkLine } from "@remixicon/react";
+import { useEffect, useRef, useState } from "react";
+import { RiCheckLine, RiExternalLinkLine, RiFileCopyLine } from "@remixicon/react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RcaBadge } from "./rca-badge";
+import { buildIssuesMessage, type CopyRca } from "@/lib/bugs/copy-issues";
+import { localDateStr } from "@/lib/date-utils";
 
 type BugIssueRow = {
   id: string;
@@ -21,6 +23,9 @@ type BugIssueRow = {
   jiraBaseUrl: string;
   environment: string;
   isCustomerFound: boolean;
+  ownerName: string | null;
+  assigneeName: string | null;
+  createdAt: string | null;
 };
 
 type BugIssuesResponse = { issues: BugIssueRow[]; truncated: boolean } | { error: string };
@@ -35,6 +40,7 @@ export function BugIssueList({
   to,
   env,
   cfOnly,
+  shareTitle,
 }: {
   projectId?: string;
   unassignedOnly?: boolean;
@@ -49,6 +55,8 @@ export function BugIssueList({
   env?: string;
   /** Matches the board's "Customer-found only" toggle. */
   cfOnly?: boolean;
+  /** Scope line for "Copy Issues" (same text as the popup's title, e.g. "CavinKare COE — Rohit Mittal — P3"). */
+  shareTitle?: string;
 }) {
   // cacheKey/fetchResult (not a plain setData(null)-then-fetch) so "loading"
   // is derived by comparing keys rather than reset synchronously inside the
@@ -77,6 +85,59 @@ export function BugIssueList({
 
   const data = fetchResult?.key === cacheKey ? fetchResult.data : null;
 
+  // RCA for "Copy Issues" is fetched as soon as the list arrives (one batched
+  // call, the same endpoint the row badges use) and kept as a promise, so the
+  // click handler can hand it straight to the clipboard without losing the
+  // browser's user-gesture window to a network round-trip.
+  const rcaByKey = useRef<Promise<Record<string, CopyRca | null>> | null>(null);
+  useEffect(() => {
+    if (!data || "error" in data || data.issues.length === 0) {
+      rcaByKey.current = null;
+      return;
+    }
+    const ids = data.issues.map((i) => i.id);
+    rcaByKey.current = fetch("/api/bugs/rca-summaries", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ issueIds: ids }),
+    })
+      .then((r) => (r.ok ? r.json() : { summaries: {} }))
+      .then((d: { summaries: Record<string, CopyRca | null> }) =>
+        Object.fromEntries(data.issues.map((i) => [i.jiraKey, d.summaries[i.id] ?? null])),
+      )
+      .catch(() => ({}));
+  }, [data]);
+
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+
+  async function handleCopyIssues() {
+    if (!data || "error" in data) return;
+    const issues = data.issues;
+    const textPromise = (rcaByKey.current ?? Promise.resolve({})).then((rca) =>
+      buildIssuesMessage({
+        title: shareTitle ?? "Bug Board issues",
+        from, to, env, cfOnly,
+        issues,
+        rca,
+        truncated: data.truncated,
+        today: localDateStr(new Date()),
+      }),
+    );
+    try {
+      if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({ "text/plain": textPromise.then((t) => new Blob([t], { type: "text/plain" })) }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(await textPromise);
+      }
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+    setTimeout(() => setCopyState("idle"), 2000);
+  }
+
   if (!data) {
     return (
       <div className="space-y-2">
@@ -97,6 +158,24 @@ export function BugIssueList({
 
   return (
     <div className="space-y-1">
+      <div className="flex items-center justify-between pb-1">
+        <span className="text-[11px] text-muted-foreground">
+          {data.issues.length} issue{data.issues.length === 1 ? "" : "s"}
+        </span>
+        <button
+          type="button"
+          onClick={handleCopyIssues}
+          className="flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+        >
+          {copyState === "copied" ? (
+            <><RiCheckLine size={12} /> Copied!</>
+          ) : copyState === "error" ? (
+            <>Copy failed</>
+          ) : (
+            <><RiFileCopyLine size={12} /> Copy Issues</>
+          )}
+        </button>
+      </div>
       <div className="divide-y divide-border/50">
         {data.issues.map((issue) => (
           <a

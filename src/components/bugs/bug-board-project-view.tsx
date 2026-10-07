@@ -16,6 +16,9 @@ import { BugIssueList } from "./bug-issue-list";
 import {
   ContribCell,
   CountCell,
+  OpenByPriorityCells,
+  OpenByPriorityHeaders,
+  OpenByPriorityTotals,
   RcaMissingCell,
   SortableTh,
   type PriorityCol,
@@ -56,7 +59,7 @@ export function ProjectBoardTable({
   onOpenTotal: () => void;
 }) {
   // # + Project + visible-priority cols + Total + (Open) + RCA Unavail + % Share
-  const colSpan = 2 + visiblePriorityCols.length + 3 + (showOpenColumn ? 1 : 0);
+  const colSpan = 2 + visiblePriorityCols.length + 3 + (showOpenColumn ? 1 + visiblePriorityCols.length : 0);
 
   return (
     <div className="max-h-screen overflow-auto rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
@@ -83,6 +86,7 @@ export function ProjectBoardTable({
             {showOpenColumn && (
               <SortableTh label="Open" sortKey="open" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className={TH} />
             )}
+            {showOpenColumn && <OpenByPriorityHeaders cols={visiblePriorityCols} sortBy={sortBy} sortDir={sortDir} onSort={onSort} className={TH} />}
             <th className={TH} title="Bugs with no RCA entered in Jira (any status)">RCA Unavail</th>
             <SortableTh label="% Share" sortKey="total" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className={TH} />
           </tr>
@@ -120,6 +124,7 @@ export function ProjectBoardTable({
                   ))}
                   <CountCell value={row.total} avg={team.avg.total} bold />
                   {showOpenColumn && <CountCell value={row.open} avg={team.avg.open} />}
+                  {showOpenColumn && <OpenByPriorityCells row={row} avg={team.avg} cols={visiblePriorityCols} />}
                   <RcaMissingCell value={row.rcaMissingTotal} />
                   <ContribCell pct={contrib} value={row.total} avg={team.avg.total} />
                 </tr>
@@ -145,6 +150,7 @@ export function ProjectBoardTable({
               {showOpenColumn && (
                 <td className="px-3 py-2.5 text-right text-xs font-bold tabular-nums text-foreground">{grandTotal.open}</td>
               )}
+              {showOpenColumn && <OpenByPriorityTotals total={grandTotal} cols={visiblePriorityCols} />}
               <td className="px-3 py-2.5 text-right text-xs font-bold tabular-nums text-amber-700 dark:text-amber-400">
                 {grandTotal.rcaMissingTotal || <span className="font-normal text-muted-foreground/40">—</span>}
               </td>
@@ -254,6 +260,7 @@ export function DeveloperSplit({
             ownerKeys={ownerKeys}
             env={env}
             cfOnly={cfOnly}
+            shareTitle={`${row.name} — all issues`}
           />
         </BugModal>
       )}
@@ -363,6 +370,7 @@ function DeveloperRowView({
             unassignedOnly={o.isUnassigned}
             env={env}
             cfOnly={cfOnly}
+            shareTitle={`${projectName} — ${o.name}${priorityFilter ? ` — ${priorityFilter}` : ""}`}
           />
         </BugModal>
       )}

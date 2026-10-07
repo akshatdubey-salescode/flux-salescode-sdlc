@@ -144,3 +144,15 @@ test("project stats average over the shown projects and carry the grand total", 
   assert.equal(stats.avg.total, 5.5);
   assert.deepEqual(computeProjectStats([]).avg.total, 0);
 });
+
+test("compareCountRows sorts by a per-priority open column, zeros last, ties fall back to total", () => {
+  const base = sumCounts([]);
+  const a = { ...base, name: "A", total: 5, open2: 3 };
+  const b = { ...base, name: "B", total: 9, open2: 3 };
+  const c = { ...base, name: "C", total: 20, open2: 0 };
+  const d = { ...base, name: "D", total: 1, open2: 7 };
+  const desc = [a, b, c, d].sort((x, y) => compareCountRows(x, y, "open2", "desc")).map((r) => r.name);
+  assert.deepEqual(desc, ["D", "B", "A", "C"], "7, then the 3-3 tie broken by higher total, zero sinks");
+  const asc = [a, b, c, d].sort((x, y) => compareCountRows(x, y, "open2", "asc")).map((r) => r.name);
+  assert.deepEqual(asc, ["B", "A", "D", "C"], "ties still break by higher total when ascending; a zero still sinks to the bottom");
+});

@@ -96,6 +96,11 @@ export type BugIssueRow = {
   jiraBaseUrl: string;
   environment: string;
   isCustomerFound: boolean;
+  /** Issue Owner field's display name; null when no owner is set. */
+  ownerName: string | null;
+  assigneeName: string | null;
+  /** ISO timestamp the bug was raised in Jira. */
+  createdAt: string | null;
 };
 
 async function fetchBugIssues({
@@ -181,6 +186,9 @@ async function fetchBugIssues({
       ji.status_category AS status_category,
       jp.name AS project_name,
       jp.jira_base_url AS jira_base_url,
+      ji.assignee_name AS assignee_name,
+      ji.jira_created_at AS created_at,
+      COALESCE(ow.v->>'displayName', ow.v->0->>'displayName') AS owner_name,
       (
         ji.custom_fields ? ${fdField}
         AND COALESCE(ji.custom_fields->>${fdField}, '') <> ''
@@ -237,6 +245,9 @@ async function fetchBugIssues({
     jiraBaseUrl: r.jira_base_url as string,
     environment: normalizeEnvironment(r.env_raw as string | null),
     isCustomerFound: r.is_customer === true,
+    ownerName: (r.owner_name as string | null) ?? null,
+    assigneeName: (r.assignee_name as string | null) ?? null,
+    createdAt: r.created_at ? new Date(r.created_at as string | Date).toISOString() : null,
   }));
 
   const filtered = env ? rows.filter((r) => r.environment === env) : rows;

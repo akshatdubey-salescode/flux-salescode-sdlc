@@ -132,6 +132,67 @@ export function RcaMissingCell({ value }: { value: number }) {
   );
 }
 
+/** Counts key holding the open-bug count for each priority column. */
+const OPEN_KEY = { p1: "open1", p2: "open2", p3: "open3", p4: "open4" } as const;
+
+/** "P1 Open" … headers — one per visible priority, placed right after the all-priority Open column. */
+export function OpenByPriorityHeaders({
+  cols, className, sortBy, sortDir, onSort,
+}: {
+  cols: PriorityCol[];
+  className: string;
+  sortBy: SortKey;
+  sortDir: "asc" | "desc";
+  onSort: (key: SortKey) => void;
+}) {
+  return (
+    <>
+      {cols.map((c) => (
+        <SortableTh
+          key={c.key}
+          label={`${c.label} Open`}
+          sortKey={OPEN_KEY[c.key]}
+          sortBy={sortBy}
+          sortDir={sortDir}
+          onSort={onSort}
+          className={className}
+        />
+      ))}
+    </>
+  );
+}
+
+/** Per-priority open counts for one row, RAG-coloured against the average row like the Open column. */
+export function OpenByPriorityCells({
+  row, avg, cols, neutral,
+}: {
+  row: Counts;
+  avg: Counts;
+  cols: PriorityCol[];
+  neutral?: boolean;
+}) {
+  return (
+    <>
+      {cols.map((c) => (
+        <CountCell key={c.key} value={row[OPEN_KEY[c.key]]} avg={avg[OPEN_KEY[c.key]]} neutral={neutral} />
+      ))}
+    </>
+  );
+}
+
+/** Footer totals for the per-priority open columns. */
+export function OpenByPriorityTotals({ total, cols }: { total: Counts; cols: PriorityCol[] }) {
+  return (
+    <>
+      {cols.map((c) => (
+        <td key={c.key} className="px-3 py-2.5 text-right text-xs font-bold tabular-nums text-foreground">
+          {total[OPEN_KEY[c.key]] || <span className="font-normal text-muted-foreground/40">—</span>}
+        </td>
+      ))}
+    </>
+  );
+}
+
 export function ContribCell({
   pct, value, avg, neutral,
 }: {
@@ -300,8 +361,15 @@ export function SortControl({
   onChange: (by: SortKey, dir: "asc" | "desc") => void;
   showOpenColumn: boolean;
 }) {
-  const sortOpts = showOpenColumn
-    ? [...SORT_OPTS_BASE, { value: "open" as const, label: "Open" }]
+  const sortOpts: { value: SortKey; label: string }[] = showOpenColumn
+    ? [
+        ...SORT_OPTS_BASE,
+        { value: "open", label: "Open" },
+        { value: "open1", label: "P1 Open" },
+        { value: "open2", label: "P2 Open" },
+        { value: "open3", label: "P3 Open" },
+        { value: "open4", label: "P4 Open" },
+      ]
     : SORT_OPTS_BASE;
   const current = sortOpts.find((o) => o.value === sortBy) ?? sortOpts[0];
   return (

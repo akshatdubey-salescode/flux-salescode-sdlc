@@ -46,6 +46,9 @@ import {
   ContribCell,
   CountCell,
   FoundBreakdown,
+  OpenByPriorityCells,
+  OpenByPriorityHeaders,
+  OpenByPriorityTotals,
   RcaMissingCell,
   SearchableMultiSelect,
   SortControl,
@@ -394,7 +397,7 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
   const resolvedTo = end || undefined;
 
   // # + Developer + visible-priority cols + Total + (Open, if flagged on) + RCA Unavail + % Share
-  const colSpan = 2 + visiblePriorityCols.length + 3 + (showOpenColumn ? 1 : 0);
+  const colSpan = 2 + visiblePriorityCols.length + 3 + (showOpenColumn ? 1 + visiblePriorityCols.length : 0);
 
   const [exporting, setExporting] = useState(false);
 
@@ -750,6 +753,15 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
                     className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
                   />
                 )}
+                {showOpenColumn && (
+                  <OpenByPriorityHeaders
+                    cols={visiblePriorityCols}
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                    className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
+                  />
+                )}
                 <th
                   className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500"
                   title="Bugs with no RCA entered in Jira (any status)"
@@ -837,6 +849,7 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
                       {grandTotal.open}
                     </td>
                   )}
+                  {showOpenColumn && <OpenByPriorityTotals total={grandTotal} cols={visiblePriorityCols} />}
                   <td className="px-3 py-2.5 text-right text-xs font-bold tabular-nums text-amber-700 dark:text-amber-400">
                     {grandTotal.rcaMissingTotal || <span className="font-normal text-muted-foreground/40">—</span>}
                   </td>
@@ -917,7 +930,7 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
         onOpenChange={setMissingOwnerOpen}
         title="Bugs with no issue owner"
       >
-        <BugIssueList unassignedOnly from={resolvedFrom} to={resolvedTo} />
+        <BugIssueList unassignedOnly from={resolvedFrom} to={resolvedTo} shareTitle="Bugs with no issue owner" />
       </BugModal>
     </div>
   );
@@ -988,6 +1001,7 @@ function OwnerRowView({
       ))}
       <CountCell value={row.total} avg={team.avg.total} neutral={neutral} bold />
       {showOpenColumn && <CountCell value={row.open} avg={team.avg.open} neutral={neutral} />}
+      {showOpenColumn && <OpenByPriorityCells row={row} avg={team.avg} cols={visiblePriorityCols} neutral={neutral} />}
       <RcaMissingCell value={row.rcaMissingTotal} />
       <ContribCell pct={contrib} value={row.total} avg={team.avg.total} neutral={neutral} />
     </tr>
@@ -1175,6 +1189,7 @@ function ProjectRowView({
           unassignedOnly={unassignedOnly}
           env={env}
           cfOnly={cfOnly}
+          shareTitle={`${p.projectName} — ${ownerName}${priorityFilter ? ` — ${priorityFilter}` : ""}`}
         />
       </BugModal>
     </>
