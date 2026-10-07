@@ -364,7 +364,7 @@ export function applyBoardFilters(c: Counts, sel: Set<PriorityKey>, cfOnly: bool
 // Sorting
 // ---------------------------------------------------------------------------
 
-export type SortKey = "name" | "total" | "p1" | "p2" | "p3" | "p4" | "open";
+export type SortKey = "name" | "total" | "p1" | "p2" | "p3" | "p4" | "open" | "open1" | "open2" | "open3" | "open4";
 
 // Tie-break cascade for any column-wise sort, in this fixed priority order
 // (each descending) — whichever key is the primary sort itself is skipped
