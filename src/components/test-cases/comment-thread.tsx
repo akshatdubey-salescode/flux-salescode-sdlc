@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { canComment, canResolve, MAX_COMMENT_LENGTH } from "@/lib/test-cases/state";
 import type { CommentView } from "@/lib/test-cases/review-service";
+import { invalidateTcSummaries } from "./tc-summary-cache";
 
 export type Viewer = { email: string; isAdmin: boolean };
 
@@ -63,6 +64,7 @@ export function CommentThread({
         return;
       }
       setText("");
+      invalidateTcSummaries();
       router.refresh();
     } catch {
       setError("Network error. Try again.");
@@ -79,7 +81,10 @@ export function CommentThread({
       body: JSON.stringify({ resolved: !c.resolved }),
     });
     if (!res.ok) setError((await res.json().catch(() => ({}))).error ?? "Could not update the comment.");
-    else router.refresh();
+    else {
+      invalidateTcSummaries();
+      router.refresh();
+    }
   }
 
   return (

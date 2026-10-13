@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { SignoffPreview } from "@/lib/test-cases/signoff-service";
+import { invalidateTcSummaries } from "./tc-summary-cache";
 
 type PreviewResponse = {
   sheetUrl: string | null;
@@ -116,6 +117,7 @@ export function SignoffForm({
       setFile(null);
       setSheetUrl("");
       setNotes("");
+      invalidateTcSummaries();
       router.push(data.detailUrl as string);
     } catch {
       setError({ message: "Network error. Try again." });

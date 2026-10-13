@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { ReviewerPicker, type Reviewer } from "./reviewer-picker";
 import { TC_CATEGORY_LABELS, TC_POLARITY_LABELS, type TcCategory, type TcPolarity } from "@/lib/test-cases/values";
 import type { Preview } from "@/lib/test-cases/preview";
+import { invalidateTcSummaries } from "./tc-summary-cache";
 
 type IssueInfo = {
   id: string;
@@ -133,6 +134,7 @@ export function SubmissionForm({
       setSheetUrl("");
       setNotes("");
       setMode("sheet");
+      invalidateTcSummaries();
       router.push(data.detailUrl as string);
     } catch {
       setError({ message: "Network error. Try again." });

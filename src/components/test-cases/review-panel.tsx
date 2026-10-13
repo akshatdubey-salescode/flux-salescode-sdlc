@@ -10,6 +10,7 @@ import { canDecide } from "@/lib/test-cases/state";
 import { TC_REVIEWER_STATE_LABELS, type TcReviewerState } from "@/lib/test-cases/values";
 import type { CommentView, FeedbackFileView } from "@/lib/test-cases/review-service";
 import { CommentThread, type Viewer } from "./comment-thread";
+import { invalidateTcSummaries } from "./tc-summary-cache";
 
 const STATE_STYLE: Record<string, string> = {
   pending: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
@@ -62,6 +63,7 @@ export function ReviewPanel({
       }
       setMode(null);
       setNote("");
+      invalidateTcSummaries();
       router.refresh();
     } catch {
       setError("Network error. Try again.");
