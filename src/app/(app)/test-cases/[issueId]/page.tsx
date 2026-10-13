@@ -23,8 +23,14 @@ import {
 import { cn } from "@/lib/utils";
 import { CasesTable } from "@/components/test-cases/cases-table";
 import { ReviewPanel } from "@/components/test-cases/review-panel";
+import { AnalyticsPanel } from "@/components/test-cases/analytics-panel";
+import { SignoffPanel } from "@/components/test-cases/signoff-panel";
 import { fetchFeedbackFiles, fetchRoundComments } from "@/lib/test-cases/review-service";
 import { fetchSetDetail, findIssue } from "@/lib/test-cases/service";
+import { fetchRoundTrend, fetchStoredStats } from "@/lib/test-cases/stats-service";
+import { canSignOff } from "@/lib/test-cases/state";
+import { fetchSignoffs, getIssuePeople } from "@/lib/test-cases/signoff-service";
+import { istDateTime } from "@/lib/test-cases/filenames";
 import {
   TC_CATEGORY_LABELS,
   TC_POLARITY_LABELS,
@@ -80,6 +86,16 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
       : [[], new Map()];
   const viewer = { email: user.email, isAdmin: hasMinRole(user.role, "ADMIN") };
   const isLatest = !!detail && round?.roundNo === detail.rounds[0]?.roundNo;
+  const roundApproved = round?.status === "approved";
+
+  const [stored, trend, signoffs, people] =
+    detail && round
+      ? await Promise.all([fetchStoredStats(detail.setId), fetchRoundTrend(detail.setId), fetchSignoffs(round.id), getIssuePeople(issue.id)])
+      : [null, [], [], { dev: [], qa: [] }];
+  const signoffActions = (["dev", "tester"] as const).map((role) => {
+    const v = canSignOff({ role, actor: viewer, people, roundApproved, isLatestRound: isLatest });
+    return { role, allowed: v.ok, reason: v.ok ? null : v.reason };
+  });
   const jiraUrl = `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`;
 
   const categoryCounts = new Map<string, number>();
@@ -240,6 +256,10 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                   )}
                 </section>
 
+                {isLatest && stored && (
+                  <AnalyticsPanel stats={stored.stats} trend={trend} computedAt={istDateTime(stored.computedAt)} />
+                )}
+
                 <ReviewPanel
                   roundId={round.id}
                   isLatest={isLatest}
@@ -248,6 +268,14 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                   feedbackFiles={feedbackByRound.get(round.roundNo) ?? []}
                   viewer={viewer}
                   committerEmail={round.committedBy}
+                />
+
+                <SignoffPanel
+                  issueId={issue.id}
+                  signoffs={signoffs}
+                  actions={signoffActions}
+                  isLatest={isLatest}
+                  approved={roundApproved}
                 />
 
                 <CasesTable

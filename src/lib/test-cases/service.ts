@@ -15,6 +15,7 @@ import {
 } from "@/lib/db/schema";
 import { getStore, XLSX_CONTENT_TYPE } from "@/lib/storage";
 import { buildTcFileName, buildTcS3Key, roundLabel } from "./filenames";
+import { recomputeSafely } from "./stats-service";
 import type { ParsedSheet } from "./template";
 import { buildSnapshotXlsx } from "./xlsx";
 import type { TcSource } from "./values";
@@ -130,7 +131,7 @@ export async function commitRound(args: CommitArgs): Promise<CommitResult> {
   });
   await getStore().put(storageKey, snapshot, XLSX_CONTENT_TYPE);
 
-  return db.transaction(async (tx) => {
+  const committed = await db.transaction(async (tx) => {
     const [file] = await tx
       .insert(tcFiles)
       .values({
@@ -202,6 +203,8 @@ export async function commitRound(args: CommitArgs): Promise<CommitResult> {
 
     return { setId: set.id, roundId: round.id, roundNo, fileId: file.id, fileName };
   });
+  await recomputeSafely(set.id);
+  return committed;
 }
 
 /** Reviewers from the issue's latest round, to prefill the next submission. */

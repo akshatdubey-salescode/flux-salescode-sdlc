@@ -6,6 +6,7 @@ import {
   canComment,
   canDecide,
   canResolve,
+  canSignOff,
   roundStatusFrom,
   validateCommentBody,
   validateDecision,
@@ -58,4 +59,35 @@ test("comment bodies are trimmed, required and capped", () => {
   assert.ok(!validateCommentBody("   ").ok);
   assert.ok(!validateCommentBody(5).ok);
   assert.ok(!validateCommentBody("x".repeat(MAX_COMMENT_LENGTH + 1)).ok);
+});
+
+const dev = { email: "Dev@salescode.ai", isAdmin: false };
+const qa = { email: "qa@salescode.ai", isAdmin: false };
+const people = { dev: ["dev@salescode.ai"], qa: ["qa@salescode.ai"] };
+const open = { roundApproved: true, isLatestRound: true };
+
+test("sign-off needs an approved, latest round", () => {
+  assert.ok(canSignOff({ role: "dev", actor: dev, people, ...open }).ok);
+  const notApproved = canSignOff({ role: "dev", actor: dev, people, roundApproved: false, isLatestRound: true });
+  assert.equal(notApproved.ok, false);
+  assert.match((notApproved as { reason: string }).reason, /approves/);
+  const old = canSignOff({ role: "dev", actor: dev, people, roundApproved: true, isLatestRound: false });
+  assert.match((old as { reason: string }).reason, /superseded/);
+});
+
+test("the developer signs as dev, the QA assignee as tester, and admins as either", () => {
+  assert.ok(!canSignOff({ role: "dev", actor: qa, people, ...open }).ok);
+  assert.ok(!canSignOff({ role: "tester", actor: dev, people, ...open }).ok);
+  assert.ok(canSignOff({ role: "tester", actor: qa, people, ...open }).ok);
+  assert.ok(canSignOff({ role: "dev", actor: admin, people, ...open }).ok);
+  assert.ok(canSignOff({ role: "tester", actor: admin, people, ...open }).ok);
+  assert.ok(!canSignOff({ role: "dev", actor: outsider, people, ...open }).ok);
+});
+
+test("with no QA assignee recorded, any non-developer may sign as tester", () => {
+  const noQa = { dev: ["dev@salescode.ai"], qa: [] };
+  assert.ok(canSignOff({ role: "tester", actor: outsider, people: noQa, ...open }).ok);
+  const own = canSignOff({ role: "tester", actor: dev, people: noQa, ...open });
+  assert.equal(own.ok, false);
+  assert.match((own as { reason: string }).reason, /can't also sign off/);
 });

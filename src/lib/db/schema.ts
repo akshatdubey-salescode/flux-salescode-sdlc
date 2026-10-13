@@ -24,8 +24,10 @@ import {
   TC_FILE_KIND_VALUES,
   TC_POLARITY_VALUES,
   TC_PRIORITY_VALUES,
+  TC_RESULT_VALUES,
   TC_REVIEWER_STATE_VALUES,
   TC_ROUND_STATUS_VALUES,
+  TC_SIGNOFF_ROLE_VALUES,
   TC_SEVERITY_VALUES,
   TC_SOURCE_VALUES,
 } from "../test-cases/values";
@@ -2246,6 +2248,8 @@ export const tcPriorityEnum = pgEnum("tc_priority", TC_PRIORITY_VALUES);
 export const tcSeverityEnum = pgEnum("tc_severity", TC_SEVERITY_VALUES);
 export const tcReviewerStateEnum = pgEnum("tc_reviewer_state", TC_REVIEWER_STATE_VALUES);
 export const tcCommentKindEnum = pgEnum("tc_comment_kind", TC_COMMENT_KIND_VALUES);
+export const tcResultEnum = pgEnum("tc_result", TC_RESULT_VALUES);
+export const tcSignoffRoleEnum = pgEnum("tc_signoff_role", TC_SIGNOFF_ROLE_VALUES);
 
 export const tcSets = pgTable(
   "tc_sets",
@@ -2410,9 +2414,115 @@ export const tcReviewComments = pgTable(
   ]
 );
 
+// Sign-off: the developer and the tester each submit the TC sheet again with
+// their status column filled in. Every submission is kept (history); the
+// latest one per role and round is what counts. Results are stored per case so
+// analytics can be recomputed without re-reading any sheet.
+export const tcSignoffs = pgTable(
+  "tc_signoffs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    setId: uuid("set_id")
+      .notNull()
+      .references(() => tcSets.id, { onDelete: "cascade" }),
+    // The approved round this sign-off is against.
+    roundId: uuid("round_id")
+      .notNull()
+      .references(() => tcRounds.id, { onDelete: "cascade" }),
+    role: tcSignoffRoleEnum("role").notNull(),
+    source: tcSourceEnum("source").notNull(),
+    sheetUrl: text("sheet_url"),
+    spreadsheetId: text("spreadsheet_id"),
+    sheetTab: text("sheet_tab"),
+    fileId: uuid("file_id").references(() => tcFiles.id, { onDelete: "set null" }),
+    notes: text("notes"),
+    passCount: integer("pass_count").notNull().default(0),
+    failCount: integer("fail_count").notNull().default(0),
+    blockedCount: integer("blocked_count").notNull().default(0),
+    notRunCount: integer("not_run_count").notNull().default(0),
+    // Tester name / date / app version as written in the sheet.
+    meta: text("meta").notNull().default(""),
+    committedBy: text("committed_by")
+      .notNull()
+      .references(() => users.id),
+    committedByName: text("committed_by_name"),
+    committedAt: timestamp("committed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("tc_signoffs_round_role_idx").on(t.roundId, t.role, t.committedAt)]
+);
+
+export const tcResults = pgTable(
+  "tc_results",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    signoffId: uuid("signoff_id")
+      .notNull()
+      .references(() => tcSignoffs.id, { onDelete: "cascade" }),
+    caseId: uuid("case_id")
+      .notNull()
+      .references(() => tcCases.id, { onDelete: "cascade" }),
+    result: tcResultEnum("result").notNull(),
+    remark: text("remark").notNull().default(""),
+  },
+  (t) => [
+    uniqueIndex("tc_results_signoff_case_idx").on(t.signoffId, t.caseId),
+    index("tc_results_case_idx").on(t.caseId),
+  ]
+);
+
+// Derived, one row per set: the numbers every surface (row chips, hover cards,
+// details page, TC Board) reads. Rewritten by recomputeSetStats whenever an
+// input changes. The scalar columns are for filtering/aggregating in SQL; the
+// full breakdown (splits, quality components, caps) is in `stats`.
+export const tcSetStats = pgTable(
+  "tc_set_stats",
+  {
+    setId: uuid("set_id")
+      .primaryKey()
+      .references(() => tcSets.id, { onDelete: "cascade" }),
+    // Denormalized so summaries can be fetched by issue without a join.
+    issueId: uuid("issue_id")
+      .notNull()
+      .references(() => jiraIssues.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => jiraProjects.id, { onDelete: "cascade" }),
+    // The latest round these numbers describe.
+    roundId: uuid("round_id")
+      .notNull()
+      .references(() => tcRounds.id, { onDelete: "cascade" }),
+    roundNo: integer("round_no").notNull(),
+    roundStatus: tcRoundStatusEnum("round_status").notNull(),
+    tcCount: integer("tc_count").notNull(),
+    quality: integer("quality").notNull(),
+    executionScore: integer("execution_score").notNull(),
+    confidence: integer("confidence").notNull(),
+    readiness: text("readiness").notNull(),
+    devSigned: boolean("dev_signed").notNull().default(false),
+    testerSigned: boolean("tester_signed").notNull().default(false),
+    passCount: integer("pass_count").notNull().default(0),
+    failCount: integer("fail_count").notNull().default(0),
+    blockedCount: integer("blocked_count").notNull().default(0),
+    notRunCount: integer("not_run_count").notNull().default(0),
+    reviewersTotal: integer("reviewers_total").notNull().default(0),
+    reviewersApproved: integer("reviewers_approved").notNull().default(0),
+    feedbackTotal: integer("feedback_total").notNull().default(0),
+    feedbackOpen: integer("feedback_open").notNull().default(0),
+    roundCount: integer("round_count").notNull().default(1),
+    stats: jsonb("stats").notNull(),
+    computedAt: timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("tc_set_stats_issue_idx").on(t.issueId),
+    index("tc_set_stats_project_idx").on(t.projectId),
+  ]
+);
+
 export type TcSet = typeof tcSets.$inferSelect;
 export type TcRound = typeof tcRounds.$inferSelect;
 export type TcFile = typeof tcFiles.$inferSelect;
 export type TcCaseRow = typeof tcCases.$inferSelect;
 export type TcReviewer = typeof tcReviewers.$inferSelect;
 export type TcReviewComment = typeof tcReviewComments.$inferSelect;
+export type TcSignoff = typeof tcSignoffs.$inferSelect;
+export type TcSetStatsRow = typeof tcSetStats.$inferSelect;

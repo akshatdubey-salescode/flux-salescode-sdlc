@@ -17,6 +17,7 @@ import {
 import { getStore, XLSX_CONTENT_TYPE } from "@/lib/storage";
 import { buildTcFileName, buildTcS3Key, istDateTime, roundLabel } from "./filenames";
 import { buildFeedbackXlsx, type FeedbackRow } from "./feedback-xlsx";
+import { recomputeSafely } from "./stats-service";
 import {
   canComment,
   canDecide,
@@ -155,6 +156,8 @@ export async function recordDecision(args: {
     return next;
   });
 
+  await recomputeSafely(ctx.setId);
+
   // The stored feedback file is a record of this decision; failing to write it
   // must not undo the decision itself.
   let feedbackFileId: string | null = null;
@@ -191,6 +194,7 @@ export async function addComment(args: {
       authorName: actor.name,
     })
     .returning({ id: tcReviewComments.id });
+  await recomputeSafely(ctx.setId);
   return { ok: true, id: row.id };
 }
 
@@ -214,6 +218,7 @@ export async function setCommentResolved(args: {
         : { resolved: false, resolvedBy: null, resolvedAt: null },
     )
     .where(eq(tcReviewComments.id, args.commentId));
+  await recomputeSafely(ctx.setId);
   return { ok: true, roundId: comment.roundId };
 }
 

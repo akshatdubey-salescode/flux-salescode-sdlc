@@ -81,6 +81,9 @@ export type TcFileKind = (typeof TC_FILE_KIND_VALUES)[number];
 export const TC_REVIEWER_STATE_VALUES = ["pending", "approved", "changes_requested"] as const;
 export type TcReviewerState = (typeof TC_REVIEWER_STATE_VALUES)[number];
 
+export const TC_SIGNOFF_ROLE_VALUES = ["dev", "tester"] as const;
+export type TcSignoffRole = (typeof TC_SIGNOFF_ROLE_VALUES)[number];
+
 /** A thread entry is either a plain comment or the note that came with a decision. */
 export const TC_COMMENT_KIND_VALUES = ["comment", "approved", "changes_requested"] as const;
 export type TcCommentKind = (typeof TC_COMMENT_KIND_VALUES)[number];

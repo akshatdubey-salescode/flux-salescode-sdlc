@@ -10,6 +10,8 @@ import { authOptions } from "@/lib/auth/nextauth-options";
 import { isValidUuid, parseOptionalText } from "@/lib/validation";
 import { isDeliveryStatus } from "@/lib/deliveries/status";
 import { isIssueDone, fetchDeliveryById, type DeliveryWithItems } from "@/lib/deliveries/entries";
+import { FEATURE_FLAGS, isEnabled } from "@/lib/feature-flags";
+import { checkDeliveryGate } from "@/lib/test-cases/gate";
 
 type Params = { params: Promise<{ id: string; itemId: string }> };
 
@@ -66,6 +68,13 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         { status: 400 }
       );
     }
+  }
+
+  // Test-case gate: an issue with TCs needs a dev/tester sign-off first. Only
+  // enforced when the feature is on, and only for a real change of status.
+  if (await isEnabled(FEATURE_FLAGS.TEST_CASES)) {
+    const gate = await checkDeliveryGate({ issueId: existing.issueId, fromStatus: existing.status, toStatus: nextStatus });
+    if (gate.blocked) return NextResponse.json({ error: gate.message, code: "tc_signoff_required" }, { status: 400 });
   }
 
   const session = await getServerSession(authOptions);

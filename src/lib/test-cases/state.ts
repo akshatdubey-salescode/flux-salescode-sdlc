@@ -68,3 +68,37 @@ export function validateCommentBody(body: unknown): { ok: true; body: string } |
   if (body.length > MAX_COMMENT_LENGTH) return { ok: false, reason: `Comments are limited to ${MAX_COMMENT_LENGTH} characters.` };
   return { ok: true, body: body.trim() };
 }
+
+// ---------------------------------------------------------------------------
+// Sign-off
+// ---------------------------------------------------------------------------
+
+export type SignoffRole = "dev" | "tester";
+
+/**
+ * Sign-off opens only after a reviewer approves the LATEST round. The developer
+ * is the issue's assignee / Dev Owner; the tester is a QA assignee. When the
+ * issue has no QA assignee recorded, any non-developer may sign as tester so
+ * the process still works for projects that don't fill that field. Admins can
+ * always sign.
+ */
+export function canSignOff(args: {
+  role: SignoffRole;
+  actor: Actor;
+  people: { dev: string[]; qa: string[] };
+  roundApproved: boolean;
+  isLatestRound: boolean;
+}): Verdict {
+  if (!args.isLatestRound) return { ok: false, reason: "This round has been superseded by a newer one." };
+  if (!args.roundApproved) return { ok: false, reason: "Sign-off opens once a reviewer approves the test cases." };
+  if (args.actor.isAdmin) return { ok: true };
+  const email = args.actor.email.trim().toLowerCase();
+  const isDev = args.people.dev.includes(email);
+  if (args.role === "dev") {
+    return isDev ? { ok: true } : { ok: false, reason: "Only the issue's developer (assignee / Dev Owner) can submit the dev sign-off." };
+  }
+  if (args.people.qa.length > 0) {
+    return args.people.qa.includes(email) ? { ok: true } : { ok: false, reason: "Only the issue's QA assignee can submit the tester sign-off." };
+  }
+  return isDev ? { ok: false, reason: "The developer can't also sign off as the tester." } : { ok: true };
+}
