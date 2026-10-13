@@ -1,7 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { revalidateTag } from "next/cache";
 import { isValidUuid, parseOptionalText } from "@/lib/validation";
-import { errorResponse, isResponse, requireTestCasesUser } from "@/lib/test-cases/api";
+import { appOrigin, errorResponse, isResponse, requireTestCasesUser } from "@/lib/test-cases/api";
+import { roundLabel } from "@/lib/test-cases/filenames";
+import { buildAssignedEmail, sendEmail } from "@/lib/test-cases/notify";
 import { readSource, type SourceInput } from "@/lib/test-cases/source";
 import { parseSheetGrid } from "@/lib/test-cases/template";
 import { validateReviewers } from "@/lib/test-cases/reviewers";
@@ -88,6 +90,24 @@ export async function POST(req: NextRequest) {
 
     revalidateTag("test-cases", "max");
     revalidateTag(`project:${issue.projectId}`, "max");
+
+    // Ask the reviewers to review, after the response: a mail problem must not fail the commit.
+    const origin = appOrigin(req);
+    const committerName = user.name ?? user.email;
+    after(async () => {
+      const email = buildAssignedEmail({
+        issueKey: issue.jiraKey,
+        issueSummary: issue.summary,
+        projectName: issue.projectName,
+        roundLabel: roundLabel(result.roundNo, new Date()),
+        url: `${origin}/test-cases/${issue.id}?round=${result.roundNo}`,
+        committerName,
+        tcCount: parsed.cases.length,
+        notes,
+      });
+      const sent = await sendEmail(reviewers.reviewers.map((r) => r.email), email);
+      if (!sent.ok) console.warn("[test-cases] reviewer email not sent:", sent.error);
+    });
     return NextResponse.json({ ...result, detailUrl: `/test-cases/${issue.id}` }, { status: 201 });
   } catch (err) {
     return errorResponse(err);

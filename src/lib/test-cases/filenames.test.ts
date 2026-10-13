@@ -1,7 +1,7 @@
 // Run: ./node_modules/.bin/tsx --test "src/lib/test-cases/filenames.test.ts"
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildTcFileName, buildTcS3Key, istStamp, roundLabel, safeSegment } from "./filenames";
+import { buildTcFileName, buildTcS3Key, istDateTime, istStamp, roundLabel, safeSegment } from "./filenames";
 
 // 2026-10-14 10:12:03 UTC is 15:42:03 IST.
 const AT = new Date("2026-10-14T10:12:03Z");
@@ -9,6 +9,7 @@ const AT = new Date("2026-10-14T10:12:03Z");
 test("IST stamp and round label do not depend on the server timezone", () => {
   assert.equal(istStamp(AT), "20261014-154203");
   assert.equal(roundLabel(2, AT), "Round 2, 14 Oct 2026 15:42 IST");
+  assert.equal(istDateTime(AT), "14 Oct 2026 15:42 IST");
   // Crossing midnight: 20:00 UTC on the 14th is 01:30 IST on the 15th.
   assert.equal(istStamp(new Date("2026-10-14T20:00:00Z")), "20261015-013000");
 });

@@ -60,6 +60,12 @@ export type TcResult = (typeof TC_RESULT_VALUES)[number];
 export const TC_ROUND_STATUS_VALUES = ["in_review", "changes_requested", "approved"] as const;
 export type TcRoundStatus = (typeof TC_ROUND_STATUS_VALUES)[number];
 
+export const TC_ROUND_STATUS_LABELS: Record<TcRoundStatus, string> = {
+  in_review: "In review",
+  changes_requested: "Changes requested",
+  approved: "Approved",
+};
+
 export const TC_SOURCE_VALUES = ["google_sheet", "xlsx"] as const;
 export type TcSource = (typeof TC_SOURCE_VALUES)[number];
 
@@ -74,3 +80,13 @@ export type TcFileKind = (typeof TC_FILE_KIND_VALUES)[number];
 
 export const TC_REVIEWER_STATE_VALUES = ["pending", "approved", "changes_requested"] as const;
 export type TcReviewerState = (typeof TC_REVIEWER_STATE_VALUES)[number];
+
+/** A thread entry is either a plain comment or the note that came with a decision. */
+export const TC_COMMENT_KIND_VALUES = ["comment", "approved", "changes_requested"] as const;
+export type TcCommentKind = (typeof TC_COMMENT_KIND_VALUES)[number];
+
+export const TC_REVIEWER_STATE_LABELS: Record<TcReviewerState, string> = {
+  pending: "Pending review",
+  approved: "Approved",
+  changes_requested: "Changes requested",
+};

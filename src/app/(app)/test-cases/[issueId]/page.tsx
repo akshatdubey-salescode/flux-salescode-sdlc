@@ -8,6 +8,7 @@ import {
   RiGoogleLine,
 } from "@remixicon/react";
 import { requireAuth } from "@/lib/auth/server";
+import { hasMinRole } from "@/lib/auth/types";
 import { FEATURE_FLAGS, isEnabled } from "@/lib/feature-flags";
 import { isValidUuid } from "@/lib/validation";
 import { PageHeader } from "@/components/page-header";
@@ -21,23 +22,27 @@ import {
 } from "@/components/ui/breadcrumb";
 import { cn } from "@/lib/utils";
 import { CasesTable } from "@/components/test-cases/cases-table";
+import { ReviewPanel } from "@/components/test-cases/review-panel";
+import { fetchFeedbackFiles, fetchRoundComments } from "@/lib/test-cases/review-service";
 import { fetchSetDetail, findIssue } from "@/lib/test-cases/service";
-import { TC_CATEGORY_LABELS, TC_POLARITY_LABELS, type TcCategory, type TcPolarity } from "@/lib/test-cases/values";
+import {
+  TC_CATEGORY_LABELS,
+  TC_POLARITY_LABELS,
+  TC_ROUND_STATUS_LABELS,
+  type TcCategory,
+  type TcPolarity,
+  type TcRoundStatus,
+} from "@/lib/test-cases/values";
 
 type Props = {
   params: Promise<{ issueId: string }>;
   searchParams: Promise<{ round?: string }>;
 };
 
-const REVIEWER_STYLE: Record<string, string> = {
-  pending: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
-  approved: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400",
+const ROUND_STATUS_STYLE: Record<string, string> = {
+  in_review: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
   changes_requested: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400",
-};
-const REVIEWER_LABEL: Record<string, string> = {
-  pending: "Pending review",
-  approved: "Approved",
-  changes_requested: "Changes requested",
+  approved: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400",
 };
 
 function fmtSize(bytes: number) {
@@ -45,7 +50,7 @@ function fmtSize(bytes: number) {
 }
 
 export default async function TestCaseDetailsPage({ params, searchParams }: Props) {
-  await requireAuth();
+  const user = await requireAuth();
   if (!(await isEnabled(FEATURE_FLAGS.TEST_CASES))) notFound();
 
   const { issueId } = await params;
@@ -69,6 +74,12 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
   const wanted = sp.round && /^\d+$/.test(sp.round) ? Number(sp.round) : undefined;
   const detail = await fetchSetDetail(issue.id, wanted);
   const round = detail?.rounds.find((r) => r.roundNo === detail.selectedRoundNo);
+  const [comments, feedbackByRound] =
+    detail && round
+      ? await Promise.all([fetchRoundComments(round.id), fetchFeedbackFiles(detail.setId)])
+      : [[], new Map()];
+  const viewer = { email: user.email, isAdmin: hasMinRole(user.role, "ADMIN") };
+  const isLatest = !!detail && round?.roundNo === detail.rounds[0]?.roundNo;
   const jiraUrl = `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`;
 
   const categoryCounts = new Map<string, number>();
@@ -149,6 +160,9 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                         <p className="text-muted-foreground">
                           {r.tcCount} TCs · {r.committedByName ?? r.committedBy}
                         </p>
+                        <span className={cn("mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold", ROUND_STATUS_STYLE[r.status])}>
+                          {TC_ROUND_STATUS_LABELS[r.status as TcRoundStatus] ?? r.status}
+                        </span>
                       </Link>
                     </li>
                   ))}
@@ -218,20 +232,6 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                     ))}
                   </div>
 
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Reviewers</p>
-                    <ul className="mt-1 flex flex-wrap gap-2">
-                      {round.reviewers.map((rv) => (
-                        <li key={rv.email} className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2 py-1 text-xs dark:border-zinc-700">
-                          <span className="font-medium text-foreground">{rv.name ?? rv.email}</span>
-                          <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", REVIEWER_STYLE[rv.state])}>
-                            {REVIEWER_LABEL[rv.state] ?? rv.state}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
                   {round.notes && (
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Notes</p>
@@ -240,7 +240,27 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                   )}
                 </section>
 
-                <CasesTable cases={detail.cases} />
+                <ReviewPanel
+                  roundId={round.id}
+                  isLatest={isLatest}
+                  reviewers={round.reviewers}
+                  comments={comments}
+                  feedbackFiles={feedbackByRound.get(round.roundNo) ?? []}
+                  viewer={viewer}
+                  committerEmail={round.committedBy}
+                />
+
+                <CasesTable
+                  cases={detail.cases}
+                  review={{
+                    roundId: round.id,
+                    isLatest,
+                    comments,
+                    viewer,
+                    reviewers: round.reviewers,
+                    committerEmail: round.committedBy,
+                  }}
+                />
               </div>
             </div>
           )}

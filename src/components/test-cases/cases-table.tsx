@@ -1,11 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { RiArrowDownSLine, RiArrowRightSLine, RiSearchLine } from "@remixicon/react";
+import { RiArrowDownSLine, RiArrowRightSLine, RiChat3Line, RiSearchLine } from "@remixicon/react";
 import { cn } from "@/lib/utils";
 import { normalizeResult } from "@/lib/test-cases/normalize";
 import { TC_CATEGORY_LABELS, TC_POLARITY_LABELS, type TcCategory, type TcPolarity, type TcResult } from "@/lib/test-cases/values";
 import type { CaseView } from "@/lib/test-cases/service";
+import type { CommentView } from "@/lib/test-cases/review-service";
+import { CommentThread, type Viewer } from "./comment-thread";
 
 const RESULT_STYLE: Record<TcResult, string> = {
   pass: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400",
@@ -20,7 +22,16 @@ function StatusPill({ raw }: { raw: string }) {
   return <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", RESULT_STYLE[r])}>{raw}</span>;
 }
 
-export function CasesTable({ cases }: { cases: CaseView[] }) {
+export type ReviewContext = {
+  roundId: string;
+  isLatest: boolean;
+  comments: CommentView[];
+  viewer: Viewer;
+  reviewers: { email: string }[];
+  committerEmail: string;
+};
+
+export function CasesTable({ cases, review }: { cases: CaseView[]; review: ReviewContext }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("all");
   const [section, setSection] = useState<string>("all");
@@ -102,7 +113,7 @@ export function CasesTable({ cases }: { cases: CaseView[] }) {
               rows.map((c) => {
                 const expanded = open.has(c.id);
                 return (
-                  <FragmentRow key={c.id} c={c} expanded={expanded} onToggle={() => toggle(c.id)} />
+                  <FragmentRow key={c.id} c={c} expanded={expanded} onToggle={() => toggle(c.id)} review={review} />
                 );
               })
             )}
@@ -113,7 +124,19 @@ export function CasesTable({ cases }: { cases: CaseView[] }) {
   );
 }
 
-function FragmentRow({ c, expanded, onToggle }: { c: CaseView; expanded: boolean; onToggle: () => void }) {
+function FragmentRow({
+  c,
+  expanded,
+  onToggle,
+  review,
+}: {
+  c: CaseView;
+  expanded: boolean;
+  onToggle: () => void;
+  review: ReviewContext;
+}) {
+  const own = review.comments.filter((x) => x.caseId === c.id);
+  const open = own.filter((x) => x.kind === "comment" && !x.resolved).length;
   return (
     <>
       <tr className="cursor-pointer border-b border-zinc-100 hover:bg-zinc-50/60 dark:border-zinc-800/60 dark:hover:bg-zinc-800/20" onClick={onToggle}>
@@ -124,7 +147,20 @@ function FragmentRow({ c, expanded, onToggle }: { c: CaseView; expanded: boolean
           <span className="font-mono">{c.tcCode}</span>
           {c.section && <span className="block max-w-[150px] truncate text-[10px] text-muted-foreground" title={c.section}>{c.section}</span>}
         </td>
-        <td className="max-w-[360px] px-3 py-2"><span className="line-clamp-2">{c.title || <span className="text-muted-foreground">—</span>}</span></td>
+        <td className="max-w-[360px] px-3 py-2">
+          <span className="line-clamp-2">{c.title || <span className="text-muted-foreground">—</span>}</span>
+          {own.length > 0 && (
+            <span
+              className={cn(
+                "mt-0.5 inline-flex items-center gap-1 text-[10px]",
+                open > 0 ? "font-semibold text-amber-600" : "text-muted-foreground",
+              )}
+            >
+              <RiChat3Line className="size-3" />
+              {open > 0 ? `${open} open` : `${own.length} comment${own.length === 1 ? "" : "s"}`}
+            </span>
+          )}
+        </td>
         <td className="whitespace-nowrap px-3 py-2">{TC_CATEGORY_LABELS[c.category as TcCategory] ?? c.category}</td>
         <td className="whitespace-nowrap px-3 py-2">{c.polarity ? TC_POLARITY_LABELS[c.polarity as TcPolarity] : "—"}</td>
         <td className="px-3 py-2">{c.priority ?? "—"}</td>
@@ -140,6 +176,18 @@ function FragmentRow({ c, expanded, onToggle }: { c: CaseView; expanded: boolean
             <Detail label="Preconditions" text={c.preconditions} />
             <Detail label="Steps" text={c.steps} />
             <Detail label="Expected result" text={c.expected} />
+            <div onClick={(e) => e.stopPropagation()}>
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Feedback</p>
+              <CommentThread
+                roundId={review.roundId}
+                caseId={c.id}
+                comments={review.comments}
+                viewer={review.viewer}
+                reviewers={review.reviewers}
+                committerEmail={review.committerEmail}
+                readOnly={!review.isLatest}
+              />
+            </div>
           </td>
         </tr>
       )}

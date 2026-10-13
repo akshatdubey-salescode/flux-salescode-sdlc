@@ -20,6 +20,7 @@ import { DELIVERY_STATUS_VALUES } from "../deliveries/status";
 import { SCHEDULE_FREQUENCY_VALUES } from "../scheduled-processes/types";
 import {
   TC_CATEGORY_VALUES,
+  TC_COMMENT_KIND_VALUES,
   TC_FILE_KIND_VALUES,
   TC_POLARITY_VALUES,
   TC_PRIORITY_VALUES,
@@ -2244,6 +2245,7 @@ export const tcPolarityEnum = pgEnum("tc_polarity", TC_POLARITY_VALUES);
 export const tcPriorityEnum = pgEnum("tc_priority", TC_PRIORITY_VALUES);
 export const tcSeverityEnum = pgEnum("tc_severity", TC_SEVERITY_VALUES);
 export const tcReviewerStateEnum = pgEnum("tc_reviewer_state", TC_REVIEWER_STATE_VALUES);
+export const tcCommentKindEnum = pgEnum("tc_comment_kind", TC_COMMENT_KIND_VALUES);
 
 export const tcSets = pgTable(
   "tc_sets",
@@ -2381,8 +2383,36 @@ export const tcReviewers = pgTable(
   ]
 );
 
+// Reviewer feedback: comments on the round as a whole (case_id null) or on one
+// test case, plus the note a reviewer attaches to Approve / Request changes.
+// Authors are stored as email + name, not a users FK: reviewers come from the
+// Keka directory and may never have signed in to Flux.
+export const tcReviewComments = pgTable(
+  "tc_review_comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    roundId: uuid("round_id")
+      .notNull()
+      .references(() => tcRounds.id, { onDelete: "cascade" }),
+    caseId: uuid("case_id").references(() => tcCases.id, { onDelete: "cascade" }),
+    kind: tcCommentKindEnum("kind").notNull().default("comment"),
+    body: text("body").notNull().default(""),
+    authorEmail: text("author_email").notNull(),
+    authorName: text("author_name"),
+    resolved: boolean("resolved").notNull().default(false),
+    resolvedBy: text("resolved_by"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("tc_review_comments_round_idx").on(t.roundId, t.createdAt),
+    index("tc_review_comments_case_idx").on(t.caseId),
+  ]
+);
+
 export type TcSet = typeof tcSets.$inferSelect;
 export type TcRound = typeof tcRounds.$inferSelect;
 export type TcFile = typeof tcFiles.$inferSelect;
 export type TcCaseRow = typeof tcCases.$inferSelect;
 export type TcReviewer = typeof tcReviewers.$inferSelect;
+export type TcReviewComment = typeof tcReviewComments.$inferSelect;

@@ -34,6 +34,12 @@ export function roundLabel(round: number, at: Date): string {
   return `Round ${round}, ${t.d} ${MONTHS[t.mo]} ${t.y} ${t.p(t.h)}:${t.p(t.mi)} IST`;
 }
 
+/** "14 Oct 2026 15:42 IST" */
+export function istDateTime(at: Date): string {
+  const t = istParts(at);
+  return `${t.d} ${MONTHS[t.mo]} ${t.y} ${t.p(t.h)}:${t.p(t.mi)} IST`;
+}
+
 /** Safe single path/file segment: letters, digits, dot, dash, underscore. */
 export function safeSegment(input: string, max = 40): string {
   const cleaned = input

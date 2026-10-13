@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { requireAuth, type AuthUser } from "@/lib/auth/server";
 import { authOptions } from "@/lib/auth/nextauth-options";
 import { FEATURE_FLAGS, isEnabled } from "@/lib/feature-flags";
+import { hasMinRole } from "@/lib/auth/types";
 import { SheetsError } from "@/lib/google/sheets";
 import { SourceError } from "./source";
 
@@ -37,4 +38,14 @@ export function errorResponse(err: unknown): NextResponse {
   }
   console.error("[test-cases] unexpected error:", err);
   return NextResponse.json({ error: "Something went wrong. Try again." }, { status: 500 });
+}
+
+/** The acting user as the review rules see them. */
+export function toActor(user: TcRequestUser): { email: string; name: string | null; isAdmin: boolean } {
+  return { email: user.email, name: user.name, isAdmin: hasMinRole(user.role, "ADMIN") };
+}
+
+/** Absolute origin for links in emails. */
+export function appOrigin(req: { nextUrl: { origin: string } }): string {
+  return (process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin).replace(/\/$/, "");
 }
