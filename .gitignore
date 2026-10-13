@@ -46,3 +46,6 @@ next-env.d.ts
 
 # clerk configuration (can include secrets)
 /.clerk/
+
+# Local dev store for Test Case files (used when S3 is not configured)
+/.tc-storage/

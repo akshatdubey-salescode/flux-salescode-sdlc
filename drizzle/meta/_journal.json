@@ -575,6 +575,13 @@
       "when": 1789721782092,
       "tag": "0082_lively_war_machine",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1791892324667,
+      "tag": "0083_thin_slipstream",
+      "breakpoints": true
     }
   ]
 }
