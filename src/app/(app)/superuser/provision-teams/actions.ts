@@ -11,6 +11,13 @@ import {
   provisionSingleManager,
   type ProvisionProposal,
 } from "@/lib/observer/provisioning";
+import {
+  addMissingMembers,
+  buildReconcileForManager,
+  buildReconcileProposal,
+  type ReconcileBoard,
+  type ReconcileProposal,
+} from "@/lib/observer/reconcile";
 
 export type ProposalResult =
   | { ok: true; proposal: ProvisionProposal }
@@ -198,6 +205,213 @@ export async function rollbackProvision(runId: string): Promise<RollbackResult> 
     revalidateTag("boards", "max");
     for (const id of result.boardIds) revalidateTag(`board:${id}`, "max");
     return { ok: true, deletedBoards: result.deletedBoards };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export type ReconcileResult =
+  | { ok: true; proposal: ReconcileProposal }
+  | { ok: false; error: string };
+
+/** Read-only: which existing boards miss Keka direct reports. Writes nothing. */
+export async function getReconcileProposal(): Promise<ReconcileResult> {
+  await requireRole("SUPERUSER");
+  try {
+    const proposal = await buildReconcileProposal();
+    return { ok: true, proposal };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export type SingleReconcileResult =
+  | { ok: true; board: ReconcileBoard | null }
+  | { ok: false; error: string };
+
+/** Read-only single-manager lookup. Writes nothing. */
+export async function getReconcileForManager(
+  managerEmail: string,
+): Promise<SingleReconcileResult> {
+  await requireRole("SUPERUSER");
+  try {
+    const board = await buildReconcileForManager(managerEmail);
+    return { ok: true, board };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export type SyncSelectionBoard = {
+  boardId: string;
+  memberEmails: string[];
+};
+
+export type DryRunSkipped = {
+  email: string;
+  reason: "already on board" | "unknown board";
+};
+
+export type DryRunBoard = {
+  boardId: string;
+  boardName: string;
+  managerEmail: string;
+  managerName: string;
+  wouldAdd: { email: string; name: string }[];
+  skipped: DryRunSkipped[];
+};
+
+export type DryRunResult =
+  | {
+      ok: true;
+      dryRun: true;
+      boards: DryRunBoard[];
+      totalWouldAdd: number;
+      totalBoards: number;
+      totalSkipped: number;
+    }
+  | { ok: false; error: string };
+
+/**
+ * Dry run: resolve the selection against the live proposal and report exactly
+ * what commitReconcile would insert. Writes nothing.
+ */
+export async function dryRunReconcile(
+  selection: SyncSelectionBoard[],
+): Promise<DryRunResult> {
+  await requireRole("SUPERUSER");
+  try {
+    const proposal = await buildReconcileProposal();
+    const proposedByBoard = new Map(
+      proposal.boards.map((b) => [b.boardId, b]),
+    );
+
+    const boards: DryRunBoard[] = [];
+    for (const sel of selection) {
+      const proposed = proposedByBoard.get(sel.boardId);
+      if (!proposed) {
+        boards.push({
+          boardId: sel.boardId,
+          boardName: "Unknown board",
+          managerEmail: "",
+          managerName: "",
+          wouldAdd: [],
+          skipped: sel.memberEmails.map((email) => ({
+            email,
+            reason: "unknown board" as const,
+          })),
+        });
+        continue;
+      }
+      const allowed = new Map(
+        proposed.missing.map((m) => [m.email.toLowerCase(), m]),
+      );
+      const seen = new Set<string>();
+      const wouldAdd: { email: string; name: string }[] = [];
+      const skipped: DryRunSkipped[] = [];
+      for (const email of sel.memberEmails) {
+        const key = email.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const match = allowed.get(key);
+        if (match) wouldAdd.push({ email: match.email, name: match.name });
+        else skipped.push({ email, reason: "already on board" });
+      }
+      // Empty member list means "whole board" (mirrors commitReconcile).
+      if (sel.memberEmails.length === 0) {
+        for (const m of proposed.missing) {
+          if (!seen.has(m.email.toLowerCase())) {
+            wouldAdd.push({ email: m.email, name: m.name });
+          }
+        }
+      }
+      boards.push({
+        boardId: proposed.boardId,
+        boardName: proposed.boardName,
+        managerEmail: proposed.managerEmail,
+        managerName: proposed.managerName,
+        wouldAdd,
+        skipped,
+      });
+    }
+
+    return {
+      ok: true,
+      dryRun: true,
+      boards: boards.filter((b) => b.wouldAdd.length > 0 || b.skipped.length > 0),
+      totalWouldAdd: boards.reduce((n, b) => n + b.wouldAdd.length, 0),
+      totalBoards: boards.filter((b) => b.wouldAdd.length > 0).length,
+      totalSkipped: boards.reduce((n, b) => n + b.skipped.length, 0),
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export type SyncResult =
+  | { ok: true; membersAdded: number; boardsTouched: number }
+  | { ok: false; error: string };
+
+/**
+ * Add-only member sync. Re-derives the proposal server-side and inserts only
+ * members the proposal lists. Existing members are never removed or updated.
+ */
+export async function commitReconcile(
+  selection: SyncSelectionBoard[],
+): Promise<SyncResult> {
+  const user = await requireRole("SUPERUSER");
+  void user;
+
+  try {
+    const proposal = await buildReconcileProposal();
+    const proposedByBoard = new Map(
+      proposal.boards.map((b) => [b.boardId, b]),
+    );
+
+    const toSync = selection
+      .map((sel) => {
+        const proposed = proposedByBoard.get(sel.boardId);
+        if (!proposed) return null;
+        const allowed = new Set(proposed.missing.map((m) => m.email.toLowerCase()));
+        const members = proposed.missing.filter((m) =>
+          sel.memberEmails.some((e) => e.toLowerCase() === m.email.toLowerCase()),
+        );
+        const finalMembers = members.length > 0 ? members : proposed.missing;
+        return {
+          boardId: proposed.boardId,
+          members: finalMembers
+            .filter((m) => allowed.has(m.email.toLowerCase()))
+            .map((m) => ({ email: m.email, name: m.name })),
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+
+    if (toSync.length === 0) {
+      return { ok: true, membersAdded: 0, boardsTouched: 0 };
+    }
+
+    let added = 0;
+    let touched = 0;
+    const memberIds: string[] = [];
+    const touchedBoardIds: string[] = [];
+
+    await db.transaction(async (tx) => {
+      for (const item of toSync) {
+        const ids = await addMissingMembers(tx, item.boardId, item.members);
+        if (ids.length > 0) {
+          added += ids.length;
+          touched++;
+          touchedBoardIds.push(item.boardId);
+          memberIds.push(...ids);
+        }
+      }
+    });
+
+    for (const id of memberIds) void ensureMemberJiraAccountId(id);
+
+    revalidateTag("boards", "max");
+    for (const id of touchedBoardIds) revalidateTag(`board:${id}`, "max");
+    return { ok: true, membersAdded: added, boardsTouched: touched };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

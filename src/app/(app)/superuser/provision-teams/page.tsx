@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth/server";
 import { db } from "@/lib/db";
 import { observerBoardProvisionRuns } from "@/lib/db/schema";
 import { buildProvisionProposal } from "@/lib/observer/provisioning";
+import { buildReconcileProposal } from "@/lib/observer/reconcile";
 import { PageHeader } from "@/components/page-header";
 import {
   Breadcrumb,
@@ -14,11 +15,13 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { ProvisionTeamsClient, type ProvisionRunRow } from "./provision-teams-client";
+import { ReconcileTeamsClient } from "./reconcile-client";
 
 export default async function ProvisionTeamsPage() {
   await requireRole("SUPERUSER");
 
   const proposal = await buildProvisionProposal();
+  const reconcile = await buildReconcileProposal();
 
   const runRows = await db
     .select({
@@ -78,6 +81,8 @@ export default async function ProvisionTeamsPage() {
           </div>
 
           <ProvisionTeamsClient proposal={proposal} runs={runs} />
+
+          <ReconcileTeamsClient initial={reconcile} />
         </div>
       </main>
     </div>
