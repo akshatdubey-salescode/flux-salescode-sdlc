@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { withReturnTo } from "@/lib/test-cases/return-to";
 import type { SignoffPreview } from "@/lib/test-cases/signoff-service";
 import { invalidateTcSummaries } from "./tc-summary-cache";
 
@@ -37,11 +38,16 @@ export function SignoffForm({
   roundId,
   roundNo,
   role,
+  returnTo,
+  cancelHref,
 }: {
   issue: { id: string; jiraKey: string; summary: string };
   roundId: string;
   roundNo: number;
   role: "dev" | "tester";
+  /** Where the user came from; carried on to the details page after submitting. */
+  returnTo: string | null;
+  cancelHref: string;
 }) {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -118,7 +124,7 @@ export function SignoffForm({
       setSheetUrl("");
       setNotes("");
       invalidateTcSummaries();
-      router.push(data.detailUrl as string);
+      router.push(withReturnTo(data.detailUrl as string, returnTo));
     } catch {
       setError({ message: "Network error. Try again." });
       setBusy(null);
@@ -261,7 +267,7 @@ export function SignoffForm({
       </section>
 
       <div className="flex items-center justify-between gap-3">
-        <Link href={`/test-cases/${issue.id}`} className="text-xs text-muted-foreground hover:text-foreground hover:underline">Cancel</Link>
+        <Link href={cancelHref} className="text-xs text-muted-foreground hover:text-foreground hover:underline">Cancel</Link>
         <div className="flex items-center gap-3">
           {!readyToCommit && busy === null && (
             <span className="text-[11px] text-muted-foreground">

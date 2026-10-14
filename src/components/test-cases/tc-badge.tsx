@@ -1,11 +1,13 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import { RiCheckboxBlankCircleLine, RiCheckboxCircleFill, RiFlaskLine } from "@remixicon/react";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { cn } from "@/lib/utils";
 import { READINESS_LABELS } from "@/lib/test-cases/analytics";
 import type { TcSummary } from "@/lib/test-cases/summary";
+import { withReturnTo } from "@/lib/test-cases/return-to";
 import { NO_TCS, useTcSummary } from "./tc-summary-cache";
 
 const READINESS_CHIP: Record<TcSummary["readiness"], string> = {
@@ -15,6 +17,10 @@ const READINESS_CHIP: Record<TcSummary["readiness"], string> = {
   risk: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400",
   ready: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400",
 };
+
+// The location is read at render and has nothing to subscribe to: the chip re-renders whenever its page does.
+const subscribeNever = () => () => {};
+const currentPath = () => window.location.pathname + window.location.search;
 
 function Row({ done, children, note }: { done: boolean; children: React.ReactNode; note?: string }) {
   return (
@@ -34,6 +40,9 @@ function Row({ done, children, note }: { done: boolean; children: React.ReactNod
  */
 export function TcBadge({ issueId }: { issueId: string }) {
   const entry = useTcSummary(issueId);
+  // The page the chip sits on (tab included), so the TC pages can send the user back to it.
+  // Read after mount: the server render has no location.
+  const from = useSyncExternalStore(subscribeNever, currentPath, () => null);
   if (entry == null) return null;
 
   // Rows are clickable in places; the chip's own link must not also trigger the row.
@@ -44,7 +53,7 @@ export function TcBadge({ issueId }: { issueId: string }) {
       <HoverCard>
         <HoverCardTrigger asChild>
           <Link
-            href={`/test-cases/new?issue=${issueId}`}
+            href={withReturnTo(`/test-cases/new?issue=${issueId}`, from)}
             onClick={stop}
             aria-label="No test cases yet. Submit test cases"
             className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground"
@@ -65,7 +74,7 @@ export function TcBadge({ issueId }: { issueId: string }) {
     <HoverCard>
       <HoverCardTrigger asChild>
         <Link
-          href={`/test-cases/${issueId}`}
+          href={withReturnTo(`/test-cases/${issueId}`, from)}
           onClick={stop}
           aria-label={`Test cases: ${s.confidence}% delivery confidence, ${READINESS_LABELS[s.readiness]}`}
           className={cn(

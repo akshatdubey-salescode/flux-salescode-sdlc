@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { RiDownload2Line, RiExternalLinkLine, RiGoogleLine, RiShieldCheckLine } from "@remixicon/react";
 import { cn } from "@/lib/utils";
+import { withReturnTo } from "@/lib/test-cases/return-to";
 import type { SignoffView } from "@/lib/test-cases/signoff-service";
 
 const ROLE_LABEL = { dev: "Developer", tester: "Tester" } as const;
@@ -9,12 +10,14 @@ export type SignoffAction = { role: "dev" | "tester"; allowed: boolean; reason: 
 
 export function SignoffPanel({
   issueId,
+  returnTo,
   signoffs,
   actions,
   isLatest,
   approved,
 }: {
   issueId: string;
+  returnTo: string | null;
   signoffs: SignoffView[];
   actions: SignoffAction[];
   isLatest: boolean;
@@ -32,7 +35,7 @@ export function SignoffPanel({
               a.allowed ? (
                 <Link
                   key={a.role}
-                  href={`/test-cases/signoff?issue=${issueId}&role=${a.role}`}
+                  href={withReturnTo(`/test-cases/signoff?issue=${issueId}&role=${a.role}`, returnTo)}
                   className="inline-flex h-8 items-center rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground"
                 >
                   {signoffs.some((s) => s.role === a.role) ? `Re-submit ${ROLE_LABEL[a.role].toLowerCase()} sign-off` : `Sign off as ${ROLE_LABEL[a.role].toLowerCase()}`}

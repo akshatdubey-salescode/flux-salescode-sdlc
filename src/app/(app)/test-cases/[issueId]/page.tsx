@@ -25,6 +25,8 @@ import { CasesTable } from "@/components/test-cases/cases-table";
 import { ReviewPanel } from "@/components/test-cases/review-panel";
 import { AnalyticsPanel } from "@/components/test-cases/analytics-panel";
 import { SignoffPanel } from "@/components/test-cases/signoff-panel";
+import { BackLink } from "@/components/test-cases/back-link";
+import { returnLabel, safeReturnTo, withReturnTo } from "@/lib/test-cases/return-to";
 import { fetchFeedbackFiles, fetchRoundComments } from "@/lib/test-cases/review-service";
 import { fetchSetDetail, findIssue } from "@/lib/test-cases/service";
 import { fetchRoundTrend, fetchStoredStats } from "@/lib/test-cases/stats-service";
@@ -42,7 +44,7 @@ import {
 
 type Props = {
   params: Promise<{ issueId: string }>;
-  searchParams: Promise<{ round?: string }>;
+  searchParams: Promise<{ round?: string; from?: string }>;
 };
 
 const ROUND_STATUS_STYLE: Record<string, string> = {
@@ -61,6 +63,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
 
   const { issueId } = await params;
   const sp = await searchParams;
+  const returnTo = safeReturnTo(sp.from);
   // Accept the internal id, or a Jira key for convenience.
   const lookup = await findIssue(isValidUuid(issueId) ? { issueId } : { key: issueId });
   if (lookup.kind === "none") notFound();
@@ -110,7 +113,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
       <PageHeader
         actions={
           <Link
-            href={`/test-cases/new?issue=${issue.id}`}
+            href={withReturnTo(`/test-cases/new?issue=${issue.id}`, returnTo)}
             className="inline-flex h-7 items-center gap-1 rounded-md bg-primary px-2.5 text-xs font-semibold text-primary-foreground"
           >
             <RiAddLine className="size-3.5" />
@@ -131,6 +134,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
 
       <main className="flex-1 p-6">
         <div className="mx-auto max-w-6xl space-y-5">
+          <BackLink href={returnTo ?? "/home"} label={returnLabel(returnTo)} />
           {/* Issue header */}
           <section className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -151,7 +155,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
             <section className="rounded-xl border border-dashed border-zinc-300 p-10 text-center dark:border-zinc-700">
               <p className="text-sm font-medium text-foreground">No test cases submitted for this issue yet.</p>
               <p className="mt-1 text-xs text-muted-foreground">Share a Google Sheet link (preferred) or upload an Excel file, and assign reviewers.</p>
-              <Link href={`/test-cases/new?issue=${issue.id}`} className="mt-4 inline-flex h-8 items-center rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground">
+              <Link href={withReturnTo(`/test-cases/new?issue=${issue.id}`, returnTo)} className="mt-4 inline-flex h-8 items-center rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground">
                 Submit test cases
               </Link>
             </section>
@@ -164,7 +168,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                   {detail.rounds.map((r) => (
                     <li key={r.id}>
                       <Link
-                        href={`/test-cases/${issue.id}?round=${r.roundNo}`}
+                        href={withReturnTo(`/test-cases/${issue.id}?round=${r.roundNo}`, returnTo)}
                         className={cn(
                           "block rounded-lg border px-3 py-2 text-xs transition-colors",
                           r.roundNo === round.roundNo
@@ -272,6 +276,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
 
                 <SignoffPanel
                   issueId={issue.id}
+                  returnTo={returnTo}
                   signoffs={signoffs}
                   actions={signoffActions}
                   isLatest={isLatest}

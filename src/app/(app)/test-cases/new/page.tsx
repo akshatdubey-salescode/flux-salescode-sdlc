@@ -13,9 +13,11 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { SubmissionForm } from "@/components/test-cases/submission-form";
+import { BackLink } from "@/components/test-cases/back-link";
+import { returnLabel, safeReturnTo, withReturnTo } from "@/lib/test-cases/return-to";
 import { fetchSetDetail, findIssue, previousReviewers } from "@/lib/test-cases/service";
 
-type Props = { searchParams: Promise<{ issue?: string; key?: string }> };
+type Props = { searchParams: Promise<{ issue?: string; key?: string; from?: string }> };
 
 export default async function NewTestCaseSubmissionPage({ searchParams }: Props) {
   const user = await requireAuth();
@@ -24,6 +26,7 @@ export default async function NewTestCaseSubmissionPage({ searchParams }: Props)
   const sp = await searchParams;
   const issueId = sp.issue && isValidUuid(sp.issue) ? sp.issue : undefined;
   const key = sp.key?.trim() || undefined;
+  const returnTo = safeReturnTo(sp.from);
   const lookup = issueId || key ? await findIssue({ issueId, key }) : null;
 
   const header = (
@@ -47,6 +50,7 @@ export default async function NewTestCaseSubmissionPage({ searchParams }: Props)
         {header}
         <main className="flex-1 p-6">
           <div className="mx-auto max-w-xl space-y-4">
+            <BackLink href={returnTo ?? "/home"} label={returnLabel(returnTo)} />
             <h1 className="text-lg font-semibold text-foreground">Submit test cases</h1>
             {lookup?.kind === "none" && <p className="text-sm text-destructive">No issue found for that reference.</p>}
             {lookup?.kind === "ambiguous" ? (
@@ -55,7 +59,7 @@ export default async function NewTestCaseSubmissionPage({ searchParams }: Props)
                 <ul className="space-y-1">
                   {lookup.issues.map((i) => (
                     <li key={i.id}>
-                      <Link href={`/test-cases/new?issue=${i.id}`} className="text-sm text-primary hover:underline">
+                      <Link href={withReturnTo(`/test-cases/new?issue=${i.id}`, returnTo)} className="text-sm text-primary hover:underline">
                         {i.jiraKey} — {i.summary} <span className="text-muted-foreground">({i.projectName})</span>
                       </Link>
                     </li>
@@ -64,6 +68,7 @@ export default async function NewTestCaseSubmissionPage({ searchParams }: Props)
               </div>
             ) : (
               <form action="/test-cases/new" className="flex items-end gap-2">
+                {returnTo && <input type="hidden" name="from" value={returnTo} />}
                 <label className="flex-1 space-y-1 text-xs text-muted-foreground">
                   Jira key
                   <input
@@ -87,6 +92,8 @@ export default async function NewTestCaseSubmissionPage({ searchParams }: Props)
   const issue = lookup.issue;
   const [existing, reviewers] = await Promise.all([fetchSetDetail(issue.id), previousReviewers(issue.id)]);
   const nextRound = (existing?.rounds[0]?.roundNo ?? 0) + 1;
+  // Back goes to where the user came from; with no known origin, to the issue's TC page if it has one.
+  const backHref = returnTo ?? (existing ? `/test-cases/${issue.id}` : "/home");
 
   return (
     <div className="flex min-h-svh flex-col">
@@ -94,14 +101,17 @@ export default async function NewTestCaseSubmissionPage({ searchParams }: Props)
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
-              <BreadcrumbLink asChild><Link href={`/test-cases/${issue.id}`}>{issue.jiraKey}</Link></BreadcrumbLink>
+              <BreadcrumbLink asChild><Link href={withReturnTo(`/test-cases/${issue.id}`, returnTo)}>{issue.jiraKey}</Link></BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem><BreadcrumbPage>Submit test cases</BreadcrumbPage></BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
       </PageHeader>
-      <main className="flex-1 p-6">
+      <main className="flex-1 space-y-3 p-6">
+        <div className="mx-auto max-w-4xl">
+          <BackLink href={backHref} label={returnLabel(returnTo)} />
+        </div>
         <SubmissionForm
           // A new instance for each round, so a committed form never comes back as a stale draft.
           key={`${issue.id}:${nextRound}`}
@@ -117,6 +127,8 @@ export default async function NewTestCaseSubmissionPage({ searchParams }: Props)
           nextRound={nextRound}
           committerEmail={user.email}
           initialReviewers={reviewers}
+          returnTo={returnTo}
+          cancelHref={backHref}
         />
       </main>
     </div>

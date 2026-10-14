@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { ReviewerPicker, type Reviewer } from "./reviewer-picker";
+import { withReturnTo } from "@/lib/test-cases/return-to";
 import { TC_CATEGORY_LABELS, TC_POLARITY_LABELS, type TcCategory, type TcPolarity } from "@/lib/test-cases/values";
 import type { Preview } from "@/lib/test-cases/preview";
 import { invalidateTcSummaries } from "./tc-summary-cache";
@@ -49,11 +50,17 @@ export function SubmissionForm({
   nextRound,
   committerEmail,
   initialReviewers,
+  returnTo,
+  cancelHref,
 }: {
   issue: IssueInfo;
   nextRound: number;
   committerEmail: string;
   initialReviewers: Reviewer[];
+  /** Where the user came from (Delivery / Sprint tab); carried on to the details page after commit. */
+  returnTo: string | null;
+  /** Where Cancel goes. */
+  cancelHref: string;
 }) {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -135,7 +142,7 @@ export function SubmissionForm({
       setNotes("");
       setMode("sheet");
       invalidateTcSummaries();
-      router.push(data.detailUrl as string);
+      router.push(withReturnTo(data.detailUrl as string, returnTo));
     } catch {
       setError({ message: "Network error. Try again." });
       setBusy(null);
@@ -322,7 +329,7 @@ export function SubmissionForm({
       </section>
 
       <div className="flex items-center justify-between gap-3">
-        <Link href={`/test-cases/${issue.id}`} className="text-xs text-muted-foreground hover:text-foreground hover:underline">
+        <Link href={cancelHref} className="text-xs text-muted-foreground hover:text-foreground hover:underline">
           Cancel
         </Link>
         <div className="flex items-center gap-3">
