@@ -18,6 +18,7 @@ import {
   RiLayoutColumnLine,
   RiDownload2Line,
   RiMore2Line,
+  RiArrowDownSLine,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -56,6 +57,7 @@ import { localDateStr, getQuarterChips } from "@/lib/date-utils";
 import { statusCategoryStyles, priorityStyles, issueTypeStyles } from "@/components/project-tracking/helpers";
 import {
   DELIVERY_STATUSES,
+  DELIVERY_STATUS_VALUES,
   deliveryStatusStyles,
   deliveryStatusLabel,
   isDeliveredLate,
@@ -97,6 +99,164 @@ function deliveryItemMatchesQuery(item: DeliveryItemRow, query: string): boolean
     item.summary.toLowerCase().includes(q) ||
     (item.assigneeName ?? "").toLowerCase().includes(q) ||
     (item.qaAssigneeName ?? "").toLowerCase().includes(q)
+  );
+}
+
+type ItemSortKey = Exclude<ColumnKey, "comments">;
+type SortDir = "asc" | "desc";
+
+/** Per-column sort value for the delivery items table. null means "no value" and always sorts last, whichever direction. */
+function itemSortValue(item: DeliveryItemRow, key: ItemSortKey): string | number | null {
+  switch (key) {
+    case "key":
+      return item.jiraKey;
+    case "summary":
+      return item.summary;
+    case "jiraStatus":
+      return item.jiraStatus;
+    case "priority":
+      return item.priority ? priorityRank(item.priority) : null;
+    case "assignee":
+      return item.assigneeName;
+    case "qaAssignee":
+      return item.qaAssigneeName;
+    case "delivery":
+      return DELIVERY_STATUS_VALUES.indexOf(item.status);
+    case "startDate":
+    case "dueDate":
+    case "actualStart":
+    case "actualEnd": {
+      const v = item[key];
+      if (!v) return null;
+      const t = Date.parse(v);
+      return Number.isNaN(t) ? null : t;
+    }
+  }
+}
+
+function compareItems(a: DeliveryItemRow, b: DeliveryItemRow, key: ItemSortKey, dir: SortDir): number {
+  const va = itemSortValue(a, key);
+  const vb = itemSortValue(b, key);
+  if (va === null && vb === null) return 0;
+  if (va === null) return 1;
+  if (vb === null) return -1;
+  const cmp =
+    typeof va === "number" && typeof vb === "number"
+      ? va - vb
+      : String(va).localeCompare(String(vb), undefined, { numeric: true, sensitivity: "base" });
+  return dir === "asc" ? cmp : -cmp;
+}
+
+/**
+ * Checkbox dropdown used by every select in the per-delivery filter bar.
+ * An empty selection means "all"; the menu stays open while ticking.
+ */
+function MultiSelectFilter({
+  allLabel,
+  pluralNoun,
+  options,
+  selected,
+  onChange,
+  counts,
+}: {
+  allLabel: string;
+  pluralNoun: string;
+  options: { value: string; label: string }[];
+  selected: Set<string>;
+  onChange: (next: Set<string>) => void;
+  counts?: Map<string, number>;
+}) {
+  const triggerLabel =
+    selected.size === 0
+      ? allLabel
+      : selected.size === 1
+        ? (options.find((o) => selected.has(o.value))?.label ?? [...selected][0])
+        : `${selected.size} ${pluralNoun}`;
+
+  function toggle(value: string) {
+    const next = new Set(selected);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    onChange(next);
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn("h-7 w-auto gap-1 px-2 text-xs font-normal", selected.size > 0 && "border-primary/50")}
+        >
+          {triggerLabel}
+          <RiArrowDownSLine className="size-3.5 opacity-50" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-80 w-56 overflow-y-auto">
+        <DropdownMenuCheckboxItem
+          checked={selected.size === 0}
+          onCheckedChange={() => onChange(new Set())}
+          onSelect={(e) => e.preventDefault()}
+          className="text-xs"
+        >
+          {allLabel}
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
+        {options.map((o) => (
+          <DropdownMenuCheckboxItem
+            key={o.value}
+            checked={selected.has(o.value)}
+            onCheckedChange={() => toggle(o.value)}
+            onSelect={(e) => e.preventDefault()}
+            className="text-xs"
+          >
+            {o.label}
+            {counts && (
+              <span className="ml-auto pl-2 text-[10px] text-muted-foreground">{counts.get(o.value) ?? 0}</span>
+            )}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** How many of `items` fall under each value of a filter field — shown beside each option. */
+function countBy(items: DeliveryItemRow[], field: (i: DeliveryItemRow) => string): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const i of items) m.set(field(i), (m.get(field(i)) ?? 0) + 1);
+  return m;
+}
+
+/** Clickable header cell for the delivery items table — same ↕/↑/↓ indicator the Bug Board's SortableTh uses. */
+function SortableItemTh({
+  label,
+  sortKey,
+  sort,
+  onSort,
+}: {
+  label: string;
+  sortKey: ItemSortKey;
+  sort: { key: ItemSortKey; dir: SortDir } | null;
+  onSort: (key: ItemSortKey) => void;
+}) {
+  const active = sort?.key === sortKey;
+  return (
+    <th
+      className="px-3 py-2 text-left font-medium text-muted-foreground"
+      aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className="inline-flex items-center gap-1 text-left hover:text-foreground"
+      >
+        {label}
+        <span className={active ? "text-foreground" : "text-muted-foreground/40"}>
+          {active ? (sort.dir === "desc" ? "↓" : "↑") : "↕"}
+        </span>
+      </button>
+    </th>
   );
 }
 
@@ -817,10 +977,31 @@ function DeliveryItemsTable({
   // Like the sprint bar, this narrows the table only: the card's Export and
   // Copy buttons still act on the delivery's tab-filtered items.
   const [search, setSearch] = useState("");
-  const [jiraStatusFilter, setJiraStatusFilter] = useState("all");
-  const [deliveryStatusFilter, setDeliveryStatusFilter] = useState<"all" | DeliveryStatusValue>("all");
-  const [priorityFilter, setPriorityFilter] = useState("all");
-  const [assigneeFilter, setAssigneeFilter] = useState("all");
+  const [jiraStatusFilter, setJiraStatusFilter] = useState<Set<string>>(() => new Set());
+  // Click a header: ascending → descending → back to the delivery's own order.
+  const [sort, setSort] = useState<{ key: ItemSortKey; dir: SortDir } | null>(null);
+
+  function handleSort(key: ItemSortKey) {
+    setSort((prev) => {
+      if (prev?.key !== key) return { key, dir: "asc" };
+      if (prev.dir === "asc") return { key, dir: "desc" };
+      return null;
+    });
+  }
+
+  const [deliveryStatusFilter, setDeliveryStatusFilter] = useState<Set<string>>(() => new Set());
+  const [priorityFilter, setPriorityFilter] = useState<Set<string>>(() => new Set());
+  const [assigneeFilter, setAssigneeFilter] = useState<Set<string>>(() => new Set());
+
+  const counts = useMemo(
+    () => ({
+      jiraStatus: countBy(items, (i) => i.jiraStatus),
+      deliveryStatus: countBy(items, (i) => i.status),
+      priority: countBy(items, (i) => i.priority ?? "No priority"),
+      assignee: countBy(items, (i) => i.assigneeName ?? "Unassigned"),
+    }),
+    [items]
+  );
 
   const jiraStatuses = useMemo(
     () => [...new Set(items.map((i) => i.jiraStatus))].sort((a, b) => a.localeCompare(b)),
@@ -847,33 +1028,29 @@ function DeliveryItemsTable({
   const filtered = useMemo(() => {
     let out = items;
     if (search.trim()) out = out.filter((i) => deliveryItemMatchesQuery(i, search));
-    if (jiraStatusFilter !== "all") out = out.filter((i) => i.jiraStatus === jiraStatusFilter);
-    if (deliveryStatusFilter !== "all") out = out.filter((i) => i.status === deliveryStatusFilter);
-    if (priorityFilter !== "all") {
-      out = out.filter((i) => (i.priority ?? "No priority") === priorityFilter);
-    }
-    if (assigneeFilter !== "all") {
-      out = out.filter((i) => (i.assigneeName ?? "Unassigned") === assigneeFilter);
-    }
+    if (jiraStatusFilter.size > 0) out = out.filter((i) => jiraStatusFilter.has(i.jiraStatus));
+    if (deliveryStatusFilter.size > 0) out = out.filter((i) => deliveryStatusFilter.has(i.status));
+    if (priorityFilter.size > 0) out = out.filter((i) => priorityFilter.has(i.priority ?? "No priority"));
+    if (assigneeFilter.size > 0) out = out.filter((i) => assigneeFilter.has(i.assigneeName ?? "Unassigned"));
+    if (sort) out = [...out].sort((a, b) => compareItems(a, b, sort.key, sort.dir));
     return out;
-  }, [items, search, jiraStatusFilter, deliveryStatusFilter, priorityFilter, assigneeFilter]);
+  }, [items, search, jiraStatusFilter, deliveryStatusFilter, priorityFilter, assigneeFilter, sort]);
 
   const filtersActive =
     search.trim() !== "" ||
-    jiraStatusFilter !== "all" ||
-    deliveryStatusFilter !== "all" ||
-    priorityFilter !== "all" ||
-    assigneeFilter !== "all";
+    jiraStatusFilter.size > 0 ||
+    deliveryStatusFilter.size > 0 ||
+    priorityFilter.size > 0 ||
+    assigneeFilter.size > 0;
 
   function clearFilters() {
     setSearch("");
-    setJiraStatusFilter("all");
-    setDeliveryStatusFilter("all");
-    setPriorityFilter("all");
-    setAssigneeFilter("all");
+    setJiraStatusFilter(new Set());
+    setDeliveryStatusFilter(new Set());
+    setPriorityFilter(new Set());
+    setAssigneeFilter(new Set());
   }
 
-  const selectTriggerCls = "h-7 w-auto gap-1 px-2 text-xs";
   // Toggleable columns actually on screen, plus the always-present actions
   // cell and the manage cell — the colSpan the "nothing matched" row needs.
   const colCount = visibleColumns.size + 1 + (canManage ? 1 : 0);
@@ -887,61 +1064,38 @@ function DeliveryItemsTable({
           placeholder="Filter by key, summary, assignee…"
           className="h-7 w-52 text-xs"
         />
-        <Select value={jiraStatusFilter} onValueChange={setJiraStatusFilter}>
-          <SelectTrigger className={selectTriggerCls}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            {jiraStatuses.map((s) => (
-              <SelectItem key={s} value={s}>
-                {s}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={deliveryStatusFilter}
-          onValueChange={(v) => setDeliveryStatusFilter(v as typeof deliveryStatusFilter)}
-        >
-          <SelectTrigger className={selectTriggerCls}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All delivery statuses</SelectItem>
-            {DELIVERY_STATUSES.map((s) => (
-              <SelectItem key={s.value} value={s.value}>
-                {s.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-          <SelectTrigger className={selectTriggerCls}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All priorities</SelectItem>
-            {priorities.map((p) => (
-              <SelectItem key={p} value={p}>
-                {p}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
-          <SelectTrigger className={selectTriggerCls}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All assignees</SelectItem>
-            {assignees.map((a) => (
-              <SelectItem key={a} value={a}>
-                {a}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <MultiSelectFilter
+          allLabel="All statuses"
+          pluralNoun="statuses"
+          options={jiraStatuses.map((v) => ({ value: v, label: v }))}
+          selected={jiraStatusFilter}
+          onChange={setJiraStatusFilter}
+          counts={counts.jiraStatus}
+        />
+        <MultiSelectFilter
+          allLabel="All delivery statuses"
+          pluralNoun="delivery statuses"
+          options={DELIVERY_STATUSES}
+          selected={deliveryStatusFilter}
+          onChange={setDeliveryStatusFilter}
+          counts={counts.deliveryStatus}
+        />
+        <MultiSelectFilter
+          allLabel="All priorities"
+          pluralNoun="priorities"
+          options={priorities.map((v) => ({ value: v, label: v }))}
+          selected={priorityFilter}
+          onChange={setPriorityFilter}
+          counts={counts.priority}
+        />
+        <MultiSelectFilter
+          allLabel="All assignees"
+          pluralNoun="assignees"
+          options={assignees.map((v) => ({ value: v, label: v }))}
+          selected={assigneeFilter}
+          onChange={setAssigneeFilter}
+          counts={counts.assignee}
+        />
         {filtersActive && (
           <span className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground">
             {filtered.length} of {items.length} shown
@@ -959,17 +1113,17 @@ function DeliveryItemsTable({
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-border bg-muted/20">
-            {isVisible("key") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Key</th>}
-            {isVisible("summary") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Summary</th>}
-            {isVisible("jiraStatus") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>}
-            {isVisible("priority") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Priority</th>}
-            {isVisible("assignee") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Assignee</th>}
-            {isVisible("qaAssignee") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">QA Assignee</th>}
-            {isVisible("delivery") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Delivery</th>}
-            {isVisible("startDate") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Start Date</th>}
-            {isVisible("dueDate") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">End Date</th>}
-            {isVisible("actualStart") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Actual Start</th>}
-            {isVisible("actualEnd") && <th className="px-3 py-2 text-left font-medium text-muted-foreground">Actual End</th>}
+            {isVisible("key") && <SortableItemTh label="Key" sortKey="key" sort={sort} onSort={handleSort} />}
+            {isVisible("summary") && <SortableItemTh label="Summary" sortKey="summary" sort={sort} onSort={handleSort} />}
+            {isVisible("jiraStatus") && <SortableItemTh label="Status" sortKey="jiraStatus" sort={sort} onSort={handleSort} />}
+            {isVisible("priority") && <SortableItemTh label="Priority" sortKey="priority" sort={sort} onSort={handleSort} />}
+            {isVisible("assignee") && <SortableItemTh label="Assignee" sortKey="assignee" sort={sort} onSort={handleSort} />}
+            {isVisible("qaAssignee") && <SortableItemTh label="QA Assignee" sortKey="qaAssignee" sort={sort} onSort={handleSort} />}
+            {isVisible("delivery") && <SortableItemTh label="Delivery" sortKey="delivery" sort={sort} onSort={handleSort} />}
+            {isVisible("startDate") && <SortableItemTh label="Start Date" sortKey="startDate" sort={sort} onSort={handleSort} />}
+            {isVisible("dueDate") && <SortableItemTh label="End Date" sortKey="dueDate" sort={sort} onSort={handleSort} />}
+            {isVisible("actualStart") && <SortableItemTh label="Actual Start" sortKey="actualStart" sort={sort} onSort={handleSort} />}
+            {isVisible("actualEnd") && <SortableItemTh label="Actual End" sortKey="actualEnd" sort={sort} onSort={handleSort} />}
             {isVisible("comments") && <th className="px-2 py-2" />}
             <th className="px-2 py-2" />
             {canManage && <th className="w-16 px-2 py-2" />}

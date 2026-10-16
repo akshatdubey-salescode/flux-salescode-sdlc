@@ -313,7 +313,7 @@ function nearestDeliveryOrderBySql(): SQL {
  * silently picking the wrong column if no such collision exists. Always
  * qualifying here removes the dependency on the caller's join shape.
  */
-function qualified(ref: AnyColumn | SQL): SQL {
+export function qualified(ref: AnyColumn | SQL): SQL {
   return is(ref, Column) ? sql.raw(`"${getTableName(ref.table)}"."${ref.name}"`) : ref;
 }
 
