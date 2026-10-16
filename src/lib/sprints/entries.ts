@@ -1,6 +1,7 @@
-import { sql } from "drizzle-orm";
+import { sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { extractStartDate, extractDueDate, extractActualStart, extractActualEnd } from "@/lib/jira/dates";
+import { qualified } from "@/lib/deliveries/entries";
 
 // ---------------------------------------------------------------------------
 // Sprint read layer — mirrors lib/deliveries/entries.ts (header + items join,
@@ -17,6 +18,24 @@ import { extractStartDate, extractDueDate, extractActualStart, extractActualEnd 
 //              the same way statusCategoryStyles does in the UI — never set
 //              by hand.
 // ---------------------------------------------------------------------------
+
+/**
+ * Sprint pickers: true when the issue referenced by `issueIdRef` (usually
+ * jiraIssues.id) sits in no OTHER open sprint — not deleted, not closed, and
+ * not soft-removed from it. Closed sprints don't count, so unfinished
+ * spillover can still be pulled into the next sprint. `exceptSprintId` (the
+ * sprint being added to) keeps its own items so they show as "already added".
+ */
+export function notInOtherOpenSprintsSql(issueIdRef: AnyColumn | SQL, exceptSprintId?: string | null): SQL {
+  return sql`NOT EXISTS (
+    SELECT 1
+    FROM sprint_items si_x
+    JOIN sprints s_x ON s_x.id = si_x.sprint_id AND s_x.deleted_at IS NULL AND s_x.completed_at IS NULL
+    WHERE si_x.issue_id = ${qualified(issueIdRef)}
+      AND si_x.removed_at IS NULL
+    ${exceptSprintId ? sql`AND s_x.id <> ${exceptSprintId}` : sql``}
+  )`;
+}
 
 export type SprintItemProgress = "todo" | "in_progress" | "done";
 
