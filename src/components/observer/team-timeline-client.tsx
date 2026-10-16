@@ -60,6 +60,7 @@ import type { MeetingEvent, MeetingsResponse } from "@/app/api/observer/boards/[
 import { statusCategoryStyles, priorityStyles, issueTypeStyles } from "@/components/project-tracking/helpers";
 import { TeamGanttClient } from "@/components/observer/team-gantt-client";
 import { currentFiscalQuarterChip, getQuarterChips, localDateStr } from "@/lib/date-utils";
+import { pickRangeParams } from "@/lib/observer/range-params";
 import { nearestDeliveryColorClass } from "@/lib/deliveries/status";
 
 // ---------------------------------------------------------------------------
@@ -920,6 +921,7 @@ function MemberTeamLink({
   parentBoardName?: string;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [building, setBuilding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -928,10 +930,13 @@ function MemberTeamLink({
       const params = new URLSearchParams();
       if (parentBoardId) params.set("parentBoardId", parentBoardId);
       if (parentBoardName) params.set("parentName", parentBoardName);
+      // The date range lives only in this page's URL — carry it so the team
+      // opens on the same range the viewer was just looking at.
+      pickRangeParams((k) => searchParams.get(k)).forEach((v, k) => params.set(k, v));
       const qs = params.toString();
       return `/observer/${boardId}${qs ? `?${qs}` : ""}`;
     },
-    [parentBoardId, parentBoardName]
+    [parentBoardId, parentBoardName, searchParams]
   );
 
   if (!ownedBoardId && reportCount <= 0) return null;
