@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { isValidUuid } from "@/lib/validation";
-import { isResponse, requireTestCasesUser, toActor } from "@/lib/test-cases/api";
+import { isResponse, requireTestCasesUser, toActor, readJsonObject } from "@/lib/test-cases/api";
 import { deleteItemTestCases } from "@/lib/test-cases/delete-service";
 import { findIssue } from "@/lib/test-cases/service";
 import { validateDeleteRequest } from "@/lib/test-cases/state";
@@ -17,12 +17,9 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ issueId:
   const { issueId } = await ctx.params;
   if (!isValidUuid(issueId)) return NextResponse.json({ error: "Invalid issue id" }, { status: 400 });
 
-  let body: { confirm?: unknown; reason?: unknown };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
+  const parsedBody = await readJsonObject(req);
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.body as { confirm?: unknown; reason?: unknown };
 
   const lookup = await findIssue({ issueId });
   if (lookup.kind !== "found") return NextResponse.json({ error: "Issue not found." }, { status: 404 });

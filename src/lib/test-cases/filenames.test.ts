@@ -43,3 +43,22 @@ test("segments are sanitised: no separators, traversal, or odd characters", () =
   assert.ok(!key.includes(".."), key);
   assert.equal(key.split("/").length, 4, "exactly tc/<project>/<jira>/<file>");
 });
+
+test("a Jira summary with dots in it still gives a storable key and a readable name", () => {
+  assert.equal(safeSegment("Loading... spinner"), "Loading._spinner");
+  assert.equal(safeSegment("a..b...c"), "a.b.c");
+  const parts = { kind: "testcases" as const, round: 3, project: "P", jiraKey: "CT-1", feature: "Loading... spinner", user: "u@x.com", at: AT, projectKey: "CT" };
+  const key = buildTcS3Key(parts);
+  assert.ok(!key.includes(".."), key);
+  assert.ok(buildTcFileName(parts).includes("_r3_"), "the display name keeps the round");
+});
+
+test("keys carry no round, end in a nonce, and are unique per call even within one second", () => {
+  const parts = { kind: "signoff_dev" as const, round: 2, project: "P", jiraKey: "CT-1", feature: "F", user: "u@x.com", at: AT, projectKey: "CT" };
+  const a = buildTcS3Key(parts);
+  const b = buildTcS3Key(parts);
+  assert.notEqual(a, b);
+  assert.ok(!/_r\d+_/.test(a), a);
+  assert.match(a, /_[0-9a-f]{8}\.xlsx$/);
+  assert.equal(buildTcS3Key({ ...parts, nonce: "abcd1234" }).endsWith("_20261014-154203_abcd1234.xlsx"), true);
+});

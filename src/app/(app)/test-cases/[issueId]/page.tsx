@@ -31,7 +31,7 @@ import { BackLink } from "@/components/test-cases/back-link";
 import { returnLabel, safeReturnTo, withReturnTo } from "@/lib/test-cases/return-to";
 import { countOpenFeedback, fetchFeedbackFiles, fetchRoundComments } from "@/lib/test-cases/review-service";
 import { fetchSetDetail, findIssue } from "@/lib/test-cases/service";
-import { fetchRoundTrend, fetchStoredStats } from "@/lib/test-cases/stats-service";
+import { fetchStoredStats } from "@/lib/test-cases/stats-service";
 import { canSignOff } from "@/lib/test-cases/state";
 import { fetchSignoffs, getIssuePeople } from "@/lib/test-cases/signoff-service";
 import { istDateTime } from "@/lib/test-cases/filenames";
@@ -94,17 +94,16 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
   const isLatest = !!detail && round?.roundNo === detail.rounds[0]?.roundNo;
   const roundApproved = round?.status === "approved";
 
-  const [stored, trend, signoffs, people, openFeedback, history] =
+  const [stored, signoffs, people, openFeedback, history] =
     detail && round
       ? await Promise.all([
           fetchStoredStats(detail.setId),
-          fetchRoundTrend(detail.setId),
           fetchSignoffs(round.id),
           getIssuePeople(issue.id),
           countOpenFeedback(round.id),
           fetchHistory(detail.setId),
         ])
-      : [null, [], [], { dev: [], qa: [] }, 0, []];
+      : [null, [], { dev: [], qa: [] }, 0, []];
   const needsResubmit = isLatest && round?.status === "changes_requested";
   const signoffActions = (["dev", "tester"] as const).map((role) => {
     const v = canSignOff({ role, actor: viewer, people, roundApproved, isLatestRound: isLatest, openFeedback });
@@ -125,7 +124,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
         actions={
           <Link
             href={withReturnTo(`/test-cases/new?issue=${issue.id}`, returnTo)}
-            className="inline-flex h-7 items-center gap-1 rounded-md bg-primary px-2.5 text-xs font-semibold text-primary-foreground"
+            className="inline-flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-primary px-2.5 text-xs font-semibold text-primary-foreground"
           >
             <RiAddLine className="size-3.5" />
             {!detail ? "Submit test cases" : needsResubmit ? "Resubmit TCs" : "New round"}
@@ -272,7 +271,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                 </section>
 
                 {isLatest && stored && (
-                  <AnalyticsPanel issueId={issue.id} stats={stored.stats} trend={trend} computedAt={istDateTime(stored.computedAt)} />
+                  <AnalyticsPanel issueId={issue.id} stats={stored.stats} trend={stored.stats.trend ?? []} computedAt={istDateTime(stored.computedAt)} />
                 )}
 
                 <ReviewPanel

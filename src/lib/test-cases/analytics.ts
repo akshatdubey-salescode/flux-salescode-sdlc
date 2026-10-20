@@ -91,6 +91,16 @@ export type SetInput = {
   roundCount: number;
 };
 
+/** One point per round for the "rounds compared" chart. Past rounds can't change, so each is computed once and stored. */
+export type RoundTrendPoint = {
+  roundNo: number;
+  tcCount: number;
+  quality: number;
+  passRate: number;
+  confidence: number;
+  status: string;
+};
+
 export type SetStats = {
   tcCount: number;
   categorySplit: Partial<Record<TcCategory, TypeRow>>;
@@ -116,6 +126,8 @@ export type SetStats = {
   confidenceCaps: string[];
   readiness: Readiness;
   llmReviewed: boolean;
+  /** Filled in when the stats are stored (see recomputeSetStats); absent on rows from before it existed. */
+  trend?: RoundTrendPoint[];
 };
 
 // ---------------------------------------------------------------------------

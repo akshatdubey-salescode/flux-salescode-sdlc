@@ -3,6 +3,7 @@
 // IST (the team's working timezone), computed without relying on the server's
 // own timezone.
 
+import { randomBytes } from "node:crypto";
 import type { TcFileKind } from "./values";
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -46,6 +47,8 @@ export function safeSegment(input: string, max = 40): string {
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "")
     .replace(/[^A-Za-z0-9._-]+/g, "_")
+    // Jira summaries often contain "..." and the store refuses any key with "..".
+    .replace(/\.{2,}/g, ".")
     .replace(/_+/g, "_")
     .replace(/^[_.-]+|[_.-]+$/g, "");
   return (cleaned || "x").slice(0, max).replace(/[_.-]+$/g, "") || "x";
@@ -70,20 +73,26 @@ const KIND_PREFIX: Record<TcFileKind, string> = {
   reviewer_feedback: "ReviewerFeedback",
 };
 
-export function buildTcFileName(p: TcFileNameParts): string {
+function nameSegments(p: TcFileNameParts): string[] {
   const user = safeSegment(p.user.includes("@") ? p.user.split("@")[0] : p.user, 24);
-  return [
-    KIND_PREFIX[p.kind],
-    `r${p.round}`,
-    safeSegment(p.project, 30),
-    safeSegment(p.jiraKey, 20),
-    safeSegment(p.feature, 40),
-    user,
-    istStamp(p.at),
-  ].join("_") + ".xlsx";
+  return [safeSegment(p.project, 30), safeSegment(p.jiraKey, 20), safeSegment(p.feature, 40), user, istStamp(p.at)];
 }
 
-/** Object key: grouped by project and Jira ID, file name last. */
-export function buildTcS3Key(p: TcFileNameParts & { projectKey: string }): string {
-  return `tc/${safeSegment(p.projectKey, 20)}/${safeSegment(p.jiraKey, 20)}/${buildTcFileName(p)}`;
+export function buildTcFileName(p: TcFileNameParts): string {
+  const [project, jira, feature, user, stamp] = nameSegments(p);
+  return [KIND_PREFIX[p.kind], `r${p.round}`, project, jira, feature, user, stamp].join("_") + ".xlsx";
+}
+
+/**
+ * Object key: grouped by project and Jira ID, file name last. It carries no round
+ * number (that is only known once the item is locked for the commit, and the
+ * file is uploaded before) and ends in a random nonce, so two uploads in the
+ * same second can never overwrite each other. The readable name, with the round,
+ * lives in the database and in the download's file name.
+ */
+export function buildTcS3Key(p: TcFileNameParts & { projectKey: string; nonce?: string }): string {
+  const [project, jira, feature, user, stamp] = nameSegments(p);
+  const nonce = p.nonce ?? randomBytes(4).toString("hex");
+  const file = [KIND_PREFIX[p.kind], project, jira, feature, user, stamp, nonce].join("_") + ".xlsx";
+  return `tc/${safeSegment(p.projectKey, 20)}/${safeSegment(p.jiraKey, 20)}/${file}`;
 }

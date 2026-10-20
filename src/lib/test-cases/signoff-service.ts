@@ -1,13 +1,15 @@
 // Sign-off operations: who the issue's people are, committing a dev/tester
 // sign-off against the approved round, and reading sign-offs back.
 
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { jiraIssues, jiraProjects, tcCases, tcFiles, tcResults, tcSignoffs } from "@/lib/db/schema";
+import { jiraIssues, jiraProjects, tcCases, tcFiles, tcResults, tcReviewComments, tcSignoffs } from "@/lib/db/schema";
 import { getStore, XLSX_CONTENT_TYPE } from "@/lib/storage";
 import { buildTcFileName, buildTcS3Key, istDateTime } from "./filenames";
 import { resolveIssuePeople, type IssuePeople } from "./people";
-import { countOpenFeedback, type RoundContext } from "./review-service";
+import { lockItem } from "./concurrency";
+import { assertLatestRound, countOpenFeedback, freshReviewers, type RoundContext } from "./review-service";
+import { RuleError } from "./rule-error";
 import { matchSignoff, signoffProblem, type SignoffMatch } from "./signoff";
 import { recomputeSafely } from "./stats-service";
 import { canSignOff, roundStatusFrom, type Actor, type SignoffRole } from "./state";
@@ -112,7 +114,6 @@ export async function commitSignoff(args: {
   const problem = signoffProblem(match, refs.length);
   if (problem) return { ok: false, status: 400, error: problem };
 
-  const at = new Date();
   const parts = {
     kind: args.role === "dev" ? ("signoff_dev" as const) : ("signoff_tester" as const),
     round: ctx.roundNo,
@@ -120,9 +121,10 @@ export async function commitSignoff(args: {
     jiraKey: ctx.issue.jiraKey,
     feature: ctx.issue.summary,
     user: args.actor.email,
-    at,
+    at: new Date(),
   };
   const fileName = buildTcFileName(parts);
+  // Upload first (slow, outside the lock); the key is unique, and removed again if the sign-off is refused.
   const storageKey = buildTcS3Key({ ...parts, projectKey: ctx.issue.projectKey });
   const headerRows = new Map(args.parsed.tabs.map((t) => [t.title, t.headerRow]));
   const snapshot = await buildSnapshotXlsx({
@@ -131,52 +133,76 @@ export async function commitSignoff(args: {
   await getStore().put(storageKey, snapshot, XLSX_CONTENT_TYPE);
 
   const email = args.actor.email.trim().toLowerCase();
-  const signoffId = await db.transaction(async (tx) => {
-    const [file] = await tx
-      .insert(tcFiles)
-      .values({
-        setId: ctx.setId,
-        kind: parts.kind,
-        roundNo: ctx.roundNo,
-        storageKey,
-        fileName,
-        sizeBytes: snapshot.length,
-        uploadedBy: email,
-        uploadedByName: args.actor.name,
-        uploadedAt: at,
-      })
-      .returning({ id: tcFiles.id });
+  let signoffId: string;
+  try {
+    signoffId = await db.transaction(async (tx) => {
+      await lockItem(tx, ctx.issue.id);
 
-    const [signoff] = await tx
-      .insert(tcSignoffs)
-      .values({
-        setId: ctx.setId,
-        roundId: ctx.roundId,
-        role: args.role,
-        source: args.source,
-        sheetUrl: args.sheetUrl,
-        spreadsheetId: args.spreadsheetId,
-        sheetTab: args.tab,
-        fileId: file.id,
-        notes: args.notes,
-        passCount: match.counts.pass,
-        failCount: match.counts.fail,
-        blockedCount: match.counts.blocked,
-        notRunCount: match.counts.not_run,
-        meta: match.meta,
-        committedBy: email,
-        committedByName: args.actor.name,
-        committedAt: at,
-      })
-      .returning({ id: tcSignoffs.id });
+      // The route checked all this before reading the sheet, which can take a while. Check again now that
+      // nobody else can change the review: a resubmission, a change request or a new comment may have landed.
+      await assertLatestRound(tx, ctx);
+      if (roundStatusFrom((await freshReviewers(tx, ctx.roundId)).map((r) => r.state)) !== "approved") {
+        throw new RuleError(409, "This round is no longer approved, so it can't be signed off. Reload the page.", "not_approved");
+      }
+      const [open] = await tx
+        .select({ n: count() })
+        .from(tcReviewComments)
+        .where(and(eq(tcReviewComments.roundId, ctx.roundId), eq(tcReviewComments.kind, "comment"), eq(tcReviewComments.resolved, false)));
+      if (Number(open?.n ?? 0) > 0) {
+        throw new RuleError(409, "New feedback was added while you were submitting. Resolve or waive it before signing off.", "open_feedback");
+      }
 
-    for (let i = 0; i < match.results.length; i += 200) {
-      await tx.insert(tcResults).values(
-        match.results.slice(i, i + 200).map((r) => ({ signoffId: signoff.id, caseId: r.caseId, result: r.result, remark: r.remark })),
-      );
-    }
-    return signoff.id;
-  });
+      const at = new Date();
+      const [file] = await tx
+        .insert(tcFiles)
+        .values({
+          setId: ctx.setId,
+          kind: parts.kind,
+          roundNo: ctx.roundNo,
+          storageKey,
+          fileName,
+          sizeBytes: snapshot.length,
+          uploadedBy: email,
+          uploadedByName: args.actor.name,
+          uploadedAt: at,
+        })
+        .returning({ id: tcFiles.id });
+
+      const [signoff] = await tx
+        .insert(tcSignoffs)
+        .values({
+          setId: ctx.setId,
+          roundId: ctx.roundId,
+          role: args.role,
+          source: args.source,
+          sheetUrl: args.sheetUrl,
+          spreadsheetId: args.spreadsheetId,
+          sheetTab: args.tab,
+          fileId: file.id,
+          notes: args.notes,
+          passCount: match.counts.pass,
+          failCount: match.counts.fail,
+          blockedCount: match.counts.blocked,
+          notRunCount: match.counts.not_run,
+          meta: match.meta,
+          committedBy: email,
+          committedByName: args.actor.name,
+          committedAt: at,
+        })
+        .returning({ id: tcSignoffs.id });
+
+      for (let i = 0; i < match.results.length; i += 200) {
+        await tx.insert(tcResults).values(
+          match.results.slice(i, i + 200).map((r) => ({ signoffId: signoff.id, caseId: r.caseId, result: r.result, remark: r.remark })),
+        );
+      }
+      return signoff.id;
+    });
+  } catch (err) {
+    await getStore().delete(storageKey).catch((e) => console.error("[test-cases] could not remove orphaned upload", storageKey, e));
+    if (err instanceof RuleError) return { ok: false, status: err.status, error: err.message };
+    throw err;
+  }
 
   await recomputeSafely(ctx.setId);
   return { ok: true, signoffId, fileName };

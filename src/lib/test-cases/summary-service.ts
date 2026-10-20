@@ -9,7 +9,7 @@ import { istDateTime, istStamp, roundLabel, safeSegment } from "./filenames";
 import { fetchHistory } from "./history-service";
 import { fetchSignoffs } from "./signoff-service";
 import { fetchSetDetail, findIssue } from "./service";
-import { fetchRoundTrend, fetchStoredStats, loadLatestSignoffResults } from "./stats-service";
+import { fetchStoredStats, loadLatestSignoffResults } from "./stats-service";
 import { buildSummaryXlsx } from "./summary-xlsx";
 
 export async function buildSummaryForIssue(issueId: string, requestedBy: string): Promise<{ buffer: Buffer; fileName: string } | null> {
@@ -21,9 +21,8 @@ export async function buildSummaryForIssue(issueId: string, requestedBy: string)
   const latest = detail?.rounds[0];
   if (!detail || !latest) return null;
 
-  const [stored, trend, signoffs, cases, results, history] = await Promise.all([
+  const [stored, signoffs, cases, results, history] = await Promise.all([
     fetchStoredStats(detail.setId),
-    fetchRoundTrend(detail.setId),
     fetchSignoffs(latest.id),
     db.select().from(tcCases).where(eq(tcCases.roundId, latest.id)).orderBy(asc(tcCases.rowNo)),
     loadLatestSignoffResults(latest.id),
@@ -40,7 +39,7 @@ export async function buildSummaryForIssue(issueId: string, requestedBy: string)
     generatedAt: `${istDateTime(now)} (stats computed ${istDateTime(stored.computedAt)})`,
     stats: stored.stats,
     history,
-    trend,
+    trend: stored.stats.trend ?? [],
     signoffs,
     cases: cases.map((c) => {
       const dev = results.hasDev ? (results.dev.get(c.id) ?? "not_run") : null;

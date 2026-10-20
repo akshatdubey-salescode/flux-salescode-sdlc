@@ -142,6 +142,24 @@ export function applyCarryOver(
   });
 }
 
+/**
+ * A reviewer who asked for changes (or still has to re-review) can't be dropped
+ * from the list by the person who resubmits: otherwise the submitter could make
+ * the objection disappear and get an approved round. Only an admin may remove
+ * them. Returns the people who must stay.
+ */
+export function requiredReviewersMissing(
+  previous: { email: string; name: string | null; state: TcReviewerState }[],
+  next: { email: string }[],
+  isAdmin: boolean,
+): string[] {
+  if (isAdmin) return [];
+  const keep = new Set(next.map((n) => n.email.trim().toLowerCase()));
+  return previous
+    .filter((p) => (p.state === "changes_requested" || p.state === "re_review") && !keep.has(p.email.trim().toLowerCase()))
+    .map((p) => p.name ?? p.email);
+}
+
 /** Reviewers, the person who committed the round, and admins can discuss it. */
 export function canComment(actor: Actor, reviewers: Person[], committerEmail: string): Verdict {
   if (isReviewer(actor.email, reviewers) || eq(actor.email, committerEmail) || actor.isAdmin) return { ok: true };

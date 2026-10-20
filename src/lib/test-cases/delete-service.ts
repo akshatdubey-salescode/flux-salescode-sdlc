@@ -6,6 +6,7 @@ import { count, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { tcCases, tcDeletions, tcFiles, tcReviewComments, tcRounds, tcSets, tcSignoffs } from "@/lib/db/schema";
 import { getStore } from "@/lib/storage";
+import { lockItem } from "./concurrency";
 import type { IssueRef } from "./service";
 
 export type DeleteResult = {
@@ -20,35 +21,35 @@ export async function deleteItemTestCases(args: {
   actor: { email: string; name: string | null };
   reason: string;
 }): Promise<DeleteResult | { ok: false; status: number; error: string }> {
-  const [set] = await db.select({ id: tcSets.id }).from(tcSets).where(eq(tcSets.issueId, args.issue.id)).limit(1);
-  if (!set) return { ok: false, status: 404, error: "This item has no test cases to delete." };
+  // Everything is read and deleted under the item lock, in one transaction: a commit or sign-off in flight
+  // finishes first (so its files are in the list) or starts after (and finds no item), never in between.
+  const outcome = await db.transaction(async (tx) => {
+    await lockItem(tx, args.issue.id);
 
-  const [rounds] = await db.select({ n: count() }).from(tcRounds).where(eq(tcRounds.setId, set.id));
-  const [cases] = await db
-    .select({ n: count() })
-    .from(tcCases)
-    .innerJoin(tcRounds, eq(tcRounds.id, tcCases.roundId))
-    .where(eq(tcRounds.setId, set.id));
-  const [signoffs] = await db.select({ n: count() }).from(tcSignoffs).where(eq(tcSignoffs.setId, set.id));
-  const [comments] = await db
-    .select({ n: count() })
-    .from(tcReviewComments)
-    .innerJoin(tcRounds, eq(tcRounds.id, tcReviewComments.roundId))
-    .where(eq(tcRounds.setId, set.id));
-  const files = await db.select({ key: tcFiles.storageKey }).from(tcFiles).where(eq(tcFiles.setId, set.id));
-  const keys = files.map((f) => f.key);
+    const [set] = await tx.select({ id: tcSets.id }).from(tcSets).where(eq(tcSets.issueId, args.issue.id)).limit(1);
+    if (!set) return null;
 
-  const counts = {
-    rounds: Number(rounds?.n ?? 0),
-    cases: Number(cases?.n ?? 0),
-    files: keys.length,
-    signoffs: Number(signoffs?.n ?? 0),
-    comments: Number(comments?.n ?? 0),
-  };
+    const [rounds] = await tx.select({ n: count() }).from(tcRounds).where(eq(tcRounds.setId, set.id));
+    const [cases] = await tx
+      .select({ n: count() })
+      .from(tcCases)
+      .innerJoin(tcRounds, eq(tcRounds.id, tcCases.roundId))
+      .where(eq(tcRounds.setId, set.id));
+    const [signoffs] = await tx.select({ n: count() }).from(tcSignoffs).where(eq(tcSignoffs.setId, set.id));
+    const [comments] = await tx
+      .select({ n: count() })
+      .from(tcReviewComments)
+      .innerJoin(tcRounds, eq(tcRounds.id, tcReviewComments.roundId))
+      .where(eq(tcRounds.setId, set.id));
+    const keys = (await tx.select({ key: tcFiles.storageKey }).from(tcFiles).where(eq(tcFiles.setId, set.id))).map((f) => f.key);
 
-  // Database first, in one transaction: the set's foreign keys cascade to everything under it.
-  // Doing the files first could leave rows pointing at objects that no longer exist.
-  const auditId = await db.transaction(async (tx) => {
+    const counts = {
+      rounds: Number(rounds?.n ?? 0),
+      cases: Number(cases?.n ?? 0),
+      files: keys.length,
+      signoffs: Number(signoffs?.n ?? 0),
+      comments: Number(comments?.n ?? 0),
+    };
     const [audit] = await tx
       .insert(tcDeletions)
       .values({
@@ -66,9 +67,12 @@ export async function deleteItemTestCases(args: {
         storageKeys: keys,
       })
       .returning({ id: tcDeletions.id });
+    // The set's foreign keys cascade to everything under it.
     await tx.delete(tcSets).where(eq(tcSets.id, set.id));
-    return audit.id;
+    return { auditId: audit.id, counts, keys };
   });
+  if (!outcome) return { ok: false, status: 404, error: "This item has no test cases to delete." };
+  const { auditId, counts, keys } = outcome;
 
   // Then the stored files, best effort: a failure here must not undo the deletion.
   let failures = 0;

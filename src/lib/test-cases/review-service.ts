@@ -17,6 +17,8 @@ import {
 import { getStore, XLSX_CONTENT_TYPE } from "@/lib/storage";
 import { buildTcFileName, buildTcS3Key, istDateTime, roundLabel } from "./filenames";
 import { buildFeedbackXlsx, type FeedbackRow } from "./feedback-xlsx";
+import { lockItem, type Tx } from "./concurrency";
+import { RuleError } from "./rule-error";
 import { recomputeSafely } from "./stats-service";
 import {
   canApprove,
@@ -120,19 +122,18 @@ async function caseBelongsToRound(caseId: string, roundId: string): Promise<bool
 type TxReviewers = { email: string; name: string | null; state: TcReviewerState }[];
 
 /** The round's reviewers as they are right now (inside the caller's transaction, so the rule is checked on fresh state). */
-async function freshReviewers(tx: Pick<typeof db, "select">, roundId: string): Promise<TxReviewers> {
+export async function freshReviewers(tx: Pick<typeof db, "select">, roundId: string): Promise<TxReviewers> {
   return tx
     .select({ email: tcReviewers.email, name: tcReviewers.name, state: tcReviewers.state })
     .from(tcReviewers)
     .where(eq(tcReviewers.roundId, roundId));
 }
 
-class RuleFailure extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
+/** Under the item lock: the round being acted on must still be the newest one. */
+export async function assertLatestRound(tx: Tx, ctx: RoundContext): Promise<void> {
+  const [row] = await tx.select({ n: max(tcRounds.roundNo) }).from(tcRounds).where(eq(tcRounds.setId, ctx.setId));
+  if ((row?.n ?? ctx.roundNo) !== ctx.roundNo) {
+    throw new RuleError(409, "This round was just superseded by a newer submission. Reload the page.", "superseded");
   }
 }
 
@@ -156,10 +157,12 @@ export async function recordDecision(args: {
   let status: TcRoundStatus;
   try {
     status = await db.transaction(async (tx) => {
+      await lockItem(tx, ctx.issue.id);
+      await assertLatestRound(tx, ctx);
       // Approving is blocked while another reviewer's change request stands.
       if (decision === "approved") {
         const block = canApprove(actor, await freshReviewers(tx, ctx.roundId));
-        if (!block.ok) throw new RuleFailure(403, block.reason);
+        if (!block.ok) throw new RuleError(403, block.reason);
       }
 
       // A listed reviewer's row is updated; an admin deciding without being
@@ -184,7 +187,7 @@ export async function recordDecision(args: {
       return next;
     });
   } catch (err) {
-    if (err instanceof RuleFailure) return { ok: false, status: err.status, error: err.message };
+    if (err instanceof RuleError) return { ok: false, status: err.status, error: err.message };
     throw err;
   }
 
@@ -222,6 +225,8 @@ export async function overrideAndApprove(args: {
   let outcome: { status: TcRoundStatus; waivedComments: number; overridden: { email: string; name: string | null }[] };
   try {
     outcome = await db.transaction(async (tx) => {
+      await lockItem(tx, ctx.issue.id);
+      await assertLatestRound(tx, ctx);
       const reviewers = await freshReviewers(tx, ctx.roundId);
       const [open] = await tx
         .select({ n: count() })
@@ -229,7 +234,7 @@ export async function overrideAndApprove(args: {
         .where(and(eq(tcReviewComments.roundId, ctx.roundId), eq(tcReviewComments.kind, "comment"), eq(tcReviewComments.resolved, false)));
       const standing = reviewers.some((r) => r.state === "changes_requested" || r.state === "re_review");
       const check = canOverride({ actor, reviewers, isLatestRound: ctx.isLatest, openFeedback: standing || Number(open?.n ?? 0) > 0 });
-      if (!check.ok) throw new RuleFailure(check.reason.startsWith("There is no open") ? 409 : 403, check.reason);
+      if (!check.ok) throw new RuleError(check.reason.startsWith("There is no open") ? 409 : 403, check.reason);
 
       const plan = planOverride(reviewers, email);
       for (const [rEmail, state] of plan.states) {
@@ -272,7 +277,7 @@ export async function overrideAndApprove(args: {
       return { status: next, waivedComments: waived.length, overridden };
     });
   } catch (err) {
-    if (err instanceof RuleFailure) return { ok: false, status: err.status, error: err.message };
+    if (err instanceof RuleError) return { ok: false, status: err.status, error: err.message };
     throw err;
   }
 
@@ -307,19 +312,31 @@ export async function addComment(args: {
   if (args.caseId && !(await caseBelongsToRound(args.caseId, ctx.roundId))) {
     return { ok: false, status: 400, error: "That test case is not part of this round." };
   }
-  const [row] = await db
-    .insert(tcReviewComments)
-    .values({
-      roundId: ctx.roundId,
-      caseId: args.caseId,
-      kind: "comment",
-      body: body.body,
-      authorEmail: actor.email.trim().toLowerCase(),
-      authorName: actor.name,
-    })
-    .returning({ id: tcReviewComments.id });
-  await recomputeSafely(ctx.setId);
-  return { ok: true, id: row.id };
+  try {
+    const id = await db.transaction(async (tx) => {
+      // Serialised with decisions and overrides, so a comment can't slip in between an override waiving
+      // the open feedback and its commit, and can't land on a round that was just superseded.
+      await lockItem(tx, ctx.issue.id);
+      await assertLatestRound(tx, ctx);
+      const [row] = await tx
+        .insert(tcReviewComments)
+        .values({
+          roundId: ctx.roundId,
+          caseId: args.caseId,
+          kind: "comment",
+          body: body.body,
+          authorEmail: actor.email.trim().toLowerCase(),
+          authorName: actor.name,
+        })
+        .returning({ id: tcReviewComments.id });
+      return row.id;
+    });
+    await recomputeSafely(ctx.setId);
+    return { ok: true, id };
+  } catch (err) {
+    if (err instanceof RuleError) return { ok: false, status: err.status, error: err.message };
+    throw err;
+  }
 }
 
 export async function setCommentResolved(args: {
@@ -333,15 +350,26 @@ export async function setCommentResolved(args: {
   if (!ctx) return { ok: false, status: 404, error: "Round not found." };
   const verdict = canResolve(args.actor, comment.authorEmail, ctx.reviewers, ctx.committerEmail);
   if (!verdict.ok) return { ok: false, status: 403, error: verdict.reason };
+  // Only a plain comment can be resolved: a decision or override entry is a record, not a to-do.
+  if (comment.kind !== "comment") return { ok: false, status: 400, error: "Only comments can be resolved." };
 
-  await db
-    .update(tcReviewComments)
-    .set(
-      args.resolved
-        ? { resolved: true, waived: false, resolvedBy: args.actor.email.trim().toLowerCase(), resolvedAt: new Date() }
-        : { resolved: false, waived: false, resolvedBy: null, resolvedAt: null },
-    )
-    .where(eq(tcReviewComments.id, args.commentId));
+  try {
+    await db.transaction(async (tx) => {
+      await lockItem(tx, ctx.issue.id);
+      await assertLatestRound(tx, ctx);
+      await tx
+        .update(tcReviewComments)
+        .set(
+          args.resolved
+            ? { resolved: true, waived: false, resolvedBy: args.actor.email.trim().toLowerCase(), resolvedAt: new Date() }
+            : { resolved: false, waived: false, resolvedBy: null, resolvedAt: null },
+        )
+        .where(eq(tcReviewComments.id, args.commentId));
+    });
+  } catch (err) {
+    if (err instanceof RuleError) return { ok: false, status: err.status, error: err.message };
+    throw err;
+  }
   await recomputeSafely(ctx.setId);
   return { ok: true, roundId: comment.roundId };
 }
@@ -420,21 +448,27 @@ export async function storeFeedbackFile(ctx: RoundContext, actor: ReviewActor): 
   const fileName = buildTcFileName(parts);
   const storageKey = buildTcS3Key({ ...parts, projectKey: ctx.issue.projectKey });
   await getStore().put(storageKey, buffer, XLSX_CONTENT_TYPE);
-  const [file] = await db
-    .insert(tcFiles)
-    .values({
-      setId: ctx.setId,
-      kind: "reviewer_feedback",
-      roundNo: ctx.roundNo,
-      storageKey,
-      fileName,
-      sizeBytes: buffer.length,
-      uploadedBy: actor.email.trim().toLowerCase(),
-      uploadedByName: actor.name,
-      uploadedAt: at,
-    })
-    .returning({ id: tcFiles.id });
-  return file.id;
+  try {
+    const [file] = await db
+      .insert(tcFiles)
+      .values({
+        setId: ctx.setId,
+        kind: "reviewer_feedback",
+        roundNo: ctx.roundNo,
+        storageKey,
+        fileName,
+        sizeBytes: buffer.length,
+        uploadedBy: actor.email.trim().toLowerCase(),
+        uploadedByName: actor.name,
+        uploadedAt: at,
+      })
+      .returning({ id: tcFiles.id });
+    return file.id;
+  } catch (err) {
+    // No row points at the file, so nothing could ever download or delete it: remove it now.
+    await getStore().delete(storageKey).catch(() => undefined);
+    throw err;
+  }
 }
 
 export type CommentView = {

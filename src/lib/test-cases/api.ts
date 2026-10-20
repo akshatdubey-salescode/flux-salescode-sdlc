@@ -8,6 +8,7 @@ import { FEATURE_FLAGS, isEnabled } from "@/lib/feature-flags";
 import { hasMinRole } from "@/lib/auth/types";
 import { SheetsError } from "@/lib/google/sheets";
 import { SourceLockedError } from "./lock";
+import { RuleError } from "./rule-error";
 import { SourceError } from "./source";
 
 export type TcRequestUser = AuthUser & { name: string | null };
@@ -27,6 +28,7 @@ export function isResponse(v: unknown): v is NextResponse {
 
 /** Maps source/Sheets failures to a status and a stable `code` the page can act on (e.g. offer "Connect Google"). */
 export function errorResponse(err: unknown): NextResponse {
+  if (err instanceof RuleError) return NextResponse.json({ error: err.message, code: err.code }, { status: err.status });
   if (err instanceof SourceLockedError) return NextResponse.json({ error: err.message, code: "source_locked" }, { status: 409 });
   if (err instanceof SourceError) return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
   if (err instanceof SheetsError) {
@@ -50,4 +52,18 @@ export function toActor(user: TcRequestUser): { email: string; name: string | nu
 /** Absolute origin for links in emails. */
 export function appOrigin(req: { nextUrl: { origin: string } }): string {
   return (process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin).replace(/\/$/, "");
+}
+
+/** A JSON object body, or the 400 to send back (`null`, arrays and scalars are valid JSON but not what we take). */
+export async function readJsonObject(req: { json(): Promise<unknown> }): Promise<{ ok: true; body: Record<string, unknown> } | { ok: false; response: NextResponse }> {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return { ok: false, response: NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }) };
+  }
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return { ok: false, response: NextResponse.json({ error: "Expected a JSON object body" }, { status: 400 }) };
+  }
+  return { ok: true, body: body as Record<string, unknown> };
 }

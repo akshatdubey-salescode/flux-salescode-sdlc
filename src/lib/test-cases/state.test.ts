@@ -8,6 +8,7 @@ import {
   canResolve,
   canSignOff,
   applyCarryOver,
+  requiredReviewersMissing,
   canApprove,
   canOverride,
   planOverride,
@@ -200,4 +201,19 @@ test("only an admin can delete, by typing the Jira key and giving a reason", () 
   assert.equal(validateDeleteRequest({ ...ok, confirm: undefined }).ok, false);
   assert.equal(validateDeleteRequest({ ...ok, reason: "oops" }).ok, false);
   assert.equal(validateDeleteRequest({ ...ok, reason: undefined }).ok, false);
+});
+
+test("a reviewer who asked for changes can't be dropped by the submitter, but an admin may", () => {
+  const prev = [
+    { email: "a@x.com", name: "A", state: "approved" as const },
+    { email: "B@x.com", name: "B", state: "changes_requested" as const },
+    { email: "c@x.com", name: null, state: "re_review" as const },
+    { email: "d@x.com", name: "D", state: "pending" as const },
+  ];
+  assert.deepEqual(requiredReviewersMissing(prev, [{ email: "a@x.com" }], false), ["B", "c@x.com"]);
+  assert.deepEqual(requiredReviewersMissing(prev, [{ email: "b@x.com" }, { email: "C@x.com" }], false), [], "any casing counts as present");
+  assert.deepEqual(requiredReviewersMissing(prev, [{ email: "a@x.com" }], true), []);
+  assert.deepEqual(requiredReviewersMissing([], [{ email: "a@x.com" }], false), []);
+  // Approved and pending reviewers may be swapped out freely.
+  assert.deepEqual(requiredReviewersMissing(prev.slice(0, 1).concat(prev.slice(3)), [{ email: "z@x.com" }], false), []);
 });

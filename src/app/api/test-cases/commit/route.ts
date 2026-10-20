@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { revalidateTag } from "next/cache";
 import { isValidUuid, parseOptionalText } from "@/lib/validation";
-import { appOrigin, errorResponse, isResponse, requireTestCasesUser } from "@/lib/test-cases/api";
+import { appOrigin, errorResponse, isResponse, requireTestCasesUser, toActor } from "@/lib/test-cases/api";
 import { roundLabel } from "@/lib/test-cases/filenames";
 import { getItemLock } from "@/lib/test-cases/lock";
 import { parseTabs } from "@/lib/test-cases/multi-tab";
@@ -81,6 +81,7 @@ export async function POST(req: NextRequest) {
       grids: read.grids,
       reviewers: reviewers.reviewers,
       notes,
+      isAdmin: toActor(user).isAdmin,
     });
 
     revalidateTag("test-cases", "max");

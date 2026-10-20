@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { revalidateTag } from "next/cache";
 import { isValidUuid } from "@/lib/validation";
-import { appOrigin, isResponse, requireTestCasesUser, toActor } from "@/lib/test-cases/api";
+import { appOrigin, isResponse, requireTestCasesUser, toActor, readJsonObject } from "@/lib/test-cases/api";
 import { getRoundContext, recordDecision } from "@/lib/test-cases/review-service";
 import { buildDecisionEmail, sendEmail } from "@/lib/test-cases/notify";
 
@@ -13,12 +13,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ roundId: s
   const { roundId } = await ctx.params;
   if (!isValidUuid(roundId)) return NextResponse.json({ error: "Invalid round id" }, { status: 400 });
 
-  let body: { decision?: unknown; comment?: unknown };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
+  const parsedBody = await readJsonObject(req);
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.body as { decision?: unknown; comment?: unknown };
   const comment = typeof body.comment === "string" ? body.comment : "";
 
   const round = await getRoundContext(roundId);

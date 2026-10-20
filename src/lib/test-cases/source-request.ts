@@ -6,6 +6,7 @@
 import { checkLock, type ItemLock } from "./lock";
 import { parseSheetUrl } from "./sheet-url";
 import type { SourceInput } from "./source";
+import { MAX_TABS_PER_ITEM } from "./values";
 import { MAX_XLSX_BYTES } from "./xlsx";
 
 export type SourceRequestFailure = { ok: false; status: number; error: string; code?: string };
@@ -15,7 +16,11 @@ export function parseTabsField(raw: FormDataEntryValue | null): { ok: true; tabs
   if (raw === null || raw === "") return { ok: true, tabs: null };
   try {
     const v = JSON.parse(String(raw));
-    if (Array.isArray(v) && v.every((t) => typeof t === "string")) return { ok: true, tabs: v };
+    if (Array.isArray(v) && v.every((t) => typeof t === "string")) {
+      // Capped before anything is read: each tab is a separate Sheets API call or a sheet to extract.
+      if (v.length > MAX_TABS_PER_ITEM) return { ok: false, status: 400, error: `Choose at most ${MAX_TABS_PER_ITEM} tabs for one item.` };
+      return { ok: true, tabs: v };
+    }
   } catch {
     // falls through
   }

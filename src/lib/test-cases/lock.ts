@@ -7,6 +7,7 @@
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { tcRounds, tcSets } from "@/lib/db/schema";
+import type { Executor } from "./concurrency";
 import type { TcSource } from "./values";
 
 export type ItemLock = {
@@ -53,8 +54,8 @@ export function checkLock(lock: ItemLock | null, incoming: { source: TcSource; s
 }
 
 /** The item's lock, or null when nothing has been submitted yet. */
-export async function getItemLock(issueId: string): Promise<ItemLock | null> {
-  const rounds = await db
+export async function getItemLock(issueId: string, ex: Executor = db): Promise<ItemLock | null> {
+  const rounds = await ex
     .select({
       roundNo: tcRounds.roundNo,
       source: tcRounds.source,
