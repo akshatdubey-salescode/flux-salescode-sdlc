@@ -200,6 +200,17 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
               </aside>
 
               <div className="min-w-0 space-y-5">
+                {!isLatest && (
+                  <p className="flex flex-wrap items-center gap-x-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                    <span>
+                      You&apos;re viewing {round.label}, which was superseded. It is read-only: analytics, review actions and sign-off apply to the latest round.
+                    </span>
+                    <Link href={withReturnTo(`/test-cases/${issue.id}`, returnTo)} className="font-semibold underline underline-offset-2">
+                      Go to the latest round
+                    </Link>
+                  </p>
+                )}
+
                 {/* Selected round */}
                 <section className="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
                   <div className="flex flex-wrap items-center justify-between gap-2">

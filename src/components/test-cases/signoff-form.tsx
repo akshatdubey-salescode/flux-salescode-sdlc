@@ -218,7 +218,7 @@ export function SignoffForm({
 
       <section className="space-y-2 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <h2 className="text-sm font-semibold text-foreground">2. Notes <span className="font-normal text-muted-foreground">(optional)</span></h2>
-        <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} placeholder="Build / environment tested, known gaps…" className="min-h-16 text-xs" />
+        <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} placeholder="Build / environment tested, known gaps…" aria-label="Sign-off notes" className="min-h-16 text-xs" />
       </section>
 
       <div className="flex items-center justify-between gap-3">

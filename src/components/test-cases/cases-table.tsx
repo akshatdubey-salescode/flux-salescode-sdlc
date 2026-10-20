@@ -73,6 +73,7 @@ export function CasesTable({ cases, review }: { cases: CaseView[]; review: Revie
             value={query}
             onChange={(e) => { setQuery(e.target.value); setLimit(PAGE_SIZE); }}
             placeholder="Search ID or title…"
+            aria-label="Search test cases by ID or title"
             className="h-7 w-56 rounded border border-input bg-background pl-7 pr-2 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
           />
         </div>

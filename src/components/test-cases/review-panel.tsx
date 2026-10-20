@@ -192,6 +192,7 @@ export function ReviewPanel({
                   mode === "approved" ? "Optional note…" : mode === "override" ? "Why can this feedback be ignored? (required)" : "What needs to change? (required)"
                 }
                 className="min-h-16 text-xs"
+                aria-label={mode === "override" ? "Reason for overriding the feedback" : mode === "changes_requested" ? "What needs to change" : "Optional note"}
               />
               <div className="flex items-center gap-2">
                 <Button
@@ -206,7 +207,16 @@ export function ReviewPanel({
                 <Button type="button" size="sm" variant="ghost" onClick={() => { setMode(null); setError(null); }} disabled={busy}>
                   Cancel
                 </Button>
-                {error && <span className="text-[11px] text-destructive">{error}</span>}
+                {error && (
+                  <span className="text-[11px] text-destructive">
+                    {error}
+                    {/superseded/i.test(error) && (
+                      <button type="button" onClick={() => router.refresh()} className="ml-1.5 font-semibold underline underline-offset-2">
+                        Reload
+                      </button>
+                    )}
+                  </span>
+                )}
               </div>
             </div>
           )}
