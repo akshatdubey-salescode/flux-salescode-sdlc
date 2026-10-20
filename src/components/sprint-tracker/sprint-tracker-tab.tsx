@@ -1280,6 +1280,7 @@ export function SprintCard({
             value={addingIssues}
             onChange={setAddingIssues}
             existingIssueIds={existingIssueIds}
+            excludeOtherSprints={{ currentSprintId: sprint.id }}
             onSubmit={handleAddIssues}
             submitting={adding}
             scopeComment={

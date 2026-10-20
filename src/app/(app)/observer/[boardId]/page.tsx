@@ -16,18 +16,25 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { BoardDetailClient } from "@/components/observer/board-detail-client";
+import { pickRangeParams } from "@/lib/observer/range-params";
 
 type Props = {
   params: Promise<{ boardId: string }>;
   // Set when this team was reached by drilling down from another team's member,
   // so we can show a breadcrumb back to that parent team.
-  searchParams: Promise<{ parentBoardId?: string; parentName?: string }>;
+  // The date-range params (mode/date/tstart/tend) ride along so the breadcrumb
+  // back to the parent keeps whatever range is selected here.
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export default async function BoardDetailPage({ params, searchParams }: Props) {
   const user = await requireAuth();
   const { boardId } = await params;
-  const { parentBoardId, parentName } = await searchParams;
+  const sp = await searchParams;
+  const one = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string) : undefined);
+  const parentBoardId = one("parentBoardId");
+  const parentName = one("parentName");
+  const rangeQs = pickRangeParams(one).toString();
 
   const [board] = await db
     .select()
@@ -118,7 +125,7 @@ export default async function BoardDetailPage({ params, searchParams }: Props) {
               <>
                 <BreadcrumbItem>
                   <BreadcrumbLink asChild>
-                    <Link href={`/observer/${parentBoardId}`}>{parentName}</Link>
+                    <Link href={`/observer/${parentBoardId}${rangeQs ? `?${rangeQs}` : ""}`}>{parentName}</Link>
                   </BreadcrumbLink>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator />

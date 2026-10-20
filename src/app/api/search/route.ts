@@ -16,6 +16,7 @@ import { jiraIssues } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { isValidUuid } from "@/lib/validation";
 import { nearestDeliveryDateSql, nearestDeliveryStatusSql, notInOtherDeliveriesSql } from "@/lib/deliveries/entries";
+import { notInOtherOpenSprintsSql } from "@/lib/sprints/entries";
 
 function buildOrderExpr(sortBy: string, sortDir: string) {
   const isAsc = sortDir === "asc";
@@ -85,6 +86,13 @@ export async function GET(req: NextRequest) {
   const excludeDeliveryIssues = searchParams.get("excludeDeliveryIssues") === "1";
   const exceptDeliveryIdRaw = searchParams.get("exceptDeliveryId") ?? "";
   const exceptDeliveryId = isValidUuid(exceptDeliveryIdRaw) ? exceptDeliveryIdRaw : null;
+  // Sprint pickers: same idea for open sprints, with `exceptSprintId` the
+  // sprint being added to.
+  const excludeSprintIssues = searchParams.get("excludeSprintIssues") === "1";
+  const exceptSprintIdRaw = searchParams.get("exceptSprintId") ?? "";
+  const exceptSprintId = isValidUuid(exceptSprintIdRaw) ? exceptSprintIdRaw : null;
+  // Hide issues whose Jira status category is done — the "pending only" view.
+  const excludeDone = searchParams.get("excludeDone") === "1";
   const sortBy = searchParams.get("sortBy") ?? "updated";
   const sortDir = searchParams.get("sortDir") === "asc" ? "asc" : "desc";
   const pageSize = Math.min(
@@ -143,6 +151,12 @@ export async function GET(req: NextRequest) {
   if (deliveryDateFrom) conditions.push(sql`${nearestDeliveryDateSql(jiraIssues.id)} >= ${deliveryDateFrom}::date`);
   if (deliveryDateTo) conditions.push(sql`${nearestDeliveryDateSql(jiraIssues.id)} <= ${deliveryDateTo}::date`);
   if (excludeDeliveryIssues) conditions.push(notInOtherDeliveriesSql(jiraIssues.id, exceptDeliveryId));
+  if (excludeSprintIssues) conditions.push(notInOtherOpenSprintsSql(jiraIssues.id, exceptSprintId));
+  if (excludeDone) {
+    conditions.push(
+      sql`LOWER(TRIM(COALESCE(${jiraIssues.statusCategory}, ''))) NOT IN ('done', 'complete')`
+    );
+  }
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const orderExpr = buildOrderExpr(sortBy, sortDir);
 

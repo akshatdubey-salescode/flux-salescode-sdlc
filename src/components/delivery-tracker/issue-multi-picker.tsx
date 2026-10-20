@@ -63,6 +63,7 @@ export function IssueMultiPicker({
   submitting,
   scopeComment,
   excludeOtherDeliveries,
+  excludeOtherSprints,
 }: {
   /** Scope the search to one project; null/undefined searches across ALL projects (e.g. Team Pulse board sprints). */
   projectId: string | null | undefined;
@@ -79,10 +80,17 @@ export function IssueMultiPicker({
    * Set when adding to a delivery: issues already committed to ANY other
    * delivery are hidden by default — server-side, so paging and the total
    * agree — with an in-dialog toggle for the rare deliberate re-add. This
-   * delivery's own items still show as "Already added". Leave unset for
-   * sprints: sprint membership isn't exclusive.
+   * delivery's own items still show as "Already added". Sprints use
+   * excludeOtherSprints instead.
    */
   excludeOtherDeliveries?: { currentDeliveryId: string };
+  /**
+   * Set when adding to a sprint: issues already in another OPEN sprint and
+   * issues already done in Jira are hidden by default (server-side), each
+   * with an in-dialog toggle to bring them back. Closed sprints don't count,
+   * so spillover can still be pulled forward.
+   */
+  excludeOtherSprints?: { currentSprintId: string };
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -90,6 +98,8 @@ export function IssueMultiPicker({
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
   const [showOtherDeliveries, setShowOtherDeliveries] = useState(false);
+  const [showOtherSprints, setShowOtherSprints] = useState(false);
+  const [showDone, setShowDone] = useState(false);
   // Not useDebouncedSearch: this view also needs the response's `total`,
   // an explicit loading flag, and append-style paging — none of which that
   // hook surfaces.
@@ -105,6 +115,10 @@ export function IssueMultiPicker({
 
   const currentDeliveryId = excludeOtherDeliveries?.currentDeliveryId;
   const hideOtherDeliveries = !!currentDeliveryId && !showOtherDeliveries;
+  const currentSprintId = excludeOtherSprints?.currentSprintId;
+  const hideOtherSprints = !!currentSprintId && !showOtherSprints;
+  const hideDone = !!currentSprintId && !showDone;
+  const targetNoun = currentSprintId ? "sprint" : "delivery";
 
   const buildParams = useCallback(
     (pageNumber: number) => {
@@ -117,9 +131,24 @@ export function IssueMultiPicker({
         params.set("excludeDeliveryIssues", "1");
         params.set("exceptDeliveryId", currentDeliveryId);
       }
+      if (hideOtherSprints && currentSprintId) {
+        params.set("excludeSprintIssues", "1");
+        params.set("exceptSprintId", currentSprintId);
+      }
+      if (hideDone) params.set("excludeDone", "1");
       return params;
     },
-    [query, projectId, createdFrom, createdTo, hideOtherDeliveries, currentDeliveryId]
+    [
+      query,
+      projectId,
+      createdFrom,
+      createdTo,
+      hideOtherDeliveries,
+      currentDeliveryId,
+      hideOtherSprints,
+      currentSprintId,
+      hideDone,
+    ]
   );
 
   // First page — replaces the list whenever any search input changes.
@@ -199,6 +228,8 @@ export function IssueMultiPicker({
       setCreatedFrom("");
       setCreatedTo("");
       setShowOtherDeliveries(false);
+      setShowOtherSprints(false);
+      setShowDone(false);
     }
   }
 
@@ -231,9 +262,11 @@ export function IssueMultiPicker({
       </DialogTrigger>
       <DialogContent className="flex h-[min(640px,85vh)] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
         <DialogHeader className="border-b border-border px-4 py-3">
-          <DialogTitle>Add issues to this delivery</DialogTitle>
+          <DialogTitle>Add issues to this {targetNoun}</DialogTitle>
           <DialogDescription>
-            Search this project&apos;s Jira issues by key or summary, then add everything committed to this delivery.
+            Search this project&apos;s Jira issues by key or summary, then add everything committed to this {targetNoun}.
+            {currentSprintId &&
+              " Only pending issues not already in another open sprint are shown — use the toggles to include the rest."}
             {currentDeliveryId &&
               " Issues already committed to another delivery are hidden — flip the toggle to include them."}
           </DialogDescription>
@@ -281,6 +314,22 @@ export function IssueMultiPicker({
                 />
                 Show issues already in another delivery
               </label>
+            )}
+            {currentSprintId && (
+              <div className="ml-auto flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <Switch checked={showDone} onCheckedChange={setShowDone} aria-label="Show done issues" />
+                  Show done issues
+                </label>
+                <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <Switch
+                    checked={showOtherSprints}
+                    onCheckedChange={setShowOtherSprints}
+                    aria-label="Show issues already in another sprint"
+                  />
+                  Show issues in another sprint
+                </label>
+              </div>
             )}
           </div>
           <CommandList className="max-h-none flex-1">
