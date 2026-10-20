@@ -82,6 +82,7 @@ export async function POST(req: NextRequest) {
       reviewers: reviewers.reviewers,
       notes,
       isAdmin: toActor(user).isAdmin,
+      sourceHash: read.sourceHash,
     });
 
     revalidateTag("test-cases", "max");

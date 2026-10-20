@@ -7,7 +7,9 @@ import { jiraIssues, jiraProjects, tcCases, tcFiles, tcResults, tcReviewComments
 import { getStore, XLSX_CONTENT_TYPE } from "@/lib/storage";
 import { buildTcFileName, buildTcS3Key, istDateTime } from "./filenames";
 import { resolveIssuePeople, type IssuePeople } from "./people";
+import { contentHash } from "./content-hash";
 import { lockItem } from "./concurrency";
+import { getProjectFolder } from "./project-folder-service";
 import { assertLatestRound, countOpenFeedback, freshReviewers, type RoundContext } from "./review-service";
 import { RuleError } from "./rule-error";
 import { matchSignoff, signoffProblem, type SignoffMatch } from "./signoff";
@@ -125,7 +127,8 @@ export async function commitSignoff(args: {
   };
   const fileName = buildTcFileName(parts);
   // Upload first (slow, outside the lock); the key is unique, and removed again if the sign-off is refused.
-  const storageKey = buildTcS3Key({ ...parts, projectKey: ctx.issue.projectKey });
+  const folder = await getProjectFolder({ id: ctx.issue.projectId, name: ctx.issue.projectName, key: ctx.issue.projectKey });
+  const storageKey = buildTcS3Key({ ...parts, folder });
   const headerRows = new Map(args.parsed.tabs.map((t) => [t.title, t.headerRow]));
   const snapshot = await buildSnapshotXlsx({
     tabs: args.grids.map((g) => ({ title: g.title, grid: g.grid, headerRow: headerRows.get(g.title) ?? 1 })),
@@ -165,6 +168,7 @@ export async function commitSignoff(args: {
           uploadedBy: email,
           uploadedByName: args.actor.name,
           uploadedAt: at,
+          contentHash: contentHash(args.grids),
         })
         .returning({ id: tcFiles.id });
 

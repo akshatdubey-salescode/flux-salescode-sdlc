@@ -84,15 +84,15 @@ export function buildTcFileName(p: TcFileNameParts): string {
 }
 
 /**
- * Object key: grouped by project and Jira ID, file name last. It carries no round
- * number (that is only known once the item is locked for the commit, and the
- * file is uploaded before) and ends in a random nonce, so two uploads in the
- * same second can never overwrite each other. The readable name, with the round,
- * lives in the database and in the download's file name.
+ * Object key: `tc/<project folder>/<JIRA-ID>_<kind>_<feature>_<user>_<stamp>_<nonce>.xlsx`. All of a
+ * project's files sit in its own folder (see project-folder.ts), Jira ID first so a listing groups by
+ * item. It carries no round number (only known once the item is locked for the commit, and the file is
+ * uploaded before) and ends in a random nonce, so two uploads in the same second can never overwrite
+ * each other. The readable name, with the round, lives in the database and in the download's file name.
  */
-export function buildTcS3Key(p: TcFileNameParts & { projectKey: string; nonce?: string }): string {
-  const [project, jira, feature, user, stamp] = nameSegments(p);
+export function buildTcS3Key(p: TcFileNameParts & { folder: string; nonce?: string }): string {
+  const [, jira, feature, user, stamp] = nameSegments(p);
   const nonce = p.nonce ?? randomBytes(4).toString("hex");
-  const file = [KIND_PREFIX[p.kind], project, jira, feature, user, stamp, nonce].join("_") + ".xlsx";
-  return `tc/${safeSegment(p.projectKey, 20)}/${safeSegment(p.jiraKey, 20)}/${file}`;
+  const file = [jira, KIND_PREFIX[p.kind], feature, user, stamp, nonce].join("_") + ".xlsx";
+  return `tc/${safeSegment(p.folder, 60)}/${file}`;
 }

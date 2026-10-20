@@ -48,6 +48,8 @@ type InspectResponse = {
   tabs: SourceTabInfo[];
   selectedTabs: string[];
   missingPrevious: string[];
+  /** The newest round already holds exactly this content. */
+  sameAsRound: number | null;
   preview: Preview | null;
 };
 
@@ -392,6 +394,13 @@ export function SubmissionForm({
 
         {result && selectedTabs.length > 0 && !previewCurrent && (
           <p className="text-xs text-amber-700 dark:text-amber-400">Tab selection changed. Validate again to preview it.</p>
+        )}
+
+        {result?.sameAsRound != null && previewCurrent && (
+          <p className="rounded-md bg-sky-50 p-2 text-[11px] text-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+            These test cases are identical to Round {result.sameAsRound}, so resubmitting changes nothing. Edit the {lockedSheet ? "sheet" : "workbook"} first if
+            you meant to fix something.
+          </p>
         )}
 
         {preview && previewCurrent && <PreviewPanel preview={preview} />}

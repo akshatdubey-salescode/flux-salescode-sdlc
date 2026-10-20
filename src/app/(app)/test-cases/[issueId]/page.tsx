@@ -30,7 +30,7 @@ import { SignoffPanel } from "@/components/test-cases/signoff-panel";
 import { BackLink } from "@/components/test-cases/back-link";
 import { returnLabel, safeReturnTo, withReturnTo } from "@/lib/test-cases/return-to";
 import { countOpenFeedback, fetchFeedbackFiles, fetchRoundComments } from "@/lib/test-cases/review-service";
-import { fetchSetDetail, findIssue } from "@/lib/test-cases/service";
+import { fetchSetDetail, findIssue, sameWorkbookElsewhere } from "@/lib/test-cases/service";
 import { fetchStoredStats } from "@/lib/test-cases/stats-service";
 import { canSignOff } from "@/lib/test-cases/state";
 import { fetchSignoffs, getIssuePeople } from "@/lib/test-cases/signoff-service";
@@ -94,7 +94,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
   const isLatest = !!detail && round?.roundNo === detail.rounds[0]?.roundNo;
   const roundApproved = round?.status === "approved";
 
-  const [stored, signoffs, people, openFeedback, history] =
+  const [stored, signoffs, people, openFeedback, history, sameWorkbook] =
     detail && round
       ? await Promise.all([
           fetchStoredStats(detail.setId),
@@ -102,8 +102,9 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
           getIssuePeople(issue.id),
           countOpenFeedback(round.id),
           fetchHistory(detail.setId),
+          sameWorkbookElsewhere(round.id),
         ])
-      : [null, [], { dev: [], qa: [] }, 0, []];
+      : [null, [], { dev: [], qa: [] }, 0, { events: [], items: [] }, []];
   const needsResubmit = isLatest && round?.status === "changes_requested";
   const signoffActions = (["dev", "tester"] as const).map((role) => {
     const v = canSignOff({ role, actor: viewer, people, roundApproved, isLatestRound: isLatest, openFeedback });
@@ -254,6 +255,21 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                       {round.snapshotFile.fileName}
                     </p>
                   )}
+                  {sameWorkbook.length > 0 && (
+                    <p className="text-[11px] text-muted-foreground">
+                      This exact workbook file was also used for{" "}
+                      {sameWorkbook.map((w, i) => (
+                        <span key={w.issueId}>
+                          {i > 0 && ", "}
+                          <Link href={withReturnTo(`/test-cases/${w.issueId}`, returnTo)} className="font-mono font-semibold text-primary hover:underline">
+                            {w.issueKey}
+                          </Link>{" "}
+                          (Round {w.roundNo})
+                        </span>
+                      ))}
+                      . Each item keeps its own copy of just its tabs.
+                    </p>
+                  )}
                   {round.source === "google_sheet" && (
                     <p className="text-[11px] text-muted-foreground">
                       The snapshot is exactly what was reviewed; the live sheet may have changed since this round.
@@ -307,7 +323,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                   openFeedback={openFeedback}
                 />
 
-                <HistoryPanel events={history} />
+                <HistoryPanel events={history.events} items={history.items} returnTo={returnTo} />
 
                 <CasesTable
                   cases={detail.cases}
@@ -325,7 +341,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                   <DeletePanel
                     issueId={issue.id}
                     issueKey={issue.jiraKey}
-                    summary={{ rounds: detail.rounds.length, cases: detail.rounds.reduce((n, r) => n + r.tcCount, 0), signoffs: history.filter((e) => e.kind === "signoff").length }}
+                    summary={{ rounds: detail.rounds.length, cases: detail.rounds.reduce((n, r) => n + r.tcCount, 0), signoffs: history.events.filter((e) => e.kind === "signoff" && e.own).length }}
                   />
                 )}
               </div>

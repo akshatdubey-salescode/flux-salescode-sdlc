@@ -18,6 +18,7 @@ import { getStore, XLSX_CONTENT_TYPE } from "@/lib/storage";
 import { buildTcFileName, buildTcS3Key, istDateTime, roundLabel } from "./filenames";
 import { buildFeedbackXlsx, type FeedbackRow } from "./feedback-xlsx";
 import { lockItem, type Tx } from "./concurrency";
+import { getProjectFolder } from "./project-folder-service";
 import { RuleError } from "./rule-error";
 import { recomputeSafely } from "./stats-service";
 import {
@@ -446,7 +447,8 @@ export async function storeFeedbackFile(ctx: RoundContext, actor: ReviewActor): 
     at,
   };
   const fileName = buildTcFileName(parts);
-  const storageKey = buildTcS3Key({ ...parts, projectKey: ctx.issue.projectKey });
+  const folder = await getProjectFolder({ id: ctx.issue.projectId, name: ctx.issue.projectName, key: ctx.issue.projectKey });
+  const storageKey = buildTcS3Key({ ...parts, folder });
   await getStore().put(storageKey, buffer, XLSX_CONTENT_TYPE);
   try {
     const [file] = await db

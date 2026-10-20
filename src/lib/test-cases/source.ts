@@ -4,6 +4,7 @@
 
 import { readTab, listTabs } from "@/lib/google/sheets";
 import { parseSheetUrl, sheetUrlFor } from "./sheet-url";
+import { sha256Hex } from "./content-hash";
 import type { TabGrid } from "./multi-tab";
 import { chooseTab, pickTabs } from "./tab-select";
 import { MAX_XLSX_BYTES, loadWorkbook, looksLikeXlsx, xlsxTabGrid, xlsxTabs } from "./xlsx";
@@ -33,6 +34,8 @@ export type SourceRead = {
   missingPrevious: string[];
   /** Values of each selected tab; null while no tab is chosen. */
   grids: TabGrid[] | null;
+  /** SHA-256 of the uploaded .xlsx (null for a Google Sheet): recognises the same workbook on other items. */
+  sourceHash: string | null;
 };
 
 export type SourceInput =
@@ -72,6 +75,7 @@ export async function readSource(input: SourceInput): Promise<SourceRead> {
       selectedTabs: picked.selected,
       missingPrevious: picked.missingPrevious,
       grids,
+      sourceHash: null,
     };
   }
 
@@ -100,5 +104,6 @@ export async function readSource(input: SourceInput): Promise<SourceRead> {
     selectedTabs: picked.selected,
     missingPrevious: picked.missingPrevious,
     grids: picked.selected.length > 0 ? picked.selected.map((t) => ({ title: t, grid: xlsxTabGrid(wb, t) })) : null,
+    sourceHash: sha256Hex(input.file),
   };
 }

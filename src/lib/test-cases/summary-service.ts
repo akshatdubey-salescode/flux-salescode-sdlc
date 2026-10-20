@@ -38,7 +38,7 @@ export async function buildSummaryForIssue(issueId: string, requestedBy: string)
     roundLabel: roundLabel(latest.roundNo, new Date(latest.committedAt)),
     generatedAt: `${istDateTime(now)} (stats computed ${istDateTime(stored.computedAt)})`,
     stats: stored.stats,
-    history,
+    history: history.events,
     trend: stored.stats.trend ?? [],
     signoffs,
     cases: cases.map((c) => {

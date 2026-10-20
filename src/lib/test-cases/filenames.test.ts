@@ -37,28 +37,40 @@ test("segments are sanitised: no separators, traversal, or odd characters", () =
   assert.equal(safeSegment("   "), "x");
   assert.equal(safeSegment("a".repeat(100), 10).length, 10);
   const key = buildTcS3Key({
-    kind: "testcases", round: 1, project: "../x", jiraKey: "CT/1", feature: "a/b", user: "u@x.com", at: AT, projectKey: "CT",
+    kind: "testcases", round: 1, project: "../x", jiraKey: "CT/1", feature: "a/b", user: "u@x.com", at: AT, folder: "Coke_Thainamthip",
   });
-  assert.ok(key.startsWith("tc/CT/CT_1/"));
+  assert.ok(key.startsWith("tc/Coke_Thainamthip/CT_1_TCs_"), key);
   assert.ok(!key.includes(".."), key);
-  assert.equal(key.split("/").length, 4, "exactly tc/<project>/<jira>/<file>");
+  assert.equal(key.split("/").length, 3, "exactly tc/<project folder>/<file>");
 });
 
 test("a Jira summary with dots in it still gives a storable key and a readable name", () => {
   assert.equal(safeSegment("Loading... spinner"), "Loading._spinner");
   assert.equal(safeSegment("a..b...c"), "a.b.c");
-  const parts = { kind: "testcases" as const, round: 3, project: "P", jiraKey: "CT-1", feature: "Loading... spinner", user: "u@x.com", at: AT, projectKey: "CT" };
+  const parts = { kind: "testcases" as const, round: 3, project: "P", jiraKey: "CT-1", feature: "Loading... spinner", user: "u@x.com", at: AT, folder: "Coke_Thainamthip" };
   const key = buildTcS3Key(parts);
   assert.ok(!key.includes(".."), key);
   assert.ok(buildTcFileName(parts).includes("_r3_"), "the display name keeps the round");
 });
 
 test("keys carry no round, end in a nonce, and are unique per call even within one second", () => {
-  const parts = { kind: "signoff_dev" as const, round: 2, project: "P", jiraKey: "CT-1", feature: "F", user: "u@x.com", at: AT, projectKey: "CT" };
+  const parts = { kind: "signoff_dev" as const, round: 2, project: "P", jiraKey: "CT-1", feature: "F", user: "u@x.com", at: AT, folder: "Coke_Thainamthip" };
   const a = buildTcS3Key(parts);
   const b = buildTcS3Key(parts);
   assert.notEqual(a, b);
   assert.ok(!/_r\d+_/.test(a), a);
   assert.match(a, /_[0-9a-f]{8}\.xlsx$/);
   assert.equal(buildTcS3Key({ ...parts, nonce: "abcd1234" }).endsWith("_20261014-154203_abcd1234.xlsx"), true);
+});
+
+test("all of a project's files share its folder and sort by Jira ID", () => {
+  const base = { round: 1, project: "P", feature: "F", user: "u@x.com", at: AT, folder: "Coke_Thainamthip" };
+  const a = buildTcS3Key({ ...base, kind: "testcases", jiraKey: "CT-614" });
+  const b = buildTcS3Key({ ...base, kind: "signoff_dev", jiraKey: "CT-614" });
+  const c = buildTcS3Key({ ...base, kind: "testcases", jiraKey: "CT-9" });
+  for (const k of [a, b, c]) assert.ok(k.startsWith("tc/Coke_Thainamthip/"), k);
+  assert.ok(a.split("/")[2].startsWith("CT-614_TCs_"));
+  assert.ok(b.split("/")[2].startsWith("CT-614_DevSignoff_"));
+  // A hostile folder can't climb out.
+  assert.ok(!buildTcS3Key({ ...base, kind: "testcases", jiraKey: "CT-1", folder: "../../etc" }).includes(".."));
 });

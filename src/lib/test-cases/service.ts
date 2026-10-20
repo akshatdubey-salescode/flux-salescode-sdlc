@@ -2,7 +2,7 @@
 // normalisation and naming live in the sibling modules; this file only wires
 // them to Postgres and the blob store.
 
-import { asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   jiraIssues,
@@ -15,7 +15,9 @@ import {
 } from "@/lib/db/schema";
 import { getStore, XLSX_CONTENT_TYPE } from "@/lib/storage";
 import { buildTcFileName, buildTcS3Key, roundLabel } from "./filenames";
+import { contentHash } from "./content-hash";
 import { lockItem } from "./concurrency";
+import { getProjectFolder } from "./project-folder-service";
 import { checkLock, getItemLock, SourceLockedError } from "./lock";
 import { RuleError } from "./rule-error";
 import type { MultiParsed, TabGrid } from "./multi-tab";
@@ -85,6 +87,8 @@ export type CommitArgs = {
   notes: string | null;
   /** Admins may remove a reviewer who asked for changes; the submitter may not. */
   isAdmin: boolean;
+  /** SHA-256 of the uploaded workbook (Excel source), to recognise the same file on other items. */
+  sourceHash: string | null;
 };
 
 export type CommitResult = {
@@ -114,10 +118,12 @@ export async function commitRound(args: CommitArgs): Promise<CommitResult> {
     tabs: args.grids.map((g) => ({ title: g.title, grid: g.grid, headerRow: headerRows.get(g.title) ?? 1 })),
   });
   const nameParts = { kind: "testcases" as const, round: 0, project: issue.projectName, jiraKey: issue.jiraKey, feature: issue.summary, user: committer.email, at };
-  const storageKey = buildTcS3Key({ ...nameParts, projectKey: issue.projectKey });
+  const folder = await getProjectFolder({ id: issue.projectId, name: issue.projectName, key: issue.projectKey });
+  const storageKey = buildTcS3Key({ ...nameParts, folder });
   await getStore().put(storageKey, snapshot, XLSX_CONTENT_TYPE);
 
   const tabTitles = parsed.tabs.map((t) => t.title);
+  const snapshotHash = contentHash(args.grids);
 
   let result: CommitResult;
   try {
@@ -190,6 +196,7 @@ export async function commitRound(args: CommitArgs): Promise<CommitResult> {
           uploadedBy: committer.email,
           uploadedByName: committer.name,
           uploadedAt: at,
+          contentHash: snapshotHash,
         })
         .returning({ id: tcFiles.id });
 
@@ -204,6 +211,7 @@ export async function commitRound(args: CommitArgs): Promise<CommitResult> {
           sheetTab: tabTitles[0] ?? null,
           sheetTabs: tabTitles,
           snapshotFileId: file.id,
+          sourceHash: args.sourceHash,
           notes: args.notes,
           tcCount: parsed.cases.length,
           status,
@@ -441,4 +449,43 @@ export async function fetchCaseDetail(caseId: string): Promise<CaseDetail | null
     .where(eq(tcCases.id, caseId))
     .limit(1);
   return c ?? null;
+}
+
+/** The newest round's content fingerprint, to tell whether a resubmission changes anything. */
+export async function latestContentHash(issueId: string): Promise<{ roundNo: number; hash: string } | null> {
+  const [row] = await db
+    .select({ roundNo: tcRounds.roundNo, hash: tcFiles.contentHash })
+    .from(tcRounds)
+    .innerJoin(tcSets, eq(tcSets.id, tcRounds.setId))
+    .leftJoin(tcFiles, eq(tcFiles.id, tcRounds.snapshotFileId))
+    .where(eq(tcSets.issueId, issueId))
+    .orderBy(desc(tcRounds.roundNo))
+    .limit(1);
+  return row?.hash ? { roundNo: row.roundNo, hash: row.hash } : null;
+}
+
+export type SameWorkbook = { issueId: string; issueKey: string; roundNo: number };
+
+/**
+ * Other items in the SAME project whose round came from a byte-identical uploaded workbook. The same file
+ * in another project is a separate copy with its own history, so it is deliberately not matched.
+ */
+export async function sameWorkbookElsewhere(roundId: string): Promise<SameWorkbook[]> {
+  const [me] = await db
+    .select({ hash: tcRounds.sourceHash, setId: tcRounds.setId, projectId: tcSets.projectId })
+    .from(tcRounds)
+    .innerJoin(tcSets, eq(tcSets.id, tcRounds.setId))
+    .where(eq(tcRounds.id, roundId))
+    .limit(1);
+  if (!me?.hash) return [];
+  const rows = await db
+    .select({ issueId: jiraIssues.id, issueKey: jiraIssues.jiraKey, roundNo: tcRounds.roundNo })
+    .from(tcRounds)
+    .innerJoin(tcSets, eq(tcSets.id, tcRounds.setId))
+    .innerJoin(jiraIssues, eq(jiraIssues.id, tcSets.issueId))
+    .where(and(eq(tcRounds.sourceHash, me.hash), eq(tcSets.projectId, me.projectId), ne(tcSets.id, me.setId)))
+    .orderBy(asc(jiraIssues.jiraKey), asc(tcRounds.roundNo));
+  // One entry per item: the earliest round that used this exact file.
+  const seen = new Set<string>();
+  return rows.filter((r) => (seen.has(r.issueId) ? false : (seen.add(r.issueId), true)));
 }

@@ -197,10 +197,11 @@ export async function buildSummaryXlsx(input: SummaryInput): Promise<Buffer> {
 
   // --- History --------------------------------------------------------------
   const h = wb.addWorksheet("Review history", { views: [{ state: "frozen", ySplit: 1 }] });
-  bold(h.addRow(["When", "Round", "By", "Action", "Detail", "Case", "Source"]));
+  bold(h.addRow(["When", "Item", "Round", "By", "Action", "Detail", "Case", "Source"]));
   for (const e of input.history) {
     h.addRow([
       istDateTime(new Date(e.at)),
+      safeCell(e.itemKey),
       e.roundNo,
       safeCell(e.actor),
       e.title,
@@ -209,7 +210,7 @@ export async function buildSummaryXlsx(input: SummaryInput): Promise<Buffer> {
       e.source === "llm" ? "LLM" : e.source === "system" ? "System" : "Reviewer",
     ]);
   }
-  [24, 8, 24, 34, 90, 28, 10].forEach((w, i) => (h.getColumn(i + 1).width = w));
+  [24, 12, 8, 24, 34, 90, 28, 10].forEach((w, i) => (h.getColumn(i + 1).width = w));
 
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
