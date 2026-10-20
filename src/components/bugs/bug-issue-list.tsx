@@ -156,6 +156,10 @@ export function BugIssueList({
     return <p className="py-8 text-center text-xs text-muted-foreground">No matching issues.</p>;
   }
 
+  // A list already scoped to one person (or to the no-owner bucket) would repeat
+  // the same name on every row; every wider list needs to say whose bug it is.
+  const showOwner = !ownerKey && !unassignedOnly;
+
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between pb-1">
@@ -176,6 +180,13 @@ export function BugIssueList({
           )}
         </button>
       </div>
+      {showOwner && (
+        <div className="flex items-center gap-3 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+          <span className="flex-1">Issue</span>
+          <span className="w-40 shrink-0">Owner</span>
+          <span className="w-44 shrink-0" />
+        </div>
+      )}
       <div className="divide-y divide-border/50">
         {data.issues.map((issue) => (
           <a
@@ -194,6 +205,14 @@ export function BugIssueList({
               </span>
               <RiExternalLinkLine className="size-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-60" />
             </span>
+            {showOwner && (
+              <span
+                className={`w-40 shrink-0 truncate text-[11px] ${issue.ownerName ? "text-foreground" : "italic text-muted-foreground"}`}
+                title={issue.ownerName ?? "No issue owner set"}
+              >
+                {issue.ownerName ?? "No owner"}
+              </span>
+            )}
             <span className="flex w-44 shrink-0 items-center justify-end gap-1.5">
               <RcaBadge issueId={issue.id} />
               <Badge variant="outline" className="shrink-0 text-[10px]">
