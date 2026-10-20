@@ -261,7 +261,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                 </section>
 
                 {isLatest && stored && (
-                  <AnalyticsPanel stats={stored.stats} trend={trend} computedAt={istDateTime(stored.computedAt)} />
+                  <AnalyticsPanel issueId={issue.id} stats={stored.stats} trend={trend} computedAt={istDateTime(stored.computedAt)} />
                 )}
 
                 <ReviewPanel

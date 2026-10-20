@@ -12,12 +12,32 @@ import type { TcResult } from "./values";
 type RoundRow = typeof tcRounds.$inferSelect;
 
 /** Stats for one round, from its cases, reviewers, feedback and that round's sign-offs. */
+/**
+ * The latest dev and tester sign-off for a round (a re-submission replaces the
+ * earlier one) with each case's recorded result. A role that has not signed
+ * off is absent, so callers can tell "not signed off" from "signed off, not run".
+ */
+export async function loadLatestSignoffResults(roundId: string) {
+  const signoffs = await db.select().from(tcSignoffs).where(eq(tcSignoffs.roundId, roundId)).orderBy(desc(tcSignoffs.committedAt));
+  const latestDev = signoffs.find((s) => s.role === "dev");
+  const latestTester = signoffs.find((s) => s.role === "tester");
+  const ids = [latestDev?.id, latestTester?.id].filter((x): x is string => !!x);
+  const results = ids.length ? await db.select().from(tcResults).where(inArray(tcResults.signoffId, ids)) : [];
+  const byCase = (signoffId: string | undefined) => {
+    const m = new Map<string, TcResult>();
+    if (signoffId) for (const r of results) if (r.signoffId === signoffId) m.set(r.caseId, r.result);
+    return m;
+  };
+  return { hasDev: !!latestDev, hasTester: !!latestTester, dev: byCase(latestDev?.id), tester: byCase(latestTester?.id) };
+}
+
+/** Stats for one round, from its cases, reviewers, feedback and that round's sign-offs. */
 async function statsForRound(round: RoundRow, roundCount: number): Promise<SetStats> {
-  const [cases, reviewers, signoffs, [feedback]] = await Promise.all([
+  const [cases, reviewers, signoff, [feedback]] = await Promise.all([
     db.select().from(tcCases).where(eq(tcCases.roundId, round.id)).orderBy(asc(tcCases.rowNo)),
     db.select({ state: tcReviewers.state }).from(tcReviewers).where(eq(tcReviewers.roundId, round.id)),
-    // Latest sign-off per role for THIS round only: a new round starts unsigned.
-    db.select().from(tcSignoffs).where(eq(tcSignoffs.roundId, round.id)).orderBy(desc(tcSignoffs.committedAt)),
+    // Sign-offs of THIS round only: a new round starts unsigned.
+    loadLatestSignoffResults(round.id),
     db
       .select({
         total: count(),
@@ -26,18 +46,6 @@ async function statsForRound(round: RoundRow, roundCount: number): Promise<SetSt
       .from(tcReviewComments)
       .where(and(eq(tcReviewComments.roundId, round.id), eq(tcReviewComments.kind, "comment"))),
   ]);
-
-  const latestDev = signoffs.find((s) => s.role === "dev");
-  const latestTester = signoffs.find((s) => s.role === "tester");
-  const signoffIds = [latestDev?.id, latestTester?.id].filter((x): x is string => !!x);
-  const results = signoffIds.length ? await db.select().from(tcResults).where(inArray(tcResults.signoffId, signoffIds)) : [];
-  const byCase = (signoffId: string | undefined) => {
-    const m = new Map<string, TcResult>();
-    if (signoffId) for (const r of results) if (r.signoffId === signoffId) m.set(r.caseId, r.result);
-    return m;
-  };
-  const devResults = byCase(latestDev?.id);
-  const testerResults = byCase(latestTester?.id);
 
   const analyticsCases: AnalyticsCase[] = cases.map((c) => ({
     tcCode: c.tcCode,
@@ -49,8 +57,8 @@ async function statsForRound(round: RoundRow, roundCount: number): Promise<SetSt
     category: c.category,
     polarity: c.polarity,
     // A role that signed off but left a case out counts it as not run; a role that has not signed off is null.
-    devResult: latestDev ? (devResults.get(c.id) ?? "not_run") : null,
-    testerResult: latestTester ? (testerResults.get(c.id) ?? "not_run") : null,
+    devResult: signoff.hasDev ? (signoff.dev.get(c.id) ?? "not_run") : null,
+    testerResult: signoff.hasTester ? (signoff.tester.get(c.id) ?? "not_run") : null,
   }));
 
   return computeSetStats({
@@ -58,8 +66,8 @@ async function statsForRound(round: RoundRow, roundCount: number): Promise<SetSt
     roundStatus: round.status,
     reviewersTotal: reviewers.length,
     reviewersApproved: reviewers.filter((r) => r.state === "approved").length,
-    hasDevSignoff: !!latestDev,
-    hasTesterSignoff: !!latestTester,
+    hasDevSignoff: signoff.hasDev,
+    hasTesterSignoff: signoff.hasTester,
     feedbackTotal: Number(feedback?.total ?? 0),
     feedbackOpen: Number(feedback?.open ?? 0),
     roundCount,

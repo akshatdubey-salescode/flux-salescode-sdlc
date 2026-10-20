@@ -1,7 +1,7 @@
 "use client";
 
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { RiCheckboxCircleFill, RiCheckboxBlankCircleLine, RiTimeLine } from "@remixicon/react";
+import { RiCheckboxCircleFill, RiCheckboxBlankCircleLine, RiDownload2Line, RiTimeLine } from "@remixicon/react";
 import { cn } from "@/lib/utils";
 import { READINESS_LABELS, type ResultCounts, type SetStats, type TypeRow } from "@/lib/test-cases/analytics";
 import { TC_CATEGORY_LABELS, TC_POLARITY_LABELS, type TcCategory, type TcPolarity } from "@/lib/test-cases/values";
@@ -71,7 +71,7 @@ function Check({ done, children, note }: { done: boolean; children: React.ReactN
   );
 }
 
-export function AnalyticsPanel({ stats, trend, computedAt }: { stats: SetStats; trend: RoundTrendPoint[]; computedAt: string }) {
+export function AnalyticsPanel({ issueId, stats, trend, computedAt }: { issueId: string; stats: SetStats; trend: RoundTrendPoint[]; computedAt: string }) {
   const c = stats.effective;
   const byCategory = stackRows(stats.categorySplit, (k) => TC_CATEGORY_LABELS[k as TcCategory] ?? k, (r) => r.effective);
   const byPolarity = stackRows(stats.polaritySplit, (k) => (k === "unspecified" ? "Unspecified" : TC_POLARITY_LABELS[k as TcPolarity] ?? k), (r) => r.effective);
@@ -91,6 +91,13 @@ export function AnalyticsPanel({ stats, trend, computedAt }: { stats: SetStats; 
             <p className="text-3xl font-bold tabular-nums text-foreground">{stats.confidence}%</p>
           </div>
           <span className={cn("rounded-md px-2.5 py-1 text-xs font-semibold", READINESS_STYLE[stats.readiness])}>{READINESS_LABELS[stats.readiness]}</span>
+          <a
+            href={`/api/test-cases/issues/${issueId}/summary`}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 text-xs font-medium hover:bg-zinc-50 sm:ml-auto dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+          >
+            <RiDownload2Line className="size-3.5" />
+            Download summary
+          </a>
           <dl className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
             {[
               ["Execution score", `${stats.executionScore}`],
