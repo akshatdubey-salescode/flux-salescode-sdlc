@@ -1,16 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { requireAuth } from "@/lib/auth/server";
-import { buildAuthUrl } from "@/lib/google/oauth";
+import { buildAuthUrl, OPTIONAL_SCOPES, type OptionalScopeName } from "@/lib/google/oauth";
 
 export async function GET(request: NextRequest) {
   const user = await requireAuth();
 
   const { searchParams } = request.nextUrl;
-  const redirectBack = searchParams.get("redirectBack") ?? "/settings";
+  // Only same-site paths: "/x" is fine, "//evil.example" and absolute URLs are not.
+  const requestedBack = searchParams.get("redirectBack");
+  const redirectBack =
+    requestedBack && requestedBack.startsWith("/") && !requestedBack.startsWith("//")
+      ? requestedBack
+      : "/settings";
+  // Optional feature scopes, e.g. ?scopes=sheets (unknown names are ignored).
+  const extraScopes = (searchParams.get("scopes") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s): s is OptionalScopeName => s in OPTIONAL_SCOPES);
 
   const state = randomBytes(16).toString("hex");
-  const authUrl = buildAuthUrl(state);
+  const authUrl = buildAuthUrl(state, extraScopes);
 
   const response = NextResponse.redirect(authUrl);
   response.cookies.set("google_oauth_state", state, {

@@ -19,6 +19,17 @@ const SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
 ].join(" ");
 
+/**
+ * Extra scopes a feature can ask for on demand (not at sign-in, so nobody is
+ * forced to re-consent). "sheets" lets Flux read Google Sheets the user can
+ * open — used by Test Case submission. Keyed by the short name the connect
+ * route accepts.
+ */
+export const OPTIONAL_SCOPES = {
+  sheets: "https://www.googleapis.com/auth/spreadsheets.readonly",
+} as const;
+export type OptionalScopeName = keyof typeof OPTIONAL_SCOPES;
+
 function clientId(): string {
   const id = process.env.GLOBAL_AUTH_GOOGLE_CLIENT_ID;
   if (!id) throw new Error("GLOBAL_AUTH_GOOGLE_CLIENT_ID is not set");
@@ -45,12 +56,12 @@ function callbackUrl(): string {
 // the consent screen and Google withholds the refresh token.
 // ---------------------------------------------------------------------------
 
-export function buildAuthUrl(state: string): string {
+export function buildAuthUrl(state: string, extra: OptionalScopeName[] = []): string {
   const params = new URLSearchParams({
     client_id: clientId(),
     redirect_uri: callbackUrl(),
     response_type: "code",
-    scope: SCOPES,
+    scope: [SCOPES, ...extra.map((n) => OPTIONAL_SCOPES[n])].join(" "),
     access_type: "offline",
     prompt: "consent",
     include_granted_scopes: "true",

@@ -19,5 +19,6 @@
     "complexTasks",
     "mttr"
   ],
-  "showBugBoardOpenColumn": false
+  "showBugBoardOpenColumn": false,
+  "enableTestCases": false
 }

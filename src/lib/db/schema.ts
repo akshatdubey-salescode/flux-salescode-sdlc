@@ -18,6 +18,19 @@ import { sql } from "drizzle-orm";
 import { DELAY_CATEGORY_VALUES } from "../delay-tracker/categories";
 import { DELIVERY_STATUS_VALUES } from "../deliveries/status";
 import { SCHEDULE_FREQUENCY_VALUES } from "../scheduled-processes/types";
+import {
+  TC_CATEGORY_VALUES,
+  TC_COMMENT_KIND_VALUES,
+  TC_FILE_KIND_VALUES,
+  TC_POLARITY_VALUES,
+  TC_PRIORITY_VALUES,
+  TC_RESULT_VALUES,
+  TC_REVIEWER_STATE_VALUES,
+  TC_ROUND_STATUS_VALUES,
+  TC_SIGNOFF_ROLE_VALUES,
+  TC_SEVERITY_VALUES,
+  TC_SOURCE_VALUES,
+} from "../test-cases/values";
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -2216,3 +2229,344 @@ export const scheduledProcessRuns = pgTable(
 export type ScheduledProcess = typeof scheduledProcesses.$inferSelect;
 export type NewScheduledProcess = typeof scheduledProcesses.$inferInsert;
 export type ScheduledProcessRun = typeof scheduledProcessRuns.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Test Case management (Phase 1: submission, snapshots, parsed cases, reviewers)
+//
+// One tc_set per Jira issue; every commit of a TC sheet is a new tc_round
+// (round_no 1, 2, ...), so earlier rounds and their files stay downloadable.
+// A Google Sheet is mutable, so each round stores a SNAPSHOT of what was
+// reviewed (tc_files, kind 'testcases') alongside the sheet link it came from.
+// ---------------------------------------------------------------------------
+
+export const tcSourceEnum = pgEnum("tc_source", TC_SOURCE_VALUES);
+export const tcRoundStatusEnum = pgEnum("tc_round_status", TC_ROUND_STATUS_VALUES);
+export const tcFileKindEnum = pgEnum("tc_file_kind", TC_FILE_KIND_VALUES);
+export const tcCategoryEnum = pgEnum("tc_category", TC_CATEGORY_VALUES);
+export const tcPolarityEnum = pgEnum("tc_polarity", TC_POLARITY_VALUES);
+export const tcPriorityEnum = pgEnum("tc_priority", TC_PRIORITY_VALUES);
+export const tcSeverityEnum = pgEnum("tc_severity", TC_SEVERITY_VALUES);
+export const tcReviewerStateEnum = pgEnum("tc_reviewer_state", TC_REVIEWER_STATE_VALUES);
+export const tcCommentKindEnum = pgEnum("tc_comment_kind", TC_COMMENT_KIND_VALUES);
+export const tcResultEnum = pgEnum("tc_result", TC_RESULT_VALUES);
+export const tcSignoffRoleEnum = pgEnum("tc_signoff_role", TC_SIGNOFF_ROLE_VALUES);
+
+export const tcSets = pgTable(
+  "tc_sets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    issueId: uuid("issue_id")
+      .notNull()
+      .references(() => jiraIssues.id, { onDelete: "cascade" }),
+    // Denormalized for project-wise analytics without joining through the issue.
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => jiraProjects.id, { onDelete: "cascade" }),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdByName: text("created_by_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("tc_sets_issue_idx").on(t.issueId),
+    index("tc_sets_project_idx").on(t.projectId),
+  ]
+);
+
+export const tcFiles = pgTable(
+  "tc_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    setId: uuid("set_id")
+      .notNull()
+      .references(() => tcSets.id, { onDelete: "cascade" }),
+    kind: tcFileKindEnum("kind").notNull(),
+    roundNo: integer("round_no").notNull(),
+    // Object key in the bucket (or the local dev store); the file name carries
+    // project, feature, Jira ID, user and date/time (see lib/test-cases/filenames.ts).
+    storageKey: text("storage_key").notNull(),
+    fileName: text("file_name").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    uploadedBy: text("uploaded_by")
+      .notNull()
+      .references(() => users.id),
+    uploadedByName: text("uploaded_by_name"),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("tc_files_set_idx").on(t.setId, t.roundNo)]
+);
+
+export const tcRounds = pgTable(
+  "tc_rounds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    setId: uuid("set_id")
+      .notNull()
+      .references(() => tcSets.id, { onDelete: "cascade" }),
+    roundNo: integer("round_no").notNull(),
+    source: tcSourceEnum("source").notNull(),
+    // Set only for source 'google_sheet': the live sheet this round was read
+    // from (the stored snapshot is what was actually reviewed).
+    sheetUrl: text("sheet_url"),
+    spreadsheetId: text("spreadsheet_id"),
+    // First chosen tab (kept for older readers); `sheetTabs` is the full list.
+    sheetTab: text("sheet_tab"),
+    // Every tab of the workbook that makes up this item's test cases.
+    sheetTabs: jsonb("sheet_tabs").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    // The snapshot xlsx of exactly what was committed.
+    snapshotFileId: uuid("snapshot_file_id").references(() => tcFiles.id, { onDelete: "set null" }),
+    notes: text("notes"),
+    tcCount: integer("tc_count").notNull(),
+    status: tcRoundStatusEnum("status").notNull().default("in_review"),
+    committedBy: text("committed_by")
+      .notNull()
+      .references(() => users.id),
+    committedByName: text("committed_by_name"),
+    committedAt: timestamp("committed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("tc_rounds_set_round_idx").on(t.setId, t.roundNo)]
+);
+
+export const tcCases = pgTable(
+  "tc_cases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    roundId: uuid("round_id")
+      .notNull()
+      .references(() => tcRounds.id, { onDelete: "cascade" }),
+    rowNo: integer("row_no").notNull(),
+    // The tab this case came from (an item can have several).
+    sheetTab: text("sheet_tab").notNull().default(""),
+    // The ID as typed in the sheet (IDs restart in every section of a tab)...
+    tcCode: text("tc_code").notNull(),
+    // ...and the unique key used to match results: tab::section/ID (the section
+    // only when the tab has several).
+    tcKey: text("tc_key").notNull(),
+    section: text("section"),
+    sectionNo: integer("section_no").notNull().default(1),
+    title: text("title").notNull().default(""),
+    module: text("module"),
+    polarity: tcPolarityEnum("polarity"),
+    category: tcCategoryEnum("category").notNull(),
+    severity: tcSeverityEnum("severity"),
+    priority: tcPriorityEnum("priority"),
+    preconditions: text("preconditions").notNull().default(""),
+    steps: text("steps").notNull().default(""),
+    expected: text("expected").notNull().default(""),
+    shareWithClient: boolean("share_with_client"),
+    // Statuses as they were in the committed sheet (the raw text is kept in
+    // `raw`); sign-off phases read these per role.
+    devStatus: text("dev_status").notNull().default(""),
+    devRemarks: text("dev_remarks").notNull().default(""),
+    baReview: text("ba_review").notNull().default(""),
+    baRemarks: text("ba_remarks").notNull().default(""),
+    testerStatus: text("tester_status").notNull().default(""),
+    testerRemarks: text("tester_remarks").notNull().default(""),
+    testerMeta: text("tester_meta").notNull().default(""),
+    raw: jsonb("raw").$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
+  },
+  (t) => [
+    uniqueIndex("tc_cases_round_key_idx").on(t.roundId, t.tcKey),
+    index("tc_cases_round_idx").on(t.roundId, t.rowNo),
+  ]
+);
+
+export const tcReviewers = pgTable(
+  "tc_reviewers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    roundId: uuid("round_id")
+      .notNull()
+      .references(() => tcRounds.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    name: text("name"),
+    state: tcReviewerStateEnum("state").notNull().default("pending"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    // The round the current decision was made in; lower than this round's
+    // number when the decision was carried over from an earlier round.
+    decidedRoundNo: integer("decided_round_no"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("tc_reviewers_round_email_idx").on(t.roundId, t.email),
+    index("tc_reviewers_email_idx").on(t.email),
+  ]
+);
+
+// Reviewer feedback: comments on the round as a whole (case_id null) or on one
+// test case, plus the note a reviewer attaches to Approve / Request changes.
+// Authors are stored as email + name, not a users FK: reviewers come from the
+// Keka directory and may never have signed in to Flux.
+export const tcReviewComments = pgTable(
+  "tc_review_comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    roundId: uuid("round_id")
+      .notNull()
+      .references(() => tcRounds.id, { onDelete: "cascade" }),
+    caseId: uuid("case_id").references(() => tcCases.id, { onDelete: "cascade" }),
+    kind: tcCommentKindEnum("kind").notNull().default("comment"),
+    body: text("body").notNull().default(""),
+    authorEmail: text("author_email").notNull(),
+    authorName: text("author_name"),
+    resolved: boolean("resolved").notNull().default(false),
+    resolvedBy: text("resolved_by"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    // Resolved by an override rather than by being addressed.
+    waived: boolean("waived").notNull().default(false),
+    // 'reviewer' | 'llm' | 'system' (TC_FEEDBACK_SOURCE_VALUES).
+    source: text("source").notNull().default("reviewer"),
+    // Override entries list who/what was waived.
+    meta: jsonb("meta").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("tc_review_comments_round_idx").on(t.roundId, t.createdAt),
+    index("tc_review_comments_case_idx").on(t.caseId),
+  ]
+);
+
+// Sign-off: the developer and the tester each submit the TC sheet again with
+// their status column filled in. Every submission is kept (history); the
+// latest one per role and round is what counts. Results are stored per case so
+// analytics can be recomputed without re-reading any sheet.
+export const tcSignoffs = pgTable(
+  "tc_signoffs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    setId: uuid("set_id")
+      .notNull()
+      .references(() => tcSets.id, { onDelete: "cascade" }),
+    // The approved round this sign-off is against.
+    roundId: uuid("round_id")
+      .notNull()
+      .references(() => tcRounds.id, { onDelete: "cascade" }),
+    role: tcSignoffRoleEnum("role").notNull(),
+    source: tcSourceEnum("source").notNull(),
+    sheetUrl: text("sheet_url"),
+    spreadsheetId: text("spreadsheet_id"),
+    sheetTab: text("sheet_tab"),
+    fileId: uuid("file_id").references(() => tcFiles.id, { onDelete: "set null" }),
+    notes: text("notes"),
+    passCount: integer("pass_count").notNull().default(0),
+    failCount: integer("fail_count").notNull().default(0),
+    blockedCount: integer("blocked_count").notNull().default(0),
+    notRunCount: integer("not_run_count").notNull().default(0),
+    // Tester name / date / app version as written in the sheet.
+    meta: text("meta").notNull().default(""),
+    committedBy: text("committed_by")
+      .notNull()
+      .references(() => users.id),
+    committedByName: text("committed_by_name"),
+    committedAt: timestamp("committed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("tc_signoffs_round_role_idx").on(t.roundId, t.role, t.committedAt)]
+);
+
+export const tcResults = pgTable(
+  "tc_results",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    signoffId: uuid("signoff_id")
+      .notNull()
+      .references(() => tcSignoffs.id, { onDelete: "cascade" }),
+    caseId: uuid("case_id")
+      .notNull()
+      .references(() => tcCases.id, { onDelete: "cascade" }),
+    result: tcResultEnum("result").notNull(),
+    remark: text("remark").notNull().default(""),
+  },
+  (t) => [
+    uniqueIndex("tc_results_signoff_case_idx").on(t.signoffId, t.caseId),
+    index("tc_results_case_idx").on(t.caseId),
+  ]
+);
+
+// Derived, one row per set: the numbers every surface (row chips, hover cards,
+// details page, TC Board) reads. Rewritten by recomputeSetStats whenever an
+// input changes. The scalar columns are for filtering/aggregating in SQL; the
+// full breakdown (splits, quality components, caps) is in `stats`.
+export const tcSetStats = pgTable(
+  "tc_set_stats",
+  {
+    setId: uuid("set_id")
+      .primaryKey()
+      .references(() => tcSets.id, { onDelete: "cascade" }),
+    // Denormalized so summaries can be fetched by issue without a join.
+    issueId: uuid("issue_id")
+      .notNull()
+      .references(() => jiraIssues.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => jiraProjects.id, { onDelete: "cascade" }),
+    // The latest round these numbers describe.
+    roundId: uuid("round_id")
+      .notNull()
+      .references(() => tcRounds.id, { onDelete: "cascade" }),
+    roundNo: integer("round_no").notNull(),
+    roundStatus: tcRoundStatusEnum("round_status").notNull(),
+    tcCount: integer("tc_count").notNull(),
+    quality: integer("quality").notNull(),
+    executionScore: integer("execution_score").notNull(),
+    confidence: integer("confidence").notNull(),
+    readiness: text("readiness").notNull(),
+    devSigned: boolean("dev_signed").notNull().default(false),
+    testerSigned: boolean("tester_signed").notNull().default(false),
+    passCount: integer("pass_count").notNull().default(0),
+    failCount: integer("fail_count").notNull().default(0),
+    blockedCount: integer("blocked_count").notNull().default(0),
+    notRunCount: integer("not_run_count").notNull().default(0),
+    reviewersTotal: integer("reviewers_total").notNull().default(0),
+    reviewersApproved: integer("reviewers_approved").notNull().default(0),
+    feedbackTotal: integer("feedback_total").notNull().default(0),
+    feedbackOpen: integer("feedback_open").notNull().default(0),
+    feedbackWaived: integer("feedback_waived").notNull().default(0),
+    changeRequestsTotal: integer("change_requests_total").notNull().default(0),
+    overridesTotal: integer("overrides_total").notNull().default(0),
+    roundCount: integer("round_count").notNull().default(1),
+    stats: jsonb("stats").notNull(),
+    computedAt: timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("tc_set_stats_issue_idx").on(t.issueId),
+    index("tc_set_stats_project_idx").on(t.projectId),
+  ]
+);
+
+export type TcSet = typeof tcSets.$inferSelect;
+export type TcRound = typeof tcRounds.$inferSelect;
+export type TcFile = typeof tcFiles.$inferSelect;
+export type TcCaseRow = typeof tcCases.$inferSelect;
+export type TcReviewer = typeof tcReviewers.$inferSelect;
+export type TcReviewComment = typeof tcReviewComments.$inferSelect;
+export type TcSignoff = typeof tcSignoffs.$inferSelect;
+export type TcSetStatsRow = typeof tcSetStats.$inferSelect;
+
+// Audit of an admin deleting an item's test cases and history (a wrong sheet or
+// link). Only the fact and the counts are kept, never the deleted content.
+// `storageKeys` lists the stored files so any that could not be removed from
+// the bucket can be cleaned up later.
+export const tcDeletions = pgTable(
+  "tc_deletions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // No FK: the issue may later be removed from Flux too.
+    issueId: uuid("issue_id").notNull(),
+    jiraKey: text("jira_key").notNull(),
+    projectId: uuid("project_id").notNull(),
+    reason: text("reason").notNull(),
+    deletedBy: text("deleted_by").notNull(),
+    deletedByName: text("deleted_by_name"),
+    roundCount: integer("round_count").notNull().default(0),
+    caseCount: integer("case_count").notNull().default(0),
+    fileCount: integer("file_count").notNull().default(0),
+    signoffCount: integer("signoff_count").notNull().default(0),
+    commentCount: integer("comment_count").notNull().default(0),
+    storageKeys: jsonb("storage_keys").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    storageFailures: integer("storage_failures").notNull().default(0),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("tc_deletions_issue_idx").on(t.issueId, t.deletedAt)]
+);
