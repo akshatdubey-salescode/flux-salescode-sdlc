@@ -129,8 +129,9 @@ export async function recomputeSetStats(setId: string): Promise<SetStats | null>
     const fb = await loadFeedbackInputs(setId, tx);
     const latestStats = await statsForRound(round, fb, tx);
 
-    // The trend: a past round can no longer change (decisions, comments and sign-offs only apply to the newest
-    // round), so reuse its stored point and compute only the rounds that have none yet.
+    // The trend: rounds older than the one just superseded can no longer change (decisions, comments and
+    // sign-offs only apply to the newest round), so their stored points are reused. The round just superseded
+    // is always recomputed: its last change may have landed after the point was stored.
     const [prev] = await tx.select({ stats: tcSetStats.stats }).from(tcSetStats).where(eq(tcSetStats.setId, setId)).limit(1);
     const known = new Map(((prev?.stats as Partial<SetStats> | undefined)?.trend ?? []).map((p) => [p.roundNo, p]));
     const point = (r: RoundRow, st: SetStats): RoundTrendPoint => ({
@@ -144,7 +145,10 @@ export async function recomputeSetStats(setId: string): Promise<SetStats | null>
     const trend: RoundTrendPoint[] = [];
     for (const r of [...rounds].reverse()) {
       if (r.id === round.id) trend.push(point(r, latestStats));
-      else trend.push(known.get(r.roundNo) ?? point(r, await statsForRound(r, fb, tx)));
+      else {
+        const settled = r.id !== rounds[1]?.id ? known.get(r.roundNo) : undefined;
+        trend.push(settled ?? point(r, await statsForRound(r, fb, tx)));
+      }
     }
     const stats: SetStats = { ...latestStats, trend };
     const row = {

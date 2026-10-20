@@ -8,7 +8,7 @@ import { getStore, XLSX_CONTENT_TYPE } from "@/lib/storage";
 import { buildTcFileName, buildTcS3Key, istDateTime } from "./filenames";
 import { resolveIssuePeople, type IssuePeople } from "./people";
 import { contentHash } from "./content-hash";
-import { lockItem } from "./concurrency";
+import { BUSY_MESSAGE, isLockTimeout, lockItem } from "./concurrency";
 import { getProjectFolder } from "./project-folder-service";
 import { assertLatestRound, countOpenFeedback, freshReviewers, type RoundContext } from "./review-service";
 import { RuleError } from "./rule-error";
@@ -205,6 +205,7 @@ export async function commitSignoff(args: {
   } catch (err) {
     await getStore().delete(storageKey).catch((e) => console.error("[test-cases] could not remove orphaned upload", storageKey, e));
     if (err instanceof RuleError) return { ok: false, status: err.status, error: err.message };
+    if (isLockTimeout(err)) return { ok: false, status: 503, error: BUSY_MESSAGE };
     throw err;
   }
 

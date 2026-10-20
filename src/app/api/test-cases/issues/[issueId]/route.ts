@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { isValidUuid } from "@/lib/validation";
-import { isResponse, requireTestCasesUser, toActor, readJsonObject } from "@/lib/test-cases/api";
+import { errorResponse, isResponse, requireTestCasesUser, toActor, readJsonObject } from "@/lib/test-cases/api";
 import { deleteItemTestCases } from "@/lib/test-cases/delete-service";
 import { findIssue } from "@/lib/test-cases/service";
 import { validateDeleteRequest } from "@/lib/test-cases/state";
@@ -28,7 +28,12 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ issueId:
   const valid = validateDeleteRequest({ isAdmin: actor.isAdmin, issueKey: lookup.issue.jiraKey, confirm: body.confirm, reason: body.reason });
   if (!valid.ok) return NextResponse.json({ error: valid.reason }, { status: valid.status });
 
-  const result = await deleteItemTestCases({ issue: lookup.issue, actor: { email: user.email, name: user.name }, reason: valid.reason });
+  let result;
+  try {
+    result = await deleteItemTestCases({ issue: lookup.issue, actor: { email: user.email, name: user.name }, reason: valid.reason });
+  } catch (err) {
+    return errorResponse(err);
+  }
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
 
   revalidateTag("test-cases", "max");

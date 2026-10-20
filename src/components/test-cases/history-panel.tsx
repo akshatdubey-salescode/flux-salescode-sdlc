@@ -28,6 +28,8 @@ const ICON: Record<HistoryKind, { Icon: typeof RiChat3Line; cls: string }> = {
   signoff: { Icon: RiShieldCheckLine, cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" },
 };
 
+const PAGE = 50;
+
 /**
  * Everything that happened to this item's test cases, across every round and every reviewer, for anyone who
  * can open the page. Newest first. When other items in the same project use the same Google Sheet, their
@@ -37,7 +39,10 @@ const ICON: Record<HistoryKind, { Icon: typeof RiChat3Line; cls: string }> = {
 export function HistoryPanel({ events, items, returnTo }: { events: HistoryEvent[]; items: SheetItem[]; returnTo: string | null }) {
   const shared = items.length > 1;
   const [scope, setScope] = useState<"all" | "own">("all");
-  const shown = shared && scope === "own" ? events.filter((e) => e.own) : events;
+  // A busy sheet can have hundreds of entries: draw the newest page by page.
+  const [limit, setLimit] = useState(PAGE);
+  const filtered = shared && scope === "own" ? events.filter((e) => e.own) : events;
+  const shown = filtered.slice(0, limit);
 
   return (
     <section className="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
@@ -82,9 +87,12 @@ export function HistoryPanel({ events, items, returnTo }: { events: HistoryEvent
                 key={value}
                 type="button"
                 aria-pressed={scope === value}
-                onClick={() => setScope(value)}
+                onClick={() => {
+                  setScope(value);
+                  setLimit(PAGE);
+                }}
                 className={cn(
-                  "h-7 rounded px-2.5 text-xs font-semibold transition-colors",
+                  "min-h-7 rounded px-2.5 py-1 text-center text-xs font-semibold leading-tight transition-colors",
                   scope === value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >
@@ -139,6 +147,17 @@ export function HistoryPanel({ events, items, returnTo }: { events: HistoryEvent
             );
           })}
         </ol>
+      )}
+      {filtered.length > shown.length && (
+        <div className="flex items-center justify-center gap-2">
+          <button
+            type="button"
+            onClick={() => setLimit((n) => n + PAGE)}
+            className="h-7 rounded-md border border-zinc-200 bg-white px-3 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+          >
+            Show {Math.min(PAGE, filtered.length - shown.length)} older ({filtered.length - shown.length} more)
+          </button>
+        </div>
       )}
     </section>
   );

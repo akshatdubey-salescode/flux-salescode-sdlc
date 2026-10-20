@@ -8,6 +8,7 @@ import { FEATURE_FLAGS, isEnabled } from "@/lib/feature-flags";
 import { hasMinRole } from "@/lib/auth/types";
 import { SheetsError } from "@/lib/google/sheets";
 import { SourceLockedError } from "./lock";
+import { BUSY_MESSAGE, isLockTimeout } from "./concurrency";
 import { RuleError } from "./rule-error";
 import { SourceError } from "./source";
 
@@ -28,6 +29,7 @@ export function isResponse(v: unknown): v is NextResponse {
 
 /** Maps source/Sheets failures to a status and a stable `code` the page can act on (e.g. offer "Connect Google"). */
 export function errorResponse(err: unknown): NextResponse {
+  if (isLockTimeout(err)) return NextResponse.json({ error: BUSY_MESSAGE, code: "busy" }, { status: 503 });
   if (err instanceof RuleError) return NextResponse.json({ error: err.message, code: err.code }, { status: err.status });
   if (err instanceof SourceLockedError) return NextResponse.json({ error: err.message, code: "source_locked" }, { status: 409 });
   if (err instanceof SourceError) return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });

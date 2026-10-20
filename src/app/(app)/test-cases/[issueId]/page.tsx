@@ -326,6 +326,8 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                 <HistoryPanel events={history.events} items={history.items} returnTo={returnTo} />
 
                 <CasesTable
+                  // A fresh table per round: filters, paging and open rows from another round don't carry over.
+                  key={round.id}
                   cases={detail.cases}
                   review={{
                     roundId: round.id,

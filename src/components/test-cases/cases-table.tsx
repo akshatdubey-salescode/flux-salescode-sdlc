@@ -162,7 +162,7 @@ export function CasesTable({ cases, review }: { cases: CaseView[]; review: Revie
 // Long text is loaded when a row is first expanded and kept for the life of the page.
 const detailCache = new Map<string, CaseDetail>();
 
-function useCaseDetail(caseId: string, wanted: boolean): { detail: CaseDetail | null; error: boolean } {
+function useCaseDetail(caseId: string, wanted: boolean): { detail: CaseDetail | null; error: boolean; clearError: () => void } {
   const [state, setState] = useState<{ detail: CaseDetail | null; error: boolean }>(() => ({ detail: detailCache.get(caseId) ?? null, error: false }));
   useEffect(() => {
     if (!wanted || detailCache.has(caseId)) return;
@@ -178,7 +178,9 @@ function useCaseDetail(caseId: string, wanted: boolean): { detail: CaseDetail | 
       live = false;
     };
   }, [caseId, wanted]);
-  return { detail: state.detail ?? detailCache.get(caseId) ?? null, error: state.error };
+  // Expanding a row again after a failed load retries, so the old error must not keep showing meanwhile.
+  const clearError = () => setState((st) => (st.error ? { ...st, error: false } : st));
+  return { detail: state.detail ?? detailCache.get(caseId) ?? null, error: state.error, clearError };
 }
 
 function FragmentRow({
@@ -194,14 +196,29 @@ function FragmentRow({
   review: ReviewContext;
   showTab: boolean;
 }) {
-  const { detail, error } = useCaseDetail(c.id, expanded);
+  const { detail, error, clearError } = useCaseDetail(c.id, expanded);
+  const toggle = () => {
+    if (!expanded) clearError();
+    onToggle();
+  };
   const own = review.comments.filter((x) => x.caseId === c.id);
   const open = own.filter((x) => x.kind === "comment" && !x.resolved).length;
   return (
     <>
-      <tr className="cursor-pointer border-b border-zinc-100 hover:bg-zinc-50/60 dark:border-zinc-800/60 dark:hover:bg-zinc-800/20" onClick={onToggle}>
+      <tr className="cursor-pointer border-b border-zinc-100 hover:bg-zinc-50/60 dark:border-zinc-800/60 dark:hover:bg-zinc-800/20" onClick={toggle}>
         <td className="w-6 px-2 py-2 text-muted-foreground">
-          {expanded ? <RiArrowDownSLine size={14} /> : <RiArrowRightSLine size={14} />}
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-label={`${expanded ? "Collapse" : "Expand"} test case ${c.tcCode}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggle();
+            }}
+            className="rounded p-0.5 hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+          >
+            {expanded ? <RiArrowDownSLine size={14} /> : <RiArrowRightSLine size={14} />}
+          </button>
         </td>
         <td className="whitespace-nowrap px-3 py-2">
           <span className="font-mono">{c.tcCode}</span>
@@ -236,7 +253,7 @@ function FragmentRow({
             {error ? (
               <p className="text-xs text-destructive">Couldn&apos;t load this test case&apos;s details. Collapse and expand the row to retry.</p>
             ) : !detail ? (
-              <p className="text-xs text-muted-foreground">Loading…</p>
+              <p role="status" className="text-xs text-muted-foreground">Loading…</p>
             ) : (
               <>
                 {detail.module && <Detail label="Module" text={detail.module} />}

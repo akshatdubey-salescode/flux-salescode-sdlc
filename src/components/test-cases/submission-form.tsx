@@ -398,8 +398,8 @@ export function SubmissionForm({
 
         {result?.sameAsRound != null && previewCurrent && (
           <p className="rounded-md bg-sky-50 p-2 text-[11px] text-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
-            These test cases are identical to Round {result.sameAsRound}, so resubmitting changes nothing. Edit the {lockedSheet ? "sheet" : "workbook"} first if
-            you meant to fix something.
+            Nothing in the test cases has changed since Round {result.sameAsRound}. Resubmitting only starts a new review round. Edit the{" "}
+            {lockedSheet ? "sheet" : "workbook"} first if you meant to fix something.
           </p>
         )}
 

@@ -17,7 +17,7 @@ import {
 import { getStore, XLSX_CONTENT_TYPE } from "@/lib/storage";
 import { buildTcFileName, buildTcS3Key, istDateTime, roundLabel } from "./filenames";
 import { buildFeedbackXlsx, type FeedbackRow } from "./feedback-xlsx";
-import { lockItem, type Tx } from "./concurrency";
+import { BUSY_MESSAGE, isLockTimeout, lockItem, type Tx } from "./concurrency";
 import { getProjectFolder } from "./project-folder-service";
 import { RuleError } from "./rule-error";
 import { recomputeSafely } from "./stats-service";
@@ -189,6 +189,7 @@ export async function recordDecision(args: {
     });
   } catch (err) {
     if (err instanceof RuleError) return { ok: false, status: err.status, error: err.message };
+    if (isLockTimeout(err)) return { ok: false, status: 503, error: BUSY_MESSAGE };
     throw err;
   }
 
@@ -279,6 +280,7 @@ export async function overrideAndApprove(args: {
     });
   } catch (err) {
     if (err instanceof RuleError) return { ok: false, status: err.status, error: err.message };
+    if (isLockTimeout(err)) return { ok: false, status: 503, error: BUSY_MESSAGE };
     throw err;
   }
 
@@ -336,6 +338,7 @@ export async function addComment(args: {
     return { ok: true, id };
   } catch (err) {
     if (err instanceof RuleError) return { ok: false, status: err.status, error: err.message };
+    if (isLockTimeout(err)) return { ok: false, status: 503, error: BUSY_MESSAGE };
     throw err;
   }
 }
@@ -369,6 +372,7 @@ export async function setCommentResolved(args: {
     });
   } catch (err) {
     if (err instanceof RuleError) return { ok: false, status: err.status, error: err.message };
+    if (isLockTimeout(err)) return { ok: false, status: 503, error: BUSY_MESSAGE };
     throw err;
   }
   await recomputeSafely(ctx.setId);
@@ -451,21 +455,26 @@ export async function storeFeedbackFile(ctx: RoundContext, actor: ReviewActor): 
   const storageKey = buildTcS3Key({ ...parts, folder });
   await getStore().put(storageKey, buffer, XLSX_CONTENT_TYPE);
   try {
-    const [file] = await db
-      .insert(tcFiles)
-      .values({
-        setId: ctx.setId,
-        kind: "reviewer_feedback",
-        roundNo: ctx.roundNo,
-        storageKey,
-        fileName,
-        sizeBytes: buffer.length,
-        uploadedBy: actor.email.trim().toLowerCase(),
-        uploadedByName: actor.name,
-        uploadedAt: at,
-      })
-      .returning({ id: tcFiles.id });
-    return file.id;
+    // The row is written under the item lock (the upload itself stays outside it), so an admin delete can't
+    // slip between "list this item's files" and "delete the item" and leave this file untracked.
+    return await db.transaction(async (tx) => {
+      await lockItem(tx, ctx.issue.id);
+      const [file] = await tx
+        .insert(tcFiles)
+        .values({
+          setId: ctx.setId,
+          kind: "reviewer_feedback",
+          roundNo: ctx.roundNo,
+          storageKey,
+          fileName,
+          sizeBytes: buffer.length,
+          uploadedBy: actor.email.trim().toLowerCase(),
+          uploadedByName: actor.name,
+          uploadedAt: at,
+        })
+        .returning({ id: tcFiles.id });
+      return file.id;
+    });
   } catch (err) {
     // No row points at the file, so nothing could ever download or delete it: remove it now.
     await getStore().delete(storageKey).catch(() => undefined);

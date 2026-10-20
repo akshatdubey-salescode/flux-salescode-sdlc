@@ -14,6 +14,16 @@ export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 /** Either the pool or a transaction: both can run the queries the loaders need. */
 export type Executor = typeof db | Tx;
 
+/** Postgres' "lock_not_available": waited too long for the item lock. */
+export function isLockTimeout(err: unknown): boolean {
+  const e = err as { code?: string; cause?: { code?: string } } | null;
+  return e?.code === "55P03" || e?.cause?.code === "55P03";
+}
+
+export const BUSY_MESSAGE = "Someone else is updating this item right now. Try again in a moment.";
+
 export async function lockItem(tx: Tx, issueId: string): Promise<void> {
+  // A waiter holds one of only 5 connections, so never wait forever: a stalled holder must not drain the pool.
+  await tx.execute(sql`set local lock_timeout = '10s'`);
   await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`tc-item:${issueId}`}, 0))`);
 }
