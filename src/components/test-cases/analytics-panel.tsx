@@ -4,7 +4,14 @@ import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContai
 import { RiCheckboxCircleFill, RiCheckboxBlankCircleLine, RiDownload2Line, RiTimeLine } from "@remixicon/react";
 import { cn } from "@/lib/utils";
 import { READINESS_LABELS, type ResultCounts, type SetStats, type TypeRow } from "@/lib/test-cases/analytics";
-import { TC_CATEGORY_LABELS, TC_POLARITY_LABELS, type TcCategory, type TcPolarity } from "@/lib/test-cases/values";
+import {
+  TC_CATEGORY_LABELS,
+  TC_POLARITY_LABELS,
+  TC_REVIEWER_STATE_LABELS,
+  TC_ROUND_STATUS_LABELS,
+  type TcCategory,
+  type TcPolarity,
+} from "@/lib/test-cases/values";
 import type { RoundTrendPoint } from "@/lib/test-cases/stats-service";
 
 export const READINESS_STYLE: Record<SetStats["readiness"], string> = {
@@ -129,12 +136,17 @@ export function AnalyticsPanel({ issueId, stats, trend, computedAt }: { issueId:
           <ul className="space-y-1.5">
             <Check done={stats.tcCount > 0}>{stats.tcCount} test cases uploaded</Check>
             <Check done={stats.llmReviewed} note={stats.llmReviewed ? undefined : "not enabled yet"}>LLM reviewed</Check>
-            <Check done={stats.reviewersApproved > 0}>
+            <Check done={stats.roundStatus === "approved"} note={TC_ROUND_STATUS_LABELS[stats.roundStatus]}>
               Reviewer approved ({stats.reviewersApproved}/{stats.reviewersTotal})
             </Check>
             <Check done={stats.dev.signedOff}>Developer signed off</Check>
             <Check done={stats.tester.signedOff}>Tester signed off</Check>
-            <Check done={stats.feedbackOpen === 0 && stats.feedbackTotal > 0} note={`${stats.feedbackOpen} open of ${stats.feedbackTotal}`}>Reviewer feedback resolved</Check>
+            <Check
+              done={stats.feedbackOpen === 0 && stats.feedback.awaitingReReview === 0}
+              note={`${stats.feedbackOpen} open of ${stats.feedbackTotal}${stats.feedback.awaitingReReview > 0 ? `, ${stats.feedback.awaitingReReview} waiting to re-review` : ""}`}
+            >
+              Feedback resolved or waived
+            </Check>
           </ul>
           <div className="flex flex-wrap gap-1.5 pt-1">
             {RESULT_KEYS.map((k) => (
@@ -169,6 +181,8 @@ export function AnalyticsPanel({ issueId, stats, trend, computedAt }: { issueId:
           <p className="text-[11px] text-muted-foreground">Based on the sheet&apos;s structure. An LLM review will refine this later.</p>
         </Card>
 
+        <FeedbackCard stats={stats} />
+
         <Card title="Results by category"><StackedBars data={byCategory} /></Card>
         <Card title="Results by type (positive / negative / edge)"><StackedBars data={byPolarity} /></Card>
         <Card title="Results by priority"><StackedBars data={byPriority} /></Card>
@@ -195,5 +209,74 @@ export function AnalyticsPanel({ issueId, stats, trend, computedAt }: { issueId:
         </Card>
       )}
     </div>
+  );
+}
+
+function FeedbackCard({ stats }: { stats: SetStats }) {
+  const fb = stats.feedback;
+  const counters: [string, number, string?][] = [
+    ["Feedback raised", fb.raised],
+    ["Open now", stats.feedbackOpen, stats.feedbackOpen > 0 ? "text-amber-600" : undefined],
+    ["Resolved", fb.resolved],
+    ["Waived", fb.waived],
+    ["Change requests", fb.changeRequests],
+    ["Resubmissions", fb.resubmissions],
+    ["Overrides", fb.overrides, fb.overrides > 0 ? "text-violet-600" : undefined],
+    ["LLM findings", fb.llm.raised],
+  ];
+  const rounds = fb.perRound.map((r) => ({ name: `R${r.roundNo}`, "Change requests": r.changeRequests, Comments: r.comments, Waived: r.waived }));
+  return (
+    <Card title="Review feedback" className="lg:col-span-2">
+      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4 2xl:grid-cols-8">
+        {counters.map(([label, n, cls]) => (
+          <div key={label} className="rounded-md bg-muted/50 px-2 py-1.5 text-center">
+            <dd className={cn("text-base font-semibold tabular-nums text-foreground", cls)}>{n}</dd>
+            <dt className="text-[10px] text-muted-foreground">{label}</dt>
+          </div>
+        ))}
+      </dl>
+
+      {fb.byReviewer.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[520px] border-collapse text-[11px]">
+            <thead>
+              <tr className="border-b border-zinc-200 text-left text-muted-foreground dark:border-zinc-800">
+                {["Reviewer", "Now", "Approvals", "Change requests", "Comments", "Overrides"].map((h) => (
+                  <th key={h} className="px-2 py-1 font-semibold uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {fb.byReviewer.map((r) => (
+                <tr key={r.email} className="border-b border-zinc-100 dark:border-zinc-800/60">
+                  <td className="px-2 py-1 font-medium text-foreground">{r.name ?? r.email}</td>
+                  <td className="px-2 py-1 text-muted-foreground">{r.state ? TC_REVIEWER_STATE_LABELS[r.state] : "No longer a reviewer"}</td>
+                  <td className="px-2 py-1 tabular-nums">{r.approvals}</td>
+                  <td className="px-2 py-1 tabular-nums">{r.changeRequests}</td>
+                  <td className="px-2 py-1 tabular-nums">{r.comments}</td>
+                  <td className="px-2 py-1 tabular-nums">{r.overrides}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {rounds.length > 1 && (
+        <ResponsiveContainer width="100%" height={170}>
+          <BarChart data={rounds} margin={{ left: 0, right: 12, top: 8 }}>
+            <CartesianGrid vertical={false} strokeDasharray="3 3" strokeOpacity={0.4} />
+            <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+            <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+            <Tooltip cursor={{ fillOpacity: 0.08 }} contentStyle={{ fontSize: 11 }} />
+            <Legend wrapperStyle={{ fontSize: 10 }} />
+            <Bar dataKey="Change requests" stackId="f" fill="#f59e0b" />
+            <Bar dataKey="Comments" stackId="f" fill="#6366f1" />
+            <Bar dataKey="Waived" stackId="f" fill="#8b5cf6" />
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+      <p className="text-[11px] text-muted-foreground">Counts cover every round; the full trail is in Review history below.</p>
+    </Card>
   );
 }

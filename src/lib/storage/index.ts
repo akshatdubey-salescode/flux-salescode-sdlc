@@ -7,6 +7,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import {
+  DeleteObjectCommand,
   GetObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -26,6 +27,8 @@ export type Download =
 export type BlobStore = {
   put(key: string, body: Buffer, contentType: string): Promise<void>;
   get(key: string): Promise<Buffer>;
+  /** Removes the object; a missing object is not an error. */
+  delete(key: string): Promise<void>;
   download(key: string, fileName: string): Promise<Download>;
 };
 
@@ -65,6 +68,10 @@ function s3Store(bucket: string, region: string): BlobStore {
       if (!bytes) throw new Error("Empty object");
       return Buffer.from(bytes);
     },
+    async delete(key) {
+      assertSafeKey(key);
+      await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    },
     async download(key, fileName) {
       assertSafeKey(key);
       const safeName = fileName.replace(/[^A-Za-z0-9._-]+/g, "_");
@@ -100,6 +107,9 @@ function localStore(): BlobStore {
     },
     async get(key) {
       return fs.readFile(resolve(key));
+    },
+    async delete(key) {
+      await fs.rm(resolve(key), { force: true });
     },
     async download(key) {
       return { kind: "bytes", body: await fs.readFile(resolve(key)) };

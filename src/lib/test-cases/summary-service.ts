@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { tcCases } from "@/lib/db/schema";
 import { effectiveResult } from "./analytics";
 import { istDateTime, istStamp, roundLabel, safeSegment } from "./filenames";
+import { fetchHistory } from "./history-service";
 import { fetchSignoffs } from "./signoff-service";
 import { fetchSetDetail, findIssue } from "./service";
 import { fetchRoundTrend, fetchStoredStats, loadLatestSignoffResults } from "./stats-service";
@@ -20,12 +21,13 @@ export async function buildSummaryForIssue(issueId: string, requestedBy: string)
   const latest = detail?.rounds[0];
   if (!detail || !latest) return null;
 
-  const [stored, trend, signoffs, cases, results] = await Promise.all([
+  const [stored, trend, signoffs, cases, results, history] = await Promise.all([
     fetchStoredStats(detail.setId),
     fetchRoundTrend(detail.setId),
     fetchSignoffs(latest.id),
     db.select().from(tcCases).where(eq(tcCases.roundId, latest.id)).orderBy(asc(tcCases.rowNo)),
     loadLatestSignoffResults(latest.id),
+    fetchHistory(detail.setId),
   ]);
   if (!stored) return null;
 
@@ -37,6 +39,7 @@ export async function buildSummaryForIssue(issueId: string, requestedBy: string)
     roundLabel: roundLabel(latest.roundNo, new Date(latest.committedAt)),
     generatedAt: `${istDateTime(now)} (stats computed ${istDateTime(stored.computedAt)})`,
     stats: stored.stats,
+    history,
     trend,
     signoffs,
     cases: cases.map((c) => {

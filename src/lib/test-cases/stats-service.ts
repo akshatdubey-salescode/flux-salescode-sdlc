@@ -175,6 +175,12 @@ export async function fetchRoundTrend(setId: string): Promise<RoundTrendPoint[]>
 export async function fetchStoredStats(setId: string): Promise<{ stats: SetStats; computedAt: Date; roundNo: number } | null> {
   const [row] = await db.select().from(tcSetStats).where(eq(tcSetStats.setId, setId)).limit(1);
   if (!row) return null;
+  // Rows stored before the feedback summary existed lack it: bring them up to date rather than render a gap.
+  if (!(row.stats as Partial<SetStats>).feedback) {
+    const fresh = await recomputeSetStats(setId);
+    const [again] = await db.select().from(tcSetStats).where(eq(tcSetStats.setId, setId)).limit(1);
+    if (fresh && again) return { stats: fresh, computedAt: again.computedAt, roundNo: again.roundNo };
+  }
   return { stats: row.stats as SetStats, computedAt: row.computedAt, roundNo: row.roundNo };
 }
 

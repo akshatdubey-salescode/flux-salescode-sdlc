@@ -24,6 +24,8 @@ import { cn } from "@/lib/utils";
 import { CasesTable } from "@/components/test-cases/cases-table";
 import { ReviewPanel } from "@/components/test-cases/review-panel";
 import { AnalyticsPanel } from "@/components/test-cases/analytics-panel";
+import { HistoryPanel } from "@/components/test-cases/history-panel";
+import { DeletePanel } from "@/components/test-cases/delete-panel";
 import { SignoffPanel } from "@/components/test-cases/signoff-panel";
 import { BackLink } from "@/components/test-cases/back-link";
 import { returnLabel, safeReturnTo, withReturnTo } from "@/lib/test-cases/return-to";
@@ -33,6 +35,7 @@ import { fetchRoundTrend, fetchStoredStats } from "@/lib/test-cases/stats-servic
 import { canSignOff } from "@/lib/test-cases/state";
 import { fetchSignoffs, getIssuePeople } from "@/lib/test-cases/signoff-service";
 import { istDateTime } from "@/lib/test-cases/filenames";
+import { fetchHistory } from "@/lib/test-cases/history-service";
 import {
   TC_CATEGORY_LABELS,
   TC_POLARITY_LABELS,
@@ -91,7 +94,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
   const isLatest = !!detail && round?.roundNo === detail.rounds[0]?.roundNo;
   const roundApproved = round?.status === "approved";
 
-  const [stored, trend, signoffs, people, openFeedback] =
+  const [stored, trend, signoffs, people, openFeedback, history] =
     detail && round
       ? await Promise.all([
           fetchStoredStats(detail.setId),
@@ -99,8 +102,10 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
           fetchSignoffs(round.id),
           getIssuePeople(issue.id),
           countOpenFeedback(round.id),
+          fetchHistory(detail.setId),
         ])
-      : [null, [], [], { dev: [], qa: [] }, 0];
+      : [null, [], [], { dev: [], qa: [] }, 0, []];
+  const needsResubmit = isLatest && round?.status === "changes_requested";
   const signoffActions = (["dev", "tester"] as const).map((role) => {
     const v = canSignOff({ role, actor: viewer, people, roundApproved, isLatestRound: isLatest, openFeedback });
     return { role, allowed: v.ok, reason: v.ok ? null : v.reason };
@@ -123,7 +128,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
             className="inline-flex h-7 items-center gap-1 rounded-md bg-primary px-2.5 text-xs font-semibold text-primary-foreground"
           >
             <RiAddLine className="size-3.5" />
-            {detail ? "New round" : "Submit test cases"}
+            {!detail ? "Submit test cases" : needsResubmit ? "Resubmit TCs" : "New round"}
           </Link>
         }
       >
@@ -203,7 +208,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                       <h2 className="text-sm font-semibold text-foreground">{round.label}</h2>
                       <p className="text-xs text-muted-foreground">
                         Committed by {round.committedByName ?? round.committedBy} · {round.tcCount} test cases
-                        {round.sheetTab ? ` · tab “${round.sheetTab}”` : ""}
+                        {round.sheetTabs.length > 0 ? ` · tab${round.sheetTabs.length === 1 ? "" : "s"}: ${round.sheetTabs.join(", ")}` : ""}
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -226,7 +231,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                           title={round.snapshotFile.fileName}
                         >
                           <RiDownload2Line className="size-3.5" />
-                          Download snapshot
+                          {round.source === "xlsx" && isLatest ? "Download current workbook" : "Download snapshot"}
                           <span className="text-muted-foreground">({fmtSize(round.snapshotFile.sizeBytes)})</span>
                         </a>
                       )}
@@ -272,6 +277,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
 
                 <ReviewPanel
                   roundId={round.id}
+                  roundNo={round.roundNo}
                   isLatest={isLatest}
                   reviewers={round.reviewers}
                   comments={comments}
@@ -287,7 +293,11 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                   actions={signoffActions}
                   isLatest={isLatest}
                   approved={roundApproved}
+                  resubmit={needsResubmit}
+                  openFeedback={openFeedback}
                 />
+
+                <HistoryPanel events={history} />
 
                 <CasesTable
                   cases={detail.cases}
@@ -300,6 +310,14 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                     committerEmail: round.committedBy,
                   }}
                 />
+
+                {viewer.isAdmin && (
+                  <DeletePanel
+                    issueId={issue.id}
+                    issueKey={issue.jiraKey}
+                    summary={{ rounds: detail.rounds.length, cases: detail.rounds.reduce((n, r) => n + r.tcCount, 0), signoffs: history.filter((e) => e.kind === "signoff").length }}
+                  />
+                )}
               </div>
             </div>
           )}

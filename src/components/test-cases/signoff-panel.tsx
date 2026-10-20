@@ -15,6 +15,8 @@ export function SignoffPanel({
   actions,
   isLatest,
   approved,
+  resubmit,
+  openFeedback,
 }: {
   issueId: string;
   returnTo: string | null;
@@ -22,6 +24,10 @@ export function SignoffPanel({
   actions: SignoffAction[];
   isLatest: boolean;
   approved: boolean;
+  /** A reviewer asked for changes: the sheet has to be fixed and resubmitted before anything else. */
+  resubmit: boolean;
+  /** Unresolved feedback comments on the round. */
+  openFeedback: number;
 }) {
   return (
     <section className="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
@@ -47,9 +53,18 @@ export function SignoffPanel({
       </div>
 
       {isLatest && !approved && (
-        <p className="text-xs text-muted-foreground">Sign-off opens once a reviewer approves this round.</p>
+        <p className="text-xs text-muted-foreground">
+          {resubmit
+            ? "Sign-off is closed while feedback is open: a reviewer asked for changes. Resubmit the test cases; sign-off opens once they are approved and the feedback is resolved or waived."
+            : "Sign-off opens once a reviewer approves this round."}
+        </p>
       )}
-      {isLatest && approved && actions.every((a) => !a.allowed) && (
+      {isLatest && approved && openFeedback > 0 && (
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          Sign-off is closed until the {openFeedback} open feedback item{openFeedback === 1 ? " is" : "s are"} resolved or waived (see the comments below).
+        </p>
+      )}
+      {isLatest && approved && openFeedback === 0 && actions.every((a) => !a.allowed) && (
         <p className="text-xs text-muted-foreground">
           Only the issue&apos;s developer(s) and tester(s) can sign off ({actions.map((a) => `${ROLE_LABEL[a.role]}: ${a.reason ?? "allowed"}`).join(" · ")}).
         </p>

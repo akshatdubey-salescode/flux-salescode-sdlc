@@ -127,7 +127,8 @@ export default async function NewTestCaseSubmissionPage({ searchParams }: Props)
           }}
           nextRound={nextRound}
           committerEmail={user.email}
-          initialReviewers={reviewers}
+          // You can't review your own submission, so an admin who approved the last round isn't pre-filled.
+          initialReviewers={reviewers.filter((r) => r.email.toLowerCase() !== user.email.toLowerCase())}
           returnTo={returnTo}
           cancelHref={backHref}
           lock={

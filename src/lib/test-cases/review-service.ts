@@ -338,8 +338,8 @@ export async function setCommentResolved(args: {
     .update(tcReviewComments)
     .set(
       args.resolved
-        ? { resolved: true, resolvedBy: args.actor.email.trim().toLowerCase(), resolvedAt: new Date() }
-        : { resolved: false, resolvedBy: null, resolvedAt: null },
+        ? { resolved: true, waived: false, resolvedBy: args.actor.email.trim().toLowerCase(), resolvedAt: new Date() }
+        : { resolved: false, waived: false, resolvedBy: null, resolvedAt: null },
     )
     .where(eq(tcReviewComments.id, args.commentId));
   await recomputeSafely(ctx.setId);
@@ -445,6 +445,9 @@ export type CommentView = {
   authorEmail: string;
   authorName: string | null;
   resolved: boolean;
+  /** Resolved by an override rather than by being addressed. */
+  waived: boolean;
+  source: "reviewer" | "llm" | "system";
   createdAt: string;
   createdLabel: string;
 };
@@ -459,6 +462,8 @@ export async function fetchRoundComments(roundId: string): Promise<CommentView[]
     authorEmail: c.authorEmail,
     authorName: c.authorName,
     resolved: c.resolved,
+    waived: c.waived,
+    source: c.source === "llm" || c.source === "system" ? c.source : "reviewer",
     createdAt: c.createdAt.toISOString(),
     createdLabel: istDateTime(c.createdAt),
   }));

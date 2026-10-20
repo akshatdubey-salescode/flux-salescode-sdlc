@@ -30,6 +30,11 @@ export async function fetchHistory(setId: string): Promise<HistoryEvent[]> {
   ]);
 
   const display = (email: string, name: string | null) => name ?? email;
+  // People are stored by email in some places and name in others: remember every name we have seen.
+  const knownNames = new Map<string, string>();
+  for (const x of reviewers) if (x.r.name) knownNames.set(x.r.email.toLowerCase(), x.r.name);
+  for (const { c } of commentRows) if (c.authorName) knownNames.set(c.authorEmail.toLowerCase(), c.authorName);
+  for (const r of rounds) if (r.committedByName) knownNames.set(r.committedBy.toLowerCase(), r.committedByName);
 
   const historyRounds: HistoryRound[] = rounds.map((r) => {
     const rs = reviewers.filter((x) => x.roundNo === r.roundNo).map((x) => x.r);
@@ -42,7 +47,11 @@ export async function fetchHistory(setId: string): Promise<HistoryEvent[]> {
       notes: r.notes,
       // An approval whose own round is earlier than this one was carried over.
       carriedApprovals: rs.filter((x) => x.state === "approved" && (x.decidedRoundNo ?? r.roundNo) < r.roundNo).map((x) => display(x.email, x.name)),
-      awaitingReReview: rs.filter((x) => x.state === "re_review").map((x) => display(x.email, x.name)),
+      // Who had asked for changes in the round before (stable, unlike their state today, which moves on after they re-review or are overridden).
+      awaitingReReview: reviewers
+        .filter((x) => x.roundNo === r.roundNo - 1 && (x.r.state === "changes_requested" || x.r.state === "re_review"))
+        .filter((x) => rs.some((y) => y.email === x.r.email))
+        .map((x) => display(x.r.email, x.r.name)),
     };
   });
 
@@ -58,7 +67,7 @@ export async function fetchHistory(setId: string): Promise<HistoryEvent[]> {
     tab: caseTab ? caseTab : null,
     resolved: c.resolved,
     waived: c.waived,
-    resolvedBy: c.resolvedBy,
+    resolvedBy: c.resolvedBy ? (knownNames.get(c.resolvedBy.toLowerCase()) ?? c.resolvedBy) : null,
     resolvedAt: c.resolvedAt,
     meta: c.meta,
   }));

@@ -5,7 +5,9 @@
 import ExcelJS from "exceljs";
 import { READINESS_LABELS, type ResultCounts, type SetStats, type TypeRow } from "./analytics";
 import { safeCell } from "./feedback-xlsx";
-import { TC_CATEGORY_LABELS, TC_POLARITY_LABELS, type TcCategory, type TcPolarity, type TcResult } from "./values";
+import { istDateTime } from "./filenames";
+import type { HistoryEvent } from "./history";
+import { TC_CATEGORY_LABELS, TC_POLARITY_LABELS, TC_REVIEWER_STATE_LABELS, type TcCategory, type TcPolarity, type TcResult } from "./values";
 
 export type SummaryCase = {
   section: string | null;
@@ -31,6 +33,8 @@ export type SummaryInput = {
   trend: { roundNo: number; tcCount: number; quality: number; passRate: number; confidence: number; status: string }[];
   signoffs: { role: "dev" | "tester"; by: string; label: string; pass: number; fail: number; blocked: number; notRun: number; notes: string | null; current: boolean }[];
   cases: SummaryCase[];
+  /** The review history, newest first. */
+  history: HistoryEvent[];
 };
 
 const RESULT_LABEL: Record<TcResult, string> = { pass: "Passed", fail: "Failed", blocked: "Blocked", not_run: "Not run" };
@@ -123,6 +127,31 @@ export async function buildSummaryXlsx(input: SummaryInput): Promise<Buffer> {
   if (stats.tester.signedOff) roleRows.push({ name: "Tester", counts: stats.tester });
   splitTable(b, "By role", "Role", roleRows);
 
+  // --- Feedback -------------------------------------------------------------
+  const fb = stats.feedback;
+  const f = wb.addWorksheet("Feedback");
+  [30, 22, 12, 16, 12, 12].forEach((w, i) => (f.getColumn(i + 1).width = w));
+  f.addRows([
+    ["Feedback raised (comments + change requests)", fb.raised],
+    ["Open now", stats.feedbackOpen],
+    ["Resolved", fb.resolved],
+    ["Waived by an override", fb.waived],
+    ["Change requests", fb.changeRequests],
+    ["Approvals", fb.approvals],
+    ["Overrides", fb.overrides],
+    ["Resubmissions", fb.resubmissions],
+    ["Reviewers waiting to re-review", fb.awaitingReReview],
+    ["LLM findings", fb.llm.raised],
+    [],
+  ]);
+  bold(f.addRow(["Reviewer", "Now", "Approvals", "Change requests", "Comments", "Overrides"]));
+  for (const r of fb.byReviewer) {
+    f.addRow([safeCell(r.name ?? r.email), r.state ? TC_REVIEWER_STATE_LABELS[r.state] : "No longer a reviewer", r.approvals, r.changeRequests, r.comments, r.overrides]);
+  }
+  f.addRow([]);
+  bold(f.addRow(["Round", "Change requests", "Comments", "Resolved", "Waived", "Overrides"]));
+  for (const r of fb.perRound) f.addRow([`Round ${r.roundNo}`, r.changeRequests, r.comments, r.resolved, r.waived, r.overrides]);
+
   // --- Rounds ---------------------------------------------------------------
   const r = wb.addWorksheet("Rounds", { views: [{ state: "frozen", ySplit: 1 }] });
   bold(r.addRow(["Round", "Status", "Test cases", "Quality", "Pass rate %", "Confidence"]));
@@ -165,6 +194,22 @@ export async function buildSummaryXlsx(input: SummaryInput): Promise<Buffer> {
     ]);
   }
   [26, 10, 60, 16, 12, 9, 10, 12, 12, 10].forEach((w, i) => (c.getColumn(i + 1).width = w));
+
+  // --- History --------------------------------------------------------------
+  const h = wb.addWorksheet("Review history", { views: [{ state: "frozen", ySplit: 1 }] });
+  bold(h.addRow(["When", "Round", "By", "Action", "Detail", "Case", "Source"]));
+  for (const e of input.history) {
+    h.addRow([
+      istDateTime(new Date(e.at)),
+      e.roundNo,
+      safeCell(e.actor),
+      e.title,
+      safeCell(e.detail ?? ""),
+      safeCell(e.caseCode ? `${e.tab ? `${e.tab} / ` : ""}${e.caseCode}` : ""),
+      e.source === "llm" ? "LLM" : e.source === "system" ? "System" : "Reviewer",
+    ]);
+  }
+  [24, 8, 24, 34, 90, 28, 10].forEach((w, i) => (h.getColumn(i + 1).width = w));
 
   return Buffer.from(await wb.xlsx.writeBuffer());
 }

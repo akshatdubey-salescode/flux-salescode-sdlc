@@ -6,6 +6,7 @@ import { RiCheckboxBlankCircleLine, RiCheckboxCircleFill, RiFlaskLine } from "@r
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { cn } from "@/lib/utils";
 import { READINESS_LABELS } from "@/lib/test-cases/analytics";
+import { TC_ROUND_STATUS_LABELS } from "@/lib/test-cases/values";
 import type { TcSummary } from "@/lib/test-cases/summary";
 import { withReturnTo } from "@/lib/test-cases/return-to";
 import { NO_TCS, useTcSummary } from "./tc-summary-cache";
@@ -76,7 +77,7 @@ export function TcBadge({ issueId }: { issueId: string }) {
         <Link
           href={withReturnTo(`/test-cases/${issueId}`, from)}
           onClick={stop}
-          aria-label={`Test cases: ${s.confidence}% delivery confidence, ${READINESS_LABELS[s.readiness]}`}
+          aria-label={`Test cases: ${s.confidence}% delivery confidence, ${READINESS_LABELS[s.readiness]}${s.roundStatus === "changes_requested" ? ", resubmit test cases" : ""}`}
           className={cn(
             "inline-flex h-6 items-center gap-1 rounded-full px-1.5 text-[10px] font-semibold tabular-nums transition-opacity hover:opacity-80",
             READINESS_CHIP[s.readiness],
@@ -84,6 +85,7 @@ export function TcBadge({ issueId }: { issueId: string }) {
         >
           <RiFlaskLine className="size-3" />
           {s.confidence}%
+          {s.roundStatus === "changes_requested" && <span className="size-1.5 rounded-full bg-amber-500" aria-hidden />}
         </Link>
       </HoverCardTrigger>
       <HoverCardContent className="w-80 space-y-2.5">
@@ -94,10 +96,19 @@ export function TcBadge({ issueId }: { issueId: string }) {
           <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", READINESS_CHIP[s.readiness])}>{READINESS_LABELS[s.readiness]}</span>
         </div>
 
+        {s.roundStatus === "changes_requested" && (
+          <p className="rounded-md bg-amber-50 px-2 py-1 font-semibold text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">Resubmit TCs: a reviewer asked for changes</p>
+        )}
+        {s.roundStatus !== "changes_requested" && s.awaitingReReview > 0 && (
+          <p className="rounded-md bg-sky-50 px-2 py-1 text-sky-800 dark:bg-sky-950/30 dark:text-sky-300">Waiting for {s.awaitingReReview} reviewer{s.awaitingReReview === 1 ? "" : "s"} to re-review</p>
+        )}
+
         <ul className="space-y-1">
           <Row done>{s.tcCount} test cases uploaded</Row>
           <Row done={s.llmReviewed} note={s.llmReviewed ? undefined : "not enabled yet"}>LLM reviewed</Row>
-          <Row done={s.reviewersApproved > 0}>Reviewer approved ({s.reviewersApproved}/{s.reviewersTotal})</Row>
+          <Row done={s.roundStatus === "approved"} note={s.roundStatus === "approved" ? undefined : TC_ROUND_STATUS_LABELS[s.roundStatus]}>
+            Reviewer approved ({s.reviewersApproved}/{s.reviewersTotal})
+          </Row>
           <Row done={s.devSigned}>Developer signed off</Row>
           <Row done={s.testerSigned}>Tester signed off</Row>
         </ul>

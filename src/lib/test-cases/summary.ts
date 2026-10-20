@@ -4,7 +4,7 @@
 import { inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { tcSetStats } from "@/lib/db/schema";
-import { TC_CATEGORY_LABELS, type TcCategory } from "./values";
+import { TC_CATEGORY_LABELS, type TcCategory, type TcRoundStatus } from "./values";
 import type { Readiness, SetStats } from "./analytics";
 
 export type TcTypeRow = { key: string; label: string; total: number; pass: number; fail: number; blocked: number; notRun: number };
@@ -22,6 +22,10 @@ export type TcSummary = {
   notRun: number;
   executedPct: number;
   roundNo: number;
+  /** "changes_requested" is shown as "Resubmit TCs". */
+  roundStatus: TcRoundStatus;
+  /** Reviewers who asked for changes and have not yet re-reviewed the resubmission. */
+  awaitingReReview: number;
   reviewersApproved: number;
   reviewersTotal: number;
   devSigned: boolean;
@@ -62,6 +66,8 @@ export function toSummary(setId: string, roundNo: number, s: SetStats): TcSummar
     notRun: s.effective.not_run,
     executedPct: s.executedPct,
     roundNo,
+    roundStatus: s.roundStatus,
+    awaitingReReview: s.feedback?.awaitingReReview ?? 0,
     reviewersApproved: s.reviewersApproved,
     reviewersTotal: s.reviewersTotal,
     devSigned: s.dev.signedOff,

@@ -15,8 +15,9 @@ export type Viewer = { email: string; isAdmin: boolean };
 const KIND_STYLE: Record<string, string> = {
   approved: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400",
   changes_requested: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400",
+  override: "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
 };
-const KIND_LABEL: Record<string, string> = { approved: "Approved", changes_requested: "Requested changes" };
+const KIND_LABEL: Record<string, string> = { approved: "Approved", changes_requested: "Requested changes", override: "Overrode feedback and approved" };
 
 /**
  * Feedback on a round (caseId null) or on one test case. Reads come from the
@@ -105,10 +106,13 @@ export function CommentThread({
               {c.kind !== "comment" && (
                 <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", KIND_STYLE[c.kind])}>{KIND_LABEL[c.kind]}</span>
               )}
+              {c.source === "llm" && (
+                <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">LLM</span>
+              )}
               {c.resolved && (
-                <span className="inline-flex items-center gap-0.5 text-emerald-600">
+                <span className={cn("inline-flex items-center gap-0.5", c.waived ? "text-violet-600" : "text-emerald-600")}>
                   <RiCheckLine className="size-3" />
-                  Resolved
+                  {c.waived ? "Waived by override" : "Resolved"}
                 </span>
               )}
               {c.kind === "comment" && !readOnly && canResolve(viewer, c.authorEmail, reviewers, committerEmail).ok && (

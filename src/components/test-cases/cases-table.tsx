@@ -35,9 +35,11 @@ export function CasesTable({ cases, review }: { cases: CaseView[]; review: Revie
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("all");
   const [section, setSection] = useState<string>("all");
+  const [tab, setTab] = useState<string>("all");
   const [open, setOpen] = useState<Set<string>>(new Set());
 
   const categories = useMemo(() => [...new Set(cases.map((c) => c.category))], [cases]);
+  const tabs = useMemo(() => [...new Set(cases.map((c) => c.sheetTab))].filter(Boolean), [cases]);
   const sections = useMemo(() => [...new Set(cases.map((c) => c.section ?? ""))].filter(Boolean), [cases]);
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -45,9 +47,10 @@ export function CasesTable({ cases, review }: { cases: CaseView[]; review: Revie
       (c) =>
         (category === "all" || c.category === category) &&
         (section === "all" || (c.section ?? "") === section) &&
+        (tab === "all" || c.sheetTab === tab) &&
         (!q || c.tcCode.toLowerCase().includes(q) || c.title.toLowerCase().includes(q) || (c.module ?? "").toLowerCase().includes(q)),
     );
-  }, [cases, query, category, section]);
+  }, [cases, query, category, section, tab]);
 
   const toggle = (id: string) =>
     setOpen((prev) => {
@@ -80,6 +83,19 @@ export function CasesTable({ cases, review }: { cases: CaseView[]; review: Revie
             <option key={t} value={t}>{TC_CATEGORY_LABELS[t as TcCategory] ?? t}</option>
           ))}
         </select>
+        {tabs.length > 1 && (
+          <select
+            value={tab}
+            onChange={(e) => setTab(e.target.value)}
+            className="h-7 max-w-[220px] rounded border border-input bg-background px-2 text-xs"
+            aria-label="Filter by tab"
+          >
+            <option value="all">All tabs</option>
+            {tabs.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        )}
         {sections.length > 1 && (
           <select
             value={section}
@@ -113,7 +129,7 @@ export function CasesTable({ cases, review }: { cases: CaseView[]; review: Revie
               rows.map((c) => {
                 const expanded = open.has(c.id);
                 return (
-                  <FragmentRow key={c.id} c={c} expanded={expanded} onToggle={() => toggle(c.id)} review={review} />
+                  <FragmentRow key={c.id} c={c} expanded={expanded} onToggle={() => toggle(c.id)} review={review} showTab={tabs.length > 1} />
                 );
               })
             )}
@@ -129,11 +145,13 @@ function FragmentRow({
   expanded,
   onToggle,
   review,
+  showTab,
 }: {
   c: CaseView;
   expanded: boolean;
   onToggle: () => void;
   review: ReviewContext;
+  showTab: boolean;
 }) {
   const own = review.comments.filter((x) => x.caseId === c.id);
   const open = own.filter((x) => x.kind === "comment" && !x.resolved).length;
@@ -145,6 +163,7 @@ function FragmentRow({
         </td>
         <td className="whitespace-nowrap px-3 py-2">
           <span className="font-mono">{c.tcCode}</span>
+          {showTab && c.sheetTab && <span className="block max-w-[150px] truncate text-[10px] font-medium text-sky-700 dark:text-sky-300" title={c.sheetTab}>{c.sheetTab}</span>}
           {c.section && <span className="block max-w-[150px] truncate text-[10px] text-muted-foreground" title={c.section}>{c.section}</span>}
         </td>
         <td className="max-w-[360px] px-3 py-2">

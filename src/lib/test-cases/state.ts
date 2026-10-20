@@ -220,3 +220,32 @@ export function canSignOff(args: {
   }
   return isDev ? { ok: false, reason: "The developer can't also sign off as the tester." } : { ok: true };
 }
+
+// ---------------------------------------------------------------------------
+// Deleting an item's test cases (wrong sheet or link uploaded)
+// ---------------------------------------------------------------------------
+
+export const MIN_DELETE_REASON = 10;
+
+/**
+ * Only an admin may delete, and only knowingly: they type the Jira key and say
+ * why. Everything goes - rounds, cases, reviews, sign-offs, files, history.
+ */
+export function validateDeleteRequest(args: {
+  isAdmin: boolean;
+  issueKey: string;
+  confirm: unknown;
+  reason: unknown;
+}): { ok: true; reason: string } | { ok: false; status: number; reason: string } {
+  if (!args.isAdmin) return { ok: false, status: 403, reason: "Only an admin can delete an item's test cases." };
+  const typed = typeof args.confirm === "string" ? args.confirm.trim().toUpperCase() : "";
+  if (typed !== args.issueKey.trim().toUpperCase()) {
+    return { ok: false, status: 400, reason: `Type the Jira key (${args.issueKey}) to confirm.` };
+  }
+  const reason = typeof args.reason === "string" ? args.reason.trim() : "";
+  if (reason.length < MIN_DELETE_REASON) {
+    return { ok: false, status: 400, reason: `Say why they are being deleted (at least ${MIN_DELETE_REASON} characters).` };
+  }
+  if (reason.length > MAX_COMMENT_LENGTH) return { ok: false, status: 400, reason: `Reasons are limited to ${MAX_COMMENT_LENGTH} characters.` };
+  return { ok: true, reason };
+}

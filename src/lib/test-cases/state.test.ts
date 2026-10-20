@@ -12,6 +12,7 @@ import {
   canOverride,
   planOverride,
   roundStatusFrom,
+  validateDeleteRequest,
   validateOverrideReason,
   validateCommentBody,
   validateDecision,
@@ -187,4 +188,16 @@ test("with no QA assignee recorded, any non-developer may sign as tester", () =>
   const own = canSignOff({ role: "tester", actor: dev, people: noQa, ...open });
   assert.equal(own.ok, false);
   assert.match((own as { reason: string }).reason, /can't also sign off/);
+});
+
+test("only an admin can delete, by typing the Jira key and giving a reason", () => {
+  const ok = { isAdmin: true, issueKey: "CT-614", confirm: " ct-614 ", reason: "  Wrong sheet linked by mistake  " };
+  assert.deepEqual(validateDeleteRequest(ok), { ok: true, reason: "Wrong sheet linked by mistake" });
+  assert.deepEqual(validateDeleteRequest({ ...ok, isAdmin: false }), { ok: false, status: 403, reason: "Only an admin can delete an item's test cases." });
+  const wrongKey = validateDeleteRequest({ ...ok, confirm: "CT-615" });
+  assert.equal(wrongKey.ok, false);
+  assert.match((wrongKey as { reason: string }).reason, /Type the Jira key \(CT-614\)/);
+  assert.equal(validateDeleteRequest({ ...ok, confirm: undefined }).ok, false);
+  assert.equal(validateDeleteRequest({ ...ok, reason: "oops" }).ok, false);
+  assert.equal(validateDeleteRequest({ ...ok, reason: undefined }).ok, false);
 });
