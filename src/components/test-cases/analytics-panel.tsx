@@ -3,7 +3,7 @@
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { RiCheckboxCircleFill, RiCheckboxBlankCircleLine, RiDownload2Line, RiTimeLine } from "@remixicon/react";
 import { cn } from "@/lib/utils";
-import { READINESS_LABELS, type ResultCounts, type SetStats, type TypeRow } from "@/lib/test-cases/analytics";
+import { READINESS_LABELS, type ResultCounts, type RoundTrendPoint, type SetStats, type TypeRow } from "@/lib/test-cases/analytics";
 import {
   TC_CATEGORY_LABELS,
   TC_POLARITY_LABELS,
@@ -12,7 +12,6 @@ import {
   type TcCategory,
   type TcPolarity,
 } from "@/lib/test-cases/values";
-import type { RoundTrendPoint } from "@/lib/test-cases/stats-service";
 
 export const READINESS_STYLE: Record<SetStats["readiness"], string> = {
   not_started: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
@@ -44,11 +43,11 @@ function stackRows<K extends string>(split: Partial<Record<K, TypeRow>>, label: 
 function StackedBars({ data, height }: { data: { name: string; pass: number; fail: number; blocked: number; not_run: number }[]; height?: number }) {
   if (data.length === 0) return <p className="text-xs text-muted-foreground">Nothing to show yet.</p>;
   return (
-    <ResponsiveContainer width="100%" height={height ?? Math.max(90, data.length * 28 + 36)}>
+    <ResponsiveContainer width="100%" height={height ?? Math.max(120, data.length * 30 + 70)}>
       <BarChart data={data} layout="vertical" margin={{ left: 4, right: 12, top: 4, bottom: 0 }}>
         <CartesianGrid horizontal={false} strokeDasharray="3 3" strokeOpacity={0.4} />
         <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10 }} />
-        <YAxis type="category" dataKey="name" width={104} tick={{ fontSize: 10 }} />
+        <YAxis type="category" dataKey="name" width={104} tick={{ fontSize: 10 }} interval={0} />
         <Tooltip cursor={{ fillOpacity: 0.08 }} contentStyle={{ fontSize: 11 }} />
         <Legend wrapperStyle={{ fontSize: 10 }} />
         {RESULT_KEYS.map((k) => (
@@ -61,7 +60,7 @@ function StackedBars({ data, height }: { data: { name: string; pass: number; fai
 
 function Card({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
   return (
-    <section className={cn("space-y-2 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900", className)}>
+    <section className={cn("min-w-0 space-y-2 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900", className)}>
       <h3 className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/70">{title}</h3>
       {children}
     </section>
@@ -187,7 +186,7 @@ export function AnalyticsPanel({ issueId, stats, trend, computedAt }: { issueId:
         <Card title="Results by type (positive / negative / edge)"><StackedBars data={byPolarity} /></Card>
         <Card title="Results by priority"><StackedBars data={byPriority} /></Card>
         <Card title="Developer vs tester sign-off">
-          {byRole.length === 0 ? <p className="text-xs text-muted-foreground">No sign-off uploaded yet.</p> : <StackedBars data={byRole} height={byRole.length * 40 + 50} />}
+          {byRole.length === 0 ? <p className="text-xs text-muted-foreground">No sign-off uploaded yet.</p> : <StackedBars data={byRole} height={byRole.length * 40 + 80} />}
         </Card>
       </div>
 

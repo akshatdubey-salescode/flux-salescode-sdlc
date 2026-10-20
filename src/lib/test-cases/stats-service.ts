@@ -6,7 +6,8 @@
 import { asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { tcCases, tcResults, tcReviewComments, tcReviewers, tcRounds, tcSetStats, tcSets, tcSignoffs } from "@/lib/db/schema";
-import { computeSetStats, type AnalyticsCase, type SetStats } from "./analytics";
+import { lockItem, type Executor } from "./concurrency";
+import { computeSetStats, type AnalyticsCase, type RoundTrendPoint, type SetStats } from "./analytics";
 import { summariseFeedback, type FeedbackEvent, type ReviewerNow } from "./feedback-stats";
 import type { TcResult } from "./values";
 
@@ -17,12 +18,12 @@ type RoundRow = typeof tcRounds.$inferSelect;
  * earlier one) with each case's recorded result. A role that has not signed
  * off is absent, so callers can tell "not signed off" from "signed off, not run".
  */
-export async function loadLatestSignoffResults(roundId: string) {
-  const signoffs = await db.select().from(tcSignoffs).where(eq(tcSignoffs.roundId, roundId)).orderBy(desc(tcSignoffs.committedAt));
+export async function loadLatestSignoffResults(roundId: string, ex: Executor = db) {
+  const signoffs = await ex.select().from(tcSignoffs).where(eq(tcSignoffs.roundId, roundId)).orderBy(desc(tcSignoffs.committedAt));
   const latestDev = signoffs.find((s) => s.role === "dev");
   const latestTester = signoffs.find((s) => s.role === "tester");
   const ids = [latestDev?.id, latestTester?.id].filter((x): x is string => !!x);
-  const results = ids.length ? await db.select().from(tcResults).where(inArray(tcResults.signoffId, ids)) : [];
+  const results = ids.length ? await ex.select().from(tcResults).where(inArray(tcResults.signoffId, ids)) : [];
   const byCase = (signoffId: string | undefined) => {
     const m = new Map<string, TcResult>();
     if (signoffId) for (const r of results) if (r.signoffId === signoffId) m.set(r.caseId, r.result);
@@ -34,14 +35,14 @@ export async function loadLatestSignoffResults(roundId: string) {
 /** The whole review thread of a set and each round's reviewers, loaded once and sliced per round. */
 type FeedbackInputs = { events: FeedbackEvent[]; reviewersByRound: Map<number, ReviewerNow[]> };
 
-async function loadFeedbackInputs(setId: string): Promise<FeedbackInputs> {
+async function loadFeedbackInputs(setId: string, ex: Executor = db): Promise<FeedbackInputs> {
   const [commentRows, reviewerRows] = await Promise.all([
-    db
+    ex
       .select({ c: tcReviewComments, roundNo: tcRounds.roundNo })
       .from(tcReviewComments)
       .innerJoin(tcRounds, eq(tcRounds.id, tcReviewComments.roundId))
       .where(eq(tcRounds.setId, setId)),
-    db
+    ex
       .select({ r: tcReviewers, roundNo: tcRounds.roundNo })
       .from(tcReviewers)
       .innerJoin(tcRounds, eq(tcRounds.id, tcReviewers.roundId))
@@ -66,11 +67,11 @@ async function loadFeedbackInputs(setId: string): Promise<FeedbackInputs> {
 }
 
 /** Stats for one round, from its cases, reviewers, the review thread up to that round, and that round's sign-offs. */
-async function statsForRound(round: RoundRow, fb: FeedbackInputs): Promise<SetStats> {
+async function statsForRound(round: RoundRow, fb: FeedbackInputs, ex: Executor = db): Promise<SetStats> {
   const [cases, signoff] = await Promise.all([
-    db.select().from(tcCases).where(eq(tcCases.roundId, round.id)).orderBy(asc(tcCases.rowNo)),
+    ex.select().from(tcCases).where(eq(tcCases.roundId, round.id)).orderBy(asc(tcCases.rowNo)),
     // Sign-offs of THIS round only: a new round starts unsigned.
-    loadLatestSignoffResults(round.id),
+    loadLatestSignoffResults(round.id, ex),
   ]);
   const reviewers = fb.reviewersByRound.get(round.roundNo) ?? [];
 
@@ -106,69 +107,82 @@ async function statsForRound(round: RoundRow, fb: FeedbackInputs): Promise<SetSt
 }
 
 export async function recomputeSetStats(setId: string): Promise<SetStats | null> {
-  const [set] = await db.select().from(tcSets).where(eq(tcSets.id, setId)).limit(1);
-  if (!set) return null;
+  const [head] = await db.select({ issueId: tcSets.issueId }).from(tcSets).where(eq(tcSets.id, setId)).limit(1);
+  if (!head) return null;
 
-  const rounds = await db.select().from(tcRounds).where(eq(tcRounds.setId, setId)).orderBy(desc(tcRounds.roundNo));
-  const round = rounds[0];
-  if (!round) {
-    await db.delete(tcSetStats).where(eq(tcSetStats.setId, setId));
-    return null;
-  }
+  // Under the item lock and entirely on the transaction's own connection: the inputs are read after every
+  // earlier change has committed, so the last recompute to run is always the freshest and an older one
+  // can never overwrite a newer result.
+  return db.transaction(async (tx) => {
+    await lockItem(tx, head.issueId);
 
-  const stats = await statsForRound(round, await loadFeedbackInputs(setId));
-  const row = {
-    setId,
-    issueId: set.issueId,
-    projectId: set.projectId,
-    roundId: round.id,
-    roundNo: round.roundNo,
-    roundStatus: round.status,
-    tcCount: stats.tcCount,
-    quality: stats.quality,
-    executionScore: stats.executionScore,
-    confidence: stats.confidence,
-    readiness: stats.readiness,
-    devSigned: stats.dev.signedOff,
-    testerSigned: stats.tester.signedOff,
-    passCount: stats.effective.pass,
-    failCount: stats.effective.fail,
-    blockedCount: stats.effective.blocked,
-    notRunCount: stats.effective.not_run,
-    reviewersTotal: stats.reviewersTotal,
-    reviewersApproved: stats.reviewersApproved,
-    feedbackTotal: stats.feedbackTotal,
-    feedbackOpen: stats.feedbackOpen,
-    feedbackWaived: stats.feedback.waived,
-    changeRequestsTotal: stats.feedback.changeRequests,
-    overridesTotal: stats.feedback.overrides,
-    roundCount: rounds.length,
-    stats,
-    computedAt: new Date(),
-  };
-  await db.insert(tcSetStats).values(row).onConflictDoUpdate({ target: tcSetStats.setId, set: row });
-  return stats;
-}
+    const [set] = await tx.select().from(tcSets).where(eq(tcSets.id, setId)).limit(1);
+    if (!set) return null;
 
-export type RoundTrendPoint = {
-  roundNo: number;
-  tcCount: number;
-  quality: number;
-  passRate: number;
-  confidence: number;
-  status: string;
-};
+    const rounds = await tx.select().from(tcRounds).where(eq(tcRounds.setId, setId)).orderBy(desc(tcRounds.roundNo));
+    const round = rounds[0];
+    if (!round) {
+      await tx.delete(tcSetStats).where(eq(tcSetStats.setId, setId));
+      return null;
+    }
 
-/** One point per round, oldest first, so rounds can be compared on the details page. */
-export async function fetchRoundTrend(setId: string): Promise<RoundTrendPoint[]> {
-  const rounds = await db.select().from(tcRounds).where(eq(tcRounds.setId, setId)).orderBy(asc(tcRounds.roundNo));
-  const fb = await loadFeedbackInputs(setId);
-  return Promise.all(
-    rounds.map(async (r) => {
-      const st = await statsForRound(r, fb);
-      return { roundNo: r.roundNo, tcCount: st.tcCount, quality: st.quality, passRate: st.passRate, confidence: st.confidence, status: r.status };
-    }),
-  );
+    const fb = await loadFeedbackInputs(setId, tx);
+    const latestStats = await statsForRound(round, fb, tx);
+
+    // The trend: rounds older than the one just superseded can no longer change (decisions, comments and
+    // sign-offs only apply to the newest round), so their stored points are reused. The round just superseded
+    // is always recomputed: its last change may have landed after the point was stored.
+    const [prev] = await tx.select({ stats: tcSetStats.stats }).from(tcSetStats).where(eq(tcSetStats.setId, setId)).limit(1);
+    const known = new Map(((prev?.stats as Partial<SetStats> | undefined)?.trend ?? []).map((p) => [p.roundNo, p]));
+    const point = (r: RoundRow, st: SetStats): RoundTrendPoint => ({
+      roundNo: r.roundNo,
+      tcCount: st.tcCount,
+      quality: st.quality,
+      passRate: st.passRate,
+      confidence: st.confidence,
+      status: r.status,
+    });
+    const trend: RoundTrendPoint[] = [];
+    for (const r of [...rounds].reverse()) {
+      if (r.id === round.id) trend.push(point(r, latestStats));
+      else {
+        const settled = r.id !== rounds[1]?.id ? known.get(r.roundNo) : undefined;
+        trend.push(settled ?? point(r, await statsForRound(r, fb, tx)));
+      }
+    }
+    const stats: SetStats = { ...latestStats, trend };
+    const row = {
+      setId,
+      issueId: set.issueId,
+      projectId: set.projectId,
+      roundId: round.id,
+      roundNo: round.roundNo,
+      roundStatus: round.status,
+      tcCount: stats.tcCount,
+      quality: stats.quality,
+      executionScore: stats.executionScore,
+      confidence: stats.confidence,
+      readiness: stats.readiness,
+      devSigned: stats.dev.signedOff,
+      testerSigned: stats.tester.signedOff,
+      passCount: stats.effective.pass,
+      failCount: stats.effective.fail,
+      blockedCount: stats.effective.blocked,
+      notRunCount: stats.effective.not_run,
+      reviewersTotal: stats.reviewersTotal,
+      reviewersApproved: stats.reviewersApproved,
+      feedbackTotal: stats.feedbackTotal,
+      feedbackOpen: stats.feedbackOpen,
+      feedbackWaived: stats.feedback.waived,
+      changeRequestsTotal: stats.feedback.changeRequests,
+      overridesTotal: stats.feedback.overrides,
+      roundCount: rounds.length,
+      stats,
+      computedAt: new Date(),
+    };
+    await tx.insert(tcSetStats).values(row).onConflictDoUpdate({ target: tcSetStats.setId, set: row });
+    return stats;
+  });
 }
 
 /** Stored stats for a set, or null if it has none. */
@@ -176,7 +190,7 @@ export async function fetchStoredStats(setId: string): Promise<{ stats: SetStats
   const [row] = await db.select().from(tcSetStats).where(eq(tcSetStats.setId, setId)).limit(1);
   if (!row) return null;
   // Rows stored before the feedback summary existed lack it: bring them up to date rather than render a gap.
-  if (!(row.stats as Partial<SetStats>).feedback) {
+  if (!(row.stats as Partial<SetStats>).feedback || !(row.stats as Partial<SetStats>).trend) {
     const fresh = await recomputeSetStats(setId);
     const [again] = await db.select().from(tcSetStats).where(eq(tcSetStats.setId, setId)).limit(1);
     if (fresh && again) return { stats: fresh, computedAt: again.computedAt, roundNo: again.roundNo };

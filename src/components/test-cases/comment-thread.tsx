@@ -133,6 +133,7 @@ export function CommentThread({
             onChange={(e) => setText(e.target.value)}
             maxLength={MAX_COMMENT_LENGTH}
             placeholder={caseId ? "Comment on this test case…" : "Comment on this round…"}
+            aria-label={caseId ? "Comment on this test case" : "Comment on this round"}
             className="min-h-14 text-xs"
           />
           <div className="flex items-center gap-2">
@@ -140,7 +141,16 @@ export function CommentThread({
               {busy && <RiLoader4Line className="size-3.5 animate-spin" />}
               Add comment
             </Button>
-            {error && <span className="text-[11px] text-destructive">{error}</span>}
+            {error && (
+              <span className="text-[11px] text-destructive">
+                {error}
+                {/superseded/i.test(error) && (
+                  <button type="button" onClick={() => router.refresh()} className="ml-1.5 font-semibold underline underline-offset-2">
+                    Reload
+                  </button>
+                )}
+              </span>
+            )}
           </div>
         </div>
       )}

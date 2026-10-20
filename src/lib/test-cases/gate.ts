@@ -2,10 +2,9 @@
 // until a developer or tester has signed off. Issues with no test cases are not
 // blocked (they show as "No TCs" instead).
 
-import { eq } from "drizzle-orm";
+import { count, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { tcSetStats, tcSets } from "@/lib/db/schema";
-import { recomputeSetStats } from "./stats-service";
+import { tcRounds, tcSets, tcSignoffs } from "@/lib/db/schema";
 
 /** Outcomes that claim the work shipped; "pending" and "not_delivered" never need TCs. */
 const GATED_STATUSES = new Set(["delivered", "partially_delivered"]);
@@ -38,15 +37,16 @@ export async function checkDeliveryGate(args: {
   const [set] = await db.select({ id: tcSets.id }).from(tcSets).where(eq(tcSets.issueId, args.issueId)).limit(1);
   if (!set) return gateDecision({ ...args, hasSet: false, devSigned: false, testerSigned: false });
 
-  let [stats] = await db
-    .select({ devSigned: tcSetStats.devSigned, testerSigned: tcSetStats.testerSigned })
-    .from(tcSetStats)
-    .where(eq(tcSetStats.setId, set.id))
+  // Read the sign-offs themselves, for the NEWEST round, rather than the cached stats: a stats row that is
+  // a moment behind (or failed to update) must not let an unsigned resubmission through or block a signed item.
+  const [latest] = await db
+    .select({ id: tcRounds.id })
+    .from(tcRounds)
+    .where(eq(tcRounds.setId, set.id))
+    .orderBy(desc(tcRounds.roundNo))
     .limit(1);
-  if (!stats) {
-    // A set without stats should not happen; compute rather than guess.
-    const computed = await recomputeSetStats(set.id);
-    stats = { devSigned: !!computed?.dev.signedOff, testerSigned: !!computed?.tester.signedOff };
-  }
-  return gateDecision({ ...args, hasSet: true, devSigned: stats.devSigned, testerSigned: stats.testerSigned });
+  const [signed] = latest
+    ? await db.select({ n: count() }).from(tcSignoffs).where(eq(tcSignoffs.roundId, latest.id))
+    : [{ n: 0 }];
+  return gateDecision({ ...args, hasSet: true, devSigned: Number(signed?.n ?? 0) > 0, testerSigned: false });
 }

@@ -1,11 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { RiArrowDownSLine, RiArrowRightSLine, RiChat3Line, RiSearchLine } from "@remixicon/react";
 import { cn } from "@/lib/utils";
 import { normalizeResult } from "@/lib/test-cases/normalize";
 import { TC_CATEGORY_LABELS, TC_POLARITY_LABELS, type TcCategory, type TcPolarity, type TcResult } from "@/lib/test-cases/values";
-import type { CaseView } from "@/lib/test-cases/service";
+import type { CaseDetail, CaseView } from "@/lib/test-cases/service";
 import type { CommentView } from "@/lib/test-cases/review-service";
 import { CommentThread, type Viewer } from "./comment-thread";
 
@@ -22,6 +22,8 @@ function StatusPill({ raw }: { raw: string }) {
   return <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", RESULT_STYLE[r])}>{raw}</span>;
 }
 
+const PAGE_SIZE = 100;
+
 export type ReviewContext = {
   roundId: string;
   isLatest: boolean;
@@ -37,6 +39,8 @@ export function CasesTable({ cases, review }: { cases: CaseView[]; review: Revie
   const [section, setSection] = useState<string>("all");
   const [tab, setTab] = useState<string>("all");
   const [open, setOpen] = useState<Set<string>>(new Set());
+  // Big items have hundreds of cases: draw a page at a time (filters still search all of them).
+  const [limit, setLimit] = useState(PAGE_SIZE);
 
   const categories = useMemo(() => [...new Set(cases.map((c) => c.category))], [cases]);
   const tabs = useMemo(() => [...new Set(cases.map((c) => c.sheetTab))].filter(Boolean), [cases]);
@@ -48,7 +52,7 @@ export function CasesTable({ cases, review }: { cases: CaseView[]; review: Revie
         (category === "all" || c.category === category) &&
         (section === "all" || (c.section ?? "") === section) &&
         (tab === "all" || c.sheetTab === tab) &&
-        (!q || c.tcCode.toLowerCase().includes(q) || c.title.toLowerCase().includes(q) || (c.module ?? "").toLowerCase().includes(q)),
+        (!q || c.tcCode.toLowerCase().includes(q) || c.title.toLowerCase().includes(q)),
     );
   }, [cases, query, category, section, tab]);
 
@@ -67,14 +71,15 @@ export function CasesTable({ cases, review }: { cases: CaseView[]; review: Revie
           <RiSearchLine size={13} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search ID, title, module…"
+            onChange={(e) => { setQuery(e.target.value); setLimit(PAGE_SIZE); }}
+            placeholder="Search ID or title…"
+            aria-label="Search test cases by ID or title"
             className="h-7 w-56 rounded border border-input bg-background pl-7 pr-2 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
           />
         </div>
         <select
           value={category}
-          onChange={(e) => setCategory(e.target.value)}
+          onChange={(e) => { setCategory(e.target.value); setLimit(PAGE_SIZE); }}
           className="h-7 rounded border border-input bg-background px-2 text-xs"
           aria-label="Filter by category"
         >
@@ -86,7 +91,7 @@ export function CasesTable({ cases, review }: { cases: CaseView[]; review: Revie
         {tabs.length > 1 && (
           <select
             value={tab}
-            onChange={(e) => setTab(e.target.value)}
+            onChange={(e) => { setTab(e.target.value); setLimit(PAGE_SIZE); }}
             className="h-7 max-w-[220px] rounded border border-input bg-background px-2 text-xs"
             aria-label="Filter by tab"
           >
@@ -99,7 +104,7 @@ export function CasesTable({ cases, review }: { cases: CaseView[]; review: Revie
         {sections.length > 1 && (
           <select
             value={section}
-            onChange={(e) => setSection(e.target.value)}
+            onChange={(e) => { setSection(e.target.value); setLimit(PAGE_SIZE); }}
             className="h-7 max-w-[220px] rounded border border-input bg-background px-2 text-xs"
             aria-label="Filter by section"
           >
@@ -109,7 +114,7 @@ export function CasesTable({ cases, review }: { cases: CaseView[]; review: Revie
             ))}
           </select>
         )}
-        <span className="text-[11px] text-muted-foreground">{rows.length} of {cases.length}</span>
+        <span className="text-[11px] text-muted-foreground">{Math.min(limit, rows.length)} shown of {rows.length}{rows.length !== cases.length ? ` matching (${cases.length} total)` : ""}</span>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -126,7 +131,7 @@ export function CasesTable({ cases, review }: { cases: CaseView[]; review: Revie
             {rows.length === 0 ? (
               <tr><td colSpan={9} className="px-3 py-8 text-center text-muted-foreground">No test cases match.</td></tr>
             ) : (
-              rows.map((c) => {
+              rows.slice(0, limit).map((c) => {
                 const expanded = open.has(c.id);
                 return (
                   <FragmentRow key={c.id} c={c} expanded={expanded} onToggle={() => toggle(c.id)} review={review} showTab={tabs.length > 1} />
@@ -136,8 +141,46 @@ export function CasesTable({ cases, review }: { cases: CaseView[]; review: Revie
           </tbody>
         </table>
       </div>
+      {rows.length > limit && (
+        <div className="flex items-center justify-center gap-2 pt-1">
+          <button
+            type="button"
+            onClick={() => setLimit((n) => n + PAGE_SIZE)}
+            className="h-7 rounded-md border border-zinc-200 bg-white px-3 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+          >
+            Show {Math.min(PAGE_SIZE, rows.length - limit)} more ({rows.length - limit} remaining)
+          </button>
+          <button type="button" onClick={() => setLimit(rows.length)} className="text-xs text-primary hover:underline">
+            Show all
+          </button>
+        </div>
+      )}
     </div>
   );
+}
+
+// Long text is loaded when a row is first expanded and kept for the life of the page.
+const detailCache = new Map<string, CaseDetail>();
+
+function useCaseDetail(caseId: string, wanted: boolean): { detail: CaseDetail | null; error: boolean; clearError: () => void } {
+  const [state, setState] = useState<{ detail: CaseDetail | null; error: boolean }>(() => ({ detail: detailCache.get(caseId) ?? null, error: false }));
+  useEffect(() => {
+    if (!wanted || detailCache.has(caseId)) return;
+    let live = true;
+    fetch(`/api/test-cases/cases/${caseId}`)
+      .then((r) => (r.ok ? (r.json() as Promise<CaseDetail>) : Promise.reject(new Error(String(r.status)))))
+      .then((d) => {
+        detailCache.set(caseId, d);
+        if (live) setState({ detail: d, error: false });
+      })
+      .catch(() => live && setState({ detail: null, error: true }));
+    return () => {
+      live = false;
+    };
+  }, [caseId, wanted]);
+  // Expanding a row again after a failed load retries, so the old error must not keep showing meanwhile.
+  const clearError = () => setState((st) => (st.error ? { ...st, error: false } : st));
+  return { detail: state.detail ?? detailCache.get(caseId) ?? null, error: state.error, clearError };
 }
 
 function FragmentRow({
@@ -153,13 +196,29 @@ function FragmentRow({
   review: ReviewContext;
   showTab: boolean;
 }) {
+  const { detail, error, clearError } = useCaseDetail(c.id, expanded);
+  const toggle = () => {
+    if (!expanded) clearError();
+    onToggle();
+  };
   const own = review.comments.filter((x) => x.caseId === c.id);
   const open = own.filter((x) => x.kind === "comment" && !x.resolved).length;
   return (
     <>
-      <tr className="cursor-pointer border-b border-zinc-100 hover:bg-zinc-50/60 dark:border-zinc-800/60 dark:hover:bg-zinc-800/20" onClick={onToggle}>
+      <tr className="cursor-pointer border-b border-zinc-100 hover:bg-zinc-50/60 dark:border-zinc-800/60 dark:hover:bg-zinc-800/20" onClick={toggle}>
         <td className="w-6 px-2 py-2 text-muted-foreground">
-          {expanded ? <RiArrowDownSLine size={14} /> : <RiArrowRightSLine size={14} />}
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-label={`${expanded ? "Collapse" : "Expand"} test case ${c.tcCode}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggle();
+            }}
+            className="rounded p-0.5 hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+          >
+            {expanded ? <RiArrowDownSLine size={14} /> : <RiArrowRightSLine size={14} />}
+          </button>
         </td>
         <td className="whitespace-nowrap px-3 py-2">
           <span className="font-mono">{c.tcCode}</span>
@@ -191,10 +250,18 @@ function FragmentRow({
         <tr className="border-b border-zinc-100 bg-zinc-50/50 dark:border-zinc-800/60 dark:bg-zinc-800/10">
           <td />
           <td colSpan={8} className="space-y-2 px-3 py-3">
-            {c.module && <Detail label="Module" text={c.module} />}
-            <Detail label="Preconditions" text={c.preconditions} />
-            <Detail label="Steps" text={c.steps} />
-            <Detail label="Expected result" text={c.expected} />
+            {error ? (
+              <p className="text-xs text-destructive">Couldn&apos;t load this test case&apos;s details. Collapse and expand the row to retry.</p>
+            ) : !detail ? (
+              <p role="status" className="text-xs text-muted-foreground">Loading…</p>
+            ) : (
+              <>
+                {detail.module && <Detail label="Module" text={detail.module} />}
+                <Detail label="Preconditions" text={detail.preconditions} />
+                <Detail label="Steps" text={detail.steps} />
+                <Detail label="Expected result" text={detail.expected} />
+              </>
+            )}
             <div onClick={(e) => e.stopPropagation()}>
               <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Feedback</p>
               <CommentThread

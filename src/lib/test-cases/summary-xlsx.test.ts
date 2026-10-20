@@ -25,7 +25,7 @@ test("the workbook carries the headline numbers, splits, sign-offs and every cas
   });
   const buf = await buildSummaryXlsx({
     issueKey: "CT-1", issueSummary: "=HYPERLINK(\"x\")", projectName: "P", roundLabel: "Round 1", generatedAt: "now", stats,
-    history: [{ id: "h1", at: "2026-10-13T10:00:00Z", kind: "approved", roundNo: 1, actor: "Asha", source: "reviewer", title: "Approved", detail: "=SUM(1)", caseCode: null, tab: null }],
+    history: [{ id: "h1", issueId: "i1", itemKey: "CT-1", own: true, at: "2026-10-13T10:00:00Z", kind: "approved", roundNo: 1, actor: "Asha", source: "reviewer", title: "Approved", detail: "=SUM(1)", caseCode: null, tab: null }],
     trend: [{ roundNo: 1, tcCount: 3, quality: stats.quality, passRate: stats.passRate, confidence: stats.confidence, status: "approved" }],
     signoffs: [{ role: "dev", by: "A", label: "x", pass: 1, fail: 1, blocked: 0, notRun: 1, notes: null, current: true }],
     cases: cases.map((c) => ({
@@ -36,7 +36,8 @@ test("the workbook carries the headline numbers, splits, sign-offs and every cas
 
   const wb = await load(buf);
   assert.deepEqual(wb.worksheets.map((w) => w.name), ["Summary", "Breakdown", "Feedback", "Rounds", "Sign-offs", "Cases", "Review history"]);
-  assert.equal(wb.getWorksheet("Review history")!.getRow(2).getCell(5).value, "'=SUM(1)", "history text is escaped like every other export");
+  assert.equal(wb.getWorksheet("Review history")!.getRow(2).getCell(6).value, "'=SUM(1)", "history text is escaped like every other export");
+  assert.equal(wb.getWorksheet("Review history")!.getRow(2).getCell(2).value, "CT-1", "each entry says which item it belongs to");
 
   const summary = wb.getWorksheet("Summary")!;
   const find = (label: string) => summary.getRows(1, summary.rowCount)!.find((r) => r.getCell(1).value === label)?.getCell(2).value;

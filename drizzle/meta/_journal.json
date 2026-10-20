@@ -603,6 +603,13 @@
       "when": 1792509098208,
       "tag": "0086_stale_toxin",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1792515725185,
+      "tag": "0087_outstanding_earthquake",
+      "breakpoints": true
     }
   ]
 }

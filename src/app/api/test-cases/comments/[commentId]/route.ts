@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { isValidUuid } from "@/lib/validation";
-import { isResponse, requireTestCasesUser, toActor } from "@/lib/test-cases/api";
+import { isResponse, requireTestCasesUser, toActor, readJsonObject } from "@/lib/test-cases/api";
 import { setCommentResolved } from "@/lib/test-cases/review-service";
 
 /** Mark a comment resolved (or reopen it). */
@@ -12,12 +12,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ commentId
   const { commentId } = await ctx.params;
   if (!isValidUuid(commentId)) return NextResponse.json({ error: "Invalid comment id" }, { status: 400 });
 
-  let body: { resolved?: unknown };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
+  const parsedBody = await readJsonObject(req);
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.body as { resolved?: unknown };
   if (typeof body.resolved !== "boolean") return NextResponse.json({ error: "resolved must be true or false" }, { status: 400 });
 
   const result = await setCommentResolved({ commentId, actor: toActor(user), resolved: body.resolved });

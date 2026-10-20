@@ -81,6 +81,7 @@ export function DeletePanel({
             onChange={(e) => setReason(e.target.value)}
             maxLength={4000}
             placeholder="Why are they being deleted? (required)"
+            aria-label="Reason for deleting the test cases"
             className="min-h-14 text-xs"
           />
           <Input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={`Type ${issueKey} to confirm`} className="max-w-xs text-xs" aria-label="Type the Jira key to confirm" />

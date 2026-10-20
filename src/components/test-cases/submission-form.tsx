@@ -48,6 +48,8 @@ type InspectResponse = {
   tabs: SourceTabInfo[];
   selectedTabs: string[];
   missingPrevious: string[];
+  /** The newest round already holds exactly this content. */
+  sameAsRound: number | null;
   preview: Preview | null;
 };
 
@@ -394,6 +396,13 @@ export function SubmissionForm({
           <p className="text-xs text-amber-700 dark:text-amber-400">Tab selection changed. Validate again to preview it.</p>
         )}
 
+        {result?.sameAsRound != null && previewCurrent && (
+          <p className="rounded-md bg-sky-50 p-2 text-[11px] text-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+            Nothing in the test cases has changed since Round {result.sameAsRound}. Resubmitting only starts a new review round. Edit the{" "}
+            {lockedSheet ? "sheet" : "workbook"} first if you meant to fix something.
+          </p>
+        )}
+
         {preview && previewCurrent && <PreviewPanel preview={preview} />}
       </section>
 
@@ -410,7 +419,7 @@ export function SubmissionForm({
       {/* 3. Notes */}
       <section className="space-y-2 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <h2 className="text-sm font-semibold text-foreground">3. Notes <span className="font-normal text-muted-foreground">(optional)</span></h2>
-        <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} placeholder="Anything the reviewers should know…" className="min-h-16 text-xs" />
+        <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} placeholder="Anything the reviewers should know…" aria-label="Notes for the reviewers" className="min-h-16 text-xs" />
       </section>
 
       <div className="flex items-center justify-between gap-3">
@@ -510,7 +519,7 @@ function CarryOverHint({ previous, current }: { previous: PreviousReviewer[]; cu
   return (
     <ul className="space-y-0.5 rounded-md bg-muted/40 p-2 text-[11px] text-muted-foreground">
       {stays.length > 0 && <li>Earlier approval stands: <span className="font-medium text-foreground">{stays.join(", ")}</span></li>}
-      {redo.length > 0 && <li>Asked for changes, will be asked to re-review: <span className="font-medium text-foreground">{redo.join(", ")}</span></li>}
+      {redo.length > 0 && <li>Asked for changes, will be asked to re-review (they can&apos;t be removed from the list unless you&apos;re an admin): <span className="font-medium text-foreground">{redo.join(", ")}</span></li>}
       {fresh.length > 0 && <li>Not reviewed yet: <span className="font-medium text-foreground">{fresh.join(", ")}</span></li>}
     </ul>
   );

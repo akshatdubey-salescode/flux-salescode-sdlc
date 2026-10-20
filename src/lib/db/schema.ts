@@ -2294,6 +2294,9 @@ export const tcFiles = pgTable(
       .references(() => users.id),
     uploadedByName: text("uploaded_by_name"),
     uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+    // Fingerprint of the item's tabs' content (see content-hash.ts). Only used to recognise unchanged
+    // content again; files are never shared between rounds or items.
+    contentHash: text("content_hash"),
   },
   (t) => [index("tc_files_set_idx").on(t.setId, t.roundNo)]
 );
@@ -2325,8 +2328,13 @@ export const tcRounds = pgTable(
       .references(() => users.id),
     committedByName: text("committed_by_name"),
     committedAt: timestamp("committed_at", { withTimezone: true }).notNull().defaultNow(),
+    // SHA-256 of the raw uploaded .xlsx (Excel source only): recognises the same workbook on other items.
+    sourceHash: text("source_hash"),
   },
-  (t) => [uniqueIndex("tc_rounds_set_round_idx").on(t.setId, t.roundNo)]
+  (t) => [
+    uniqueIndex("tc_rounds_set_round_idx").on(t.setId, t.roundNo),
+    index("tc_rounds_source_hash_idx").on(t.sourceHash),
+  ]
 );
 
 export const tcCases = pgTable(
@@ -2569,4 +2577,20 @@ export const tcDeletions = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("tc_deletions_issue_idx").on(t.issueId, t.deletedAt)]
+);
+
+// One bucket folder per project for all of its test-case files. Chosen the first
+// time the project stores a file (from its name, with the Jira key added if
+// another project already took that name) and never changed, so renaming the
+// project doesn't split its files.
+export const tcProjectFolders = pgTable(
+  "tc_project_folders",
+  {
+    projectId: uuid("project_id")
+      .primaryKey()
+      .references(() => jiraProjects.id, { onDelete: "cascade" }),
+    folder: text("folder").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("tc_project_folders_folder_idx").on(t.folder)]
 );

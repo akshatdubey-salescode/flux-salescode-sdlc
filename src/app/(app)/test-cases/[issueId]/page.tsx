@@ -30,8 +30,8 @@ import { SignoffPanel } from "@/components/test-cases/signoff-panel";
 import { BackLink } from "@/components/test-cases/back-link";
 import { returnLabel, safeReturnTo, withReturnTo } from "@/lib/test-cases/return-to";
 import { countOpenFeedback, fetchFeedbackFiles, fetchRoundComments } from "@/lib/test-cases/review-service";
-import { fetchSetDetail, findIssue } from "@/lib/test-cases/service";
-import { fetchRoundTrend, fetchStoredStats } from "@/lib/test-cases/stats-service";
+import { fetchSetDetail, findIssue, sameWorkbookElsewhere } from "@/lib/test-cases/service";
+import { fetchStoredStats } from "@/lib/test-cases/stats-service";
 import { canSignOff } from "@/lib/test-cases/state";
 import { fetchSignoffs, getIssuePeople } from "@/lib/test-cases/signoff-service";
 import { istDateTime } from "@/lib/test-cases/filenames";
@@ -94,17 +94,17 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
   const isLatest = !!detail && round?.roundNo === detail.rounds[0]?.roundNo;
   const roundApproved = round?.status === "approved";
 
-  const [stored, trend, signoffs, people, openFeedback, history] =
+  const [stored, signoffs, people, openFeedback, history, sameWorkbook] =
     detail && round
       ? await Promise.all([
           fetchStoredStats(detail.setId),
-          fetchRoundTrend(detail.setId),
           fetchSignoffs(round.id),
           getIssuePeople(issue.id),
           countOpenFeedback(round.id),
           fetchHistory(detail.setId),
+          sameWorkbookElsewhere(round.id),
         ])
-      : [null, [], [], { dev: [], qa: [] }, 0, []];
+      : [null, [], { dev: [], qa: [] }, 0, { events: [], items: [] }, []];
   const needsResubmit = isLatest && round?.status === "changes_requested";
   const signoffActions = (["dev", "tester"] as const).map((role) => {
     const v = canSignOff({ role, actor: viewer, people, roundApproved, isLatestRound: isLatest, openFeedback });
@@ -125,7 +125,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
         actions={
           <Link
             href={withReturnTo(`/test-cases/new?issue=${issue.id}`, returnTo)}
-            className="inline-flex h-7 items-center gap-1 rounded-md bg-primary px-2.5 text-xs font-semibold text-primary-foreground"
+            className="inline-flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-primary px-2.5 text-xs font-semibold text-primary-foreground"
           >
             <RiAddLine className="size-3.5" />
             {!detail ? "Submit test cases" : needsResubmit ? "Resubmit TCs" : "New round"}
@@ -201,6 +201,17 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
               </aside>
 
               <div className="min-w-0 space-y-5">
+                {!isLatest && (
+                  <p className="flex flex-wrap items-center gap-x-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                    <span>
+                      You&apos;re viewing {round.label}, which was superseded. It is read-only: analytics, review actions and sign-off apply to the latest round.
+                    </span>
+                    <Link href={withReturnTo(`/test-cases/${issue.id}`, returnTo)} className="font-semibold underline underline-offset-2">
+                      Go to the latest round
+                    </Link>
+                  </p>
+                )}
+
                 {/* Selected round */}
                 <section className="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -244,6 +255,21 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                       {round.snapshotFile.fileName}
                     </p>
                   )}
+                  {sameWorkbook.length > 0 && (
+                    <p className="text-[11px] text-muted-foreground">
+                      This exact workbook file was also used for{" "}
+                      {sameWorkbook.map((w, i) => (
+                        <span key={w.issueId}>
+                          {i > 0 && ", "}
+                          <Link href={withReturnTo(`/test-cases/${w.issueId}`, returnTo)} className="font-mono font-semibold text-primary hover:underline">
+                            {w.issueKey}
+                          </Link>{" "}
+                          (Round {w.roundNo})
+                        </span>
+                      ))}
+                      . Each item keeps its own copy of just its tabs.
+                    </p>
+                  )}
                   {round.source === "google_sheet" && (
                     <p className="text-[11px] text-muted-foreground">
                       The snapshot is exactly what was reviewed; the live sheet may have changed since this round.
@@ -272,7 +298,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                 </section>
 
                 {isLatest && stored && (
-                  <AnalyticsPanel issueId={issue.id} stats={stored.stats} trend={trend} computedAt={istDateTime(stored.computedAt)} />
+                  <AnalyticsPanel issueId={issue.id} stats={stored.stats} trend={stored.stats.trend ?? []} computedAt={istDateTime(stored.computedAt)} />
                 )}
 
                 <ReviewPanel
@@ -297,9 +323,11 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                   openFeedback={openFeedback}
                 />
 
-                <HistoryPanel events={history} />
+                <HistoryPanel events={history.events} items={history.items} returnTo={returnTo} />
 
                 <CasesTable
+                  // A fresh table per round: filters, paging and open rows from another round don't carry over.
+                  key={round.id}
                   cases={detail.cases}
                   review={{
                     roundId: round.id,
@@ -315,7 +343,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                   <DeletePanel
                     issueId={issue.id}
                     issueKey={issue.jiraKey}
-                    summary={{ rounds: detail.rounds.length, cases: detail.rounds.reduce((n, r) => n + r.tcCount, 0), signoffs: history.filter((e) => e.kind === "signoff").length }}
+                    summary={{ rounds: detail.rounds.length, cases: detail.rounds.reduce((n, r) => n + r.tcCount, 0), signoffs: history.events.filter((e) => e.kind === "signoff" && e.own).length }}
                   />
                 )}
               </div>

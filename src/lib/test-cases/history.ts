@@ -10,6 +10,11 @@ export type HistoryKind = "submitted" | "approved" | "changes_requested" | "comm
 
 export type HistoryEvent = {
   id: string;
+  /** The item (Jira issue) this happened on. Several items can share one Google Sheet's history. */
+  issueId: string;
+  itemKey: string;
+  /** True for the item whose page is being viewed. */
+  own: boolean;
   at: string;
   kind: HistoryKind;
   roundNo: number;
@@ -22,7 +27,9 @@ export type HistoryEvent = {
   tab: string | null;
 };
 
-export type HistoryRound = {
+type ItemRef = { issueId: string; itemKey: string };
+
+export type HistoryRound = ItemRef & {
   roundNo: number;
   at: Date;
   by: string;
@@ -33,9 +40,11 @@ export type HistoryRound = {
   carriedApprovals: string[];
   /** Reviewers who asked for changes before and must look again. */
   awaitingReReview: string[];
+  /** The earlier round whose test-case content is identical (a resubmission that changed nothing). */
+  unchangedSince: number | null;
 };
 
-export type HistoryComment = {
+export type HistoryComment = ItemRef & {
   id: string;
   roundNo: number;
   kind: TcCommentKind;
@@ -52,7 +61,7 @@ export type HistoryComment = {
   meta: Record<string, unknown> | null;
 };
 
-export type HistorySignoff = { id: string; roundNo: number; role: "dev" | "tester"; by: string; at: Date; pass: number; fail: number; blocked: number; notRun: number };
+export type HistorySignoff = ItemRef & { id: string; roundNo: number; role: "dev" | "tester"; by: string; at: Date; pass: number; fail: number; blocked: number; notRun: number };
 
 const EXCERPT = 140;
 const excerpt = (s: string) => (s.length > EXCERPT ? `${s.slice(0, EXCERPT).trimEnd()}…` : s);
@@ -60,16 +69,25 @@ const ROLE = { dev: "Developer", tester: "Tester" } as const;
 
 const KIND_ORDER: Record<HistoryKind, number> = { submitted: 0, comment: 1, changes_requested: 2, approved: 3, override: 4, resolved: 5, signoff: 6 };
 
-export function buildHistory(input: { rounds: HistoryRound[]; comments: HistoryComment[]; signoffs: HistorySignoff[] }): HistoryEvent[] {
+export function buildHistory(input: {
+  rounds: HistoryRound[];
+  comments: HistoryComment[];
+  signoffs: HistorySignoff[];
+  /** The item being viewed; its events are flagged `own`. */
+  ownIssueId: string;
+}): HistoryEvent[] {
   const events: HistoryEvent[] = [];
+  const tag = (r: ItemRef) => ({ issueId: r.issueId, itemKey: r.itemKey, own: r.issueId === input.ownIssueId });
 
   for (const r of input.rounds) {
     const parts = [`${r.tcCount} test case${r.tcCount === 1 ? "" : "s"}`, `${r.tabs.length} tab${r.tabs.length === 1 ? "" : "s"}: ${r.tabs.join(", ")}`];
     if (r.carriedApprovals.length > 0) parts.push(`approvals carried over: ${r.carriedApprovals.join(", ")}`);
     if (r.awaitingReReview.length > 0) parts.push(`waiting to re-review: ${r.awaitingReReview.join(", ")}`);
+    if (r.unchangedSince !== null) parts.push(`no changes to the test cases since Round ${r.unchangedSince}`);
     if (r.notes) parts.push(`notes: ${excerpt(r.notes)}`);
     events.push({
-      id: `round-${r.roundNo}`,
+      id: `round-${r.issueId}-${r.roundNo}`,
+      ...tag(r),
       at: r.at.toISOString(),
       kind: "submitted",
       roundNo: r.roundNo,
@@ -83,7 +101,7 @@ export function buildHistory(input: { rounds: HistoryRound[]; comments: HistoryC
   }
 
   for (const c of input.comments) {
-    const base = { roundNo: c.roundNo, actor: c.author, source: c.source, caseCode: c.caseCode, tab: c.tab };
+    const base = { ...tag(c), roundNo: c.roundNo, actor: c.author, source: c.source, caseCode: c.caseCode, tab: c.tab };
     if (c.kind === "override") {
       const waived = Number(c.meta?.waivedComments ?? 0);
       const overridden = Array.isArray(c.meta?.overriddenReviewers) ? (c.meta!.overriddenReviewers as { email: string; name: string | null }[]) : [];
@@ -112,6 +130,7 @@ export function buildHistory(input: { rounds: HistoryRound[]; comments: HistoryC
     if (c.kind === "comment" && c.resolved && !c.waived && c.resolvedAt) {
       events.push({
         id: `${c.id}-resolved`,
+        ...tag(c),
         at: c.resolvedAt.toISOString(),
         kind: "resolved",
         roundNo: c.roundNo,
@@ -128,6 +147,7 @@ export function buildHistory(input: { rounds: HistoryRound[]; comments: HistoryC
   for (const s of input.signoffs) {
     events.push({
       id: s.id,
+      ...tag(s),
       at: s.at.toISOString(),
       kind: "signoff",
       roundNo: s.roundNo,

@@ -2,7 +2,7 @@
 // normalisation and naming live in the sibling modules; this file only wires
 // them to Postgres and the blob store.
 
-import { asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   jiraIssues,
@@ -15,10 +15,14 @@ import {
 } from "@/lib/db/schema";
 import { getStore, XLSX_CONTENT_TYPE } from "@/lib/storage";
 import { buildTcFileName, buildTcS3Key, roundLabel } from "./filenames";
+import { contentHash } from "./content-hash";
+import { lockItem } from "./concurrency";
+import { getProjectFolder } from "./project-folder-service";
 import { checkLock, getItemLock, SourceLockedError } from "./lock";
+import { RuleError } from "./rule-error";
 import type { MultiParsed, TabGrid } from "./multi-tab";
 import { recomputeSafely } from "./stats-service";
-import { applyCarryOver, roundStatusFrom } from "./state";
+import { applyCarryOver, requiredReviewersMissing, roundStatusFrom } from "./state";
 import { buildSnapshotXlsx } from "./xlsx";
 import type { TcReviewerState, TcRoundStatus, TcSource } from "./values";
 
@@ -81,6 +85,10 @@ export type CommitArgs = {
   grids: TabGrid[];
   reviewers: { email: string; name: string | null }[];
   notes: string | null;
+  /** Admins may remove a reviewer who asked for changes; the submitter may not. */
+  isAdmin: boolean;
+  /** SHA-256 of the uploaded workbook (Excel source), to recognise the same file on other items. */
+  sourceHash: string | null;
 };
 
 export type CommitResult = {
@@ -103,165 +111,179 @@ export async function commitRound(args: CommitArgs): Promise<CommitResult> {
   const { issue, committer, parsed } = args;
   const at = new Date();
 
-  // The source is fixed by the first submission: re-checked here, not only in the route.
-  const lock = await getItemLock(issue.id);
-  const verdict = checkLock(lock, { source: args.source, spreadsheetId: args.spreadsheetId });
-  if (!verdict.ok) throw new SourceLockedError(verdict.reason);
-
-  // One set per issue; created on the first commit.
-  await db
-    .insert(tcSets)
-    .values({
-      issueId: issue.id,
-      projectId: issue.projectId,
-      createdBy: committer.email,
-      createdByName: committer.name,
-    })
-    .onConflictDoNothing({ target: tcSets.issueId });
-  const [set] = await db.select().from(tcSets).where(eq(tcSets.issueId, issue.id)).limit(1);
-
-  const [{ next }] = await db
-    .select({ next: sql<number>`coalesce(max(${tcRounds.roundNo}), 0) + 1` })
-    .from(tcRounds)
-    .where(eq(tcRounds.setId, set.id));
-  const roundNo = Number(next);
-
-  const nameParts = {
-    kind: "testcases" as const,
-    round: roundNo,
-    project: issue.projectName,
-    jiraKey: issue.jiraKey,
-    feature: issue.summary,
-    user: committer.email,
-    at,
-  };
-  const fileName = buildTcFileName(nameParts);
-  const storageKey = buildTcS3Key({ ...nameParts, projectKey: issue.projectKey });
-
+  // Slow work first, outside any lock: build the snapshot and upload it. The key has no round
+  // number (it is only known under the lock) and a random nonce, so it can never collide.
   const headerRows = new Map(parsed.tabs.map((t) => [t.title, t.headerRow]));
   const snapshot = await buildSnapshotXlsx({
     tabs: args.grids.map((g) => ({ title: g.title, grid: g.grid, headerRow: headerRows.get(g.title) ?? 1 })),
   });
+  const nameParts = { kind: "testcases" as const, round: 0, project: issue.projectName, jiraKey: issue.jiraKey, feature: issue.summary, user: committer.email, at };
+  const folder = await getProjectFolder({ id: issue.projectId, name: issue.projectName, key: issue.projectKey });
+  const storageKey = buildTcS3Key({ ...nameParts, folder });
   await getStore().put(storageKey, snapshot, XLSX_CONTENT_TYPE);
 
   const tabTitles = parsed.tabs.map((t) => t.title);
+  const snapshotHash = contentHash(args.grids);
 
-  const result = await db.transaction(async (tx) => {
-    // Reviewers carry over from the previous round: approvals and pending stay,
-    // only those who asked for changes go back to re-review.
-    const [prevRound] = await tx
-      .select({ id: tcRounds.id })
-      .from(tcRounds)
-      .where(eq(tcRounds.setId, set.id))
-      .orderBy(desc(tcRounds.roundNo))
-      .limit(1);
-    const previous = prevRound
-      ? await tx
-          .select({
-            email: tcReviewers.email,
-            name: tcReviewers.name,
-            state: tcReviewers.state,
-            decidedAt: tcReviewers.decidedAt,
-            decidedRoundNo: tcReviewers.decidedRoundNo,
-          })
-          .from(tcReviewers)
-          .where(eq(tcReviewers.roundId, prevRound.id))
-      : [];
-    const carried = applyCarryOver(previous, args.reviewers);
-    const status = roundStatusFrom(carried.map((r) => r.state));
+  let result: CommitResult;
+  try {
+    result = await db.transaction(async (tx) => {
+      // From here to the end of the transaction nobody else can commit, decide, sign off or delete on this item.
+      await lockItem(tx, issue.id);
 
-    const [file] = await tx
-      .insert(tcFiles)
-      .values({
-        setId: set.id,
-        kind: "testcases",
-        roundNo,
-        storageKey,
-        fileName,
-        sizeBytes: snapshot.length,
-        uploadedBy: committer.email,
-        uploadedByName: committer.name,
-        uploadedAt: at,
-      })
-      .returning({ id: tcFiles.id });
+      // The source is fixed by the first submission: checked here, under the lock, so two first commits can't both pass.
+      const lock = await getItemLock(issue.id, tx);
+      const verdict = checkLock(lock, { source: args.source, spreadsheetId: args.spreadsheetId });
+      if (!verdict.ok) throw new SourceLockedError(verdict.reason);
 
-    const [round] = await tx
-      .insert(tcRounds)
-      .values({
-        setId: set.id,
-        roundNo,
-        source: args.source,
-        sheetUrl: args.sheetUrl,
-        spreadsheetId: args.spreadsheetId,
-        sheetTab: tabTitles[0] ?? null,
-        sheetTabs: tabTitles,
-        snapshotFileId: file.id,
-        notes: args.notes,
-        tcCount: parsed.cases.length,
-        status,
-        committedBy: committer.email,
-        committedByName: committer.name,
-        committedAt: at,
-      })
-      .returning({ id: tcRounds.id });
+      // One set per issue; created on the first commit.
+      await tx
+        .insert(tcSets)
+        .values({ issueId: issue.id, projectId: issue.projectId, createdBy: committer.email, createdByName: committer.name })
+        .onConflictDoNothing({ target: tcSets.issueId });
+      const [set] = await tx.select().from(tcSets).where(eq(tcSets.issueId, issue.id)).limit(1);
 
-    for (let i = 0; i < parsed.cases.length; i += CASE_CHUNK) {
-      await tx.insert(tcCases).values(
-        parsed.cases.slice(i, i + CASE_CHUNK).map((c) => ({
+      const [{ next }] = await tx
+        .select({ next: sql<number>`coalesce(max(${tcRounds.roundNo}), 0) + 1` })
+        .from(tcRounds)
+        .where(eq(tcRounds.setId, set.id));
+      const roundNo = Number(next);
+      const fileName = buildTcFileName({ ...nameParts, round: roundNo });
+
+      // Reviewers carry over from the previous round: approvals and pending stay,
+      // only those who asked for changes go back to re-review.
+      const [prevRound] = await tx
+        .select({ id: tcRounds.id })
+        .from(tcRounds)
+        .where(eq(tcRounds.setId, set.id))
+        .orderBy(desc(tcRounds.roundNo))
+        .limit(1);
+      const previous = prevRound
+        ? await tx
+            .select({
+              email: tcReviewers.email,
+              name: tcReviewers.name,
+              state: tcReviewers.state,
+              decidedAt: tcReviewers.decidedAt,
+              decidedRoundNo: tcReviewers.decidedRoundNo,
+            })
+            .from(tcReviewers)
+            .where(eq(tcReviewers.roundId, prevRound.id))
+        : [];
+
+      // Dropping the reviewer who objected would make the objection disappear.
+      const stuck = requiredReviewersMissing(previous, args.reviewers, args.isAdmin);
+      if (stuck.length > 0) {
+        throw new RuleError(
+          400,
+          `${stuck.join(", ")} asked for changes and must stay on the reviewer list until they re-review. Only an admin can remove them.`,
+          "required_reviewer",
+        );
+      }
+
+      const carried = applyCarryOver(previous, args.reviewers);
+      const status = roundStatusFrom(carried.map((r) => r.state));
+
+      const [file] = await tx
+        .insert(tcFiles)
+        .values({
+          setId: set.id,
+          kind: "testcases",
+          roundNo,
+          storageKey,
+          fileName,
+          sizeBytes: snapshot.length,
+          uploadedBy: committer.email,
+          uploadedByName: committer.name,
+          uploadedAt: at,
+          contentHash: snapshotHash,
+        })
+        .returning({ id: tcFiles.id });
+
+      const [round] = await tx
+        .insert(tcRounds)
+        .values({
+          setId: set.id,
+          roundNo,
+          source: args.source,
+          sheetUrl: args.sheetUrl,
+          spreadsheetId: args.spreadsheetId,
+          sheetTab: tabTitles[0] ?? null,
+          sheetTabs: tabTitles,
+          snapshotFileId: file.id,
+          sourceHash: args.sourceHash,
+          notes: args.notes,
+          tcCount: parsed.cases.length,
+          status,
+          committedBy: committer.email,
+          committedByName: committer.name,
+          committedAt: at,
+        })
+        .returning({ id: tcRounds.id });
+
+      for (let i = 0; i < parsed.cases.length; i += CASE_CHUNK) {
+        await tx.insert(tcCases).values(
+          parsed.cases.slice(i, i + CASE_CHUNK).map((c) => ({
+            roundId: round.id,
+            rowNo: c.rowNumber,
+            sheetTab: c.sheetTab,
+            tcCode: c.tcId,
+            tcKey: c.tcKey,
+            section: c.section,
+            sectionNo: c.sectionNo,
+            title: c.title,
+            module: c.module,
+            polarity: c.polarity,
+            category: c.category,
+            severity: c.severity,
+            priority: c.priority,
+            preconditions: c.preconditions,
+            steps: c.steps,
+            expected: c.expected,
+            shareWithClient: c.shareWithClient,
+            devStatus: c.devStatus,
+            devRemarks: c.devRemarks,
+            baReview: c.baReview,
+            baRemarks: c.baRemarks,
+            testerStatus: c.testerStatus,
+            testerRemarks: c.testerRemarks,
+            testerMeta: c.testerMeta,
+            raw: c.raw,
+          })),
+        );
+      }
+
+      await tx.insert(tcReviewers).values(
+        carried.map((r) => ({
           roundId: round.id,
-          rowNo: c.rowNumber,
-          sheetTab: c.sheetTab,
-          tcCode: c.tcId,
-          tcKey: c.tcKey,
-          section: c.section,
-          sectionNo: c.sectionNo,
-          title: c.title,
-          module: c.module,
-          polarity: c.polarity,
-          category: c.category,
-          severity: c.severity,
-          priority: c.priority,
-          preconditions: c.preconditions,
-          steps: c.steps,
-          expected: c.expected,
-          shareWithClient: c.shareWithClient,
-          devStatus: c.devStatus,
-          devRemarks: c.devRemarks,
-          baReview: c.baReview,
-          baRemarks: c.baRemarks,
-          testerStatus: c.testerStatus,
-          testerRemarks: c.testerRemarks,
-          testerMeta: c.testerMeta,
-          raw: c.raw,
+          email: r.email,
+          name: r.name,
+          state: r.state,
+          decidedAt: r.decidedAt,
+          decidedRoundNo: r.decidedRoundNo,
         })),
       );
-    }
+      await tx.update(tcSets).set({ updatedAt: at }).where(eq(tcSets.id, set.id));
 
-    await tx.insert(tcReviewers).values(
-      carried.map((r) => ({
+      const mustAct = (st: TcReviewerState) => st === "pending" || st === "re_review";
+      return {
+        setId: set.id,
         roundId: round.id,
-        email: r.email,
-        name: r.name,
-        state: r.state,
-        decidedAt: r.decidedAt,
-        decidedRoundNo: r.decidedRoundNo,
-      })),
-    );
-    await tx.update(tcSets).set({ updatedAt: at }).where(eq(tcSets.id, set.id));
+        roundNo,
+        fileId: file.id,
+        fileName,
+        roundStatus: status,
+        needsAction: carried.filter((r) => mustAct(r.state)).map((r) => ({ email: r.email, name: r.name })),
+        carriedApprovals: carried.filter((r) => r.state === "approved" && (r.decidedRoundNo ?? roundNo) < roundNo).map((r) => r.email),
+      };
+    });
+  } catch (err) {
+    // The transaction rolled back, so the uploaded file belongs to nothing: remove it.
+    await getStore().delete(storageKey).catch((e) => console.error("[test-cases] could not remove orphaned upload", storageKey, e));
+    throw err;
+  }
 
-    const mustAct = (st: TcReviewerState) => st === "pending" || st === "re_review";
-    return {
-      setId: set.id,
-      roundId: round.id,
-      roundNo,
-      fileId: file.id,
-      fileName,
-      roundStatus: status,
-      needsAction: carried.filter((r) => mustAct(r.state)).map((r) => ({ email: r.email, name: r.name })),
-      carriedApprovals: carried.filter((r) => r.state === "approved" && (r.decidedRoundNo ?? roundNo) < roundNo).map((r) => r.email),
-    } satisfies CommitResult;
-  });
-  await recomputeSafely(set.id);
+  await recomputeSafely(result.setId);
   return result;
 }
 
@@ -284,6 +306,11 @@ export async function previousReviewers(
     .orderBy(asc(tcReviewers.createdAt));
 }
 
+/**
+ * What the cases table needs to draw a row. The long text (module, preconditions, steps, expected result) is
+ * loaded only when a row is expanded (see CaseDetail / the cases/[caseId] route): at a few hundred cases it was
+ * most of the page's size.
+ */
 export type CaseView = {
   id: string;
   rowNo: number;
@@ -291,18 +318,15 @@ export type CaseView = {
   tcCode: string;
   section: string | null;
   title: string;
-  module: string | null;
   category: string;
   polarity: string | null;
   severity: string | null;
   priority: string | null;
-  preconditions: string;
-  steps: string;
-  expected: string;
   devStatus: string;
   testerStatus: string;
-  baReview: string;
 };
+
+export type CaseDetail = { module: string | null; preconditions: string; steps: string; expected: string; baReview: string; baRemarks: string };
 
 export type RoundView = {
   id: string;
@@ -374,8 +398,22 @@ export async function fetchSetDetail(issueId: string, roundNo?: number): Promise
   });
 
   const selected = views.find((v) => v.roundNo === roundNo) ?? views[0];
+  // Only the columns a row needs: `raw` (every original cell) and the long text stay in the database.
   const cases = await db
-    .select()
+    .select({
+      id: tcCases.id,
+      rowNo: tcCases.rowNo,
+      sheetTab: tcCases.sheetTab,
+      tcCode: tcCases.tcCode,
+      section: tcCases.section,
+      title: tcCases.title,
+      category: tcCases.category,
+      polarity: tcCases.polarity,
+      severity: tcCases.severity,
+      priority: tcCases.priority,
+      devStatus: tcCases.devStatus,
+      testerStatus: tcCases.testerStatus,
+    })
     .from(tcCases)
     .where(eq(tcCases.roundId, selected.id))
     .orderBy(asc(tcCases.rowNo));
@@ -384,25 +422,7 @@ export async function fetchSetDetail(issueId: string, roundNo?: number): Promise
     setId: set.id,
     rounds: views,
     selectedRoundNo: selected.roundNo,
-    cases: cases.map((c) => ({
-      id: c.id,
-      rowNo: c.rowNo,
-      sheetTab: c.sheetTab,
-      tcCode: c.tcCode,
-      section: c.section,
-      title: c.title,
-      module: c.module,
-      category: c.category,
-      polarity: c.polarity,
-      severity: c.severity,
-      priority: c.priority,
-      preconditions: c.preconditions,
-      steps: c.steps,
-      expected: c.expected,
-      devStatus: c.devStatus,
-      testerStatus: c.testerStatus,
-      baReview: c.baReview,
-    })),
+    cases,
   };
 }
 
@@ -413,4 +433,59 @@ export async function getFileForDownload(fileId: string): Promise<{ storageKey: 
     .where(eq(tcFiles.id, fileId))
     .limit(1);
   return f ?? null;
+}
+
+export async function fetchCaseDetail(caseId: string): Promise<CaseDetail | null> {
+  const [c] = await db
+    .select({
+      module: tcCases.module,
+      preconditions: tcCases.preconditions,
+      steps: tcCases.steps,
+      expected: tcCases.expected,
+      baReview: tcCases.baReview,
+      baRemarks: tcCases.baRemarks,
+    })
+    .from(tcCases)
+    .where(eq(tcCases.id, caseId))
+    .limit(1);
+  return c ?? null;
+}
+
+/** The newest round's content fingerprint, to tell whether a resubmission changes anything. */
+export async function latestContentHash(issueId: string): Promise<{ roundNo: number; hash: string } | null> {
+  const [row] = await db
+    .select({ roundNo: tcRounds.roundNo, hash: tcFiles.contentHash })
+    .from(tcRounds)
+    .innerJoin(tcSets, eq(tcSets.id, tcRounds.setId))
+    .leftJoin(tcFiles, eq(tcFiles.id, tcRounds.snapshotFileId))
+    .where(eq(tcSets.issueId, issueId))
+    .orderBy(desc(tcRounds.roundNo))
+    .limit(1);
+  return row?.hash ? { roundNo: row.roundNo, hash: row.hash } : null;
+}
+
+export type SameWorkbook = { issueId: string; issueKey: string; roundNo: number };
+
+/**
+ * Other items in the SAME project whose round came from a byte-identical uploaded workbook. The same file
+ * in another project is a separate copy with its own history, so it is deliberately not matched.
+ */
+export async function sameWorkbookElsewhere(roundId: string): Promise<SameWorkbook[]> {
+  const [me] = await db
+    .select({ hash: tcRounds.sourceHash, setId: tcRounds.setId, projectId: tcSets.projectId })
+    .from(tcRounds)
+    .innerJoin(tcSets, eq(tcSets.id, tcRounds.setId))
+    .where(eq(tcRounds.id, roundId))
+    .limit(1);
+  if (!me?.hash) return [];
+  const rows = await db
+    .select({ issueId: jiraIssues.id, issueKey: jiraIssues.jiraKey, roundNo: tcRounds.roundNo })
+    .from(tcRounds)
+    .innerJoin(tcSets, eq(tcSets.id, tcRounds.setId))
+    .innerJoin(jiraIssues, eq(jiraIssues.id, tcSets.issueId))
+    .where(and(eq(tcRounds.sourceHash, me.hash), eq(tcSets.projectId, me.projectId), ne(tcSets.id, me.setId)))
+    .orderBy(asc(jiraIssues.jiraKey), asc(tcRounds.roundNo));
+  // One entry per item: the earliest round that used this exact file.
+  const seen = new Set<string>();
+  return rows.filter((r) => (seen.has(r.issueId) ? false : (seen.add(r.issueId), true)));
 }
