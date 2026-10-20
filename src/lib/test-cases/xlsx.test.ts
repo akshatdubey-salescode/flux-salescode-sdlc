@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import ExcelJS from "exceljs";
-import { buildSnapshotXlsx, loadWorkbook, looksLikeXlsx, safeSheetName, trimGrid, xlsxTabGrid, xlsxTabs } from "./xlsx";
+import { buildSnapshotXlsx, loadWorkbook, looksLikeXlsx, safeSheetName, trimGrid, uniqueSheetNames, xlsxTabGrid, xlsxTabs } from "./xlsx";
 import { parseSheetGrid } from "./template";
 
 const HEADER = ["Test Case ID", "Test Case Title", "Test Steps", "Expected Result", "Dev Status", "Tester Status"];
@@ -46,7 +46,7 @@ test("trimGrid drops trailing blank rows and columns only", () => {
 test("the snapshot is a single-tab workbook that round-trips through the parser", async () => {
   const wb = await loadWorkbook(await sampleWorkbook());
   const grid = xlsxTabGrid(wb, "CT-614 (Dry)");
-  const snap = await buildSnapshotXlsx({ tabTitle: "CT-614 (Dry)", grid, headerRow: 1 });
+  const snap = await buildSnapshotXlsx({ tabs: [{ title: "CT-614 (Dry)", grid, headerRow: 1 }] });
   assert.ok(looksLikeXlsx(snap));
   const back = await loadWorkbook(snap);
   assert.equal(back.worksheets.length, 1, "no other tabs are carried over");
@@ -60,4 +60,25 @@ test("sheet names are made Excel-safe", () => {
   assert.equal(safeSheetName("CT-614: a/b?"), "CT-614 a b");
   assert.equal(safeSheetName("x".repeat(50)).length, 31);
   assert.equal(safeSheetName("///"), "Test Cases");
+});
+
+test("long tab titles that collapse to the same 31 characters get distinct sheet names", () => {
+  const a = "CT-589 (Capture Deep Link UTM Parameters)";
+  const b = "CT-589 (Capture Deep Link UTM Parameters v2)";
+  const names = uniqueSheetNames([a, b, "Login"]);
+  assert.equal(new Set(names.map((n) => n.toLowerCase())).size, 3);
+  assert.ok(names.every((n) => n.length <= 31));
+  assert.equal(names[2], "Login");
+});
+
+test("a multi-tab snapshot keeps every chosen tab, in order, and nothing else", async () => {
+  const snap = await buildSnapshotXlsx({
+    tabs: [
+      { title: "CT-1", grid: [["ID", "Title"], ["TC-1", "a"]], headerRow: 1 },
+      { title: "CT-1 extra", grid: [["ID", "Title"], ["TC-9", "z"]], headerRow: 1 },
+    ],
+  });
+  const wb = await loadWorkbook(snap);
+  assert.deepEqual(xlsxTabs(wb).map((t) => t.title), ["CT-1", "CT-1 extra"]);
+  assert.equal(xlsxTabGrid(wb, "CT-1 extra")[1][0], "TC-9");
 });

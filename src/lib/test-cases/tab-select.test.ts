@@ -33,3 +33,24 @@ test("otherwise the one tab named after the Jira key; ambiguous or none means th
   const dup: TabInfo[] = [{ title: "CT-1 a", hidden: false }, { title: "CT-1 b", hidden: false }];
   assert.equal(chooseTab({ tabs: dup, jiraKey: "CT-1" }), null, "two matches is ambiguous");
 });
+
+import { pickTabs } from "./tab-select";
+
+test("pickTabs: an explicit list wins and every entry must be a visible tab", () => {
+  const ok = pickTabs({ tabs, requested: ["CT-485", "Login "], jiraKey: "CT-614" });
+  assert.deepEqual(ok, { ok: true, selected: ["CT-485", "Login "], missingPrevious: [] });
+  assert.deepEqual(pickTabs({ tabs, requested: ["CT-485", "Stock Threshold"], jiraKey: "CT-614" }), { ok: false, missing: "Stock Threshold" });
+  assert.deepEqual(pickTabs({ tabs, requested: [], jiraKey: "CT-614" }), { ok: true, selected: [], missingPrevious: [] }, "none chosen is allowed here; commit rejects it");
+  assert.deepEqual(pickTabs({ tabs, requested: ["CT-485", "CT-485"], jiraKey: "x" }).ok && (pickTabs({ tabs, requested: ["CT-485", "CT-485"], jiraKey: "x" }) as { selected: string[] }).selected, ["CT-485"], "repeats collapse");
+});
+
+test("pickTabs: a resubmission starts from the previous tabs and reports any that vanished", () => {
+  const r = pickTabs({ tabs, previous: ["CT-485", "Gone tab"], jiraKey: "CT-614" });
+  assert.deepEqual(r, { ok: true, selected: ["CT-485"], missingPrevious: ["Gone tab"] });
+});
+
+test("pickTabs: a first submission falls back to the suggested tab, or nothing", () => {
+  assert.deepEqual(pickTabs({ tabs, jiraKey: "CT-614" }), { ok: true, selected: ["CT-614 (Dry Sampling Exclusion)"], missingPrevious: [] });
+  assert.deepEqual(pickTabs({ tabs, jiraKey: "ZZ-9" }), { ok: true, selected: [], missingPrevious: [] });
+  assert.deepEqual(pickTabs({ tabs, gid: 33, jiraKey: "ZZ-9" }), { ok: true, selected: ["Login "], missingPrevious: [] });
+});

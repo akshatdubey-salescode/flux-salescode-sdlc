@@ -15,6 +15,7 @@ import {
 import { SubmissionForm } from "@/components/test-cases/submission-form";
 import { BackLink } from "@/components/test-cases/back-link";
 import { returnLabel, safeReturnTo, withReturnTo } from "@/lib/test-cases/return-to";
+import { getItemLock } from "@/lib/test-cases/lock";
 import { fetchSetDetail, findIssue, previousReviewers } from "@/lib/test-cases/service";
 
 type Props = { searchParams: Promise<{ issue?: string; key?: string; from?: string }> };
@@ -90,7 +91,7 @@ export default async function NewTestCaseSubmissionPage({ searchParams }: Props)
   }
 
   const issue = lookup.issue;
-  const [existing, reviewers] = await Promise.all([fetchSetDetail(issue.id), previousReviewers(issue.id)]);
+  const [existing, reviewers, itemLock] = await Promise.all([fetchSetDetail(issue.id), previousReviewers(issue.id), getItemLock(issue.id)]);
   const nextRound = (existing?.rounds[0]?.roundNo ?? 0) + 1;
   // Back goes to where the user came from; with no known origin, to the issue's TC page if it has one.
   const backHref = returnTo ?? (existing ? `/test-cases/${issue.id}` : "/home");
@@ -129,6 +130,17 @@ export default async function NewTestCaseSubmissionPage({ searchParams }: Props)
           initialReviewers={reviewers}
           returnTo={returnTo}
           cancelHref={backHref}
+          lock={
+            itemLock
+              ? {
+                  source: itemLock.source,
+                  sheetUrl: itemLock.sheetUrl,
+                  currentFile: existing?.rounds[0]?.snapshotFile
+                    ? { id: existing.rounds[0].snapshotFile.id, fileName: existing.rounds[0].snapshotFile.fileName }
+                    : null,
+                }
+              : null
+          }
         />
       </main>
     </div>

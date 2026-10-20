@@ -15,10 +15,12 @@ import {
 } from "@/lib/db/schema";
 import { getStore, XLSX_CONTENT_TYPE } from "@/lib/storage";
 import { buildTcFileName, buildTcS3Key, roundLabel } from "./filenames";
+import { checkLock, getItemLock, SourceLockedError } from "./lock";
+import type { MultiParsed, TabGrid } from "./multi-tab";
 import { recomputeSafely } from "./stats-service";
-import type { ParsedSheet } from "./template";
+import { applyCarryOver, roundStatusFrom } from "./state";
 import { buildSnapshotXlsx } from "./xlsx";
-import type { TcSource } from "./values";
+import type { TcReviewerState, TcRoundStatus, TcSource } from "./values";
 
 export type IssueRef = {
   id: string;
@@ -73,9 +75,10 @@ export type CommitArgs = {
   source: TcSource;
   sheetUrl: string | null;
   spreadsheetId: string | null;
-  tab: string;
-  parsed: Extract<ParsedSheet, { ok: true }>;
-  grid: unknown[][];
+  /** Every tab of the item, parsed and merged (case keys are tab-qualified). */
+  parsed: Extract<MultiParsed, { ok: true }>;
+  /** The raw values of those tabs, for the snapshot. */
+  grids: TabGrid[];
   reviewers: { email: string; name: string | null }[];
   notes: string | null;
 };
@@ -86,6 +89,12 @@ export type CommitResult = {
   roundNo: number;
   fileId: string;
   fileName: string;
+  /** Status of the new round after carrying reviewers' decisions over. */
+  roundStatus: TcRoundStatus;
+  /** Reviewers who still have to act (pending, or asked for changes before); the only ones emailed. */
+  needsAction: { email: string; name: string | null }[];
+  /** Reviewers whose earlier approval stands. */
+  carriedApprovals: string[];
 };
 
 const CASE_CHUNK = 200;
@@ -93,6 +102,11 @@ const CASE_CHUNK = 200;
 export async function commitRound(args: CommitArgs): Promise<CommitResult> {
   const { issue, committer, parsed } = args;
   const at = new Date();
+
+  // The source is fixed by the first submission: re-checked here, not only in the route.
+  const lock = await getItemLock(issue.id);
+  const verdict = checkLock(lock, { source: args.source, spreadsheetId: args.spreadsheetId });
+  if (!verdict.ok) throw new SourceLockedError(verdict.reason);
 
   // One set per issue; created on the first commit.
   await db
@@ -124,14 +138,38 @@ export async function commitRound(args: CommitArgs): Promise<CommitResult> {
   const fileName = buildTcFileName(nameParts);
   const storageKey = buildTcS3Key({ ...nameParts, projectKey: issue.projectKey });
 
+  const headerRows = new Map(parsed.tabs.map((t) => [t.title, t.headerRow]));
   const snapshot = await buildSnapshotXlsx({
-    tabTitle: args.tab,
-    grid: args.grid,
-    headerRow: parsed.headerRow,
+    tabs: args.grids.map((g) => ({ title: g.title, grid: g.grid, headerRow: headerRows.get(g.title) ?? 1 })),
   });
   await getStore().put(storageKey, snapshot, XLSX_CONTENT_TYPE);
 
-  const committed = await db.transaction(async (tx) => {
+  const tabTitles = parsed.tabs.map((t) => t.title);
+
+  const result = await db.transaction(async (tx) => {
+    // Reviewers carry over from the previous round: approvals and pending stay,
+    // only those who asked for changes go back to re-review.
+    const [prevRound] = await tx
+      .select({ id: tcRounds.id })
+      .from(tcRounds)
+      .where(eq(tcRounds.setId, set.id))
+      .orderBy(desc(tcRounds.roundNo))
+      .limit(1);
+    const previous = prevRound
+      ? await tx
+          .select({
+            email: tcReviewers.email,
+            name: tcReviewers.name,
+            state: tcReviewers.state,
+            decidedAt: tcReviewers.decidedAt,
+            decidedRoundNo: tcReviewers.decidedRoundNo,
+          })
+          .from(tcReviewers)
+          .where(eq(tcReviewers.roundId, prevRound.id))
+      : [];
+    const carried = applyCarryOver(previous, args.reviewers);
+    const status = roundStatusFrom(carried.map((r) => r.state));
+
     const [file] = await tx
       .insert(tcFiles)
       .values({
@@ -155,10 +193,12 @@ export async function commitRound(args: CommitArgs): Promise<CommitResult> {
         source: args.source,
         sheetUrl: args.sheetUrl,
         spreadsheetId: args.spreadsheetId,
-        sheetTab: args.tab,
+        sheetTab: tabTitles[0] ?? null,
+        sheetTabs: tabTitles,
         snapshotFileId: file.id,
         notes: args.notes,
         tcCount: parsed.cases.length,
+        status,
         committedBy: committer.email,
         committedByName: committer.name,
         committedAt: at,
@@ -170,6 +210,7 @@ export async function commitRound(args: CommitArgs): Promise<CommitResult> {
         parsed.cases.slice(i, i + CASE_CHUNK).map((c) => ({
           roundId: round.id,
           rowNo: c.rowNumber,
+          sheetTab: c.sheetTab,
           tcCode: c.tcId,
           tcKey: c.tcKey,
           section: c.section,
@@ -197,18 +238,37 @@ export async function commitRound(args: CommitArgs): Promise<CommitResult> {
     }
 
     await tx.insert(tcReviewers).values(
-      args.reviewers.map((r) => ({ roundId: round.id, email: r.email, name: r.name })),
+      carried.map((r) => ({
+        roundId: round.id,
+        email: r.email,
+        name: r.name,
+        state: r.state,
+        decidedAt: r.decidedAt,
+        decidedRoundNo: r.decidedRoundNo,
+      })),
     );
     await tx.update(tcSets).set({ updatedAt: at }).where(eq(tcSets.id, set.id));
 
-    return { setId: set.id, roundId: round.id, roundNo, fileId: file.id, fileName };
+    const mustAct = (st: TcReviewerState) => st === "pending" || st === "re_review";
+    return {
+      setId: set.id,
+      roundId: round.id,
+      roundNo,
+      fileId: file.id,
+      fileName,
+      roundStatus: status,
+      needsAction: carried.filter((r) => mustAct(r.state)).map((r) => ({ email: r.email, name: r.name })),
+      carriedApprovals: carried.filter((r) => r.state === "approved" && (r.decidedRoundNo ?? roundNo) < roundNo).map((r) => r.email),
+    } satisfies CommitResult;
   });
   await recomputeSafely(set.id);
-  return committed;
+  return result;
 }
 
 /** Reviewers from the issue's latest round, to prefill the next submission. */
-export async function previousReviewers(issueId: string): Promise<{ email: string; name: string | null }[]> {
+export async function previousReviewers(
+  issueId: string,
+): Promise<{ email: string; name: string | null; state: TcReviewerState; decidedRoundNo: number | null }[]> {
   const [latest] = await db
     .select({ id: tcRounds.id })
     .from(tcRounds)
@@ -218,7 +278,7 @@ export async function previousReviewers(issueId: string): Promise<{ email: strin
     .limit(1);
   if (!latest) return [];
   return db
-    .select({ email: tcReviewers.email, name: tcReviewers.name })
+    .select({ email: tcReviewers.email, name: tcReviewers.name, state: tcReviewers.state, decidedRoundNo: tcReviewers.decidedRoundNo })
     .from(tcReviewers)
     .where(eq(tcReviewers.roundId, latest.id))
     .orderBy(asc(tcReviewers.createdAt));
@@ -227,6 +287,7 @@ export async function previousReviewers(issueId: string): Promise<{ email: strin
 export type CaseView = {
   id: string;
   rowNo: number;
+  sheetTab: string;
   tcCode: string;
   section: string | null;
   title: string;
@@ -250,6 +311,8 @@ export type RoundView = {
   source: TcSource;
   sheetUrl: string | null;
   sheetTab: string | null;
+  /** Every tab of the item's test cases in this round. */
+  sheetTabs: string[];
   notes: string | null;
   tcCount: number;
   status: string;
@@ -257,7 +320,7 @@ export type RoundView = {
   committedByName: string | null;
   committedAt: string;
   snapshotFile: { id: string; fileName: string; sizeBytes: number } | null;
-  reviewers: { email: string; name: string | null; state: string; decidedAt: string | null }[];
+  reviewers: { email: string; name: string | null; state: TcReviewerState; decidedAt: string | null; decidedRoundNo: number | null }[];
 };
 
 export type SetDetail = {
@@ -290,6 +353,7 @@ export async function fetchSetDetail(issueId: string, roundNo?: number): Promise
       source: r.source,
       sheetUrl: r.sheetUrl,
       sheetTab: r.sheetTab,
+      sheetTabs: r.sheetTabs.length > 0 ? r.sheetTabs : r.sheetTab ? [r.sheetTab] : [],
       notes: r.notes,
       tcCount: r.tcCount,
       status: r.status,
@@ -299,7 +363,13 @@ export async function fetchSetDetail(issueId: string, roundNo?: number): Promise
       snapshotFile: f ? { id: f.id, fileName: f.fileName, sizeBytes: f.sizeBytes } : null,
       reviewers: reviewers
         .filter((x) => x.roundId === r.id)
-        .map((x) => ({ email: x.email, name: x.name, state: x.state, decidedAt: x.decidedAt?.toISOString() ?? null })),
+        .map((x) => ({
+          email: x.email,
+          name: x.name,
+          state: x.state,
+          decidedAt: x.decidedAt?.toISOString() ?? null,
+          decidedRoundNo: x.decidedRoundNo,
+        })),
     };
   });
 
@@ -317,6 +387,7 @@ export async function fetchSetDetail(issueId: string, roundNo?: number): Promise
     cases: cases.map((c) => ({
       id: c.id,
       rowNo: c.rowNo,
+      sheetTab: c.sheetTab,
       tcCode: c.tcCode,
       section: c.section,
       title: c.title,

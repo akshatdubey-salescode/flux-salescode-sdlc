@@ -27,7 +27,7 @@ import { AnalyticsPanel } from "@/components/test-cases/analytics-panel";
 import { SignoffPanel } from "@/components/test-cases/signoff-panel";
 import { BackLink } from "@/components/test-cases/back-link";
 import { returnLabel, safeReturnTo, withReturnTo } from "@/lib/test-cases/return-to";
-import { fetchFeedbackFiles, fetchRoundComments } from "@/lib/test-cases/review-service";
+import { countOpenFeedback, fetchFeedbackFiles, fetchRoundComments } from "@/lib/test-cases/review-service";
 import { fetchSetDetail, findIssue } from "@/lib/test-cases/service";
 import { fetchRoundTrend, fetchStoredStats } from "@/lib/test-cases/stats-service";
 import { canSignOff } from "@/lib/test-cases/state";
@@ -91,12 +91,18 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
   const isLatest = !!detail && round?.roundNo === detail.rounds[0]?.roundNo;
   const roundApproved = round?.status === "approved";
 
-  const [stored, trend, signoffs, people] =
+  const [stored, trend, signoffs, people, openFeedback] =
     detail && round
-      ? await Promise.all([fetchStoredStats(detail.setId), fetchRoundTrend(detail.setId), fetchSignoffs(round.id), getIssuePeople(issue.id)])
-      : [null, [], [], { dev: [], qa: [] }];
+      ? await Promise.all([
+          fetchStoredStats(detail.setId),
+          fetchRoundTrend(detail.setId),
+          fetchSignoffs(round.id),
+          getIssuePeople(issue.id),
+          countOpenFeedback(round.id),
+        ])
+      : [null, [], [], { dev: [], qa: [] }, 0];
   const signoffActions = (["dev", "tester"] as const).map((role) => {
-    const v = canSignOff({ role, actor: viewer, people, roundApproved, isLatestRound: isLatest });
+    const v = canSignOff({ role, actor: viewer, people, roundApproved, isLatestRound: isLatest, openFeedback });
     return { role, allowed: v.ok, reason: v.ok ? null : v.reason };
   });
   const jiraUrl = `${issue.jiraBaseUrl.replace(/\/$/, "")}/browse/${issue.jiraKey}`;

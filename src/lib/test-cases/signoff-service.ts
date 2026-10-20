@@ -7,11 +7,11 @@ import { jiraIssues, jiraProjects, tcCases, tcFiles, tcResults, tcSignoffs } fro
 import { getStore, XLSX_CONTENT_TYPE } from "@/lib/storage";
 import { buildTcFileName, buildTcS3Key, istDateTime } from "./filenames";
 import { resolveIssuePeople, type IssuePeople } from "./people";
-import type { RoundContext } from "./review-service";
+import { countOpenFeedback, type RoundContext } from "./review-service";
 import { matchSignoff, signoffProblem, type SignoffMatch } from "./signoff";
 import { recomputeSafely } from "./stats-service";
 import { canSignOff, roundStatusFrom, type Actor, type SignoffRole } from "./state";
-import type { ParsedSheet } from "./template";
+import type { MultiParsed, TabGrid } from "./multi-tab";
 import type { TcSource } from "./values";
 import { buildSnapshotXlsx } from "./xlsx";
 
@@ -45,8 +45,9 @@ export async function checkSignoffAllowed(args: {
   actor: Actor;
   role: SignoffRole;
 }): Promise<{ ok: true; people: IssuePeople } | SignoffFailure> {
-  const people = await getIssuePeople(args.ctx.issue.id);
+  const [people, openFeedback] = await Promise.all([getIssuePeople(args.ctx.issue.id), countOpenFeedback(args.ctx.roundId)]);
   const verdict = canSignOff({
+    openFeedback,
     role: args.role,
     actor: args.actor,
     people,
@@ -76,7 +77,7 @@ export type SignoffPreview = {
 
 export async function previewSignoff(
   ctx: RoundContext,
-  parsed: Extract<ParsedSheet, { ok: true }>,
+  parsed: Extract<MultiParsed, { ok: true }>,
   role: SignoffRole,
 ): Promise<SignoffPreview> {
   const refs = await roundCaseRefs(ctx.roundId);
@@ -99,9 +100,10 @@ export async function commitSignoff(args: {
   source: TcSource;
   sheetUrl: string | null;
   spreadsheetId: string | null;
+  /** Comma-separated tab titles that were read (the latest round's tabs). */
   tab: string;
-  parsed: Extract<ParsedSheet, { ok: true }>;
-  grid: unknown[][];
+  parsed: Extract<MultiParsed, { ok: true }>;
+  grids: TabGrid[];
   notes: string | null;
 }): Promise<{ ok: true; signoffId: string; fileName: string } | SignoffFailure> {
   const { ctx } = args;
@@ -122,7 +124,10 @@ export async function commitSignoff(args: {
   };
   const fileName = buildTcFileName(parts);
   const storageKey = buildTcS3Key({ ...parts, projectKey: ctx.issue.projectKey });
-  const snapshot = await buildSnapshotXlsx({ tabTitle: args.tab, grid: args.grid, headerRow: args.parsed.headerRow });
+  const headerRows = new Map(args.parsed.tabs.map((t) => [t.title, t.headerRow]));
+  const snapshot = await buildSnapshotXlsx({
+    tabs: args.grids.map((g) => ({ title: g.title, grid: g.grid, headerRow: headerRows.get(g.title) ?? 1 })),
+  });
   await getStore().put(storageKey, snapshot, XLSX_CONTENT_TYPE);
 
   const email = args.actor.email.trim().toLowerCase();

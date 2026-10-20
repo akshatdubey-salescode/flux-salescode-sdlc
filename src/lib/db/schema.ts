@@ -2311,7 +2311,10 @@ export const tcRounds = pgTable(
     // from (the stored snapshot is what was actually reviewed).
     sheetUrl: text("sheet_url"),
     spreadsheetId: text("spreadsheet_id"),
+    // First chosen tab (kept for older readers); `sheetTabs` is the full list.
     sheetTab: text("sheet_tab"),
+    // Every tab of the workbook that makes up this item's test cases.
+    sheetTabs: jsonb("sheet_tabs").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     // The snapshot xlsx of exactly what was committed.
     snapshotFileId: uuid("snapshot_file_id").references(() => tcFiles.id, { onDelete: "set null" }),
     notes: text("notes"),
@@ -2334,10 +2337,12 @@ export const tcCases = pgTable(
       .notNull()
       .references(() => tcRounds.id, { onDelete: "cascade" }),
     rowNo: integer("row_no").notNull(),
+    // The tab this case came from (an item can have several).
+    sheetTab: text("sheet_tab").notNull().default(""),
     // The ID as typed in the sheet (IDs restart in every section of a tab)...
     tcCode: text("tc_code").notNull(),
-    // ...and the unique key used to match results: the ID, prefixed with its
-    // section when the tab has several.
+    // ...and the unique key used to match results: tab::section/ID (the section
+    // only when the tab has several).
     tcKey: text("tc_key").notNull(),
     section: text("section"),
     sectionNo: integer("section_no").notNull().default(1),
@@ -2379,6 +2384,9 @@ export const tcReviewers = pgTable(
     name: text("name"),
     state: tcReviewerStateEnum("state").notNull().default("pending"),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
+    // The round the current decision was made in; lower than this round's
+    // number when the decision was carried over from an earlier round.
+    decidedRoundNo: integer("decided_round_no"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -2406,6 +2414,12 @@ export const tcReviewComments = pgTable(
     resolved: boolean("resolved").notNull().default(false),
     resolvedBy: text("resolved_by"),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    // Resolved by an override rather than by being addressed.
+    waived: boolean("waived").notNull().default(false),
+    // 'reviewer' | 'llm' | 'system' (TC_FEEDBACK_SOURCE_VALUES).
+    source: text("source").notNull().default("reviewer"),
+    // Override entries list who/what was waived.
+    meta: jsonb("meta").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -2508,6 +2522,9 @@ export const tcSetStats = pgTable(
     reviewersApproved: integer("reviewers_approved").notNull().default(0),
     feedbackTotal: integer("feedback_total").notNull().default(0),
     feedbackOpen: integer("feedback_open").notNull().default(0),
+    feedbackWaived: integer("feedback_waived").notNull().default(0),
+    changeRequestsTotal: integer("change_requests_total").notNull().default(0),
+    overridesTotal: integer("overrides_total").notNull().default(0),
     roundCount: integer("round_count").notNull().default(1),
     stats: jsonb("stats").notNull(),
     computedAt: timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
@@ -2526,3 +2543,30 @@ export type TcReviewer = typeof tcReviewers.$inferSelect;
 export type TcReviewComment = typeof tcReviewComments.$inferSelect;
 export type TcSignoff = typeof tcSignoffs.$inferSelect;
 export type TcSetStatsRow = typeof tcSetStats.$inferSelect;
+
+// Audit of an admin deleting an item's test cases and history (a wrong sheet or
+// link). Only the fact and the counts are kept, never the deleted content.
+// `storageKeys` lists the stored files so any that could not be removed from
+// the bucket can be cleaned up later.
+export const tcDeletions = pgTable(
+  "tc_deletions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // No FK: the issue may later be removed from Flux too.
+    issueId: uuid("issue_id").notNull(),
+    jiraKey: text("jira_key").notNull(),
+    projectId: uuid("project_id").notNull(),
+    reason: text("reason").notNull(),
+    deletedBy: text("deleted_by").notNull(),
+    deletedByName: text("deleted_by_name"),
+    roundCount: integer("round_count").notNull().default(0),
+    caseCount: integer("case_count").notNull().default(0),
+    fileCount: integer("file_count").notNull().default(0),
+    signoffCount: integer("signoff_count").notNull().default(0),
+    commentCount: integer("comment_count").notNull().default(0),
+    storageKeys: jsonb("storage_keys").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    storageFailures: integer("storage_failures").notNull().default(0),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("tc_deletions_issue_idx").on(t.issueId, t.deletedAt)]
+);

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   RiCheckboxCircleLine,
+  RiDownload2Line,
   RiErrorWarningLine,
   RiExternalLinkLine,
   RiFileExcel2Line,
@@ -18,8 +19,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { ReviewerPicker, type Reviewer } from "./reviewer-picker";
 import { withReturnTo } from "@/lib/test-cases/return-to";
-import { TC_CATEGORY_LABELS, TC_POLARITY_LABELS, type TcCategory, type TcPolarity } from "@/lib/test-cases/values";
+import {
+  MAX_TABS_PER_ITEM,
+  TC_CATEGORY_LABELS,
+  TC_POLARITY_LABELS,
+  type TcCategory,
+  type TcPolarity,
+  type TcReviewerState,
+} from "@/lib/test-cases/values";
 import type { Preview } from "@/lib/test-cases/preview";
+import type { SourceTabInfo } from "@/lib/test-cases/source";
 import { invalidateTcSummaries } from "./tc-summary-cache";
 
 type IssueInfo = {
@@ -36,10 +45,21 @@ type InspectResponse = {
   source: "google_sheet" | "xlsx";
   sheetUrl: string | null;
   sheetTitle: string | null;
-  tabs: { title: string; hidden: boolean; suggested: boolean }[];
-  selectedTab: string | null;
+  tabs: SourceTabInfo[];
+  selectedTabs: string[];
+  missingPrevious: string[];
   preview: Preview | null;
 };
+
+/** What the item is already tied to (set by its first submission). */
+export type FormLock = {
+  source: "google_sheet" | "xlsx";
+  sheetUrl: string | null;
+  /** The latest round's snapshot, for "download current workbook" (Excel items). */
+  currentFile: { id: string; fileName: string } | null;
+};
+
+export type PreviousReviewer = Reviewer & { state: TcReviewerState };
 
 type FormError = { message: string; code?: string };
 
@@ -52,31 +72,43 @@ export function SubmissionForm({
   initialReviewers,
   returnTo,
   cancelHref,
+  lock,
 }: {
   issue: IssueInfo;
   nextRound: number;
   committerEmail: string;
-  initialReviewers: Reviewer[];
+  initialReviewers: PreviousReviewer[];
   /** Where the user came from (Delivery / Sprint tab); carried on to the details page after commit. */
   returnTo: string | null;
   /** Where Cancel goes. */
   cancelHref: string;
+  /** Null for a first submission; otherwise the source this item is fixed to. */
+  lock: FormLock | null;
 }) {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
-  const [mode, setMode] = useState<"sheet" | "file">("sheet");
+  // A resubmission keeps the item's source: the choice is hidden, not offered.
+  const [mode, setMode] = useState<"sheet" | "file">(lock ? (lock.source === "xlsx" ? "file" : "sheet") : "sheet");
   const [sheetUrl, setSheetUrl] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<InspectResponse | null>(null);
-  const [reviewers, setReviewers] = useState<Reviewer[]>(initialReviewers);
+  const [reviewers, setReviewers] = useState<Reviewer[]>(initialReviewers.map(({ email, name }) => ({ email, name })));
+  // The tabs the user ticked, once they have ticked any; before that the server's choice is used.
+  const [ticked, setTicked] = useState<string[] | null>(null);
+  const [validatedTabs, setValidatedTabs] = useState<string>("");
+  const [tabFilter, setTabFilter] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState<"validate" | "commit" | null>(null);
   const [error, setError] = useState<FormError | null>(null);
 
-  const hasInput = mode === "sheet" ? sheetUrl.trim().length > 0 : file !== null;
+  const lockedSheet = lock?.source === "google_sheet";
+  const hasInput = mode === "sheet" ? lockedSheet || sheetUrl.trim().length > 0 : file !== null;
   const preview = result?.preview ?? null;
+  const selectedTabs = ticked ?? result?.selectedTabs ?? [];
+  // The preview describes the tabs that were read; ticking another tab makes it stale until validated again.
+  const previewCurrent = validatedTabs === selectedTabs.join("\u0000");
   const readyToCommit =
-    !!result?.selectedTab && preview?.ok === true && preview.canCommit && reviewers.length > 0 && busy === null;
+    selectedTabs.length > 0 && preview?.ok === true && preview.canCommit && previewCurrent && reviewers.length > 0 && busy === null;
 
   const connectHref = useMemo(() => {
     const back = typeof window === "undefined" ? "/test-cases/new" : window.location.pathname + window.location.search;
@@ -85,22 +117,34 @@ export function SubmissionForm({
 
   function resetResult() {
     setResult(null);
+    setTicked(null);
+    setValidatedTabs("");
     setError(null);
   }
 
   function sourceFields(fd: FormData) {
     fd.set("issueId", issue.id);
-    if (mode === "sheet") fd.set("sheetUrl", sheetUrl.trim());
-    else if (file) fd.set("file", file);
+    // A locked sheet is read from the item's own link, which the server supplies.
+    if (mode === "sheet") {
+      if (!lockedSheet) fd.set("sheetUrl", sheetUrl.trim());
+    } else if (file) {
+      fd.set("file", file);
+    }
   }
 
-  async function validate(tab?: string | null) {
+  function toggleTab(title: string) {
+    const current = ticked ?? result?.selectedTabs ?? [];
+    if (current.includes(title)) setTicked(current.filter((t) => t !== title));
+    else if (current.length < MAX_TABS_PER_ITEM) setTicked([...current, title]);
+  }
+
+  async function validate(tabs?: string[] | null) {
     setBusy("validate");
     setError(null);
     try {
       const fd = new FormData();
       sourceFields(fd);
-      if (tab) fd.set("tab", tab);
+      if (tabs) fd.set("tabs", JSON.stringify(tabs));
       const res = await fetch("/api/test-cases/inspect", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) {
@@ -108,7 +152,10 @@ export function SubmissionForm({
         setError({ message: data.error ?? "Could not read that source.", code: data.code });
         return;
       }
-      setResult(data as InspectResponse);
+      const r = data as InspectResponse;
+      setResult(r);
+      setTicked(r.selectedTabs);
+      setValidatedTabs(r.selectedTabs.join("\u0000"));
     } catch {
       setError({ message: "Network error. Try again." });
     } finally {
@@ -117,14 +164,14 @@ export function SubmissionForm({
   }
 
   async function commit() {
-    if (!readyToCommit || !result?.selectedTab) return;
+    if (!readyToCommit) return;
     setBusy("commit");
     setError(null);
     try {
       const fd = new FormData();
       sourceFields(fd);
       fd.set("source", mode === "sheet" ? "google_sheet" : "xlsx");
-      fd.set("tab", result.selectedTab);
+      fd.set("tabs", JSON.stringify(selectedTabs));
       fd.set("reviewers", JSON.stringify(reviewers));
       if (notes.trim()) fd.set("notes", notes.trim());
       const res = await fetch("/api/test-cases/commit", { method: "POST", body: fd });
@@ -137,10 +184,12 @@ export function SubmissionForm({
       // Next keeps this page's state when you come back to it, so clear it:
       // otherwise "New round" would reopen with the file/preview just committed.
       setResult(null);
+      setTicked(null);
+      setValidatedTabs("");
       setFile(null);
       setSheetUrl("");
       setNotes("");
-      setMode("sheet");
+      setMode(lock ? (lock.source === "xlsx" ? "file" : "sheet") : "sheet");
       invalidateTcSummaries();
       router.push(withReturnTo(data.detailUrl as string, returnTo));
     } catch {
@@ -181,6 +230,7 @@ export function SubmissionForm({
       <section className="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <h2 className="text-sm font-semibold text-foreground">1. Test cases</h2>
 
+        {!lock && (
         <div className="inline-flex rounded-md border border-zinc-200 p-0.5 dark:border-zinc-800" role="tablist">
           {(
             [
@@ -207,8 +257,30 @@ export function SubmissionForm({
             </button>
           ))}
         </div>
+        )}
 
-        {mode === "sheet" ? (
+        {lock && (
+          <p className="text-xs text-muted-foreground">
+            This item&apos;s test cases come {lockedSheet ? "from one Google Sheet" : "from an Excel workbook"}, fixed by the first submission. Edit it
+            there and resubmit; extra test cases can go on its existing or new tabs.
+          </p>
+        )}
+
+        {mode === "sheet" && lockedSheet ? (
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Google Sheet for this item</Label>
+            <a
+              href={lock!.sheetUrl ?? "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex max-w-full items-center gap-1.5 truncate rounded-md border border-zinc-200 bg-muted/40 px-2.5 py-1.5 text-xs font-medium hover:bg-muted dark:border-zinc-700"
+            >
+              <RiGoogleLine className="size-3.5 shrink-0" />
+              <span className="truncate">{lock!.sheetUrl}</span>
+              <RiExternalLinkLine className="size-3 shrink-0 opacity-60" />
+            </a>
+          </div>
+        ) : mode === "sheet" ? (
           <div className="space-y-1">
             <Label htmlFor="sheet-url" className="text-xs text-muted-foreground">
               Link to the Google Sheet (a link to the specific tab selects it)
@@ -230,7 +302,21 @@ export function SubmissionForm({
           </div>
         ) : (
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Excel file (.xlsx, up to 4 MB — larger sheets: use a Google Sheet link)</Label>
+            {lock?.currentFile && (
+              <a
+                href={`/api/test-cases/files/${lock.currentFile.id}`}
+                title={lock.currentFile.fileName}
+                className="mb-1 inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+              >
+                <RiDownload2Line className="size-3.5" />
+                Download current workbook
+              </a>
+            )}
+            <Label className="text-xs text-muted-foreground">
+              {lock
+                ? "Upload the revised workbook (.xlsx, up to 4 MB). It becomes the item's current sheet; earlier rounds stay downloadable."
+                : "Excel file (.xlsx, up to 4 MB — larger sheets: use a Google Sheet link)"}
+            </Label>
             <div className="flex items-center gap-2">
               <input
                 ref={fileInput}
@@ -257,7 +343,7 @@ export function SubmissionForm({
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" size="sm" onClick={() => validate(result?.selectedTab)} disabled={!hasInput || busy !== null}>
+          <Button type="button" size="sm" onClick={() => validate(ticked)} disabled={!hasInput || busy !== null}>
             {busy === "validate" ? <RiLoader4Line className="size-3.5 animate-spin" /> : null}
             {busy === "validate" ? "Reading…" : result ? "Validate again" : "Validate"}
           </Button>
@@ -285,32 +371,30 @@ export function SubmissionForm({
           </div>
         )}
 
-        {result && result.tabs.filter((t) => !t.hidden).length > 0 && (
-          <div className="space-y-1">
-            <Label htmlFor="tc-tab" className="text-xs text-muted-foreground">
-              Tab that holds {issue.jiraKey}&apos;s test cases
-            </Label>
-            <select
-              id="tc-tab"
-              value={result.selectedTab ?? ""}
-              onChange={(e) => e.target.value && validate(e.target.value)}
-              disabled={busy !== null}
-              className="h-8 w-full max-w-md rounded-md border border-input bg-background px-2 text-xs"
-            >
-              {!result.selectedTab && <option value="">Choose a tab…</option>}
-              {result.tabs
-                .filter((t) => !t.hidden)
-                .map((t) => (
-                  <option key={t.title} value={t.title}>
-                    {t.title}
-                    {t.suggested ? "  (suggested)" : ""}
-                  </option>
-                ))}
-            </select>
-          </div>
+        {result && result.tabs.some((t) => !t.hidden) && (
+          <TabPicker
+            tabs={result.tabs.filter((t) => !t.hidden)}
+            selected={selectedTabs}
+            onToggle={toggleTab}
+            filter={tabFilter}
+            onFilter={setTabFilter}
+            itemKey={issue.jiraKey}
+            disabled={busy !== null}
+          />
         )}
 
-        {preview && <PreviewPanel preview={preview} />}
+        {result && result.missingPrevious.length > 0 && (
+          <p className="rounded-md bg-amber-50 p-2 text-[11px] text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+            Tab{result.missingPrevious.length === 1 ? "" : "s"} used in the earlier round {result.missingPrevious.length === 1 ? "is" : "are"} no longer in this
+            source: {result.missingPrevious.join(", ")}. {result.missingPrevious.length === 1 ? "Its" : "Their"} test cases will not be part of this round.
+          </p>
+        )}
+
+        {result && selectedTabs.length > 0 && !previewCurrent && (
+          <p className="text-xs text-amber-700 dark:text-amber-400">Tab selection changed. Validate again to preview it.</p>
+        )}
+
+        {preview && previewCurrent && <PreviewPanel preview={preview} />}
       </section>
 
       {/* 2. Reviewers */}
@@ -320,6 +404,7 @@ export function SubmissionForm({
           Assign who reviews and approves these test cases. At least one is required, and it can&apos;t be you.
         </p>
         <ReviewerPicker value={reviewers} onChange={setReviewers} disabledEmail={committerEmail} />
+        {initialReviewers.length > 0 && <CarryOverHint previous={initialReviewers} current={reviewers} />}
       </section>
 
       {/* 3. Notes */}
@@ -339,8 +424,10 @@ export function SubmissionForm({
                 ? "Validate the test cases first."
                 : !preview.canCommit
                   ? "Fix the errors above first."
-                  : !result?.selectedTab
-                    ? "Choose a tab."
+                  : !previewCurrent
+                    ? "Validate the selected tabs first."
+                  : selectedTabs.length === 0
+                    ? "Choose at least one tab."
                     : reviewers.length === 0
                       ? "Add at least one reviewer."
                       : ""}
@@ -356,6 +443,79 @@ export function SubmissionForm({
   );
 }
 
+function TabPicker({
+  tabs,
+  selected,
+  onToggle,
+  filter,
+  onFilter,
+  itemKey,
+  disabled,
+}: {
+  tabs: SourceTabInfo[];
+  selected: string[];
+  onToggle: (title: string) => void;
+  filter: string;
+  onFilter: (v: string) => void;
+  itemKey: string;
+  disabled: boolean;
+}) {
+  const shown = tabs.filter((t) => !filter.trim() || t.title.toLowerCase().includes(filter.trim().toLowerCase()) || selected.includes(t.title));
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Label className="text-xs text-muted-foreground">
+          Tabs that hold {itemKey}&apos;s test cases — tick every tab that belongs to this item ({selected.length} of at most {MAX_TABS_PER_ITEM})
+        </Label>
+        {tabs.length > 8 && (
+          <Input value={filter} onChange={(e) => onFilter(e.target.value)} placeholder="Filter tabs…" className="h-7 w-44 text-xs" aria-label="Filter tabs" />
+        )}
+      </div>
+      <ul className="max-h-48 divide-y divide-zinc-100 overflow-y-auto rounded-lg border border-zinc-200 text-xs dark:divide-zinc-800 dark:border-zinc-800">
+        {shown.map((t) => {
+          const on = selected.includes(t.title);
+          const atLimit = !on && selected.length >= MAX_TABS_PER_ITEM;
+          return (
+            <li key={t.title}>
+              <label className={cn("flex cursor-pointer items-center gap-2 px-2.5 py-1.5 hover:bg-muted/50", atLimit && "cursor-not-allowed opacity-50")}>
+                <input type="checkbox" checked={on} disabled={disabled || atLimit} onChange={() => onToggle(t.title)} className="size-3.5" />
+                <span className="min-w-0 flex-1 truncate" title={t.title}>{t.title}</span>
+                {t.previous && <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">in earlier round</span>}
+                {t.suggested && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">suggested</span>}
+              </label>
+            </li>
+          );
+        })}
+        {shown.length === 0 && <li className="px-2.5 py-2 text-muted-foreground">No tab matches.</li>}
+      </ul>
+    </div>
+  );
+}
+
+/** What happens to each reviewer's earlier decision when this round is committed. */
+function CarryOverHint({ previous, current }: { previous: PreviousReviewer[]; current: Reviewer[] }) {
+  const prev = new Map(previous.map((p) => [p.email.toLowerCase(), p]));
+  const label = (r: Reviewer) => r.name ?? r.email;
+  const stays: string[] = [];
+  const redo: string[] = [];
+  const fresh: string[] = [];
+  for (const r of current) {
+    const p = prev.get(r.email.toLowerCase());
+    if (!p) fresh.push(label(r));
+    else if (p.state === "approved" || p.state === "overridden") stays.push(label(r));
+    else if (p.state === "changes_requested" || p.state === "re_review") redo.push(label(r));
+    else fresh.push(label(r));
+  }
+  if (stays.length + redo.length === 0) return null;
+  return (
+    <ul className="space-y-0.5 rounded-md bg-muted/40 p-2 text-[11px] text-muted-foreground">
+      {stays.length > 0 && <li>Earlier approval stands: <span className="font-medium text-foreground">{stays.join(", ")}</span></li>}
+      {redo.length > 0 && <li>Asked for changes, will be asked to re-review: <span className="font-medium text-foreground">{redo.join(", ")}</span></li>}
+      {fresh.length > 0 && <li>Not reviewed yet: <span className="font-medium text-foreground">{fresh.join(", ")}</span></li>}
+    </ul>
+  );
+}
+
 function PreviewPanel({ preview }: { preview: Preview }) {
   if (!preview.ok) {
     return (
@@ -366,17 +526,39 @@ function PreviewPanel({ preview }: { preview: Preview }) {
   }
   const categories = Object.entries(preview.categorySplit) as [TcCategory, number][];
   const polarities = Object.entries(preview.polaritySplit) as [TcPolarity, number][];
+  const multi = preview.tabs.length > 1;
   return (
     <div className="space-y-3 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="inline-flex items-center gap-1 font-semibold text-foreground">
           <RiCheckboxCircleLine className="size-4 text-emerald-600" />
-          {preview.caseCount} test case{preview.caseCount === 1 ? "" : "s"} found
+          {preview.caseCount} test case{preview.caseCount === 1 ? "" : "s"} found{multi ? ` across ${preview.tabs.length} tabs` : ""}
         </span>
-        <span className="text-muted-foreground">layout {preview.layout}</span>
         {preview.errorCount > 0 && <span className="font-semibold text-red-600">{preview.errorCount} error{preview.errorCount === 1 ? "" : "s"}</span>}
         {preview.warningCount > 0 && <span className="font-semibold text-amber-600">{preview.warningCount} warning{preview.warningCount === 1 ? "" : "s"}</span>}
       </div>
+
+      {multi && (
+        <table className="w-full border-collapse text-[11px]">
+          <thead>
+            <tr className="border-b border-zinc-200 text-left text-muted-foreground dark:border-zinc-800">
+              {["Tab", "Test cases", "Sections", "Errors"].map((h) => (
+                <th key={h} className="px-2 py-1 font-semibold uppercase tracking-wide">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {preview.tabs.map((t) => (
+              <tr key={t.title} className="border-b border-zinc-100 dark:border-zinc-800/60">
+                <td className="max-w-[260px] truncate px-2 py-1" title={t.title}>{t.title}</td>
+                <td className="px-2 py-1 tabular-nums">{t.caseCount}</td>
+                <td className="px-2 py-1 tabular-nums">{t.sections.length}</td>
+                <td className={cn("px-2 py-1 tabular-nums", t.errorCount > 0 && "font-semibold text-red-600")}>{t.errorCount}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
 
       <div className="flex flex-wrap gap-1.5">
         {polarities.map(([t, n]) => (
@@ -391,11 +573,9 @@ function PreviewPanel({ preview }: { preview: Preview }) {
         ))}
       </div>
 
-      {preview.sections.length > 1 && (
+      {preview.tabs.some((t) => t.sections.length > 1) && (
         <p className="text-[11px] text-muted-foreground">
-          {preview.sections.length} sections:{" "}
-          {preview.sections.map((s) => `${s.title ?? `Section ${s.no}`} (${s.caseCount})`).join(" · ")}. IDs restart in each section, so
-          results are matched by section + ID.
+          Some tabs have several sections whose IDs restart, so results are matched by tab + section + ID.
         </p>
       )}
 
@@ -416,6 +596,7 @@ function PreviewPanel({ preview }: { preview: Preview }) {
         <ul className="max-h-40 space-y-0.5 overflow-y-auto text-[11px]">
           {preview.issues.map((i, idx) => (
             <li key={idx} className={i.severity === "error" ? "text-red-600" : "text-amber-700 dark:text-amber-400"}>
+              {multi ? `${i.tab}: ` : ""}
               {i.row ? `Row ${i.row}: ` : ""}
               {i.message}
             </li>
@@ -427,14 +608,15 @@ function PreviewPanel({ preview }: { preview: Preview }) {
         <table className="w-full min-w-[640px] border-collapse text-[11px]">
           <thead>
             <tr className="border-b border-zinc-200 text-left text-muted-foreground dark:border-zinc-800">
-              {["ID", "Title", "Category", "Polarity", "Priority", "Dev", "Tester"].map((h) => (
+              {[...(multi ? ["Tab"] : []), "ID", "Title", "Category", "Polarity", "Priority", "Dev", "Tester"].map((h) => (
                 <th key={h} className="px-2 py-1 font-semibold uppercase tracking-wide">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {preview.rows.map((r) => (
-              <tr key={`${r.section ?? ""}/${r.tcId}`} className="border-b border-zinc-100 dark:border-zinc-800/60">
+              <tr key={`${r.tab}/${r.section ?? ""}/${r.tcId}`} className="border-b border-zinc-100 dark:border-zinc-800/60">
+                {multi && <td className="max-w-[120px] truncate px-2 py-1" title={r.tab}>{r.tab}</td>}
                 <td className="px-2 py-1 font-mono">{r.tcId}</td>
                 <td className="max-w-[320px] truncate px-2 py-1" title={r.title}>{r.title}</td>
                 <td className="px-2 py-1">{TC_CATEGORY_LABELS[r.category]}</td>

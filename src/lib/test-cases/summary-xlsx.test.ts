@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import ExcelJS from "exceljs";
 import { computeSetStats, type AnalyticsCase } from "./analytics";
 import { buildSummaryXlsx } from "./summary-xlsx";
+import { EMPTY_FEEDBACK } from "./feedback-stats";
 
 const mk = (id: string, over: Partial<AnalyticsCase> = {}): AnalyticsCase => ({
   tcCode: id, title: `Case ${id}`, steps: "do it", expected: "works", priority: "P1", severity: "high",
@@ -20,7 +21,7 @@ test("the workbook carries the headline numbers, splits, sign-offs and every cas
   const cases = [mk("TC-01"), mk("TC-02", { devResult: "fail", polarity: "negative" }), mk("TC-03", { devResult: "not_run" })];
   const stats = computeSetStats({
     cases, roundStatus: "approved", reviewersTotal: 1, reviewersApproved: 1,
-    hasDevSignoff: true, hasTesterSignoff: false, feedbackTotal: 2, feedbackOpen: 1, roundCount: 1,
+    hasDevSignoff: true, hasTesterSignoff: false, feedback: EMPTY_FEEDBACK, roundCount: 1,
   });
   const buf = await buildSummaryXlsx({
     issueKey: "CT-1", issueSummary: "=HYPERLINK(\"x\")", projectName: "P", roundLabel: "Round 1", generatedAt: "now", stats,
@@ -55,7 +56,7 @@ test("the workbook carries the headline numbers, splits, sign-offs and every cas
 test("a value that would be a formula is escaped", async () => {
   const stats = computeSetStats({
     cases: [mk("TC-01")], roundStatus: "in_review", reviewersTotal: 0, reviewersApproved: 0,
-    hasDevSignoff: false, hasTesterSignoff: false, feedbackTotal: 0, feedbackOpen: 0, roundCount: 1,
+    hasDevSignoff: false, hasTesterSignoff: false, feedback: EMPTY_FEEDBACK, roundCount: 1,
   });
   const buf = await buildSummaryXlsx({
     issueKey: "CT-1", issueSummary: "s", projectName: "=cmd", roundLabel: "R", generatedAt: "n", stats, trend: [], signoffs: [],

@@ -1,5 +1,5 @@
 // Reading an uploaded workbook and writing the per-round snapshot. Only the
-// chosen tab is ever kept: the team's workbooks hold many features, and a
+// chosen tabs are ever kept: the team's workbooks hold many features, and a
 // snapshot for one issue must not carry (and re-expose) the others.
 
 import ExcelJS from "exceljs";
@@ -59,38 +59,60 @@ export function safeSheetName(name: string): string {
   return cleaned || "Test Cases";
 }
 
-/** A fresh single-tab workbook holding exactly the committed values. */
-export async function buildSnapshotXlsx(args: {
-  tabTitle: string;
+/**
+ * Sheet names for a snapshot: legal, at most 31 characters, and distinct (two
+ * long Google tab titles can collapse to the same 31 characters). Returned in
+ * the order given.
+ */
+export function uniqueSheetNames(titles: string[]): string[] {
+  const used = new Set<string>();
+  return titles.map((title) => {
+    const base = safeSheetName(title);
+    let name = base;
+    for (let n = 2; used.has(name.toLowerCase()); n++) {
+      const suffix = ` (${n})`;
+      name = base.slice(0, 31 - suffix.length).trimEnd() + suffix;
+    }
+    used.add(name.toLowerCase());
+    return name;
+  });
+}
+
+export type SnapshotTab = {
+  title: string;
   grid: unknown[][];
   /** 1-based header row inside the grid. */
   headerRow: number;
-}): Promise<Buffer> {
-  const rows = trimGrid(args.grid);
+};
+
+/** A fresh workbook holding exactly the committed values of the item's chosen tabs, nothing else. */
+export async function buildSnapshotXlsx(args: { tabs: SnapshotTab[] }): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = "Flux";
   wb.created = new Date();
-  const ws = wb.addWorksheet(safeSheetName(args.tabTitle), {
-    views: [{ state: "frozen", ySplit: args.headerRow }],
-  });
+  const names = uniqueSheetNames(args.tabs.map((t) => t.title));
 
-  rows.forEach((r) => ws.addRow(r));
+  args.tabs.forEach((tab, i) => {
+    const rows = trimGrid(tab.grid);
+    const ws = wb.addWorksheet(names[i], { views: [{ state: "frozen", ySplit: tab.headerRow }] });
+    rows.forEach((r) => ws.addRow(r));
 
-  const widths = rows[0]?.map((_, c) =>
-    Math.min(60, Math.max(10, ...rows.slice(0, 200).map((r) => Math.min(60, (r[c] ?? "").split("\n")[0].length)))),
-  );
-  widths?.forEach((w, i) => (ws.getColumn(i + 1).width = w));
+    const widths = rows[0]?.map((_, c) =>
+      Math.min(60, Math.max(10, ...rows.slice(0, 200).map((r) => Math.min(60, (r[c] ?? "").split("\n")[0].length)))),
+    );
+    widths?.forEach((w, c) => (ws.getColumn(c + 1).width = w));
 
-  ws.eachRow((row, n) => {
-    row.eachCell((cell) => {
-      cell.alignment = { vertical: "top", wrapText: true };
-    });
-    if (n === args.headerRow) {
+    ws.eachRow((row, n) => {
       row.eachCell((cell) => {
-        cell.font = { bold: true };
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE5E7EB" } };
+        cell.alignment = { vertical: "top", wrapText: true };
       });
-    }
+      if (n === tab.headerRow) {
+        row.eachCell((cell) => {
+          cell.font = { bold: true };
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE5E7EB" } };
+        });
+      }
+    });
   });
 
   return Buffer.from(await wb.xlsx.writeBuffer());

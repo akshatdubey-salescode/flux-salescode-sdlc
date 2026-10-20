@@ -6,12 +6,10 @@ import Link from "next/link";
 import {
   RiCheckboxCircleLine,
   RiErrorWarningLine,
-  RiFileExcel2Line,
   RiGoogleLine,
   RiLoader4Line,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -22,8 +20,7 @@ import { invalidateTcSummaries } from "./tc-summary-cache";
 type PreviewResponse = {
   sheetUrl: string | null;
   sheetTitle: string | null;
-  tabs: { title: string; hidden: boolean; suggested: boolean }[];
-  selectedTab: string | null;
+  selectedTabs: string[];
   preview: SignoffPreview | null;
   error?: string;
 };
@@ -40,6 +37,7 @@ export function SignoffForm({
   role,
   returnTo,
   cancelHref,
+  lock,
 }: {
   issue: { id: string; jiraKey: string; summary: string };
   roundId: string;
@@ -48,20 +46,22 @@ export function SignoffForm({
   /** Where the user came from; carried on to the details page after submitting. */
   returnTo: string | null;
   cancelHref: string;
+  /** The item's fixed source and the tabs of the latest round, which sign-off reads. */
+  lock: { source: "google_sheet" | "xlsx"; sheetUrl: string | null; tabs: string[] };
 }) {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
-  const [mode, setMode] = useState<"sheet" | "file">("sheet");
-  const [sheetUrl, setSheetUrl] = useState("");
+  // The source is the item's own, so there is no choice and no link to paste.
+  const mode: "sheet" | "file" = lock.source === "xlsx" ? "file" : "sheet";
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<PreviewResponse | null>(null);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState<"validate" | "commit" | null>(null);
   const [error, setError] = useState<FormError | null>(null);
 
-  const hasInput = mode === "sheet" ? sheetUrl.trim().length > 0 : file !== null;
+  const hasInput = mode === "sheet" ? true : file !== null;
   const preview = result?.preview ?? null;
-  const readyToCommit = !!result?.selectedTab && !!preview && !preview.problem && busy === null;
+  const readyToCommit = !!result && result.selectedTabs.length > 0 && !!preview && !preview.problem && busy === null;
 
   const connectHref = useMemo(() => {
     const back = typeof window === "undefined" ? "/test-cases" : window.location.pathname + window.location.search;
@@ -73,22 +73,20 @@ export function SignoffForm({
     setError(null);
   }
 
-  function build(action: "preview" | "commit", tab?: string | null) {
+  function build(action: "preview" | "commit") {
     const fd = new FormData();
     fd.set("role", role);
     fd.set("mode", action);
     fd.set("source", mode === "sheet" ? "google_sheet" : "xlsx");
-    if (mode === "sheet") fd.set("sheetUrl", sheetUrl.trim());
-    else if (file) fd.set("file", file);
-    if (tab) fd.set("tab", tab);
+    if (mode === "file" && file) fd.set("file", file);
     return fd;
   }
 
-  async function validate(tab?: string | null) {
+  async function validate() {
     setBusy("validate");
     setError(null);
     try {
-      const res = await fetch(`/api/test-cases/rounds/${roundId}/signoff`, { method: "POST", body: build("preview", tab) });
+      const res = await fetch(`/api/test-cases/rounds/${roundId}/signoff`, { method: "POST", body: build("preview") });
       const data = await res.json();
       if (!res.ok) {
         setResult(null);
@@ -105,11 +103,11 @@ export function SignoffForm({
   }
 
   async function commit() {
-    if (!readyToCommit || !result?.selectedTab) return;
+    if (!readyToCommit) return;
     setBusy("commit");
     setError(null);
     try {
-      const fd = build("commit", result.selectedTab);
+      const fd = build("commit");
       if (notes.trim()) fd.set("notes", notes.trim());
       const res = await fetch(`/api/test-cases/rounds/${roundId}/signoff`, { method: "POST", body: fd });
       const data = await res.json();
@@ -121,7 +119,6 @@ export function SignoffForm({
       // Next keeps this page's state on return, so clear it.
       setResult(null);
       setFile(null);
-      setSheetUrl("");
       setNotes("");
       invalidateTcSummaries();
       router.push(withReturnTo(data.detailUrl as string, returnTo));
@@ -150,46 +147,22 @@ export function SignoffForm({
 
       <section className="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <h2 className="text-sm font-semibold text-foreground">1. Results sheet</h2>
-        <div className="inline-flex rounded-md border border-zinc-200 p-0.5 dark:border-zinc-800" role="tablist">
-          {(
-            [
-              ["sheet", "Google Sheet link", RiGoogleLine],
-              ["file", "Excel file", RiFileExcel2Line],
-            ] as const
-          ).map(([m, label, Icon]) => (
-            <button
-              key={m}
-              type="button"
-              role="tab"
-              aria-selected={mode === m}
-              onClick={() => {
-                setMode(m);
-                resetResult();
-              }}
-              className={cn(
-                "inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-xs font-semibold transition-colors",
-                mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
-              )}
-            >
-              <Icon className="size-3.5" />
-              {label}
-            </button>
-          ))}
-        </div>
-
+        <p className="text-xs text-muted-foreground">
+          Tabs read: <span className="font-medium text-foreground">{lock.tabs.join(", ") || "the item's tabs"}</span>
+        </p>
         {mode === "sheet" ? (
           <div className="space-y-1">
-            <Label htmlFor="so-sheet-url" className="text-xs text-muted-foreground">Link to the Google Sheet</Label>
-            <Input
-              id="so-sheet-url"
-              value={sheetUrl}
-              onChange={(e) => {
-                setSheetUrl(e.target.value);
-                resetResult();
-              }}
-              placeholder="https://docs.google.com/spreadsheets/d/…"
-              className="text-xs"
-            />
+            <Label className="text-xs text-muted-foreground">This item&apos;s Google Sheet (the same one the test cases came from)</Label>
+            <a
+              href={lock.sheetUrl ?? "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex max-w-full items-center gap-1.5 truncate rounded-md border border-zinc-200 bg-muted/40 px-2.5 py-1.5 text-xs font-medium hover:bg-muted dark:border-zinc-700"
+            >
+              <RiGoogleLine className="size-3.5 shrink-0" />
+              <span className="truncate">{lock.sheetUrl}</span>
+            </a>
+            <p className="text-[11px] text-muted-foreground">Fill your status column in the sheet, then read it here. Flux reads the sheet as you.</p>
           </div>
         ) : (
           <div className="space-y-1">
@@ -218,7 +191,7 @@ export function SignoffForm({
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" size="sm" onClick={() => validate(result?.selectedTab)} disabled={!hasInput || busy !== null}>
+          <Button type="button" size="sm" onClick={() => validate()} disabled={!hasInput || busy !== null}>
             {busy === "validate" ? <RiLoader4Line className="size-3.5 animate-spin" /> : null}
             {busy === "validate" ? "Reading…" : result ? "Validate again" : "Validate"}
           </Button>
@@ -240,24 +213,6 @@ export function SignoffForm({
           </div>
         )}
 
-        {result && result.tabs.filter((t) => !t.hidden).length > 0 && (
-          <div className="space-y-1">
-            <Label htmlFor="so-tab" className="text-xs text-muted-foreground">Tab that holds {issue.jiraKey}&apos;s test cases</Label>
-            <select
-              id="so-tab"
-              value={result.selectedTab ?? ""}
-              onChange={(e) => e.target.value && validate(e.target.value)}
-              disabled={busy !== null}
-              className="h-8 w-full max-w-md rounded-md border border-input bg-background px-2 text-xs"
-            >
-              {!result.selectedTab && <option value="">Choose a tab…</option>}
-              {result.tabs.filter((t) => !t.hidden).map((t) => (
-                <option key={t.title} value={t.title}>{t.title}{t.suggested ? "  (suggested)" : ""}</option>
-              ))}
-            </select>
-          </div>
-        )}
-
         {preview && <PreviewBox preview={preview} />}
       </section>
 
@@ -271,7 +226,7 @@ export function SignoffForm({
         <div className="flex items-center gap-3">
           {!readyToCommit && busy === null && (
             <span className="text-[11px] text-muted-foreground">
-              {!preview ? "Validate the sheet first." : (preview.problem ?? (!result?.selectedTab ? "Choose a tab." : ""))}
+              {!preview ? "Validate the sheet first." : (preview.problem ?? "")}
             </span>
           )}
           <Button type="button" onClick={commit} disabled={!readyToCommit}>

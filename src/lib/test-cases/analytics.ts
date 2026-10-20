@@ -4,6 +4,7 @@
 // set (tc_set_stats) so every surface reads the same numbers. Weights and
 // thresholds are the constants below — change them here, nowhere else.
 
+import type { FeedbackSummary } from "./feedback-stats";
 import type { TcCategory, TcPolarity, TcPriority, TcResult, TcRoundStatus, TcSeverity } from "./values";
 
 // ---------------------------------------------------------------------------
@@ -85,8 +86,8 @@ export type SetInput = {
   reviewersApproved: number;
   hasDevSignoff: boolean;
   hasTesterSignoff: boolean;
-  feedbackTotal: number;
-  feedbackOpen: number;
+  /** Everything the review has produced, across all rounds. */
+  feedback: FeedbackSummary;
   roundCount: number;
 };
 
@@ -104,8 +105,10 @@ export type SetStats = {
   reviewersApproved: number;
   roundStatus: TcRoundStatus;
   roundCount: number;
+  /** Feedback raised (comments + change requests, all rounds) and still open (unresolved comments + standing change requests). */
   feedbackTotal: number;
   feedbackOpen: number;
+  feedback: FeedbackSummary;
   quality: number;
   qualityComponents: QualityComponents;
   executionScore: number;
@@ -263,6 +266,8 @@ export function deliveryReadiness(args: {
   quality: number;
   execution: number;
   roundApproved: boolean;
+  /** Why the round is not approved, for the cap's explanation. */
+  notApprovedWhy?: string;
   signoffs: number;
   failedHighRisk: boolean;
   blockedP1: boolean;
@@ -280,7 +285,7 @@ export function deliveryReadiness(args: {
   };
   if (args.signoffs === 0) cap(CAPS.noSignoff, "No dev or tester sign-off yet");
   else if (args.signoffs === 1) cap(CAPS.oneSignoff, "Only one of dev / tester has signed off");
-  if (!args.roundApproved) cap(CAPS.notApproved, "Test cases not approved by a reviewer");
+  if (!args.roundApproved) cap(CAPS.notApproved, args.notApprovedWhy ?? "Test cases not approved by a reviewer");
   if (args.failedHighRisk) cap(CAPS.failedP1OrCritical, "A P1 or critical test case failed");
   if (args.blockedP1) cap(CAPS.blockedP1, "A P1 test case is blocked");
 
@@ -324,11 +329,19 @@ export function computeSetStats(input: SetInput): SetStats {
   const failedHighRisk = effectiveResults.some(({ c, r }) => r === "fail" && (c.priority === "P1" || c.severity === "critical"));
   const blockedP1 = effectiveResults.some(({ c, r }) => r === "blocked" && c.priority === "P1");
 
+  const fb = input.feedback;
+  const notApprovedWhy =
+    input.roundStatus === "changes_requested"
+      ? "Reviewer changes are outstanding: resubmit the test cases"
+      : fb.awaitingReReview > 0
+        ? "A reviewer who asked for changes has not re-reviewed the resubmission"
+        : undefined;
   const verdict = deliveryReadiness({
     tcCount: n,
     quality,
     execution,
     roundApproved: input.roundStatus === "approved",
+    notApprovedWhy,
     signoffs: Number(input.hasDevSignoff) + Number(input.hasTesterSignoff),
     failedHighRisk,
     blockedP1,
@@ -350,8 +363,9 @@ export function computeSetStats(input: SetInput): SetStats {
     reviewersApproved: input.reviewersApproved,
     roundStatus: input.roundStatus,
     roundCount: input.roundCount,
-    feedbackTotal: input.feedbackTotal,
-    feedbackOpen: input.feedbackOpen,
+    feedbackTotal: fb.raised,
+    feedbackOpen: fb.openComments + fb.blockingReviewers,
+    feedback: fb,
     quality,
     qualityComponents: { ...structural, changesRequestedPenalty: penalty, basis: "estimated" },
     executionScore: execution,

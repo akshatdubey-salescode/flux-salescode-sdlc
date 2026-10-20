@@ -15,6 +15,7 @@ import {
   type SetInput,
 } from "./analytics";
 import type { TcResult } from "./values";
+import { EMPTY_FEEDBACK } from "./feedback-stats";
 
 const tc = (over: Partial<AnalyticsCase> = {}): AnalyticsCase => ({
   tcCode: "TC_001",
@@ -37,8 +38,7 @@ const set = (cases: AnalyticsCase[], over: Partial<SetInput> = {}): SetInput => 
   reviewersApproved: 1,
   hasDevSignoff: false,
   hasTesterSignoff: false,
-  feedbackTotal: 0,
-  feedbackOpen: 0,
+  feedback: EMPTY_FEEDBACK,
   roundCount: 1,
   ...over,
 });

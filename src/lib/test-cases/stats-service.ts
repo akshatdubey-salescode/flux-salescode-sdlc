@@ -3,15 +3,15 @@
 // chips, hover cards, details page and TC Board all read one stored result
 // instead of each re-deriving it.
 
-import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";
+import { asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { tcCases, tcResults, tcReviewComments, tcReviewers, tcRounds, tcSetStats, tcSets, tcSignoffs } from "@/lib/db/schema";
 import { computeSetStats, type AnalyticsCase, type SetStats } from "./analytics";
+import { summariseFeedback, type FeedbackEvent, type ReviewerNow } from "./feedback-stats";
 import type { TcResult } from "./values";
 
 type RoundRow = typeof tcRounds.$inferSelect;
 
-/** Stats for one round, from its cases, reviewers, feedback and that round's sign-offs. */
 /**
  * The latest dev and tester sign-off for a round (a re-submission replaces the
  * earlier one) with each case's recorded result. A role that has not signed
@@ -31,21 +31,48 @@ export async function loadLatestSignoffResults(roundId: string) {
   return { hasDev: !!latestDev, hasTester: !!latestTester, dev: byCase(latestDev?.id), tester: byCase(latestTester?.id) };
 }
 
-/** Stats for one round, from its cases, reviewers, feedback and that round's sign-offs. */
-async function statsForRound(round: RoundRow, roundCount: number): Promise<SetStats> {
-  const [cases, reviewers, signoff, [feedback]] = await Promise.all([
+/** The whole review thread of a set and each round's reviewers, loaded once and sliced per round. */
+type FeedbackInputs = { events: FeedbackEvent[]; reviewersByRound: Map<number, ReviewerNow[]> };
+
+async function loadFeedbackInputs(setId: string): Promise<FeedbackInputs> {
+  const [commentRows, reviewerRows] = await Promise.all([
+    db
+      .select({ c: tcReviewComments, roundNo: tcRounds.roundNo })
+      .from(tcReviewComments)
+      .innerJoin(tcRounds, eq(tcRounds.id, tcReviewComments.roundId))
+      .where(eq(tcRounds.setId, setId)),
+    db
+      .select({ r: tcReviewers, roundNo: tcRounds.roundNo })
+      .from(tcReviewers)
+      .innerJoin(tcRounds, eq(tcRounds.id, tcReviewers.roundId))
+      .where(eq(tcRounds.setId, setId)),
+  ]);
+  const events: FeedbackEvent[] = commentRows.map(({ c, roundNo }) => ({
+    roundNo,
+    kind: c.kind,
+    source: (c.source === "llm" || c.source === "system" ? c.source : "reviewer"),
+    authorEmail: c.authorEmail,
+    authorName: c.authorName,
+    resolved: c.resolved,
+    waived: c.waived,
+  }));
+  const reviewersByRound = new Map<number, ReviewerNow[]>();
+  for (const { r, roundNo } of reviewerRows) {
+    const list = reviewersByRound.get(roundNo) ?? [];
+    list.push({ email: r.email, name: r.name, state: r.state });
+    reviewersByRound.set(roundNo, list);
+  }
+  return { events, reviewersByRound };
+}
+
+/** Stats for one round, from its cases, reviewers, the review thread up to that round, and that round's sign-offs. */
+async function statsForRound(round: RoundRow, fb: FeedbackInputs): Promise<SetStats> {
+  const [cases, signoff] = await Promise.all([
     db.select().from(tcCases).where(eq(tcCases.roundId, round.id)).orderBy(asc(tcCases.rowNo)),
-    db.select({ state: tcReviewers.state }).from(tcReviewers).where(eq(tcReviewers.roundId, round.id)),
     // Sign-offs of THIS round only: a new round starts unsigned.
     loadLatestSignoffResults(round.id),
-    db
-      .select({
-        total: count(),
-        open: sql<number>`count(*) filter (where ${tcReviewComments.resolved} = false)`,
-      })
-      .from(tcReviewComments)
-      .where(and(eq(tcReviewComments.roundId, round.id), eq(tcReviewComments.kind, "comment"))),
   ]);
+  const reviewers = fb.reviewersByRound.get(round.roundNo) ?? [];
 
   const analyticsCases: AnalyticsCase[] = cases.map((c) => ({
     tcCode: c.tcCode,
@@ -68,9 +95,13 @@ async function statsForRound(round: RoundRow, roundCount: number): Promise<SetSt
     reviewersApproved: reviewers.filter((r) => r.state === "approved").length,
     hasDevSignoff: signoff.hasDev,
     hasTesterSignoff: signoff.hasTester,
-    feedbackTotal: Number(feedback?.total ?? 0),
-    feedbackOpen: Number(feedback?.open ?? 0),
-    roundCount,
+    feedback: summariseFeedback({
+      events: fb.events.filter((e) => e.roundNo <= round.roundNo),
+      reviewersNow: reviewers,
+      roundCount: round.roundNo,
+      latestRoundNo: round.roundNo,
+    }),
+    roundCount: round.roundNo,
   });
 }
 
@@ -85,7 +116,7 @@ export async function recomputeSetStats(setId: string): Promise<SetStats | null>
     return null;
   }
 
-  const stats = await statsForRound(round, rounds.length);
+  const stats = await statsForRound(round, await loadFeedbackInputs(setId));
   const row = {
     setId,
     issueId: set.issueId,
@@ -108,7 +139,10 @@ export async function recomputeSetStats(setId: string): Promise<SetStats | null>
     reviewersApproved: stats.reviewersApproved,
     feedbackTotal: stats.feedbackTotal,
     feedbackOpen: stats.feedbackOpen,
-    roundCount: stats.roundCount,
+    feedbackWaived: stats.feedback.waived,
+    changeRequestsTotal: stats.feedback.changeRequests,
+    overridesTotal: stats.feedback.overrides,
+    roundCount: rounds.length,
     stats,
     computedAt: new Date(),
   };
@@ -128,9 +162,10 @@ export type RoundTrendPoint = {
 /** One point per round, oldest first, so rounds can be compared on the details page. */
 export async function fetchRoundTrend(setId: string): Promise<RoundTrendPoint[]> {
   const rounds = await db.select().from(tcRounds).where(eq(tcRounds.setId, setId)).orderBy(asc(tcRounds.roundNo));
+  const fb = await loadFeedbackInputs(setId);
   return Promise.all(
     rounds.map(async (r) => {
-      const st = await statsForRound(r, rounds.length);
+      const st = await statsForRound(r, fb);
       return { roundNo: r.roundNo, tcCount: st.tcCount, quality: st.quality, passRate: st.passRate, confidence: st.confidence, status: r.status };
     }),
   );

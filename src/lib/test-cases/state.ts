@@ -5,13 +5,20 @@
 import type { TcReviewerState, TcRoundStatus } from "./values";
 
 /**
- * A round is approved as soon as ONE reviewer approves — the review is "check
- * and approve by one of the assignees", not a unanimous vote. With no approval,
- * an outstanding change request wins; otherwise it is still in review.
+ * How a round's status follows its reviewers.
+ *
+ * - Any outstanding change request wins: the submitter has to fix the sheet and
+ *   resubmit (shown as "Resubmit TCs").
+ * - A reviewer who requested changes and is now waiting to look at the
+ *   resubmission (`re_review`) keeps the round in review until they decide.
+ * - Otherwise ONE approval approves the round — the review is "check and
+ *   approve by one of the assignees", not a unanimous vote. Reviewers whose
+ *   feedback was overridden, or who have not reviewed, don't hold it back.
  */
 export function roundStatusFrom(states: TcReviewerState[]): TcRoundStatus {
-  if (states.includes("approved")) return "approved";
   if (states.includes("changes_requested")) return "changes_requested";
+  if (states.includes("re_review")) return "in_review";
+  if (states.includes("approved")) return "approved";
   return "in_review";
 }
 
@@ -31,6 +38,108 @@ export function canDecide(actor: Actor, reviewers: Person[], isLatestRound: bool
   if (!isLatestRound) return { ok: false, reason: "This round has been superseded by a newer one." };
   if (isReviewer(actor.email, reviewers) || actor.isAdmin) return { ok: true };
   return { ok: false, reason: "Only the assigned reviewers can approve or request changes." };
+}
+
+export type ReviewerRow = { email: string; name?: string | null; state: TcReviewerState };
+
+/**
+ * Approving is blocked while another reviewer's change request is standing: the
+ * sheet has to be resubmitted first (or the feedback overridden). A reviewer can
+ * always change their own mind and approve their own change request.
+ */
+export function canApprove(actor: Actor, reviewers: ReviewerRow[]): Verdict {
+  const blocker = reviewers.find((r) => r.state === "changes_requested" && !eq(r.email, actor.email));
+  if (!blocker) return { ok: true };
+  return {
+    ok: false,
+    reason: `${blocker.name ?? blocker.email} has requested changes. Approval opens once the test cases are resubmitted and they re-review, or the feedback is overridden.`,
+  };
+}
+
+export const MIN_OVERRIDE_REASON = 10;
+
+/** Waiving open feedback needs a reason that says why, in a few words at least. */
+export function validateOverrideReason(reason: unknown): { ok: true; reason: string } | { ok: false; reason: string } {
+  const text = typeof reason === "string" ? reason.trim() : "";
+  if (text.length < MIN_OVERRIDE_REASON) {
+    return { ok: false, reason: `Say why the feedback can be ignored (at least ${MIN_OVERRIDE_REASON} characters).` };
+  }
+  if (text.length > MAX_COMMENT_LENGTH) return { ok: false, reason: `Reasons are limited to ${MAX_COMMENT_LENGTH} characters.` };
+  return { ok: true, reason: text };
+}
+
+/** Any assigned reviewer (or an admin) may override, on the latest round, when there is open feedback to override. */
+export function canOverride(args: {
+  actor: Actor;
+  reviewers: ReviewerRow[];
+  isLatestRound: boolean;
+  openFeedback: boolean;
+}): Verdict {
+  const decide = canDecide(args.actor, args.reviewers, args.isLatestRound);
+  if (!decide.ok) return decide;
+  if (!args.openFeedback) return { ok: false, reason: "There is no open feedback to override. Approve normally." };
+  return { ok: true };
+}
+
+/**
+ * What an override does to the reviewers: the overriding reviewer approves, and
+ * everyone else whose feedback was standing (change request or waiting to
+ * re-review) is marked overridden. The actor is added if an admin overrides
+ * without being a listed reviewer.
+ */
+export function planOverride(reviewers: ReviewerRow[], actorEmail: string): { states: Map<string, TcReviewerState>; overridden: string[] } {
+  const states = new Map<string, TcReviewerState>();
+  const overridden: string[] = [];
+  for (const r of reviewers) {
+    const email = r.email.trim().toLowerCase();
+    if (eq(email, actorEmail)) {
+      states.set(email, "approved");
+    } else if (r.state === "changes_requested" || r.state === "re_review") {
+      states.set(email, "overridden");
+      overridden.push(email);
+    } else {
+      states.set(email, r.state);
+    }
+  }
+  states.set(actorEmail.trim().toLowerCase(), "approved");
+  return { states, overridden };
+}
+
+export type CarriedReviewer = {
+  email: string;
+  name: string | null;
+  state: TcReviewerState;
+  decidedAt: Date | null;
+  decidedRoundNo: number | null;
+};
+
+/**
+ * Reviewer states for a resubmitted round. Only reviewers who had requested
+ * changes must look again (`re_review`); anyone who approved stays approved,
+ * anyone who hadn't reviewed stays pending, overridden stays overridden. New
+ * reviewers start pending, removed ones drop out (their decisions remain in the
+ * history). The decision's own date and round are carried with it.
+ */
+export function applyCarryOver(
+  previous: { email: string; name: string | null; state: TcReviewerState; decidedAt: Date | null; decidedRoundNo: number | null }[],
+  next: { email: string; name: string | null }[],
+): CarriedReviewer[] {
+  const prev = new Map(previous.map((p) => [p.email.trim().toLowerCase(), p]));
+  return next.map((n) => {
+    const email = n.email.trim().toLowerCase();
+    const p = prev.get(email);
+    if (!p) return { email, name: n.name, state: "pending", decidedAt: null, decidedRoundNo: null };
+    const state: TcReviewerState = p.state === "changes_requested" ? "re_review" : p.state;
+    // A request for changes is not carried as a decision: the reviewer is back to deciding.
+    const keepDecision = state === "approved" || state === "overridden";
+    return {
+      email,
+      name: n.name ?? p.name,
+      state,
+      decidedAt: keepDecision ? p.decidedAt : null,
+      decidedRoundNo: keepDecision ? p.decidedRoundNo : null,
+    };
+  });
 }
 
 /** Reviewers, the person who committed the round, and admins can discuss it. */
@@ -76,7 +185,8 @@ export function validateCommentBody(body: unknown): { ok: true; body: string } |
 export type SignoffRole = "dev" | "tester";
 
 /**
- * Sign-off opens only after a reviewer approves the LATEST round. The developer
+ * Sign-off opens only after a reviewer approves the LATEST round and its
+ * feedback is resolved or waived. The developer
  * is the issue's assignee / Dev Owner; the tester is a QA assignee. When the
  * issue has no QA assignee recorded, any non-developer may sign as tester so
  * the process still works for projects that don't fill that field. Admins can
@@ -88,9 +198,17 @@ export function canSignOff(args: {
   people: { dev: string[]; qa: string[] };
   roundApproved: boolean;
   isLatestRound: boolean;
+  /** Unresolved feedback comments on the round; sign-off waits until they are resolved or waived. */
+  openFeedback: number;
 }): Verdict {
   if (!args.isLatestRound) return { ok: false, reason: "This round has been superseded by a newer one." };
   if (!args.roundApproved) return { ok: false, reason: "Sign-off opens once a reviewer approves the test cases." };
+  if (args.openFeedback > 0) {
+    return {
+      ok: false,
+      reason: `Resolve or waive the ${args.openFeedback} open feedback item${args.openFeedback === 1 ? "" : "s"} before signing off.`,
+    };
+  }
   if (args.actor.isAdmin) return { ok: true };
   const email = args.actor.email.trim().toLowerCase();
   const isDev = args.people.dev.includes(email);

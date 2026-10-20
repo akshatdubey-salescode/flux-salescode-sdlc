@@ -2,7 +2,7 @@
 // workbook. Rules (who may do what, how status follows decisions) live in
 // state.ts; this file applies them to Postgres and storage.
 
-import { and, asc, desc, eq, inArray, max } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, max } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   jiraIssues,
@@ -19,12 +19,16 @@ import { buildTcFileName, buildTcS3Key, istDateTime, roundLabel } from "./filena
 import { buildFeedbackXlsx, type FeedbackRow } from "./feedback-xlsx";
 import { recomputeSafely } from "./stats-service";
 import {
+  canApprove,
   canComment,
   canDecide,
+  canOverride,
   canResolve,
+  planOverride,
   roundStatusFrom,
   validateCommentBody,
   validateDecision,
+  validateOverrideReason,
   type Actor,
 } from "./state";
 import type { IssueRef } from "./service";
@@ -113,6 +117,25 @@ async function caseBelongsToRound(caseId: string, roundId: string): Promise<bool
   return !!c;
 }
 
+type TxReviewers = { email: string; name: string | null; state: TcReviewerState }[];
+
+/** The round's reviewers as they are right now (inside the caller's transaction, so the rule is checked on fresh state). */
+async function freshReviewers(tx: Pick<typeof db, "select">, roundId: string): Promise<TxReviewers> {
+  return tx
+    .select({ email: tcReviewers.email, name: tcReviewers.name, state: tcReviewers.state })
+    .from(tcReviewers)
+    .where(eq(tcReviewers.roundId, roundId));
+}
+
+class RuleFailure extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 export async function recordDecision(args: {
   ctx: RoundContext;
   actor: ReviewActor;
@@ -130,31 +153,40 @@ export async function recordDecision(args: {
   const email = actor.email.trim().toLowerCase();
   const now = new Date();
 
-  const status = await db.transaction(async (tx) => {
-    // A listed reviewer's row is updated; an admin deciding without being
-    // listed gets a row so the decision is visible like any other.
-    await tx
-      .insert(tcReviewers)
-      .values({ roundId: ctx.roundId, email, name: actor.name, state: decision, decidedAt: now })
-      .onConflictDoUpdate({
-        target: [tcReviewers.roundId, tcReviewers.email],
-        set: { state: decision, decidedAt: now },
+  let status: TcRoundStatus;
+  try {
+    status = await db.transaction(async (tx) => {
+      // Approving is blocked while another reviewer's change request stands.
+      if (decision === "approved") {
+        const block = canApprove(actor, await freshReviewers(tx, ctx.roundId));
+        if (!block.ok) throw new RuleFailure(403, block.reason);
+      }
+
+      // A listed reviewer's row is updated; an admin deciding without being
+      // listed gets a row so the decision is visible like any other.
+      await tx
+        .insert(tcReviewers)
+        .values({ roundId: ctx.roundId, email, name: actor.name, state: decision, decidedAt: now, decidedRoundNo: ctx.roundNo })
+        .onConflictDoUpdate({
+          target: [tcReviewers.roundId, tcReviewers.email],
+          set: { state: decision, decidedAt: now, decidedRoundNo: ctx.roundNo },
+        });
+      await tx.insert(tcReviewComments).values({
+        roundId: ctx.roundId,
+        kind: decision,
+        body: args.comment.trim(),
+        authorEmail: email,
+        authorName: actor.name,
       });
-    await tx.insert(tcReviewComments).values({
-      roundId: ctx.roundId,
-      kind: decision,
-      body: args.comment.trim(),
-      authorEmail: email,
-      authorName: actor.name,
+      const next = roundStatusFrom((await freshReviewers(tx, ctx.roundId)).map((r) => r.state));
+      await tx.update(tcRounds).set({ status: next }).where(eq(tcRounds.id, ctx.roundId));
+      await tx.update(tcSets).set({ updatedAt: now }).where(eq(tcSets.id, ctx.setId));
+      return next;
     });
-    const states = (
-      await tx.select({ state: tcReviewers.state }).from(tcReviewers).where(eq(tcReviewers.roundId, ctx.roundId))
-    ).map((r) => r.state);
-    const next = roundStatusFrom(states);
-    await tx.update(tcRounds).set({ status: next }).where(eq(tcRounds.id, ctx.roundId));
-    await tx.update(tcSets).set({ updatedAt: now }).where(eq(tcSets.id, ctx.setId));
-    return next;
-  });
+  } catch (err) {
+    if (err instanceof RuleFailure) return { ok: false, status: err.status, error: err.message };
+    throw err;
+  }
 
   await recomputeSafely(ctx.setId);
 
@@ -167,6 +199,98 @@ export async function recordDecision(args: {
     console.error("[test-cases] could not store feedback file:", err);
   }
   return { ok: true, status, feedbackFileId };
+}
+
+/**
+ * A reviewer ignores the open feedback and approves, with a reason. In one
+ * transaction: standing change requests / waiting re-reviews become `overridden`,
+ * unresolved comments are waived, the actor approves, and an `override` entry
+ * records who did it, why and exactly what was waived (it shows in the history).
+ */
+export async function overrideAndApprove(args: {
+  ctx: RoundContext;
+  actor: ReviewActor;
+  reason: unknown;
+}): Promise<{ ok: true; status: TcRoundStatus; waivedComments: number; overriddenReviewers: string[]; feedbackFileId: string | null } | Failure> {
+  const { ctx, actor } = args;
+  const reason = validateOverrideReason(args.reason);
+  if (!reason.ok) return { ok: false, status: 400, error: reason.reason };
+
+  const email = actor.email.trim().toLowerCase();
+  const now = new Date();
+
+  let outcome: { status: TcRoundStatus; waivedComments: number; overridden: { email: string; name: string | null }[] };
+  try {
+    outcome = await db.transaction(async (tx) => {
+      const reviewers = await freshReviewers(tx, ctx.roundId);
+      const [open] = await tx
+        .select({ n: count() })
+        .from(tcReviewComments)
+        .where(and(eq(tcReviewComments.roundId, ctx.roundId), eq(tcReviewComments.kind, "comment"), eq(tcReviewComments.resolved, false)));
+      const standing = reviewers.some((r) => r.state === "changes_requested" || r.state === "re_review");
+      const check = canOverride({ actor, reviewers, isLatestRound: ctx.isLatest, openFeedback: standing || Number(open?.n ?? 0) > 0 });
+      if (!check.ok) throw new RuleFailure(check.reason.startsWith("There is no open") ? 409 : 403, check.reason);
+
+      const plan = planOverride(reviewers, email);
+      for (const [rEmail, state] of plan.states) {
+        const touched = state === "overridden" || rEmail === email;
+        await tx
+          .insert(tcReviewers)
+          .values({
+            roundId: ctx.roundId,
+            email: rEmail,
+            name: rEmail === email ? actor.name : (reviewers.find((r) => r.email === rEmail)?.name ?? null),
+            state,
+            decidedAt: touched ? now : null,
+            decidedRoundNo: touched ? ctx.roundNo : null,
+          })
+          .onConflictDoUpdate({
+            target: [tcReviewers.roundId, tcReviewers.email],
+            set: touched ? { state, decidedAt: now, decidedRoundNo: ctx.roundNo } : { state },
+          });
+      }
+
+      const waived = await tx
+        .update(tcReviewComments)
+        .set({ resolved: true, waived: true, resolvedBy: email, resolvedAt: now })
+        .where(and(eq(tcReviewComments.roundId, ctx.roundId), eq(tcReviewComments.kind, "comment"), eq(tcReviewComments.resolved, false)))
+        .returning({ id: tcReviewComments.id });
+
+      const overridden = plan.overridden.map((o) => ({ email: o, name: reviewers.find((r) => r.email === o)?.name ?? null }));
+      await tx.insert(tcReviewComments).values({
+        roundId: ctx.roundId,
+        kind: "override",
+        body: reason.reason,
+        authorEmail: email,
+        authorName: actor.name,
+        meta: { overriddenReviewers: overridden, waivedComments: waived.length, roundNo: ctx.roundNo },
+      });
+
+      const next = roundStatusFrom([...plan.states.values()]);
+      await tx.update(tcRounds).set({ status: next }).where(eq(tcRounds.id, ctx.roundId));
+      await tx.update(tcSets).set({ updatedAt: now }).where(eq(tcSets.id, ctx.setId));
+      return { status: next, waivedComments: waived.length, overridden };
+    });
+  } catch (err) {
+    if (err instanceof RuleFailure) return { ok: false, status: err.status, error: err.message };
+    throw err;
+  }
+
+  await recomputeSafely(ctx.setId);
+
+  let feedbackFileId: string | null = null;
+  try {
+    feedbackFileId = await storeFeedbackFile(ctx, actor);
+  } catch (err) {
+    console.error("[test-cases] could not store feedback file:", err);
+  }
+  return {
+    ok: true,
+    status: outcome.status,
+    waivedComments: outcome.waivedComments,
+    overriddenReviewers: outcome.overridden.map((o) => o.name ?? o.email),
+    feedbackFileId,
+  };
 }
 
 export async function addComment(args: {
@@ -220,6 +344,15 @@ export async function setCommentResolved(args: {
     .where(eq(tcReviewComments.id, args.commentId));
   await recomputeSafely(ctx.setId);
   return { ok: true, roundId: comment.roundId };
+}
+
+/** Feedback comments on the round that nobody has resolved or waived yet. */
+export async function countOpenFeedback(roundId: string): Promise<number> {
+  const [row] = await db
+    .select({ n: count() })
+    .from(tcReviewComments)
+    .where(and(eq(tcReviewComments.roundId, roundId), eq(tcReviewComments.kind, "comment"), eq(tcReviewComments.resolved, false)));
+  return Number(row?.n ?? 0);
 }
 
 export type FeedbackBundle = { buffer: Buffer; rows: FeedbackRow[] };

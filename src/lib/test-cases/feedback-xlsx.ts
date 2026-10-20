@@ -34,6 +34,7 @@ const KIND_LABEL: Record<TcCommentKind, string> = {
   comment: "Comment",
   approved: "Approved",
   changes_requested: "Changes requested",
+  override: "Override",
 };
 
 export async function buildFeedbackXlsx(args: {

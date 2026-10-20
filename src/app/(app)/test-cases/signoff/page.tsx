@@ -17,6 +17,7 @@ import { SignoffForm } from "@/components/test-cases/signoff-form";
 import { BackLink } from "@/components/test-cases/back-link";
 import { returnLabel, safeReturnTo, withReturnTo } from "@/lib/test-cases/return-to";
 import { getRoundContext } from "@/lib/test-cases/review-service";
+import { getItemLock } from "@/lib/test-cases/lock";
 import { checkSignoffAllowed } from "@/lib/test-cases/signoff-service";
 import { fetchSetDetail, findIssue } from "@/lib/test-cases/service";
 
@@ -37,7 +38,7 @@ export default async function TestCaseSignoffPage({ searchParams }: Props) {
   const issue = lookup.issue;
   const backHref = returnTo ?? `/test-cases/${issue.id}`;
 
-  const detail = await fetchSetDetail(issue.id);
+  const [detail, lock] = await Promise.all([fetchSetDetail(issue.id), getItemLock(issue.id)]);
   const latest = detail?.rounds[0];
   const round = latest ? await getRoundContext(latest.id) : null;
 
@@ -68,9 +69,9 @@ export default async function TestCaseSignoffPage({ searchParams }: Props) {
         </div>
         {!round || !latest ? (
           <p className="mx-auto max-w-xl text-sm text-muted-foreground">No test cases have been submitted for this issue yet.</p>
-        ) : !allowed?.ok ? (
+        ) : !allowed?.ok || !lock ? (
           <div className="mx-auto max-w-xl space-y-2">
-            <p className="text-sm text-destructive">{allowed?.ok === false ? allowed.error : "You cannot sign off."}</p>
+            <p className="text-sm text-destructive">{allowed && !allowed.ok ? allowed.error : "You cannot sign off."}</p>
             
           </div>
         ) : (
@@ -82,6 +83,7 @@ export default async function TestCaseSignoffPage({ searchParams }: Props) {
             role={role}
             returnTo={returnTo}
             cancelHref={backHref}
+            lock={{ source: lock.source, sheetUrl: lock.sheetUrl, tabs: lock.tabs }}
           />
         )}
       </main>

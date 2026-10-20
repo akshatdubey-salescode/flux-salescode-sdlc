@@ -3,11 +3,12 @@ import { revalidateTag } from "next/cache";
 import { isValidUuid, parseOptionalText } from "@/lib/validation";
 import { appOrigin, errorResponse, isResponse, requireTestCasesUser } from "@/lib/test-cases/api";
 import { roundLabel } from "@/lib/test-cases/filenames";
+import { getItemLock } from "@/lib/test-cases/lock";
+import { parseTabs } from "@/lib/test-cases/multi-tab";
 import { buildAssignedEmail, sendEmail } from "@/lib/test-cases/notify";
-import { readSource, type SourceInput } from "@/lib/test-cases/source";
-import { parseSheetGrid } from "@/lib/test-cases/template";
+import { readSource } from "@/lib/test-cases/source";
+import { resolveSourceInput } from "@/lib/test-cases/source-request";
 import { validateReviewers } from "@/lib/test-cases/reviewers";
-import { MAX_XLSX_BYTES } from "@/lib/test-cases/xlsx";
 import { commitRound, findIssue } from "@/lib/test-cases/service";
 
 export const maxDuration = 60;
@@ -15,7 +16,8 @@ export const maxDuration = 60;
 /**
  * Commit step. Everything is re-read and re-parsed here from the original
  * source — the preview the browser showed is never trusted — then the round,
- * its snapshot, the parsed cases and the reviewers are saved.
+ * its snapshot, the parsed cases and the reviewers are saved. The item's source
+ * is fixed by its first submission (see lock.ts); a resubmission must use it.
  */
 export async function POST(req: NextRequest) {
   const user = await requireTestCasesUser();
@@ -34,9 +36,6 @@ export async function POST(req: NextRequest) {
   if (lookup.kind !== "found") return NextResponse.json({ error: "Issue not found." }, { status: 404 });
   const issue = lookup.issue;
 
-  const tab = typeof form.get("tab") === "string" ? (form.get("tab") as string) : "";
-  if (!tab) return NextResponse.json({ error: "Choose the tab that holds this issue's test cases." }, { status: 400 });
-
   let reviewersJson: unknown;
   try {
     reviewersJson = JSON.parse(String(form.get("reviewers") ?? "[]"));
@@ -49,30 +48,27 @@ export async function POST(req: NextRequest) {
   const notes = parseOptionalText(form.get("notes")) ?? null;
   if (notes && notes.length > 2000) return NextResponse.json({ error: "Notes are too long (max 2000 characters)." }, { status: 400 });
 
-  const source = form.get("source");
-  const file = form.get("file");
-  let input: SourceInput;
-  if (source === "xlsx") {
-    if (!(file instanceof File) || file.size === 0) return NextResponse.json({ error: "Attach the .xlsx file." }, { status: 400 });
-    if (file.size > MAX_XLSX_BYTES) return NextResponse.json({ error: "That file is larger than 4 MB. Share it as a Google Sheet link instead." }, { status: 413 });
-    input = { source: "xlsx", file: Buffer.from(await file.arrayBuffer()), tab, jiraKey: issue.jiraKey };
-  } else if (source === "google_sheet") {
-    const sheetUrl = String(form.get("sheetUrl") ?? "").trim();
-    if (!sheetUrl) return NextResponse.json({ error: "Provide the Google Sheet link." }, { status: 400 });
-    input = { source: "google_sheet", userId: user.id, sheetUrl, tab, jiraKey: issue.jiraKey };
-  } else {
-    return NextResponse.json({ error: "source must be google_sheet or xlsx" }, { status: 400 });
+  const lock = await getItemLock(issueId);
+  const resolved = await resolveSourceInput({ form, userId: user.id, jiraKey: issue.jiraKey, lock });
+  if (!resolved.ok) return NextResponse.json({ error: resolved.error, code: resolved.code }, { status: resolved.status });
+  if (!resolved.input.tabs || resolved.input.tabs.length === 0) {
+    return NextResponse.json({ error: "Choose at least one tab that holds this item's test cases." }, { status: 400 });
   }
 
   try {
-    const read = await readSource(input);
-    if (!read.grid || !read.selectedTab) return NextResponse.json({ error: "Choose the tab that holds this issue's test cases." }, { status: 400 });
+    const read = await readSource(resolved.input);
+    if (!read.grids || read.selectedTabs.length === 0) {
+      return NextResponse.json({ error: "Choose at least one tab that holds this item's test cases." }, { status: 400 });
+    }
 
-    const parsed = parseSheetGrid(read.grid);
+    const parsed = parseTabs(read.grids);
     if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
     const errors = parsed.issues.filter((i) => i.severity === "error");
     if (errors.length > 0) {
-      return NextResponse.json({ error: `Fix ${errors.length} error${errors.length === 1 ? "" : "s"} first: ${errors[0].message}` }, { status: 400 });
+      return NextResponse.json(
+        { error: `Fix ${errors.length} error${errors.length === 1 ? "" : "s"} first: ${errors[0].tab}: ${errors[0].message}` },
+        { status: 400 },
+      );
     }
 
     const result = await commitRound({
@@ -81,9 +77,8 @@ export async function POST(req: NextRequest) {
       source: read.source,
       sheetUrl: read.sheetUrl,
       spreadsheetId: read.spreadsheetId,
-      tab: read.selectedTab,
       parsed,
-      grid: read.grid,
+      grids: read.grids,
       reviewers: reviewers.reviewers,
       notes,
     });
@@ -91,10 +86,12 @@ export async function POST(req: NextRequest) {
     revalidateTag("test-cases", "max");
     revalidateTag(`project:${issue.projectId}`, "max");
 
-    // Ask the reviewers to review, after the response: a mail problem must not fail the commit.
+    // Ask only the reviewers who still have to act (new, or asked for changes before),
+    // after the response: a mail problem must not fail the commit.
     const origin = appOrigin(req);
     const committerName = user.name ?? user.email;
     after(async () => {
+      if (result.needsAction.length === 0) return;
       const email = buildAssignedEmail({
         issueKey: issue.jiraKey,
         issueSummary: issue.summary,
@@ -105,7 +102,7 @@ export async function POST(req: NextRequest) {
         tcCount: parsed.cases.length,
         notes,
       });
-      const sent = await sendEmail(reviewers.reviewers.map((r) => r.email), email);
+      const sent = await sendEmail(result.needsAction.map((r) => r.email), email);
       if (!sent.ok) console.warn("[test-cases] reviewer email not sent:", sent.error);
     });
     return NextResponse.json({ ...result, detailUrl: `/test-cases/${issue.id}` }, { status: 201 });

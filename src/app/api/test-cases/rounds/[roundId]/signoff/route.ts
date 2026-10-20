@@ -4,10 +4,11 @@ import { isValidUuid, parseOptionalText } from "@/lib/validation";
 import { errorResponse, isResponse, requireTestCasesUser, toActor } from "@/lib/test-cases/api";
 import { getRoundContext } from "@/lib/test-cases/review-service";
 import { checkSignoffAllowed, commitSignoff, previewSignoff } from "@/lib/test-cases/signoff-service";
-import { readSource, type SourceInput } from "@/lib/test-cases/source";
-import { parseSheetGrid } from "@/lib/test-cases/template";
+import { getItemLock } from "@/lib/test-cases/lock";
+import { parseTabs } from "@/lib/test-cases/multi-tab";
+import { readSource } from "@/lib/test-cases/source";
+import { resolveSourceInput } from "@/lib/test-cases/source-request";
 import { TC_SIGNOFF_ROLE_VALUES } from "@/lib/test-cases/values";
-import { MAX_XLSX_BYTES } from "@/lib/test-cases/xlsx";
 
 export const maxDuration = 60;
 
@@ -44,30 +45,20 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ roundId: s
   const allowed = await checkSignoffAllowed({ ctx: round, actor, role: signRole });
   if (!allowed.ok) return NextResponse.json({ error: allowed.error }, { status: allowed.status });
 
-  const tab = typeof form.get("tab") === "string" && form.get("tab") ? (form.get("tab") as string) : null;
-  const source = form.get("source");
-  const file = form.get("file");
-  let input: SourceInput;
-  if (source === "xlsx") {
-    if (!(file instanceof File) || file.size === 0) return NextResponse.json({ error: "Attach the .xlsx file." }, { status: 400 });
-    if (file.size > MAX_XLSX_BYTES) return NextResponse.json({ error: "That file is larger than 4 MB. Share it as a Google Sheet link instead." }, { status: 413 });
-    input = { source: "xlsx", file: Buffer.from(await file.arrayBuffer()), tab, jiraKey: round.issue.jiraKey };
-  } else if (source === "google_sheet") {
-    const sheetUrl = String(form.get("sheetUrl") ?? "").trim();
-    if (!sheetUrl) return NextResponse.json({ error: "Provide the Google Sheet link." }, { status: 400 });
-    input = { source: "google_sheet", userId: user.id, sheetUrl, tab, jiraKey: round.issue.jiraKey };
-  } else {
-    return NextResponse.json({ error: "source must be google_sheet or xlsx" }, { status: 400 });
-  }
+  // Sign-off reads the item's own source (same sheet link or a workbook with the same tabs)
+  // and exactly the tabs of the latest round; the user chooses neither.
+  const lock = await getItemLock(round.issue.id);
+  if (!lock) return NextResponse.json({ error: "No test cases have been submitted for this item." }, { status: 409 });
+  const resolved = await resolveSourceInput({ form, userId: user.id, jiraKey: round.issue.jiraKey, lock, fixedTabs: lock.tabs });
+  if (!resolved.ok) return NextResponse.json({ error: resolved.error, code: resolved.code }, { status: resolved.status });
 
   try {
-    const read = await readSource(input);
-    const base = { sheetUrl: read.sheetUrl, sheetTitle: read.sheetTitle, tabs: read.tabs, selectedTab: read.selectedTab };
-    if (!read.grid || !read.selectedTab) {
-      if (mode === "commit") return NextResponse.json({ error: "Choose the tab that holds the test cases." }, { status: 400 });
-      return NextResponse.json({ ...base, preview: null });
+    const read = await readSource(resolved.input);
+    const base = { sheetUrl: read.sheetUrl, sheetTitle: read.sheetTitle, tabs: read.tabs, selectedTabs: read.selectedTabs };
+    if (!read.grids || read.selectedTabs.length === 0) {
+      return NextResponse.json({ error: "This item has no tabs to read." }, { status: 400 });
     }
-    const parsed = parseSheetGrid(read.grid);
+    const parsed = parseTabs(read.grids);
     if (!parsed.ok) {
       return mode === "commit"
         ? NextResponse.json({ error: parsed.error }, { status: 400 })
@@ -88,9 +79,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ roundId: s
       source: read.source,
       sheetUrl: read.sheetUrl,
       spreadsheetId: read.spreadsheetId,
-      tab: read.selectedTab,
+      tab: read.selectedTabs.join(", "),
       parsed,
-      grid: read.grid,
+      grids: read.grids,
       notes,
     });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });

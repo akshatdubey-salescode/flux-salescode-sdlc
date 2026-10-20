@@ -62,7 +62,8 @@ export type TcRoundStatus = (typeof TC_ROUND_STATUS_VALUES)[number];
 
 export const TC_ROUND_STATUS_LABELS: Record<TcRoundStatus, string> = {
   in_review: "In review",
-  changes_requested: "Changes requested",
+  // The stored value stays changes_requested; the label says what the submitter has to do.
+  changes_requested: "Resubmit TCs",
   approved: "Approved",
 };
 
@@ -78,18 +79,35 @@ export const TC_FILE_KIND_VALUES = [
 ] as const;
 export type TcFileKind = (typeof TC_FILE_KIND_VALUES)[number];
 
-export const TC_REVIEWER_STATE_VALUES = ["pending", "approved", "changes_requested"] as const;
+/**
+ * `re_review`: this reviewer had requested changes, the sheet was resubmitted,
+ * and they have not looked again. `overridden`: another reviewer waived their
+ * feedback so the review could move on.
+ */
+export const TC_REVIEWER_STATE_VALUES = ["pending", "approved", "changes_requested", "re_review", "overridden"] as const;
 export type TcReviewerState = (typeof TC_REVIEWER_STATE_VALUES)[number];
 
 export const TC_SIGNOFF_ROLE_VALUES = ["dev", "tester"] as const;
 export type TcSignoffRole = (typeof TC_SIGNOFF_ROLE_VALUES)[number];
 
-/** A thread entry is either a plain comment or the note that came with a decision. */
-export const TC_COMMENT_KIND_VALUES = ["comment", "approved", "changes_requested"] as const;
+/**
+ * A thread entry is a plain comment, the note that came with a decision, or an
+ * override (a reviewer waived open feedback to approve; the body is the reason).
+ */
+export const TC_COMMENT_KIND_VALUES = ["comment", "approved", "changes_requested", "override"] as const;
 export type TcCommentKind = (typeof TC_COMMENT_KIND_VALUES)[number];
+
+/** Who raised a feedback item. LLM findings will arrive as `llm` and behave like reviewer feedback. */
+export const TC_FEEDBACK_SOURCE_VALUES = ["reviewer", "llm", "system"] as const;
+export type TcFeedbackSource = (typeof TC_FEEDBACK_SOURCE_VALUES)[number];
 
 export const TC_REVIEWER_STATE_LABELS: Record<TcReviewerState, string> = {
   pending: "Pending review",
   approved: "Approved",
   changes_requested: "Changes requested",
+  re_review: "Waiting to re-review",
+  overridden: "Feedback overridden",
 };
+
+/** The most tabs of one workbook that can make up one item's test cases. */
+export const MAX_TABS_PER_ITEM = 10;
