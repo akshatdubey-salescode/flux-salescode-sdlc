@@ -251,8 +251,9 @@ export function DeveloperSplit({
         </table>
       </div>
 
+      {/* max-w-5xl: wider than the default because this list carries an Owner column. */}
       {drill && (
-        <BugModal open={allOpen} onOpenChange={setAllOpen} title={`${row.name} — all issues`}>
+        <BugModal open={allOpen} onOpenChange={setAllOpen} title={`${row.name} — all issues`} className="max-w-5xl sm:max-w-5xl">
           <BugIssueList
             projectId={row.projectId}
             from={dateFrom}

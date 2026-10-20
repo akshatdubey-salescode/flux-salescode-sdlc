@@ -968,7 +968,12 @@ function OwnerRowView({
   const neutral = row.isUnassigned;
 
   return (
-    <tr className="border-b border-zinc-100 transition-colors hover:bg-zinc-50/60 dark:border-zinc-800/60 dark:hover:bg-zinc-800/20">
+    // Whole row opens the breakdown (same as the By Project table); the name
+    // button and the my-bugs link stop propagation so they don't double-fire.
+    <tr
+      onClick={onOpenBreakdown}
+      className="cursor-pointer border-b border-zinc-100 transition-colors hover:bg-zinc-50/60 dark:border-zinc-800/60 dark:hover:bg-zinc-800/20"
+    >
       <td className="px-4 py-3 tabular-nums text-xs text-muted-foreground">
         {rank ?? "—"}
       </td>
@@ -979,7 +984,7 @@ function OwnerRowView({
               of two separate icon buttons off in a View column. */}
           <button
             type="button"
-            onClick={onOpenBreakdown}
+            onClick={(e) => { e.stopPropagation(); onOpenBreakdown(); }}
             className={`text-sm font-medium hover:underline ${neutral ? "italic text-muted-foreground" : "text-foreground"}`}
           >
             {row.name}
