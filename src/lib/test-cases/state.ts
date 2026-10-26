@@ -2,7 +2,7 @@
 // unit tested: how a round's status follows its reviewers' decisions, and who
 // may decide, comment and resolve.
 
-import type { TcReviewerState, TcRoundStatus } from "./values";
+import { isAiReviewer, type TcReviewerState, type TcRoundStatus } from "./values";
 
 /**
  * How a round's status follows its reviewers.
@@ -156,8 +156,33 @@ export function requiredReviewersMissing(
   if (isAdmin) return [];
   const keep = new Set(next.map((n) => n.email.trim().toLowerCase()));
   return previous
+    .filter((p) => !isAiReviewer(p.email))
     .filter((p) => (p.state === "changes_requested" || p.state === "re_review") && !keep.has(p.email.trim().toLowerCase()))
     .map((p) => p.name ?? p.email);
+}
+
+// ---------------------------------------------------------------------------
+// The AI review as a reviewer
+// ---------------------------------------------------------------------------
+
+/**
+ * The AI reviewer's state when a round is created: `re_review`, whatever it was before (findings, overridden,
+ * clean). The run that follows every submission settles it, and until then the round can't be approved, so a
+ * round never slips through before the AI has had its look.
+ */
+export const AI_OPENING_STATE: TcReviewerState = "re_review";
+
+/**
+ * Where the AI reviewer lands after a successful run: findings block like a change request; a clean run leaves it
+ * `pending`, never `approved` (one approval approves a round, and an AI must not be that approval).
+ */
+export function aiStateAfterRun(findingCount: number): TcReviewerState {
+  return findingCount > 0 ? "changes_requested" : "pending";
+}
+
+/** A failed run must not hold the round hostage: whatever was waiting on the AI is released (humans still review). */
+export function aiStateAfterFailure(current: TcReviewerState): TcReviewerState {
+  return current === "re_review" ? "pending" : current;
 }
 
 /** Reviewers, the person who committed the round, and admins can discuss it. */

@@ -224,6 +224,7 @@ function FragmentRow({
           <span className="font-mono">{c.tcCode}</span>
           {showTab && c.sheetTab && <span className="block max-w-[150px] truncate text-[10px] font-medium text-sky-700 dark:text-sky-300" title={c.sheetTab}>{c.sheetTab}</span>}
           {c.section && <span className="block max-w-[150px] truncate text-[10px] text-muted-foreground" title={c.section}>{c.section}</span>}
+          <span className="block text-[10px] tabular-nums text-muted-foreground" title="Row in the source sheet when this round was submitted">row {c.rowNo}</span>
         </td>
         <td className="max-w-[360px] px-3 py-2">
           <span className="line-clamp-2">{c.title || <span className="text-muted-foreground">—</span>}</span>

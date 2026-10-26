@@ -1,0 +1,1 @@
+ALTER TABLE "tc_rounds" ADD COLUMN "scope" jsonb;

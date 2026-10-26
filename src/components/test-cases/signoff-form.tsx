@@ -38,7 +38,10 @@ export function SignoffForm({
   returnTo,
   cancelHref,
   lock,
+  sheetReaderEmail = null,
 }: {
+  /** The shared Google account Flux reads sheets with; null when none is connected (people then connect their own). */
+  sheetReaderEmail?: string | null;
   issue: { id: string; jiraKey: string; summary: string };
   roundId: string;
   roundNo: number;
@@ -162,7 +165,7 @@ export function SignoffForm({
               <RiGoogleLine className="size-3.5 shrink-0" />
               <span className="truncate">{lock.sheetUrl}</span>
             </a>
-            <p className="text-[11px] text-muted-foreground">Fill your status column in the sheet, then read it here. Flux reads the sheet as you.</p>
+            <p className="text-[11px] text-muted-foreground">Fill your status column in the sheet, then read it here. {sheetReaderEmail ? `Flux reads the sheet as ${sheetReaderEmail}.` : "Flux reads the sheet as you."}</p>
           </div>
         ) : (
           <div className="space-y-1">
@@ -253,6 +256,7 @@ function PreviewBox({ preview }: { preview: SignoffPreview }) {
         {preview.problem ? <RiErrorWarningLine className="size-4 text-red-600" /> : <RiCheckboxCircleLine className="size-4 text-emerald-600" />}
         {preview.total} test cases in the approved round
       </p>
+      {preview.scope && <p className="text-[11px] text-muted-foreground">Scope of this round: {preview.scope}</p>}
       <div className="flex flex-wrap gap-1.5">
         {chips.map(([label, n, cls]) => (
           <span key={label} className={cn("rounded-full border px-2 py-0.5 text-[11px]", cls)}>
@@ -262,6 +266,11 @@ function PreviewBox({ preview }: { preview: SignoffPreview }) {
       </div>
       {preview.meta && <p className="text-[11px] text-muted-foreground">Tester / date / build in sheet: {preview.meta}</p>}
       {preview.problem && <p className="text-[11px] font-medium text-red-600">{preview.problem}</p>}
+      {preview.moved > 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          {preview.moved} test case{preview.moved === 1 ? " is" : "s are"} on a different row than when submitted (rows were inserted or removed); matched by ID.
+        </p>
+      )}
       {preview.missing.length > 0 && (
         <p className="text-[11px] text-amber-700 dark:text-amber-400">
           {preview.missing.length} approved test case{preview.missing.length === 1 ? " is" : "s are"} missing from this sheet and will be recorded as

@@ -8,6 +8,7 @@ import { asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { tcRounds, tcSets } from "@/lib/db/schema";
 import type { Executor } from "./concurrency";
+import type { RoundScope } from "./scope";
 import type { TcSource } from "./values";
 
 export type ItemLock = {
@@ -19,6 +20,8 @@ export type ItemLock = {
   tabs: string[];
   /** The latest round's number (so the UI can say "resubmitting as Round N+1"). */
   roundNo: number;
+  /** Which tabs and rows the latest round reviewed (null for rounds from before rows could be chosen: every row). */
+  scope: RoundScope | null;
 };
 
 export class SourceLockedError extends Error {
@@ -63,6 +66,7 @@ export async function getItemLock(issueId: string, ex: Executor = db): Promise<I
       spreadsheetId: tcRounds.spreadsheetId,
       sheetTab: tcRounds.sheetTab,
       sheetTabs: tcRounds.sheetTabs,
+      scope: tcRounds.scope,
     })
     .from(tcRounds)
     .innerJoin(tcSets, eq(tcSets.id, tcRounds.setId))
@@ -72,5 +76,5 @@ export async function getItemLock(issueId: string, ex: Executor = db): Promise<I
   const first = rounds[0];
   const latest = rounds[rounds.length - 1];
   const tabs = latest.sheetTabs.length > 0 ? latest.sheetTabs : latest.sheetTab ? [latest.sheetTab] : [];
-  return { source: first.source, sheetUrl: first.sheetUrl, spreadsheetId: first.spreadsheetId, tabs, roundNo: latest.roundNo };
+  return { source: first.source, sheetUrl: first.sheetUrl, spreadsheetId: first.spreadsheetId, tabs, roundNo: latest.roundNo, scope: latest.scope ?? null };
 }

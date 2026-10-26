@@ -51,3 +51,10 @@ test("sending never throws: missing config and empty recipients are reported", a
     if (saved) process.env.RESEND_API_KEY = saved;
   }
 });
+
+test("the assignment email carries the scope, escaped, when there is one", () => {
+  const e = buildAssignedEmail({ ...base, committerName: "Asha", tcCount: 28, notes: null, scopeText: "Main rows 12-40 (28 of 142 TCs) <x>" });
+  assert.ok(e.html.includes("Main rows 12-40 (28 of 142 TCs) &lt;x&gt;"));
+  assert.ok(e.text.includes("Scope: Main rows 12-40"));
+  assert.ok(!buildAssignedEmail({ ...base, committerName: "Asha", tcCount: 1, notes: null }).html.includes("Scope:"));
+});

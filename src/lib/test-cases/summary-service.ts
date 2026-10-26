@@ -45,6 +45,8 @@ export async function buildSummaryForIssue(issueId: string, requestedBy: string)
       const dev = results.hasDev ? (results.dev.get(c.id) ?? "not_run") : null;
       const tester = results.hasTester ? (results.tester.get(c.id) ?? "not_run") : null;
       return {
+        tab: c.sheetTab,
+        row: c.rowNo,
         section: c.section,
         tcCode: c.tcCode,
         title: c.title,

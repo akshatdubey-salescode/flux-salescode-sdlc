@@ -67,6 +67,7 @@ export async function fetchHistory(setId: string): Promise<HistoryResult> {
         itemKey: jiraIssues.jiraKey,
         caseCode: tcCases.tcCode,
         caseTab: tcCases.sheetTab,
+        caseRow: tcCases.rowNo,
       })
       .from(tcReviewComments)
       .innerJoin(tcRounds, eq(tcRounds.id, tcReviewComments.roundId))
@@ -108,6 +109,7 @@ export async function fetchHistory(setId: string): Promise<HistoryResult> {
       by: display(r.committedBy, r.committedByName),
       tcCount: r.tcCount,
       tabs: r.sheetTabs.length > 0 ? r.sheetTabs : r.sheetTab ? [r.sheetTab] : [],
+      scope: r.scope ?? null,
       notes: r.notes,
       // An approval whose own round is earlier than this one was carried over.
       carriedApprovals: rs.filter((x) => x.state === "approved" && (x.decidedRoundNo ?? r.roundNo) < r.roundNo).map((x) => display(x.email, x.name)),
@@ -120,7 +122,7 @@ export async function fetchHistory(setId: string): Promise<HistoryResult> {
     };
   });
 
-  const comments: HistoryComment[] = commentRows.map(({ c, roundNo, issueId, itemKey, caseCode, caseTab }) => ({
+  const comments: HistoryComment[] = commentRows.map(({ c, roundNo, issueId, itemKey, caseCode, caseTab, caseRow }) => ({
     issueId,
     itemKey,
     id: c.id,
@@ -132,6 +134,7 @@ export async function fetchHistory(setId: string): Promise<HistoryResult> {
     at: c.createdAt,
     caseCode: caseCode ?? null,
     tab: caseTab ? caseTab : null,
+    row: caseRow ?? null,
     resolved: c.resolved,
     waived: c.waived,
     resolvedBy: c.resolvedBy ? (knownNames.get(c.resolvedBy.toLowerCase()) ?? c.resolvedBy) : null,

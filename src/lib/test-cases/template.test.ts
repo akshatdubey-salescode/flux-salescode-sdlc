@@ -166,9 +166,10 @@ test("stacked sections: title rows, repeated headers, IDs that restart, even a d
   const r = parseSheetGrid(grid);
   assert.ok(r.ok);
   assert.equal(r.cases.length, 5);
+  // Each section also says where it sits (sheet rows, 1-based) so rows can be picked from it.
   assert.deepEqual(r.sections, [
-    { no: 1, title: "Promotion Engine", caseCount: 2 },
-    { no: 2, title: "Login Backend Logic", caseCount: 3 },
+    { no: 1, title: "Promotion Engine", caseCount: 2, titleRow: 1, headerRow: 2, firstRow: 3, lastRow: 4, firstId: "TC-01", lastId: "TC-02" },
+    { no: 2, title: "Login Backend Logic", caseCount: 3, titleRow: 6, headerRow: 7, firstRow: 8, lastRow: 10, firstId: "TC_001", lastId: "TC_001" },
   ]);
   assert.deepEqual(r.cases.map((c) => c.tcKey), [
     "Promotion Engine / TC-01", "Promotion Engine / TC-02",

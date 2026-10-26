@@ -1,7 +1,7 @@
 // The compact preview the submission page shows after Validate: counts, splits,
 // per-tab summaries, issues and the first rows. Built from the parsed tabs only.
 
-import type { MultiParsed, TabIssue, TabSummary } from "./multi-tab";
+import type { MultiParsed, SkippedTab, TabIssue, TabSummary } from "./multi-tab";
 import type { UnmappedValue } from "./template";
 import type { TcCategory, TcPolarity } from "./values";
 
@@ -10,6 +10,8 @@ export const PREVIEW_ISSUES = 100;
 
 export type PreviewRow = {
   tab: string;
+  /** The test case's row in the sheet. */
+  row: number;
   tcId: string;
   section: string | null;
   title: string;
@@ -34,6 +36,8 @@ export type Preview =
       /** Errors first, then warnings, capped; each names its tab. */
       issues: TabIssue[];
       unmapped: UnmappedValue[];
+      /** Tabs left out because they are not test-case sheets (only when no tab was named). */
+      skipped: SkippedTab[];
       rows: PreviewRow[];
       /** Commit is allowed only when there are no errors. */
       canCommit: boolean;
@@ -62,8 +66,10 @@ export function buildPreview(parsed: MultiParsed): Preview {
     warningCount: warnings.length,
     issues: [...errors, ...warnings].slice(0, PREVIEW_ISSUES),
     unmapped: parsed.unmapped,
+    skipped: parsed.skipped,
     rows: parsed.cases.slice(0, PREVIEW_ROWS).map((c) => ({
       tab: c.sheetTab,
+      row: c.rowNumber,
       tcId: c.tcId,
       section: c.section,
       title: c.title,

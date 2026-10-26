@@ -4,6 +4,7 @@
 // so it cannot drift from what actually happened. Each entry carries a
 // `source`, so LLM findings will appear here exactly like reviewer feedback.
 
+import { describeScope, type RoundScope } from "./scope";
 import type { TcCommentKind, TcFeedbackSource } from "./values";
 
 export type HistoryKind = "submitted" | "approved" | "changes_requested" | "comment" | "resolved" | "override" | "signoff";
@@ -25,6 +26,8 @@ export type HistoryEvent = {
   /** Per-case comments: the case and its tab. */
   caseCode: string | null;
   tab: string | null;
+  /** The case's row in the source sheet (per-case events). */
+  row: number | null;
 };
 
 type ItemRef = { issueId: string; itemKey: string };
@@ -42,6 +45,8 @@ export type HistoryRound = ItemRef & {
   awaitingReReview: string[];
   /** The earlier round whose test-case content is identical (a resubmission that changed nothing). */
   unchangedSince: number | null;
+  /** Which tabs and rows this round reviewed (null: every row of its tabs). */
+  scope: RoundScope | null;
 };
 
 export type HistoryComment = ItemRef & {
@@ -54,6 +59,7 @@ export type HistoryComment = ItemRef & {
   at: Date;
   caseCode: string | null;
   tab: string | null;
+  row: number | null;
   resolved: boolean;
   waived: boolean;
   resolvedBy: string | null;
@@ -69,6 +75,17 @@ const ROLE = { dev: "Developer", tester: "Tester" } as const;
 
 const KIND_ORDER: Record<HistoryKind, number> = { submitted: 0, comment: 1, changes_requested: 2, approved: 3, override: 4, resolved: 5, signoff: 6 };
 
+function commentTitle(c: HistoryComment): string {
+  // The actor ("AI review") is shown in front of the title, so these read as sentences: "AI review flagged a test case".
+  if (c.source === "llm") {
+    if (c.meta?.aiSummary === "true") return c.kind === "changes_requested" ? "raised findings" : "found no issues";
+    return c.caseCode ? "flagged a test case" : "flagged the round";
+  }
+  if (c.kind === "approved") return "Approved";
+  if (c.kind === "changes_requested") return "Requested changes";
+  return c.caseCode ? "Commented on a test case" : "Commented on the round";
+}
+
 export function buildHistory(input: {
   rounds: HistoryRound[];
   comments: HistoryComment[];
@@ -80,7 +97,9 @@ export function buildHistory(input: {
   const tag = (r: ItemRef) => ({ issueId: r.issueId, itemKey: r.itemKey, own: r.issueId === input.ownIssueId });
 
   for (const r of input.rounds) {
-    const parts = [`${r.tcCount} test case${r.tcCount === 1 ? "" : "s"}`, `${r.tabs.length} tab${r.tabs.length === 1 ? "" : "s"}: ${r.tabs.join(", ")}`];
+    const parts = [`${r.tcCount} test case${r.tcCount === 1 ? "" : "s"}`];
+    // The scope says which tabs AND rows; rounds from before rows could be chosen only know their tabs.
+    parts.push(r.scope ? `scope: ${describeScope(r.scope)}` : `${r.tabs.length} tab${r.tabs.length === 1 ? "" : "s"}: ${r.tabs.join(", ")}`);
     if (r.carriedApprovals.length > 0) parts.push(`approvals carried over: ${r.carriedApprovals.join(", ")}`);
     if (r.awaitingReReview.length > 0) parts.push(`waiting to re-review: ${r.awaitingReReview.join(", ")}`);
     if (r.unchangedSince !== null) parts.push(`no changes to the test cases since Round ${r.unchangedSince}`);
@@ -97,11 +116,12 @@ export function buildHistory(input: {
       detail: parts.join(" · "),
       caseCode: null,
       tab: null,
+      row: null,
     });
   }
 
   for (const c of input.comments) {
-    const base = { ...tag(c), roundNo: c.roundNo, actor: c.author, source: c.source, caseCode: c.caseCode, tab: c.tab };
+    const base = { ...tag(c), roundNo: c.roundNo, actor: c.author, source: c.source, caseCode: c.caseCode, tab: c.tab, row: c.row };
     if (c.kind === "override") {
       const waived = Number(c.meta?.waivedComments ?? 0);
       const overridden = Array.isArray(c.meta?.overriddenReviewers) ? (c.meta!.overriddenReviewers as { email: string; name: string | null }[]) : [];
@@ -123,7 +143,7 @@ export function buildHistory(input: {
       at: c.at.toISOString(),
       kind: c.kind,
       ...base,
-      title: c.kind === "approved" ? "Approved" : c.kind === "changes_requested" ? "Requested changes" : c.caseCode ? "Commented on a test case" : "Commented on the round",
+      title: commentTitle(c),
       detail: c.body ? c.body : null,
     });
     // Someone addressed a comment: its own entry (waived ones are covered by the override entry).
@@ -140,6 +160,7 @@ export function buildHistory(input: {
         detail: excerpt(c.body),
         caseCode: c.caseCode,
         tab: c.tab,
+        row: c.row,
       });
     }
   }
@@ -157,6 +178,7 @@ export function buildHistory(input: {
       detail: `${s.pass} passed · ${s.fail} failed · ${s.blocked} blocked · ${s.notRun} not run`,
       caseCode: null,
       tab: null,
+      row: null,
     });
   }
 

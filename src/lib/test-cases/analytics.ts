@@ -4,7 +4,8 @@
 // set (tc_set_stats) so every surface reads the same numbers. Weights and
 // thresholds are the constants below — change them here, nowhere else.
 
-import type { FeedbackSummary } from "./feedback-stats";
+import type { RoundScope } from "./scope";
+import { coverageScore, highGaps, type FeedbackSummary } from "./feedback-stats";
 import type { TcCategory, TcPolarity, TcPriority, TcResult, TcRoundStatus, TcSeverity } from "./values";
 
 // ---------------------------------------------------------------------------
@@ -28,7 +29,16 @@ export const CAPS = {
   notApproved: 50,
   failedP1OrCritical: 40,
   blockedP1: 60,
+  /** A high-severity review point is still open or was waived: it can be at most "deliver with risk". */
+  highReviewGap: 75,
 } as const;
+/**
+ * Share of the quality estimate that comes from how much of what the reviewers and the AI review raised is covered
+ * (fixed), instead of the sheet's structure. Open and waived points both count as not covered.
+ */
+export const REVIEW_COVERAGE_SHARE = 30;
+/** When both the AI review and human reviewers raised points, the share is split like this (it sums to REVIEW_COVERAGE_SHARE). */
+export const AI_COVERAGE_SHARE_WITH_REVIEWERS = 20;
 /** Quality penalty while a reviewer's change request is outstanding. */
 export const CHANGES_REQUESTED_PENALTY = 10;
 export const READY_AT = 85;
@@ -39,6 +49,8 @@ export const RISK_AT = 60;
 // ---------------------------------------------------------------------------
 
 export type AnalyticsCase = {
+  /** The tab the case sits on (for the per-tab breakdown). */
+  tab?: string;
   tcCode: string;
   title: string;
   steps: string;
@@ -74,8 +86,18 @@ export type QualityComponents = {
   idHygiene: number;
   /** Quality before any reviewer penalty. */
   structural: number;
+  /** 0-100: the weighted share of review points (reviewers, AI) that are fixed; null while nothing has been reviewed. */
+  reviewCoverage: number | null;
+  /** Percent of the quality estimate that review coverage accounts for (0 when it is null). */
+  reviewCoverageShare: number;
+  /** The AI review's part of it: the share of its findings that are fixed (null while no AI review has run). */
+  aiCoverage: number | null;
+  aiShare: number;
+  /** The human reviewers' part: the share of their comments that are fixed (null when they raised none). */
+  reviewerCoverage: number | null;
+  reviewerShare: number;
   changesRequestedPenalty: number;
-  /** Always "estimated" until the LLM review exists. */
+  /** Always "estimated": structure-based, not measured. */
   basis: "estimated";
 };
 
@@ -89,6 +111,10 @@ export type SetInput = {
   /** Everything the review has produced, across all rounds. */
   feedback: FeedbackSummary;
   roundCount: number;
+  /** An AI review of this round completed. */
+  llmReviewed?: boolean;
+  /** Which tabs and rows the round reviewed (null for rounds from before rows could be chosen). */
+  scope?: RoundScope | null;
 };
 
 /** One point per round for the "rounds compared" chart. Past rounds can't change, so each is computed once and stored. */
@@ -99,6 +125,20 @@ export type RoundTrendPoint = {
   passRate: number;
   confidence: number;
   status: string;
+  /** What the round reviewed, e.g. "Main rows 12-40 (28 of 142 TCs)". */
+  scope?: string;
+};
+
+/** What the round covers: tabs, rows and how much of those tabs the item claims. */
+export type StatsScope = {
+  /** No tab was named, so every test-case tab was reviewed. */
+  defaulted: boolean;
+  tabs: { tab: string; rows: string | null; inScope: number; totalInTab: number }[];
+  inScope: number;
+  /** Test cases in the chosen tabs in total (other features' included). */
+  totalInTabs: number;
+  /** In-scope share of those tabs, 0-100. */
+  coveragePct: number;
 };
 
 export type SetStats = {
@@ -126,6 +166,9 @@ export type SetStats = {
   confidenceCaps: string[];
   readiness: Readiness;
   llmReviewed: boolean;
+  /** Results per tab (absent on rows stored before tabs were broken out; recomputed on read). */
+  tabSplit?: Record<string, TypeRow>;
+  scope?: StatsScope;
   /** Filled in when the stats are stored (see recomputeSetStats); absent on rows from before it existed. */
   trend?: RoundTrendPoint[];
 };
@@ -208,7 +251,7 @@ export function uniquenessScore(cases: AnalyticsCase[]): number {
 
 const WELL_FORMED_ID = /^[A-Za-z0-9][A-Za-z0-9_.\-/ ]{0,39}$/;
 
-export function structuralQuality(cases: AnalyticsCase[]): Omit<QualityComponents, "changesRequestedPenalty" | "basis"> {
+export function structuralQuality(cases: AnalyticsCase[]): Omit<QualityComponents, "changesRequestedPenalty" | "basis" | "reviewCoverage" | "reviewCoverageShare" | "aiCoverage" | "aiShare" | "reviewerCoverage" | "reviewerShare"> {
   const n = cases.length;
   if (n === 0) return { completeness: 0, diversity: 0, priorityCoverage: 0, uniqueness: 0, idHygiene: 0, structural: 0 };
 
@@ -284,6 +327,8 @@ export function deliveryReadiness(args: {
   failedHighRisk: boolean;
   blockedP1: boolean;
   anyFail: boolean;
+  /** High-severity review points still open or waived. */
+  highReviewGaps?: number;
 }): { confidence: number; caps: string[]; readiness: Readiness } {
   if (args.tcCount === 0) return { confidence: 0, caps: [], readiness: "not_started" };
 
@@ -300,6 +345,9 @@ export function deliveryReadiness(args: {
   if (!args.roundApproved) cap(CAPS.notApproved, args.notApprovedWhy ?? "Test cases not approved by a reviewer");
   if (args.failedHighRisk) cap(CAPS.failedP1OrCritical, "A P1 or critical test case failed");
   if (args.blockedP1) cap(CAPS.blockedP1, "A P1 test case is blocked");
+  if (args.highReviewGaps) {
+    cap(CAPS.highReviewGap, `${args.highReviewGaps} high-severity review point${args.highReviewGaps === 1 ? " is" : "s are"} still open or waived`);
+  }
 
   let readiness: Readiness;
   if (args.failedHighRisk) readiness = "blocked";
@@ -318,6 +366,7 @@ export function computeSetStats(input: SetInput): SetStats {
   const categorySplit: SetStats["categorySplit"] = {};
   const polaritySplit: SetStats["polaritySplit"] = {};
   const prioritySplit: SetStats["prioritySplit"] = {};
+  const tabSplit: Record<string, TypeRow> = {};
   const dev = emptyCounts();
   const tester = emptyCounts();
   const effective = emptyCounts();
@@ -326,6 +375,7 @@ export function computeSetStats(input: SetInput): SetStats {
     addToRow((categorySplit[c.category] ??= emptyRow()), c);
     addToRow((polaritySplit[c.polarity ?? "unspecified"] ??= emptyRow()), c);
     addToRow((prioritySplit[c.priority ?? "none"] ??= emptyRow()), c);
+    if (c.tab !== undefined) addToRow((tabSplit[c.tab] ??= emptyRow()), c);
     addResult(dev, c.devResult);
     addResult(tester, c.testerResult);
     addResult(effective, effectiveResult(c.devResult, c.testerResult));
@@ -334,7 +384,18 @@ export function computeSetStats(input: SetInput): SetStats {
   const n = cases.length;
   const structural = structuralQuality(cases);
   const penalty = input.roundStatus === "changes_requested" ? CHANGES_REQUESTED_PENALTY : 0;
-  const quality = n === 0 ? 0 : Math.max(0, structural.structural - penalty);
+  // How much of what the review raised is covered, by the AI review and by the human reviewers. An AI review that raised
+  // nothing is fully covered; no AI review and no comments means unknown (not counted).
+  const cov = input.feedback.coverage;
+  const aiPart = input.feedback.aiCoverage ? coverageScore(input.feedback.aiCoverage) : null;
+  const aiCoverage = aiPart ?? (cov && input.llmReviewed ? 100 : null);
+  const reviewerCoverage = input.feedback.reviewerCoverage ? coverageScore(input.feedback.reviewerCoverage) : null;
+  const aiShare = aiCoverage === null ? 0 : reviewerCoverage === null ? REVIEW_COVERAGE_SHARE : AI_COVERAGE_SHARE_WITH_REVIEWERS;
+  const reviewerShare = reviewerCoverage === null ? 0 : aiCoverage === null ? REVIEW_COVERAGE_SHARE : REVIEW_COVERAGE_SHARE - AI_COVERAGE_SHARE_WITH_REVIEWERS;
+  const share = aiShare + reviewerShare;
+  const reviewCoverage = share === 0 ? null : Math.round(((aiCoverage ?? 0) * aiShare + (reviewerCoverage ?? 0) * reviewerShare) / share);
+  const blended = share === 0 ? structural.structural : ((100 - share) * structural.structural + (aiCoverage ?? 0) * aiShare + (reviewerCoverage ?? 0) * reviewerShare) / 100;
+  const quality = n === 0 ? 0 : Math.max(0, Math.round(blended) - penalty);
   const execution = executionScore(cases);
 
   const effectiveResults = cases.map((c) => ({ c, r: effectiveResult(c.devResult, c.testerResult) }));
@@ -358,6 +419,7 @@ export function computeSetStats(input: SetInput): SetStats {
     failedHighRisk,
     blockedP1,
     anyFail: effective.fail > 0,
+    highReviewGaps: cov ? highGaps(cov) : 0,
   });
 
   const executed = effective.pass + effective.fail + effective.blocked;
@@ -379,12 +441,24 @@ export function computeSetStats(input: SetInput): SetStats {
     feedbackOpen: fb.openComments + fb.blockingReviewers,
     feedback: fb,
     quality,
-    qualityComponents: { ...structural, changesRequestedPenalty: penalty, basis: "estimated" },
+    qualityComponents: { ...structural, reviewCoverage, reviewCoverageShare: share, aiCoverage, aiShare, reviewerCoverage, reviewerShare, changesRequestedPenalty: penalty, basis: "estimated" },
     executionScore: execution,
     confidence: verdict.confidence,
     confidenceCaps: verdict.caps,
     readiness: verdict.readiness,
-    llmReviewed: false,
+    llmReviewed: input.llmReviewed ?? false,
+    tabSplit,
+    scope: statsScope(input.scope, tabSplit),
   };
+}
+
+/** The scope the stats describe: from the round, or (older rounds) every row of the tabs the cases came from. */
+function statsScope(scope: RoundScope | null | undefined, tabSplit: Record<string, TypeRow>): StatsScope {
+  const tabs = scope
+    ? scope.tabs.map((t) => ({ tab: t.tab, rows: t.rows, inScope: t.inScope, totalInTab: t.totalInTab }))
+    : Object.entries(tabSplit).map(([tab, r]) => ({ tab, rows: null, inScope: r.total, totalInTab: r.total }));
+  const inScope = tabs.reduce((n, t) => n + t.inScope, 0);
+  const totalInTabs = tabs.reduce((n, t) => n + t.totalInTab, 0);
+  return { defaulted: scope?.defaulted ?? false, tabs, inScope, totalInTabs, coveragePct: totalInTabs === 0 ? 100 : Math.round((100 * inScope) / totalInTabs) };
 }
 

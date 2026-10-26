@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/breadcrumb";
 import { ProjectHeaderImage } from "@/components/project-header-image";
 import { ProjectTabs } from "@/components/project-tabs";
+import { FEATURE_FLAGS, isEnabled } from "@/lib/feature-flags";
+import { isLlmConfigured } from "@/lib/llm/minimax";
 
 export default async function ProjectPage(props: {
   params: Promise<{ id: string }>;
@@ -34,6 +36,7 @@ export default async function ProjectPage(props: {
   const isAdmin = hasMinRole(user.role, "ADMIN");
   const isSuperuser = hasMinRole(user.role, "SUPERUSER");
   const canManage = canManageDeliveries(user);
+  const aiReviewTab = isAdmin && (await isEnabled(FEATURE_FLAGS.TEST_CASES));
 
   return (
     <div className="flex flex-col min-h-svh min-w-0 w-full">
@@ -65,7 +68,7 @@ export default async function ProjectPage(props: {
 
       <main className="flex-1 min-w-0 w-full">
         <Suspense fallback={<TabsSkeleton />}>
-          <ProjectTabs projectId={project.id} projectName={project.name} hasFreshdesk={project.freshdeskCompanyId != null} isAdmin={isAdmin} isSuperuser={isSuperuser} canManageDeliveries={canManage} />
+          <ProjectTabs projectId={project.id} projectName={project.name} hasFreshdesk={project.freshdeskCompanyId != null} isAdmin={isAdmin} isSuperuser={isSuperuser} canManageDeliveries={canManage} aiReviewTab={aiReviewTab} aiConfigured={isLlmConfigured()} />
         </Suspense>
       </main>
     </div>

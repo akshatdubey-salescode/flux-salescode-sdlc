@@ -3,13 +3,14 @@
 // chips, hover cards, details page and TC Board all read one stored result
 // instead of each re-deriving it.
 
-import { asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { tcCases, tcResults, tcReviewComments, tcReviewers, tcRounds, tcSetStats, tcSets, tcSignoffs } from "@/lib/db/schema";
+import { tcAiReviews, tcCases, tcResults, tcReviewComments, tcReviewers, tcRounds, tcSetStats, tcSets, tcSignoffs } from "@/lib/db/schema";
 import { lockItem, type Executor } from "./concurrency";
 import { computeSetStats, type AnalyticsCase, type RoundTrendPoint, type SetStats } from "./analytics";
 import { summariseFeedback, type FeedbackEvent, type ReviewerNow } from "./feedback-stats";
-import type { TcResult } from "./values";
+import { describeScope } from "./scope";
+import { isAiReviewer, type TcResult } from "./values";
 
 type RoundRow = typeof tcRounds.$inferSelect;
 
@@ -33,22 +34,27 @@ export async function loadLatestSignoffResults(roundId: string, ex: Executor = d
 }
 
 /** The whole review thread of a set and each round's reviewers, loaded once and sliced per round. */
-type FeedbackInputs = { events: FeedbackEvent[]; reviewersByRound: Map<number, ReviewerNow[]> };
+type FeedbackInputs = { events: FeedbackEvent[]; reviewersByRound: Map<number, ReviewerNow[]>; aiReviewedRounds: Set<number> };
 
 async function loadFeedbackInputs(setId: string, ex: Executor = db): Promise<FeedbackInputs> {
-  const [commentRows, reviewerRows] = await Promise.all([
-    ex
-      .select({ c: tcReviewComments, roundNo: tcRounds.roundNo })
-      .from(tcReviewComments)
-      .innerJoin(tcRounds, eq(tcRounds.id, tcReviewComments.roundId))
-      .where(eq(tcRounds.setId, setId)),
-    ex
-      .select({ r: tcReviewers, roundNo: tcRounds.roundNo })
-      .from(tcReviewers)
-      .innerJoin(tcRounds, eq(tcRounds.id, tcReviewers.roundId))
-      .where(eq(tcRounds.setId, setId)),
-  ]);
-  const events: FeedbackEvent[] = commentRows.map(({ c, roundNo }) => ({
+  // One after another: `ex` may be a transaction's single connection, which can't run queries side by side.
+  const commentRows = await ex
+    .select({ c: tcReviewComments, roundNo: tcRounds.roundNo, tab: tcCases.sheetTab })
+    .from(tcReviewComments)
+    .innerJoin(tcRounds, eq(tcRounds.id, tcReviewComments.roundId))
+    .leftJoin(tcCases, eq(tcCases.id, tcReviewComments.caseId))
+    .where(eq(tcRounds.setId, setId));
+  const reviewerRows = await ex
+    .select({ r: tcReviewers, roundNo: tcRounds.roundNo })
+    .from(tcReviewers)
+    .innerJoin(tcRounds, eq(tcRounds.id, tcReviewers.roundId))
+    .where(eq(tcRounds.setId, setId));
+  const aiRuns = await ex
+    .selectDistinct({ roundNo: tcRounds.roundNo })
+    .from(tcAiReviews)
+    .innerJoin(tcRounds, eq(tcRounds.id, tcAiReviews.roundId))
+    .where(and(eq(tcRounds.setId, setId), eq(tcAiReviews.status, "succeeded")));
+  const events: FeedbackEvent[] = commentRows.map(({ c, roundNo, tab }) => ({
     roundNo,
     kind: c.kind,
     source: (c.source === "llm" || c.source === "system" ? c.source : "reviewer"),
@@ -56,6 +62,9 @@ async function loadFeedbackInputs(setId: string, ex: Executor = db): Promise<Fee
     authorName: c.authorName,
     resolved: c.resolved,
     waived: c.waived,
+    tab: tab ? tab : null,
+    category: typeof c.meta?.category === "string" ? c.meta.category : null,
+    severity: c.meta?.severity === "high" || c.meta?.severity === "medium" || c.meta?.severity === "low" ? c.meta.severity : null,
   }));
   const reviewersByRound = new Map<number, ReviewerNow[]>();
   for (const { r, roundNo } of reviewerRows) {
@@ -63,19 +72,18 @@ async function loadFeedbackInputs(setId: string, ex: Executor = db): Promise<Fee
     list.push({ email: r.email, name: r.name, state: r.state });
     reviewersByRound.set(roundNo, list);
   }
-  return { events, reviewersByRound };
+  return { events, reviewersByRound, aiReviewedRounds: new Set(aiRuns.map((r) => r.roundNo)) };
 }
 
 /** Stats for one round, from its cases, reviewers, the review thread up to that round, and that round's sign-offs. */
 async function statsForRound(round: RoundRow, fb: FeedbackInputs, ex: Executor = db): Promise<SetStats> {
-  const [cases, signoff] = await Promise.all([
-    ex.select().from(tcCases).where(eq(tcCases.roundId, round.id)).orderBy(asc(tcCases.rowNo)),
-    // Sign-offs of THIS round only: a new round starts unsigned.
-    loadLatestSignoffResults(round.id, ex),
-  ]);
+  const cases = await ex.select().from(tcCases).where(eq(tcCases.roundId, round.id)).orderBy(asc(tcCases.rowNo));
+  // Sign-offs of THIS round only: a new round starts unsigned.
+  const signoff = await loadLatestSignoffResults(round.id, ex);
   const reviewers = fb.reviewersByRound.get(round.roundNo) ?? [];
 
   const analyticsCases: AnalyticsCase[] = cases.map((c) => ({
+    tab: c.sheetTab,
     tcCode: c.tcCode,
     title: c.title,
     steps: c.steps,
@@ -92,8 +100,11 @@ async function statsForRound(round: RoundRow, fb: FeedbackInputs, ex: Executor =
   return computeSetStats({
     cases: analyticsCases,
     roundStatus: round.status,
-    reviewersTotal: reviewers.length,
-    reviewersApproved: reviewers.filter((r) => r.state === "approved").length,
+    // People only: the AI reviewer never approves, so it can't be part of "approved x of y".
+    reviewersTotal: reviewers.filter((r) => !isAiReviewer(r.email)).length,
+    reviewersApproved: reviewers.filter((r) => !isAiReviewer(r.email) && r.state === "approved").length,
+    llmReviewed: fb.aiReviewedRounds.has(round.roundNo),
+    scope: round.scope ?? null,
     hasDevSignoff: signoff.hasDev,
     hasTesterSignoff: signoff.hasTester,
     feedback: summariseFeedback({
@@ -141,6 +152,7 @@ export async function recomputeSetStats(setId: string): Promise<SetStats | null>
       passRate: st.passRate,
       confidence: st.confidence,
       status: r.status,
+      scope: describeScope(r.scope ?? null, r.sheetTabs),
     });
     const trend: RoundTrendPoint[] = [];
     for (const r of [...rounds].reverse()) {
@@ -190,7 +202,9 @@ export async function fetchStoredStats(setId: string): Promise<{ stats: SetStats
   const [row] = await db.select().from(tcSetStats).where(eq(tcSetStats.setId, setId)).limit(1);
   if (!row) return null;
   // Rows stored before the feedback summary existed lack it: bring them up to date rather than render a gap.
-  if (!(row.stats as Partial<SetStats>).feedback || !(row.stats as Partial<SetStats>).trend) {
+  // Same for rows from before the per-tab breakdown and the scope existed (no backfill job needed: they heal on first read).
+  const old = row.stats as Partial<SetStats>;
+  if (!old.feedback || !old.trend || !old.tabSplit || !old.scope || !old.feedback.byTab || !old.feedback.coverage || !old.feedback.ai || old.qualityComponents?.aiCoverage === undefined) {
     const fresh = await recomputeSetStats(setId);
     const [again] = await db.select().from(tcSetStats).where(eq(tcSetStats.setId, setId)).limit(1);
     if (fresh && again) return { stats: fresh, computedAt: again.computedAt, roundNo: again.roundNo };

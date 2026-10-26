@@ -8,6 +8,9 @@ import { TC_REVIEWER_STATE_LABELS, type TcCommentKind, type TcReviewerState } fr
 export type FeedbackRow = {
   /** "Round" for round-level comments, "Test case" for per-TC ones. */
   scope: "Round" | "Test case";
+  /** The tab and sheet row of the test case (null for round-level comments). */
+  tab: string | null;
+  row: number | null;
   section: string | null;
   tcCode: string | null;
   title: string | null;
@@ -42,6 +45,8 @@ export async function buildFeedbackXlsx(args: {
   issueSummary: string;
   roundLabel: string;
   generatedAt: string;
+  /** What the round reviewed ("Main rows 12-40 (28 of 142 TCs); ..."), so feedback can be tied to the right part of a shared sheet. */
+  scopeText?: string;
   reviewers: FeedbackReviewer[];
   rows: FeedbackRow[];
 }): Promise<Buffer> {
@@ -53,6 +58,7 @@ export async function buildFeedbackXlsx(args: {
   summary.addRows([
     ["Issue", safeCell(`${args.issueKey} — ${args.issueSummary}`)],
     ["Round", args.roundLabel],
+    ...(args.scopeText ? [["Reviewed", safeCell(args.scopeText)]] : []),
     ["Generated", args.generatedAt],
     [],
     ["Reviewer", "Email", "Decision", "Decided at"],
@@ -67,14 +73,16 @@ export async function buildFeedbackXlsx(args: {
   summary.getColumn(2).width = 34;
   summary.getColumn(3).width = 20;
   summary.getColumn(4).width = 24;
-  summary.getRow(5).font = { bold: true };
+  summary.getRow(args.scopeText ? 6 : 5).font = { bold: true };
 
   const ws = wb.addWorksheet("Feedback", { views: [{ state: "frozen", ySplit: 1 }] });
-  ws.addRow(["Scope", "Section", "TC ID", "Test case", "Type", "Feedback", "By", "At", "Resolved"]);
+  ws.addRow(["Scope", "Tab", "Row", "Section", "TC ID", "Test case", "Type", "Feedback", "By", "At", "Resolved"]);
   ws.getRow(1).font = { bold: true };
   for (const r of args.rows) {
     ws.addRow([
       r.scope,
+      safeCell(r.tab ?? ""),
+      r.row ?? "",
       safeCell(r.section ?? ""),
       safeCell(r.tcCode ?? ""),
       safeCell(r.title ?? ""),
@@ -85,7 +93,7 @@ export async function buildFeedbackXlsx(args: {
       r.resolved ? "Yes" : "No",
     ]);
   }
-  [12, 26, 12, 40, 18, 70, 24, 22, 10].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  [12, 18, 7, 26, 12, 40, 18, 70, 24, 22, 10].forEach((w, i) => (ws.getColumn(i + 1).width = w));
   ws.eachRow((row) => row.eachCell((c) => (c.alignment = { vertical: "top", wrapText: true })));
 
   return Buffer.from(await wb.xlsx.writeBuffer());

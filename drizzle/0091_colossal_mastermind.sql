@@ -1,0 +1,1 @@
+ALTER TABLE "tc_ai_knowledge_pages" ADD COLUMN "is_general" boolean DEFAULT false NOT NULL;

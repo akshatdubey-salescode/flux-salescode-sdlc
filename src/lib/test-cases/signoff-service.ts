@@ -12,6 +12,7 @@ import { BUSY_MESSAGE, isLockTimeout, lockItem } from "./concurrency";
 import { getProjectFolder } from "./project-folder-service";
 import { assertLatestRound, countOpenFeedback, freshReviewers, type RoundContext } from "./review-service";
 import { RuleError } from "./rule-error";
+import { describeScope } from "./scope";
 import { matchSignoff, signoffProblem, type SignoffMatch } from "./signoff";
 import { recomputeSafely } from "./stats-service";
 import { canSignOff, roundStatusFrom, type Actor, type SignoffRole } from "./state";
@@ -63,7 +64,7 @@ export async function checkSignoffAllowed(args: {
 
 export async function roundCaseRefs(roundId: string) {
   return db
-    .select({ id: tcCases.id, tcKey: tcCases.tcKey, tcCode: tcCases.tcCode })
+    .select({ id: tcCases.id, tcKey: tcCases.tcKey, tcCode: tcCases.tcCode, rowNo: tcCases.rowNo })
     .from(tcCases)
     .where(eq(tcCases.roundId, roundId))
     .orderBy(asc(tcCases.rowNo));
@@ -77,6 +78,10 @@ export type SignoffPreview = {
   missing: string[];
   meta: string;
   problem: string | null;
+  /** Test cases found on another row than when the round was submitted (matched by ID). */
+  moved: number;
+  /** What the round reviewed, e.g. "Main rows 12-40 (28 of 142 TCs)". */
+  scope: string;
 };
 
 export async function previewSignoff(
@@ -85,7 +90,7 @@ export async function previewSignoff(
   role: SignoffRole,
 ): Promise<SignoffPreview> {
   const refs = await roundCaseRefs(ctx.roundId);
-  const match = matchSignoff(refs, parsed.cases, role);
+  const match = matchSignoff(refs, parsed.cases, role, ctx.scope);
   return {
     role,
     counts: match.counts,
@@ -94,6 +99,8 @@ export async function previewSignoff(
     missing: match.missing,
     meta: match.meta,
     problem: signoffProblem(match, refs.length),
+    moved: match.moved,
+    scope: describeScope(ctx.scope),
   };
 }
 
@@ -112,7 +119,7 @@ export async function commitSignoff(args: {
 }): Promise<{ ok: true; signoffId: string; fileName: string } | SignoffFailure> {
   const { ctx } = args;
   const refs = await roundCaseRefs(ctx.roundId);
-  const match = matchSignoff(refs, args.parsed.cases, args.role);
+  const match = matchSignoff(refs, args.parsed.cases, args.role, ctx.scope);
   const problem = signoffProblem(match, refs.length);
   if (problem) return { ok: false, status: 400, error: problem };
 

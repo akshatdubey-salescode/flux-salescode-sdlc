@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { requireAuth } from "@/lib/auth/server";
-import { buildAuthUrl, OPTIONAL_SCOPES, type OptionalScopeName } from "@/lib/google/oauth";
+import { hasMinRole } from "@/lib/auth/types";
+import { ALLOWED_EMAIL_DOMAIN } from "@/lib/auth/constants";
+import { buildAuthUrl, buildSharedReaderAuthUrl, OPTIONAL_SCOPES, type OptionalScopeName } from "@/lib/google/oauth";
 
 export async function GET(request: NextRequest) {
   const user = await requireAuth();
@@ -19,8 +21,15 @@ export async function GET(request: NextRequest) {
     .map((s) => s.trim())
     .filter((s): s is OptionalScopeName => s in OPTIONAL_SCOPES);
 
+  // ?mode=shared connects the one Google account Flux reads Sheets with (admins only). The person signs in to Google
+  // AS that account, not as themselves; the callback stores it instead of linking it to their own login.
+  const shared = searchParams.get("mode") === "shared";
+  if (shared && !hasMinRole(user.role, "ADMIN")) {
+    return NextResponse.json({ error: "Only an admin can connect the shared Google account." }, { status: 403 });
+  }
+
   const state = randomBytes(16).toString("hex");
-  const authUrl = buildAuthUrl(state, extraScopes);
+  const authUrl = shared ? buildSharedReaderAuthUrl(state, ALLOWED_EMAIL_DOMAIN) : buildAuthUrl(state, extraScopes);
 
   const response = NextResponse.redirect(authUrl);
   response.cookies.set("google_oauth_state", state, {
@@ -34,6 +43,12 @@ export async function GET(request: NextRequest) {
   // in from completing an attacker's consent flow and silently linking the
   // attacker's Google account to the victim's app account.
   response.cookies.set("google_oauth_user", user.id, {
+    httpOnly: true,
+    maxAge: 300,
+    path: "/",
+    sameSite: "lax",
+  });
+  response.cookies.set("google_oauth_mode", shared ? "shared" : "user", {
     httpOnly: true,
     maxAge: 300,
     path: "/",

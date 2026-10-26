@@ -1,3 +1,4 @@
+import type { RoundScope } from "@/lib/test-cases/scope";
 import {
   pgTable,
   text,
@@ -2330,6 +2331,9 @@ export const tcRounds = pgTable(
     committedAt: timestamp("committed_at", { withTimezone: true }).notNull().defaultNow(),
     // SHA-256 of the raw uploaded .xlsx (Excel source only): recognises the same workbook on other items.
     sourceHash: text("source_hash"),
+    // Which tabs and rows of the shared sheet this round reviewed (see lib/test-cases/scope.ts RoundScope).
+    // NULL on rounds from before this existed: they reviewed every row of their tabs.
+    scope: jsonb("scope").$type<RoundScope>(),
   },
   (t) => [
     uniqueIndex("tc_rounds_set_round_idx").on(t.setId, t.roundNo),
@@ -2594,3 +2598,119 @@ export const tcProjectFolders = pgTable(
   },
   (t) => [uniqueIndex("tc_project_folders_folder_idx").on(t.folder)]
 );
+
+// One AI review run on a round. Runs are recorded whether or not they produce findings, so the page can show
+// "running / failed / done", cost can be audited, and a second click while one is running returns that run.
+// At most one run per round is `running` (partial unique index).
+export const tcAiReviews = pgTable(
+  "tc_ai_reviews",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    roundId: uuid("round_id")
+      .notNull()
+      .references(() => tcRounds.id, { onDelete: "cascade" }),
+    setId: uuid("set_id")
+      .notNull()
+      .references(() => tcSets.id, { onDelete: "cascade" }),
+    // 'running' | 'succeeded' | 'failed' | 'superseded' (a newer round arrived while it ran; nothing was saved)
+    status: text("status").notNull().default("running"),
+    // 'auto' (after a submission) | 'manual' (someone pressed Run)
+    trigger: text("trigger").notNull(),
+    requestedBy: text("requested_by"),
+    model: text("model").notNull(),
+    promptVersion: integer("prompt_version").notNull(),
+    findingCount: integer("finding_count").notNull().default(0),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    summary: text("summary"),
+    error: text("error"),
+    // The knowledge pages this run was given: [{ id, title, version, hash, stale }].
+    knowledge: jsonb("knowledge").$type<{ id: string; title: string; version: number; hash: string; stale: boolean }[]>().notNull().default(sql`'[]'::jsonb`),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("tc_ai_reviews_round_idx").on(t.roundId, t.startedAt),
+    uniqueIndex("tc_ai_reviews_one_running_idx").on(t.roundId).where(sql`${t.status} = 'running'`),
+  ]
+);
+
+// The AI review's guidelines library: Confluence pages (testing standards, the detailed flows of the code bases,
+// module and dependency maps) managed centrally by admins, not by any project. A page marked `is_general` is used in
+// every project's reviews; any other page is used only in the projects that selected it (tc_ai_project_guidelines).
+// The text is fetched and cached here, so a run never waits on Confluence and keeps working if it is down; it is
+// refreshed when stale or on request. `credentials_project_id` names the project whose Jira account (the same
+// Atlassian site serves Confluence) reads the page.
+export const tcAiKnowledgePages = pgTable(
+  "tc_ai_knowledge_pages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    credentialsProjectId: uuid("credentials_project_id").references(() => jiraProjects.id, { onDelete: "set null" }),
+    isGeneral: boolean("is_general").notNull().default(false),
+    url: text("url").notNull(),
+    pageId: text("page_id").notNull(),
+    title: text("title").notNull(),
+    bodyText: text("body_text").notNull().default(""),
+    version: integer("version").notNull().default(0),
+    contentHash: text("content_hash").notNull().default(""),
+    truncated: boolean("truncated").notNull().default(false),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    enabled: boolean("enabled").notNull().default(true),
+    addedBy: text("added_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("tc_ai_knowledge_page_id_idx").on(t.pageId)]
+);
+
+// Which non-general library pages a project's reviews use.
+export const tcAiProjectGuidelines = pgTable(
+  "tc_ai_project_guidelines",
+  {
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => jiraProjects.id, { onDelete: "cascade" }),
+    guidelineId: uuid("guideline_id")
+      .notNull()
+      .references(() => tcAiKnowledgePages.id, { onDelete: "cascade" }),
+    selectedBy: text("selected_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.projectId, t.guidelineId] })]
+);
+
+// Whether the AI service is usable right now, one row. Updated by every AI run (and the admin's "Check now"):
+// `paused` when the quota/balance is used up or the key is rejected (auto reviews are then skipped, not attempted,
+// until `retry_at`), `degraded` after repeated transient failures, otherwise `ok`. Shown as a banner in Flux.
+export const tcAiStatus = pgTable("tc_ai_status", {
+  id: text("id").primaryKey().default("minimax"),
+  // 'ok' | 'degraded' | 'paused'
+  state: text("state").notNull().default("ok"),
+  // 'quota' | 'auth' | 'rate_limited' | 'unavailable' | null
+  reason: text("reason"),
+  message: text("message"),
+  failureStreak: integer("failure_streak").notNull().default(0),
+  since: timestamp("since", { withTimezone: true }).notNull().defaultNow(),
+  lastOkAt: timestamp("last_ok_at", { withTimezone: true }),
+  lastFailureAt: timestamp("last_failure_at", { withTimezone: true }),
+  // While paused, the earliest time an automatic review may try the service again.
+  retryAt: timestamp("retry_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// The one shared Google account Flux reads Google Sheets with (a dedicated account in the company's Google domain,
+// connected once by an admin). Anything shared with the domain, or with that account, can be read without each person
+// connecting their own Google. Tokens are encrypted at rest; one row (id 'sheets').
+export const googleSharedReader = pgTable("google_shared_reader", {
+  id: text("id").primaryKey().default("sheets"),
+  email: text("email").notNull(),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
+  scopes: text("scopes").notNull().default(""),
+  connectedBy: text("connected_by").notNull(),
+  connectedAt: timestamp("connected_at", { withTimezone: true }).notNull().defaultNow(),
+  lastOkAt: timestamp("last_ok_at", { withTimezone: true }),
+  // Set when Google refuses the refresh token (revoked, expired): the admin has to connect again.
+  lastError: text("last_error"),
+});

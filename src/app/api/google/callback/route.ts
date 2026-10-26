@@ -7,6 +7,10 @@ import {
   saveIntegration,
 } from "@/lib/google/oauth";
 import { userMeetingsTag } from "@/lib/google/cache-tags";
+import { hasMinRole } from "@/lib/auth/types";
+import { ALLOWED_EMAIL_DOMAIN } from "@/lib/auth/constants";
+import { saveSharedReader, SHEETS_SCOPE } from "@/lib/google/shared-reader";
+import { pinnedSheetsReaderEmail } from "@/lib/google/oauth";
 
 export async function GET(request: NextRequest) {
   const user = await requireAuth();
@@ -49,9 +53,11 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const sharedMode = request.cookies.get("google_oauth_mode")?.value === "shared";
   let tokens: Awaited<ReturnType<typeof exchangeCode>>;
   try {
-    tokens = await exchangeCode(code);
+    // The shared Sheets reader is connected through its own OAuth client when one is configured.
+    tokens = await exchangeCode(code, sharedMode ? "sheets" : "app");
   } catch (err) {
     console.error("[google-oauth] Code exchange failed:", err);
     return NextResponse.json({ error: "Token exchange failed" }, { status: 502 });
@@ -66,6 +72,28 @@ export async function GET(request: NextRequest) {
       { error: "Could not fetch Google account details" },
       { status: 502 }
     );
+  }
+
+  // Shared mode: store this account as the one Flux reads Sheets with, instead of linking it to the person's login.
+  if (sharedMode) {
+    const back = new URL(redirectBack, request.nextUrl.origin);
+    const fail = (reason: string) => {
+      back.searchParams.set("shared_reader_error", reason);
+      const r = NextResponse.redirect(back);
+      clearCookies(r);
+      return r;
+    };
+    if (!hasMinRole(user.role, "ADMIN")) return fail("Only an admin can connect the shared Google account.");
+    if (!identity.email.toLowerCase().endsWith(ALLOWED_EMAIL_DOMAIN)) return fail(`The shared account must be a ${ALLOWED_EMAIL_DOMAIN} Google account.`);
+    const pinned = pinnedSheetsReaderEmail();
+    if (pinned && identity.email.toLowerCase() !== pinned) return fail(`Sign in as ${pinned}. This Flux is set up to read Sheets with that account only.`);
+    if (!(tokens.scope ?? "").split(" ").includes(SHEETS_SCOPE)) return fail("Google Sheets access was not granted. Connect again and tick the Sheets permission.");
+    if (!tokens.refresh_token) return fail("Google did not return a long-lived token. Remove Flux from that account's connected apps and connect again.");
+    await saveSharedReader({ email: identity.email, accessToken: tokens.access_token, refreshToken: tokens.refresh_token, expiresIn: tokens.expires_in, scopes: tokens.scope, connectedBy: user.email });
+    back.searchParams.set("connected", "shared-reader");
+    const ok = NextResponse.redirect(back);
+    clearCookies(ok);
+    return ok;
   }
 
   await saveIntegration({
@@ -91,5 +119,6 @@ export async function GET(request: NextRequest) {
 function clearCookies(response: NextResponse) {
   response.cookies.delete("google_oauth_state");
   response.cookies.delete("google_oauth_user");
+  response.cookies.delete("google_oauth_mode");
   response.cookies.delete("google_redirect_back");
 }

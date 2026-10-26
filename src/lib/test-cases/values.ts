@@ -101,6 +101,24 @@ export type TcCommentKind = (typeof TC_COMMENT_KIND_VALUES)[number];
 export const TC_FEEDBACK_SOURCE_VALUES = ["reviewer", "llm", "system"] as const;
 export type TcFeedbackSource = (typeof TC_FEEDBACK_SOURCE_VALUES)[number];
 
+/**
+ * The AI review sits in every round's reviewer list under this reserved address so the existing rules
+ * (a standing change request blocks approval, carry-over on resubmission, override) apply to it unchanged.
+ * It is never a person: it cannot be assigned, cannot decide, and it never approves.
+ */
+export const AI_REVIEWER_EMAIL = "ai-review@flux.local";
+export const AI_REVIEWER_NAME = "AI review";
+export const isAiReviewer = (email: string | null | undefined): boolean => (email ?? "").trim().toLowerCase() === AI_REVIEWER_EMAIL;
+
+/** How the AI reviewer's states read (it isn't "waiting to re-review" a person's change; it is running or has findings). */
+export const AI_REVIEWER_STATE_LABELS: Record<TcReviewerState, string> = {
+  pending: "No findings",
+  approved: "No findings",
+  re_review: "Reviewing",
+  changes_requested: "Findings raised",
+  overridden: "Findings overridden",
+};
+
 export const TC_REVIEWER_STATE_LABELS: Record<TcReviewerState, string> = {
   pending: "Pending review",
   approved: "Approved",

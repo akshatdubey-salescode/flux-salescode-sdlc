@@ -20,6 +20,7 @@ import { buildFeedbackXlsx, type FeedbackRow } from "./feedback-xlsx";
 import { BUSY_MESSAGE, isLockTimeout, lockItem, type Tx } from "./concurrency";
 import { getProjectFolder } from "./project-folder-service";
 import { RuleError } from "./rule-error";
+import { describeScope, type RoundScope } from "./scope";
 import { recomputeSafely } from "./stats-service";
 import {
   canApprove,
@@ -50,6 +51,8 @@ export type RoundContext = {
   isLatest: boolean;
   issue: IssueRef;
   reviewers: { email: string; name: string | null; state: TcReviewerState }[];
+  /** Which tabs and rows this round reviewed (null: every row of its tabs). */
+  scope: RoundScope | null;
 };
 
 export type Failure = { ok: false; status: number; error: string };
@@ -63,6 +66,7 @@ export async function getRoundContext(roundId: string): Promise<RoundContext | n
       committedAt: tcRounds.committedAt,
       committedBy: tcRounds.committedBy,
       committedByName: tcRounds.committedByName,
+      scope: tcRounds.scope,
       issueId: tcSets.issueId,
     })
     .from(tcRounds)
@@ -108,6 +112,7 @@ export async function getRoundContext(roundId: string): Promise<RoundContext | n
     isLatest: row.roundNo === (latest?.n ?? row.roundNo),
     issue,
     reviewers,
+    scope: row.scope ?? null,
   };
 }
 
@@ -395,7 +400,7 @@ export async function buildFeedbackBundle(ctx: RoundContext): Promise<FeedbackBu
   const [comments, cases, reviewers] = await Promise.all([
     db.select().from(tcReviewComments).where(eq(tcReviewComments.roundId, ctx.roundId)).orderBy(asc(tcReviewComments.createdAt)),
     db
-      .select({ id: tcCases.id, tcCode: tcCases.tcCode, title: tcCases.title, section: tcCases.section })
+      .select({ id: tcCases.id, tcCode: tcCases.tcCode, title: tcCases.title, section: tcCases.section, sheetTab: tcCases.sheetTab, rowNo: tcCases.rowNo })
       .from(tcCases)
       .where(eq(tcCases.roundId, ctx.roundId)),
     db
@@ -410,6 +415,8 @@ export async function buildFeedbackBundle(ctx: RoundContext): Promise<FeedbackBu
     const tc = c.caseId ? byId.get(c.caseId) : undefined;
     return {
       scope: tc ? "Test case" : "Round",
+      tab: tc?.sheetTab ? tc.sheetTab : null,
+      row: tc?.rowNo ?? null,
       section: tc?.section ?? null,
       tcCode: tc?.tcCode ?? null,
       title: tc?.title ?? null,
@@ -426,6 +433,7 @@ export async function buildFeedbackBundle(ctx: RoundContext): Promise<FeedbackBu
     issueSummary: ctx.issue.summary,
     roundLabel: ctx.label,
     generatedAt: istDateTime(new Date()),
+    scopeText: describeScope(ctx.scope),
     reviewers: reviewers.map((r) => ({
       name: r.name,
       email: r.email,
@@ -493,6 +501,11 @@ export type CommentView = {
   /** Resolved by an override rather than by being addressed. */
   waived: boolean;
   source: "reviewer" | "llm" | "system";
+  /** AI findings: how serious and what kind. Null for people's comments. */
+  severity: "high" | "medium" | "low" | null;
+  category: string | null;
+  /** The AI's note about a whole run (not a finding): shown as a record, never as something to resolve. */
+  aiSummary: boolean;
   createdAt: string;
   createdLabel: string;
 };
@@ -509,6 +522,9 @@ export async function fetchRoundComments(roundId: string): Promise<CommentView[]
     resolved: c.resolved,
     waived: c.waived,
     source: c.source === "llm" || c.source === "system" ? c.source : "reviewer",
+    severity: c.meta?.severity === "high" || c.meta?.severity === "medium" || c.meta?.severity === "low" ? c.meta.severity : null,
+    category: typeof c.meta?.category === "string" ? c.meta.category : null,
+    aiSummary: c.meta?.aiSummary === "true",
     createdAt: c.createdAt.toISOString(),
     createdLabel: istDateTime(c.createdAt),
   }));
