@@ -58,7 +58,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ roundId: s
     if (!read.grids || read.selectedTabs.length === 0) {
       return NextResponse.json({ error: "This item has no tabs to read." }, { status: 400 });
     }
-    const parsed = parseTabs(read.grids);
+    // A shared sheet holds other features' cases too: read the whole tabs and match only this round's cases.
+    const parsed = parseTabs(read.grids, { uncapped: true });
     if (!parsed.ok) {
       return mode === "commit"
         ? NextResponse.json({ error: parsed.error }, { status: 400 })

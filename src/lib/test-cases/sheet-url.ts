@@ -28,3 +28,8 @@ export function parseSheetUrl(input: string): ParsedSheetUrl | null {
 export function sheetUrlFor(spreadsheetId: string, gid: number | null): string {
   return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit${gid === null ? "" : `#gid=${gid}`}`;
 }
+
+/** Link that opens the live sheet at a row of a tab (Google Sheets jumps to the cell in column A of that row). */
+export function sheetRowUrl(spreadsheetId: string, gid: number | null, row: number): string {
+  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit#${gid === null ? "" : `gid=${gid}&`}range=A${row}`;
+}

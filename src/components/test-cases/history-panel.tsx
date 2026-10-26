@@ -133,11 +133,12 @@ export function HistoryPanel({ events, items, returnTo }: { events: HistoryEvent
                       <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
                         {e.tab ? `${e.tab} · ` : ""}
                         {e.caseCode}
+                        {e.row ? ` (row ${e.row})` : ""}
                       </span>
                     )}
                     <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">Round {e.roundNo}</span>
                     {e.source === "llm" && (
-                      <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">LLM</span>
+                      <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">AI</span>
                     )}
                     <span className="text-[11px] text-muted-foreground">{istDateTime(new Date(e.at))}</span>
                   </p>

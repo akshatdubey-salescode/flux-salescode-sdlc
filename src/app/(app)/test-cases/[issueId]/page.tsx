@@ -26,6 +26,7 @@ import { ReviewPanel } from "@/components/test-cases/review-panel";
 import { AnalyticsPanel } from "@/components/test-cases/analytics-panel";
 import { HistoryPanel } from "@/components/test-cases/history-panel";
 import { DeletePanel } from "@/components/test-cases/delete-panel";
+import { ScopeSummary } from "@/components/test-cases/scope-summary";
 import { SignoffPanel } from "@/components/test-cases/signoff-panel";
 import { BackLink } from "@/components/test-cases/back-link";
 import { returnLabel, safeReturnTo, withReturnTo } from "@/lib/test-cases/return-to";
@@ -36,6 +37,9 @@ import { canSignOff } from "@/lib/test-cases/state";
 import { fetchSignoffs, getIssuePeople } from "@/lib/test-cases/signoff-service";
 import { istDateTime } from "@/lib/test-cases/filenames";
 import { fetchHistory } from "@/lib/test-cases/history-service";
+import { loadAiPanel } from "@/lib/test-cases/ai-review/service";
+import { loadAiBanner } from "@/lib/test-cases/ai-review/health";
+import { AiStatusBanner } from "@/components/test-cases/ai-status-banner";
 import {
   TC_CATEGORY_LABELS,
   TC_POLARITY_LABELS,
@@ -105,6 +109,11 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
           sameWorkbookElsewhere(round.id),
         ])
       : [null, [], { dev: [], qa: [] }, 0, { events: [], items: [] }, []];
+  const aiBanner = await loadAiBanner(viewer.isAdmin);
+  const ai =
+    detail && round
+      ? await loadAiPanel({ roundId: round.id, isLatest, actor: viewer, reviewers: round.reviewers, committerEmail: round.committedBy, signoffCount: signoffs.length })
+      : null;
   const needsResubmit = isLatest && round?.status === "changes_requested";
   const signoffActions = (["dev", "tester"] as const).map((role) => {
     const v = canSignOff({ role, actor: viewer, people, roundApproved, isLatestRound: isLatest, openFeedback });
@@ -146,6 +155,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
       <main className="flex-1 p-6">
         <div className="mx-auto max-w-6xl space-y-5">
           <BackLink href={returnTo ?? "/home"} label={returnLabel(returnTo)} />
+          <AiStatusBanner banner={aiBanner} isAdmin={viewer.isAdmin} />
           {/* Issue header */}
           <section className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -221,6 +231,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                         Committed by {round.committedByName ?? round.committedBy} · {round.tcCount} test cases
                         {round.sheetTabs.length > 0 ? ` · tab${round.sheetTabs.length === 1 ? "" : "s"}: ${round.sheetTabs.join(", ")}` : ""}
                       </p>
+                      <ScopeSummary scope={round.scope} tabs={round.sheetTabs} sheetUrl={round.sheetUrl} className="mt-1" />
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       {round.sheetUrl && (
@@ -310,6 +321,7 @@ export default async function TestCaseDetailsPage({ params, searchParams }: Prop
                   feedbackFiles={feedbackByRound.get(round.roundNo) ?? []}
                   viewer={viewer}
                   committerEmail={round.committedBy}
+                  ai={ai}
                 />
 
                 <SignoffPanel

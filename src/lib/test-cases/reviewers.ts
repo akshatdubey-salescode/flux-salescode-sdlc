@@ -1,5 +1,7 @@
 // Reviewer assignment rules, shared by the submission page and the commit API.
 
+import { isAiReviewer } from "./values";
+
 export const MAX_REVIEWERS = 10;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -19,6 +21,7 @@ export function validateReviewers(
   for (const r of input as ReviewerInput[]) {
     const email = typeof r?.email === "string" ? r.email.trim().toLowerCase() : "";
     if (!EMAIL_RE.test(email)) return { ok: false, error: `"${String(r?.email ?? "")}" is not a valid email address.` };
+    if (isAiReviewer(email)) return { ok: false, error: "The AI review is added automatically; it can't be assigned as a reviewer." };
     if (email === committer) {
       return { ok: false, error: "You can't review your own submission. Choose someone else as reviewer." };
     }

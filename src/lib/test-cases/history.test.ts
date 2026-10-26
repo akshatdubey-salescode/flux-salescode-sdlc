@@ -6,10 +6,10 @@ import { buildHistory, type HistoryComment, type HistoryRound } from "./history"
 const d = (s: string) => new Date(`2026-10-${s}:00Z`);
 const ME = { issueId: "i1", itemKey: "CT-1" };
 const round = (roundNo: number, at: string, over: Partial<HistoryRound> = {}): HistoryRound => ({
-  ...ME, roundNo, at: d(at), by: "Sub Mitter", tcCount: 10, tabs: ["Main"], notes: null, carriedApprovals: [], awaitingReReview: [], unchangedSince: null, ...over,
+  ...ME, roundNo, at: d(at), by: "Sub Mitter", tcCount: 10, tabs: ["Main"], notes: null, carriedApprovals: [], awaitingReReview: [], unchangedSince: null, scope: null, ...over,
 });
 const comment = (id: string, roundNo: number, at: string, over: Partial<HistoryComment> = {}): HistoryComment => ({
-  ...ME, id, roundNo, kind: "comment", source: "reviewer", author: "Asha", body: "text", at: d(at), caseCode: null, tab: null,
+  ...ME, id, roundNo, kind: "comment", source: "reviewer", author: "Asha", body: "text", at: d(at), caseCode: null, tab: null, row: null,
   resolved: false, waived: false, resolvedBy: null, resolvedAt: null, meta: null, ...over,
 });
 
@@ -94,4 +94,24 @@ test("events from several items on one sheet are merged, tagged with their item,
   // The same round number on two items doesn't collide.
   assert.equal(new Set(h.map((e) => e.id)).size, h.length);
   assert.deepEqual([...new Set(h.map((e) => e.issueId))].sort(), ["i1", "i2"]);
+});
+
+test("a submission says which tabs and rows it reviewed; a case event says its row", () => {
+  const scope = {
+    defaulted: false,
+    skipped: [],
+    tabs: [{ tab: "Main", rows: "12-40", ranges: [[12, 40]] as [number, number][], gid: 1, totalInTab: 142, inScope: 28, firstId: "TC-101", lastId: "TC-128", firstRow: 12, lastRow: 40 }],
+  };
+  const events = buildHistory({
+    rounds: [round(1, "01T10:00", { scope })],
+    comments: [comment("c1", 1, "01T11:00", { caseCode: "TC-105", tab: "Main", row: 16 })],
+    signoffs: [],
+    ownIssueId: "i1",
+  });
+  const submitted = events.find((e) => e.kind === "submitted")!;
+  assert.match(submitted.detail ?? "", /scope: Main rows 12-40 \(28 of 142 TCs\)/);
+  assert.equal(events.find((e) => e.kind === "comment")!.row, 16);
+  // A round from before rows could be chosen only knows its tabs.
+  const old = buildHistory({ rounds: [round(1, "01T10:00")], comments: [], signoffs: [], ownIssueId: "i1" });
+  assert.match(old[0].detail ?? "", /1 tab: Main/);
 });

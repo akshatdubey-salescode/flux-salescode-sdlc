@@ -149,7 +149,18 @@ export type ParseIssue = { row: number | null; severity: "error" | "warning"; me
 
 export type UnmappedValue = { field: string; value: string; count: number };
 
-export type SectionInfo = { no: number; title: string | null; caseCount: number };
+export type SectionInfo = {
+  no: number;
+  title: string | null;
+  caseCount: number;
+  /** 1-based sheet rows: the title row (if any), the header row, and the first / last test case row. */
+  titleRow: number | null;
+  headerRow: number;
+  firstRow: number;
+  lastRow: number;
+  firstId: string;
+  lastId: string;
+};
 
 export type ParsedSheet =
   | {
@@ -194,14 +205,29 @@ function headerFieldsOf(row: unknown[] | undefined): Map<number, CanonicalField>
   return seen.has("tcId") && fields.size >= MIN_HEADER_MATCHES ? fields : null;
 }
 
-type Section = { no: number; title: string | null; fields: Map<number, CanonicalField>; headerRowIndex: number };
+type Section = { no: number; title: string | null; titleRowIndex: number | null; fields: Map<number, CanonicalField>; headerRowIndex: number };
 
-export function parseSheetGrid(grid: unknown[][]): ParsedSheet {
+export type ParseOptions = {
+  /** Only these sheet rows (1-based) can be test cases; headers and sections are still found in the whole grid. */
+  rowFilter?: (rowNumber: number) => boolean;
+  /**
+   * Whether cases are keyed "Section / ID". Normally decided by whether more than one section has cases; a scoped parse
+   * passes the answer from the whole tab, so choosing fewer rows never changes a case's key.
+   */
+  sectionedKeys?: boolean;
+  /** Error text when no test case is found (a scoped parse names the rows). */
+  emptyMessage?: string;
+  /** Cap on test cases (default MAX_TC_ROWS). The whole-tab pass that only measures a tab lifts it, so a huge tab can still be scoped. */
+  maxCases?: number;
+};
+
+export function parseSheetGrid(grid: unknown[][], opts: ParseOptions = {}): ParsedSheet {
   // ---- pass 1: sections (title row + header row), and the data rows under each
   const sections: Section[] = [];
   const rowSection = new Map<number, Section>();
   let current: Section | null = null;
   let pendingTitle: string | null = null;
+  let pendingTitleRow: number | null = null;
   const titleRows = new Set<number>();
 
   const headerFollows = (r: number): boolean => {
@@ -217,14 +243,16 @@ export function parseSheetGrid(grid: unknown[][]): ParsedSheet {
     const row = grid[r] ?? [];
     const fields = headerFieldsOf(row);
     if (fields) {
-      current = { no: sections.length + 1, title: pendingTitle, fields, headerRowIndex: r };
+      current = { no: sections.length + 1, title: pendingTitle, titleRowIndex: pendingTitle ? pendingTitleRow : null, fields, headerRowIndex: r };
       sections.push(current);
       pendingTitle = null;
+      pendingTitleRow = null;
       continue;
     }
     const texts = [...new Set(row.map(cellText).filter((t) => t !== "").map((t) => t.toLowerCase()))];
     if (texts.length === 1 && headerFollows(r)) {
       pendingTitle = row.map(cellText).find((t) => t !== "") ?? null;
+      pendingTitleRow = r;
       titleRows.add(r);
       continue;
     }
@@ -266,6 +294,7 @@ export function parseSheetGrid(grid: unknown[][]): ParsedSheet {
     if (!sec) continue;
     const row = grid[r] ?? [];
     const rowNumber = r + 1;
+    if (opts.rowFilter && !opts.rowFilter(rowNumber)) continue;
 
     const get = (field: CanonicalField): string => {
       for (const [c, f] of sec.fields) if (f === field) return cellText(row[c]);
@@ -280,8 +309,8 @@ export function parseSheetGrid(grid: unknown[][]): ParsedSheet {
       }
       continue;
     }
-    if (cases.length >= MAX_TC_ROWS) {
-      return { ok: false, error: `Too many test cases (more than ${MAX_TC_ROWS}). Split the sheet.` };
+    if (cases.length >= (opts.maxCases ?? MAX_TC_ROWS)) {
+      return { ok: false, error: `Too many test cases (more than ${opts.maxCases ?? MAX_TC_ROWS}). Choose the rows that belong to this item, or split the sheet.` };
     }
 
     const title = get("title");
@@ -361,12 +390,12 @@ export function parseSheetGrid(grid: unknown[][]): ParsedSheet {
   }
 
   if (cases.length === 0) {
-    return { ok: false, error: "The sheet has a header but no test cases (rows with a Test Case ID)." };
+    return { ok: false, error: opts.emptyMessage ?? "The sheet has a header but no test cases (rows with a Test Case ID)." };
   }
 
   // A tab with several sections keys each case by section + ID, because IDs restart per section.
   const used = sections.filter((s) => cases.some((c) => c.sectionNo === s.no));
-  if (used.length > 1) {
+  if (opts.sectionedKeys ?? used.length > 1) {
     for (const c of cases) c.tcKey = `${c.section ?? `Section ${c.sectionNo}`} / ${c.tcId}`;
   }
 
@@ -374,7 +403,20 @@ export function parseSheetGrid(grid: unknown[][]): ParsedSheet {
     ok: true,
     layout,
     headerRow: first.headerRowIndex + 1,
-    sections: used.map((s) => ({ no: s.no, title: s.title, caseCount: cases.filter((c) => c.sectionNo === s.no).length })),
+    sections: used.map((s) => {
+      const mine = cases.filter((c) => c.sectionNo === s.no);
+      return {
+        no: s.no,
+        title: s.title,
+        caseCount: mine.length,
+        titleRow: s.titleRowIndex === null ? null : s.titleRowIndex + 1,
+        headerRow: s.headerRowIndex + 1,
+        firstRow: mine[0].rowNumber,
+        lastRow: mine[mine.length - 1].rowNumber,
+        firstId: mine[0].tcId,
+        lastId: mine[mine.length - 1].tcId,
+      };
+    }),
     cases,
     issues,
     unmapped: [...unmappedCounts.values()].sort((a, b) => b.count - a.count),

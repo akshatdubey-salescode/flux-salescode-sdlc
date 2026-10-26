@@ -1,8 +1,10 @@
-// Reads Google Sheets as the signed-in user, using the per-user Google
-// connection Flux already stores (see lib/google/oauth.ts) plus the on-demand
-// "sheets" scope. Reads only: list tabs, read one tab's values.
+// Reads Google Sheets. Flux's own shared Google account (see shared-reader.ts) is used first, so anything shared with
+// the company's Google domain, or with that account, opens without anyone connecting their own Google. If that account
+// can't open a sheet, the person's own Google connection (lib/google/oauth.ts, on-demand "sheets" scope) is tried as a
+// fallback. Reads only: list tabs, read one tab's values.
 
 import { getValidAccessToken } from "./oauth";
+import { getSharedAccessToken, markSharedReaderOk } from "./shared-reader";
 
 const API = "https://sheets.googleapis.com/v4/spreadsheets";
 const TIMEOUT_MS = 20_000;
@@ -38,12 +40,6 @@ export const SHEETS_ERROR_MESSAGES: Record<SheetsErrorCode, string> = {
   failed: "Could not read the Google Sheet. Try again.",
 };
 
-async function accessToken(userId: string): Promise<string> {
-  const token = await getValidAccessToken(userId);
-  if (!token) throw new SheetsError("not_connected", SHEETS_ERROR_MESSAGES.not_connected);
-  return token;
-}
-
 /** Maps a failed Sheets API response to a typed error. */
 export function classifySheetsFailure(status: number, body: string): SheetsError {
   const lower = body.toLowerCase();
@@ -62,20 +58,61 @@ export function classifySheetsFailure(status: number, body: string): SheetsError
   return new SheetsError("failed", SHEETS_ERROR_MESSAGES.failed);
 }
 
-async function sheetsGet(userId: string, url: string): Promise<unknown> {
-  const token = await accessToken(userId);
+/** What to tell someone when Flux's shared account can't open a sheet (and they have no connection of their own). */
+export function sharedNoAccessMessage(email: string): string {
+  return `Flux's Google account (${email}) can't open this Google Sheet. Share the sheet with ${email}, or set its sharing to "Anyone at Salescode with the link", then try again.`;
+}
+
+async function fetchSheets(token: string, url: string): Promise<{ ok: true; data: unknown } | { ok: false; error: SheetsError }> {
   let res: Response;
   try {
-    res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-      cache: "no-store",
-    });
+    res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(TIMEOUT_MS), cache: "no-store" });
   } catch {
-    throw new SheetsError("failed", SHEETS_ERROR_MESSAGES.failed);
+    return { ok: false, error: new SheetsError("failed", SHEETS_ERROR_MESSAGES.failed) };
   }
-  if (!res.ok) throw classifySheetsFailure(res.status, await res.text().catch(() => ""));
-  return res.json();
+  if (!res.ok) return { ok: false, error: classifySheetsFailure(res.status, await res.text().catch(() => "")) };
+  return { ok: true, data: await res.json() };
+}
+
+/** Reads through the shared account first; on "can't open it" falls back to the person's own Google connection. */
+async function sheetsGet(userId: string, url: string): Promise<unknown> {
+  const shared = await getSharedAccessToken();
+  if (shared) {
+    const first = await fetchSheets(shared.token, url);
+    if (first.ok) {
+      void markSharedReaderOk();
+      return first.data;
+    }
+    // Only "this account may not see it" is worth a second try as the person; anything else (API off, rate limit,
+    // network) would fail the same way.
+    if (first.error.code !== "no_access" && first.error.code !== "not_found") throw first.error;
+    const own = userId ? await getValidAccessToken(userId).catch(() => null) : null;
+    if (own) {
+      const second = await fetchSheets(own, url);
+      if (second.ok) return second.data;
+      if (second.error.code !== "scope_missing" && second.error.code !== "not_connected") throw second.error;
+    }
+    throw first.error.code === "no_access" ? new SheetsError("no_access", sharedNoAccessMessage(shared.email)) : first.error;
+  }
+  const token = await getValidAccessToken(userId);
+  if (!token) throw new SheetsError("not_connected", SHEETS_ERROR_MESSAGES.not_connected);
+  const only = await fetchSheets(token, url);
+  if (!only.ok) throw only.error;
+  return only.data;
+}
+
+/** Whether one spreadsheet opens with Flux's shared account alone (for the admin's "test a link"). */
+export async function probeWithSharedAccount(spreadsheetId: string): Promise<{ ok: true; title: string; tabs: number } | { ok: false; code: SheetsErrorCode; message: string }> {
+  const shared = await getSharedAccessToken();
+  if (!shared) return { ok: false, code: "not_connected", message: "The shared Google account is not connected." };
+  const fields = encodeURIComponent("properties.title,sheets.properties.sheetId");
+  const r = await fetchSheets(shared.token, `${API}/${encodeURIComponent(spreadsheetId)}?fields=${fields}`);
+  if (r.ok) {
+    void markSharedReaderOk();
+    const d = r.data as { properties?: { title?: string }; sheets?: unknown[] };
+    return { ok: true, title: d.properties?.title ?? "", tabs: d.sheets?.length ?? 0 };
+  }
+  return { ok: false, code: r.error.code, message: r.error.code === "no_access" ? sharedNoAccessMessage(shared.email) : r.error.message };
 }
 
 /** Spreadsheet title and its tabs (hidden tabs included, flagged). */

@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { canComment, canResolve, MAX_COMMENT_LENGTH } from "@/lib/test-cases/state";
 import type { CommentView } from "@/lib/test-cases/review-service";
+import { FINDING_CATEGORY_LABELS } from "@/lib/test-cases/ai-review/labels";
 import { invalidateTcSummaries } from "./tc-summary-cache";
 
 export type Viewer = { email: string; isAdmin: boolean };
@@ -17,6 +18,12 @@ const KIND_STYLE: Record<string, string> = {
   changes_requested: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400",
   override: "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
 };
+const SEVERITY_STYLE: Record<string, string> = {
+  high: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+  medium: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400",
+  low: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
+};
+const CATEGORY_LABELS: Record<string, string> = FINDING_CATEGORY_LABELS;
 const KIND_LABEL: Record<string, string> = { approved: "Approved", changes_requested: "Requested changes", override: "Overrode feedback and approved" };
 
 /**
@@ -107,15 +114,21 @@ export function CommentThread({
                 <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", KIND_STYLE[c.kind])}>{KIND_LABEL[c.kind]}</span>
               )}
               {c.source === "llm" && (
-                <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">LLM</span>
+                <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">AI</span>
               )}
-              {c.resolved && (
+              {c.severity && (
+                <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold capitalize", SEVERITY_STYLE[c.severity])}>{c.severity}</span>
+              )}
+              {c.category && (
+                <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{CATEGORY_LABELS[c.category] ?? c.category.replace(/_/g, " ")}</span>
+              )}
+              {c.resolved && !c.aiSummary && (
                 <span className={cn("inline-flex items-center gap-0.5", c.waived ? "text-violet-600" : "text-emerald-600")}>
                   <RiCheckLine className="size-3" />
                   {c.waived ? "Waived by override" : "Resolved"}
                 </span>
               )}
-              {c.kind === "comment" && !readOnly && canResolve(viewer, c.authorEmail, reviewers, committerEmail).ok && (
+              {c.kind === "comment" && !c.aiSummary && !readOnly && canResolve(viewer, c.authorEmail, reviewers, committerEmail).ok && (
                 <button type="button" onClick={() => toggleResolved(c)} className="ml-auto text-primary hover:underline">
                   {c.resolved ? "Reopen" : "Resolve"}
                 </button>

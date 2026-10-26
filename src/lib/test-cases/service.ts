@@ -22,9 +22,10 @@ import { checkLock, getItemLock, SourceLockedError } from "./lock";
 import { RuleError } from "./rule-error";
 import type { MultiParsed, TabGrid } from "./multi-tab";
 import { recomputeSafely } from "./stats-service";
-import { applyCarryOver, requiredReviewersMissing, roundStatusFrom } from "./state";
+import type { RoundScope } from "./scope";
+import { AI_OPENING_STATE, applyCarryOver, requiredReviewersMissing, roundStatusFrom } from "./state";
 import { buildSnapshotXlsx } from "./xlsx";
-import type { TcReviewerState, TcRoundStatus, TcSource } from "./values";
+import { AI_REVIEWER_EMAIL, AI_REVIEWER_NAME, isAiReviewer, type TcReviewerState, type TcRoundStatus, type TcSource } from "./values";
 
 export type IssueRef = {
   id: string;
@@ -89,6 +90,10 @@ export type CommitArgs = {
   isAdmin: boolean;
   /** SHA-256 of the uploaded workbook (Excel source), to recognise the same file on other items. */
   sourceHash: string | null;
+  /** Which tabs and rows of the sheet this round reviewed. */
+  scope: RoundScope;
+  /** The AI review is on: the round gets the AI reviewer, waiting for its run, so it can't be approved before that. */
+  aiReview?: boolean;
 };
 
 export type CommitResult = {
@@ -181,7 +186,11 @@ export async function commitRound(args: CommitArgs): Promise<CommitResult> {
         );
       }
 
-      const carried = applyCarryOver(previous, args.reviewers);
+      const humans = applyCarryOver(previous, args.reviewers);
+      // The AI reviewer starts every round waiting for its run, whatever it said before (a run follows each submission).
+      const carried = args.aiReview
+        ? [...humans, { email: AI_REVIEWER_EMAIL, name: AI_REVIEWER_NAME, state: AI_OPENING_STATE, decidedAt: null, decidedRoundNo: null }]
+        : humans;
       const status = roundStatusFrom(carried.map((r) => r.state));
 
       const [file] = await tx
@@ -212,6 +221,7 @@ export async function commitRound(args: CommitArgs): Promise<CommitResult> {
           sheetTabs: tabTitles,
           snapshotFileId: file.id,
           sourceHash: args.sourceHash,
+          scope: args.scope,
           notes: args.notes,
           tcCount: parsed.cases.length,
           status,
@@ -273,8 +283,8 @@ export async function commitRound(args: CommitArgs): Promise<CommitResult> {
         fileId: file.id,
         fileName,
         roundStatus: status,
-        needsAction: carried.filter((r) => mustAct(r.state)).map((r) => ({ email: r.email, name: r.name })),
-        carriedApprovals: carried.filter((r) => r.state === "approved" && (r.decidedRoundNo ?? roundNo) < roundNo).map((r) => r.email),
+        needsAction: humans.filter((r) => mustAct(r.state)).map((r) => ({ email: r.email, name: r.name })),
+        carriedApprovals: humans.filter((r) => r.state === "approved" && (r.decidedRoundNo ?? roundNo) < roundNo).map((r) => r.email),
       };
     });
   } catch (err) {
@@ -299,11 +309,13 @@ export async function previousReviewers(
     .orderBy(desc(tcRounds.roundNo))
     .limit(1);
   if (!latest) return [];
-  return db
+  const rows = await db
     .select({ email: tcReviewers.email, name: tcReviewers.name, state: tcReviewers.state, decidedRoundNo: tcReviewers.decidedRoundNo })
     .from(tcReviewers)
     .where(eq(tcReviewers.roundId, latest.id))
     .orderBy(asc(tcReviewers.createdAt));
+  // The AI reviewer is added by the system, never pre-filled as an assignee.
+  return rows.filter((r) => !isAiReviewer(r.email));
 }
 
 /**
@@ -337,6 +349,8 @@ export type RoundView = {
   sheetTab: string | null;
   /** Every tab of the item's test cases in this round. */
   sheetTabs: string[];
+  /** Which tabs and rows were reviewed (null for rounds from before rows could be chosen: every row of the tabs). */
+  scope: RoundScope | null;
   notes: string | null;
   tcCount: number;
   status: string;
@@ -378,6 +392,7 @@ export async function fetchSetDetail(issueId: string, roundNo?: number): Promise
       sheetUrl: r.sheetUrl,
       sheetTab: r.sheetTab,
       sheetTabs: r.sheetTabs.length > 0 ? r.sheetTabs : r.sheetTab ? [r.sheetTab] : [],
+      scope: r.scope ?? null,
       notes: r.notes,
       tcCount: r.tcCount,
       status: r.status,
@@ -488,4 +503,39 @@ export async function sameWorkbookElsewhere(roundId: string): Promise<SameWorkbo
   // One entry per item: the earliest round that used this exact file.
   const seen = new Set<string>();
   return rows.filter((r) => (seen.has(r.issueId) ? false : (seen.add(r.issueId), true)));
+}
+
+export type ScopeOverlap = { issueId: string; itemKey: string; roundNo: number; shared: number; sample: string[] };
+
+/**
+ * Other items of the same project that already review some of these test cases of the same Google Sheet, so the person can
+ * be told before committing ("12 of these are also in CT-123"). Looks at each item's latest round only. A warning, never a
+ * block: both items keep their own review, approvals and analytics. Excel workbooks have no shared identity to compare.
+ */
+export async function findScopeOverlaps(args: { issueId: string; projectId: string; spreadsheetId: string | null; tcKeys: string[] }): Promise<ScopeOverlap[]> {
+  if (!args.spreadsheetId || args.tcKeys.length === 0) return [];
+  const rows = await db
+    .select({ issueId: jiraIssues.id, itemKey: jiraIssues.jiraKey, roundNo: tcRounds.roundNo, tcKey: tcCases.tcKey, rowNo: tcCases.rowNo })
+    .from(tcCases)
+    .innerJoin(tcRounds, eq(tcRounds.id, tcCases.roundId))
+    .innerJoin(tcSets, eq(tcSets.id, tcRounds.setId))
+    .innerJoin(jiraIssues, eq(jiraIssues.id, tcSets.issueId))
+    .where(
+      and(
+        eq(tcSets.projectId, args.projectId),
+        ne(tcSets.issueId, args.issueId),
+        eq(tcRounds.spreadsheetId, args.spreadsheetId),
+        sql`${tcRounds.roundNo} = (select max(r2.round_no) from tc_rounds r2 where r2.set_id = ${tcRounds.setId})`,
+        inArray(tcCases.tcKey, args.tcKeys),
+      ),
+    )
+    .orderBy(asc(tcCases.rowNo));
+  const byItem = new Map<string, ScopeOverlap>();
+  for (const r of rows) {
+    const o = byItem.get(r.issueId) ?? { issueId: r.issueId, itemKey: r.itemKey, roundNo: r.roundNo, shared: 0, sample: [] };
+    o.shared++;
+    if (o.sample.length < 3) o.sample.push(`${r.tcKey.replace(/^.*?::/, "")} (row ${r.rowNo})`);
+    byItem.set(r.issueId, o);
+  }
+  return [...byItem.values()].sort((a, b) => b.shared - a.shared || a.itemKey.localeCompare(b.itemKey));
 }

@@ -25,11 +25,11 @@ test("the workbook carries the headline numbers, splits, sign-offs and every cas
   });
   const buf = await buildSummaryXlsx({
     issueKey: "CT-1", issueSummary: "=HYPERLINK(\"x\")", projectName: "P", roundLabel: "Round 1", generatedAt: "now", stats,
-    history: [{ id: "h1", issueId: "i1", itemKey: "CT-1", own: true, at: "2026-10-13T10:00:00Z", kind: "approved", roundNo: 1, actor: "Asha", source: "reviewer", title: "Approved", detail: "=SUM(1)", caseCode: null, tab: null }],
+    history: [{ id: "h1", issueId: "i1", itemKey: "CT-1", own: true, at: "2026-10-13T10:00:00Z", kind: "approved", roundNo: 1, actor: "Asha", source: "reviewer", title: "Approved", detail: "=SUM(1)", caseCode: null, tab: null, row: null }],
     trend: [{ roundNo: 1, tcCount: 3, quality: stats.quality, passRate: stats.passRate, confidence: stats.confidence, status: "approved" }],
     signoffs: [{ role: "dev", by: "A", label: "x", pass: 1, fail: 1, blocked: 0, notRun: 1, notes: null, current: true }],
     cases: cases.map((c) => ({
-      section: null, tcCode: c.tcCode, title: c.title, category: c.category, polarity: c.polarity, priority: c.priority, severity: c.severity,
+      tab: "Main", row: 12, section: null, tcCode: c.tcCode, title: c.title, category: c.category, polarity: c.polarity, priority: c.priority, severity: c.severity,
       dev: c.devResult, tester: c.testerResult, effective: c.devResult ?? "not_run",
     })),
   });
@@ -52,8 +52,10 @@ test("the workbook carries the headline numbers, splits, sign-offs and every cas
 
   const cs = wb.getWorksheet("Cases")!;
   assert.equal(cs.rowCount, 4);
-  assert.equal(cs.getRow(3).getCell(8).value, "Failed");
-  assert.equal(cs.getRow(3).getCell(9).value, "No sign-off");
+  assert.equal(cs.getRow(3).getCell(10).value, "Failed");
+  assert.equal(cs.getRow(3).getCell(11).value, "No sign-off");
+  assert.equal(cs.getRow(3).getCell(1).value, "Main", "each case says which tab and sheet row it came from");
+  assert.equal(cs.getRow(3).getCell(2).value, 12);
 });
 
 test("a value that would be a formula is escaped", async () => {
@@ -63,10 +65,10 @@ test("a value that would be a formula is escaped", async () => {
   });
   const buf = await buildSummaryXlsx({
     issueKey: "CT-1", issueSummary: "s", projectName: "=cmd", roundLabel: "R", generatedAt: "n", stats, history: [], trend: [], signoffs: [],
-    cases: [{ section: null, tcCode: "TC-01", title: "+SUM(A1)", category: "functional", polarity: null, priority: null, severity: null, dev: null, tester: null, effective: "not_run" }],
+    cases: [{ tab: "Main", row: 3, section: null, tcCode: "TC-01", title: "+SUM(A1)", category: "functional", polarity: null, priority: null, severity: null, dev: null, tester: null, effective: "not_run" }],
   });
   const wb = await load(buf);
   const summary = wb.getWorksheet("Summary")!;
   assert.equal(summary.getRow(2).getCell(2).value, "'=cmd");
-  assert.equal(wb.getWorksheet("Cases")!.getRow(2).getCell(3).value, "'+SUM(A1)");
+  assert.equal(wb.getWorksheet("Cases")!.getRow(2).getCell(5).value, "'+SUM(A1)");
 });

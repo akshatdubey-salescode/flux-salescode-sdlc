@@ -27,6 +27,7 @@ import { BugTracker } from "@/components/bug-summary";
 import { ProjectTeamClient } from "@/components/observer/team-timeline-client";
 import { DeliveryTrackerTab } from "@/components/delivery-tracker/delivery-tracker-tab";
 import { SprintTrackerTab } from "@/components/sprint-tracker/sprint-tracker-tab";
+import { AiProjectGuidelines } from "@/components/test-cases/ai-project-guidelines";
 
 type SyncJob = {
   id: string;
@@ -43,23 +44,27 @@ type Props = {
   isAdmin: boolean;
   isSuperuser: boolean;
   canManageDeliveries: boolean;
+  /** Admin tab: which AI review guidelines apply to this project; only when Test Cases is enabled. */
+  aiReviewTab?: boolean;
+  aiConfigured?: boolean;
 };
 
-const VALID_TABS = ["overview", "project-tracking", "delivery-tracker", "sprint-tracker", "team", "bug-summary", "sla-engine", "status-mapping", "client-issues"] as const;
+const VALID_TABS = ["overview", "project-tracking", "delivery-tracker", "sprint-tracker", "team", "bug-summary", "sla-engine", "status-mapping", "ai-review", "client-issues"] as const;
 type Tab = (typeof VALID_TABS)[number];
 
 function isValidTab(value: string | null): value is Tab {
   return VALID_TABS.includes(value as Tab);
 }
 
-export function ProjectTabs({ projectId, projectName, hasFreshdesk, isAdmin, isSuperuser, canManageDeliveries }: Props) {
+export function ProjectTabs({ projectId, projectName, hasFreshdesk, isAdmin, isSuperuser, canManageDeliveries, aiReviewTab = false, aiConfigured = false }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawTab = searchParams.get("tab");
   const activeTab: Tab =
     isValidTab(rawTab) &&
     (rawTab !== "sla-engine" || isAdmin) &&
-    (rawTab !== "status-mapping" || isAdmin)
+    (rawTab !== "status-mapping" || isAdmin) &&
+    (rawTab !== "ai-review" || (isAdmin && aiReviewTab))
       ? rawTab
       : "overview";
 
@@ -143,6 +148,9 @@ export function ProjectTabs({ projectId, projectName, hasFreshdesk, isAdmin, isS
           )}
           {isAdmin && (
             <TabsTrigger value="status-mapping">Status Mapping</TabsTrigger>
+          )}
+          {isAdmin && aiReviewTab && (
+            <TabsTrigger value="ai-review">AI Review</TabsTrigger>
           )}
           {hasFreshdesk && (
             <TabsTrigger value="client-issues">Client Issue Tracker</TabsTrigger>
@@ -244,6 +252,11 @@ export function ProjectTabs({ projectId, projectName, hasFreshdesk, isAdmin, isS
             {isAdmin && (
               <TabsContent value="status-mapping">
                 <StatusMappingTabContent projectId={projectId} />
+              </TabsContent>
+            )}
+            {isAdmin && aiReviewTab && (
+              <TabsContent value="ai-review">
+                <AiProjectGuidelines projectId={projectId} aiConfigured={aiConfigured} />
               </TabsContent>
             )}
             {hasFreshdesk && (

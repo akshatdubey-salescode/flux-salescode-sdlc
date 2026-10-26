@@ -1,7 +1,7 @@
 // Run: ./node_modules/.bin/tsx --test "src/lib/test-cases/tab-select.test.ts"
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chooseTab, type TabInfo } from "./tab-select";
+import { sortTabsByName, chooseTab, pickTabs, type TabInfo } from "./tab-select";
 
 const tabs: TabInfo[] = [
   { title: "TESTCASES Summary", hidden: false, sheetId: 0 },
@@ -34,23 +34,41 @@ test("otherwise the one tab named after the Jira key; ambiguous or none means th
   assert.equal(chooseTab({ tabs: dup, jiraKey: "CT-1" }), null, "two matches is ambiguous");
 });
 
-import { pickTabs } from "./tab-select";
+
+const ALL_VISIBLE = ["TESTCASES Summary", "CT-485", "CT-614 (Dry Sampling Exclusion)", "Login "];
 
 test("pickTabs: an explicit list wins and every entry must be a visible tab", () => {
   const ok = pickTabs({ tabs, requested: ["CT-485", "Login "], jiraKey: "CT-614" });
-  assert.deepEqual(ok, { ok: true, selected: ["CT-485", "Login "], missingPrevious: [] });
+  assert.deepEqual(ok, { ok: true, selected: ["CT-485", "Login "], missingPrevious: [], defaulted: false });
   assert.deepEqual(pickTabs({ tabs, requested: ["CT-485", "Stock Threshold"], jiraKey: "CT-614" }), { ok: false, missing: "Stock Threshold" });
-  assert.deepEqual(pickTabs({ tabs, requested: [], jiraKey: "CT-614" }), { ok: true, selected: [], missingPrevious: [] }, "none chosen is allowed here; commit rejects it");
   assert.deepEqual(pickTabs({ tabs, requested: ["CT-485", "CT-485"], jiraKey: "x" }).ok && (pickTabs({ tabs, requested: ["CT-485", "CT-485"], jiraKey: "x" }) as { selected: string[] }).selected, ["CT-485"], "repeats collapse");
+});
+
+test("pickTabs: clearing every tab means none was named, so all visible tabs are taken (and flagged)", () => {
+  assert.deepEqual(pickTabs({ tabs, requested: [], jiraKey: "CT-614" }), { ok: true, selected: ALL_VISIBLE, missingPrevious: [], defaulted: true });
 });
 
 test("pickTabs: a resubmission starts from the previous tabs and reports any that vanished", () => {
   const r = pickTabs({ tabs, previous: ["CT-485", "Gone tab"], jiraKey: "CT-614" });
-  assert.deepEqual(r, { ok: true, selected: ["CT-485"], missingPrevious: ["Gone tab"] });
+  assert.deepEqual(r, { ok: true, selected: ["CT-485"], missingPrevious: ["Gone tab"], defaulted: false });
 });
 
-test("pickTabs: a first submission falls back to the suggested tab, or nothing", () => {
-  assert.deepEqual(pickTabs({ tabs, jiraKey: "CT-614" }), { ok: true, selected: ["CT-614 (Dry Sampling Exclusion)"], missingPrevious: [] });
-  assert.deepEqual(pickTabs({ tabs, jiraKey: "ZZ-9" }), { ok: true, selected: [], missingPrevious: [] });
-  assert.deepEqual(pickTabs({ tabs, gid: 33, jiraKey: "ZZ-9" }), { ok: true, selected: ["Login "], missingPrevious: [] });
+test("pickTabs: a first submission with nothing named takes the link's gid tab, the only tab, else ALL visible tabs", () => {
+  assert.deepEqual(pickTabs({ tabs, gid: 33, jiraKey: "ZZ-9" }), { ok: true, selected: ["Login "], missingPrevious: [], defaulted: false });
+  assert.deepEqual(pickTabs({ tabs: [{ title: "Sheet1", hidden: false }, { title: "x", hidden: true }], jiraKey: "ABC-1" }), { ok: true, selected: ["Sheet1"], missingPrevious: [], defaulted: false });
+  // A tab named after the Jira key is only a suggestion now: it no longer narrows the review.
+  assert.deepEqual(pickTabs({ tabs, jiraKey: "CT-614" }), { ok: true, selected: ALL_VISIBLE, missingPrevious: [], defaulted: true });
+  assert.deepEqual(pickTabs({ tabs, jiraKey: "ZZ-9" }), { ok: true, selected: ALL_VISIBLE, missingPrevious: [], defaulted: true });
+  assert.equal(chooseTab({ tabs, jiraKey: "CT-614" }), "CT-614 (Dry Sampling Exclusion)", "the badge still points at it");
+});
+
+test("pickTabs: previous tabs that all vanished fall through to all visible tabs", () => {
+  assert.deepEqual(pickTabs({ tabs, previous: ["Gone"], jiraKey: "ZZ-9" }), { ok: true, selected: ALL_VISIBLE, missingPrevious: ["Gone"], defaulted: true });
+});
+
+test("sortTabsByName: alphabetical, case-insensitive, numbers by value, input untouched", () => {
+  const input = [{ title: "Tab 10" }, { title: "zeta" }, { title: " New one" }, { title: "Tab 2" }, { title: "Alpha" }, { title: "beta" }];
+  const sorted = sortTabsByName(input).map((t) => t.title);
+  assert.deepEqual(sorted, ["Alpha", "beta", " New one", "Tab 2", "Tab 10", "zeta"]);
+  assert.equal(input[0].title, "Tab 10");
 });

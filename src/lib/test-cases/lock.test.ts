@@ -3,8 +3,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { checkLock, type ItemLock } from "./lock";
 
-const sheet: ItemLock = { source: "google_sheet", sheetUrl: "https://docs.google.com/spreadsheets/d/AAA/edit", spreadsheetId: "AAA", tabs: ["Main"], roundNo: 1 };
-const xlsx: ItemLock = { source: "xlsx", sheetUrl: null, spreadsheetId: null, tabs: ["Main"], roundNo: 1 };
+const sheet: ItemLock = { source: "google_sheet", sheetUrl: "https://docs.google.com/spreadsheets/d/AAA/edit", spreadsheetId: "AAA", tabs: ["Main"], roundNo: 1, scope: null };
+const xlsx: ItemLock = { source: "xlsx", sheetUrl: null, spreadsheetId: null, tabs: ["Main"], roundNo: 1, scope: null };
 
 test("the first submission is free to choose its source", () => {
   assert.deepEqual(checkLock(null, { source: "google_sheet", spreadsheetId: "ZZZ" }), { ok: true });

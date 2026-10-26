@@ -14,6 +14,10 @@ import {
 } from "@/components/ui/breadcrumb";
 import { SubmissionForm } from "@/components/test-cases/submission-form";
 import { BackLink } from "@/components/test-cases/back-link";
+import { AiStatusBanner } from "@/components/test-cases/ai-status-banner";
+import { loadAiBanner } from "@/lib/test-cases/ai-review/health";
+import { hasMinRole } from "@/lib/auth/types";
+import { getSharedReaderInfo } from "@/lib/google/shared-reader";
 import { returnLabel, safeReturnTo, withReturnTo } from "@/lib/test-cases/return-to";
 import { getItemLock } from "@/lib/test-cases/lock";
 import { fetchSetDetail, findIssue, previousReviewers } from "@/lib/test-cases/service";
@@ -110,8 +114,9 @@ export default async function NewTestCaseSubmissionPage({ searchParams }: Props)
         </Breadcrumb>
       </PageHeader>
       <main className="flex-1 space-y-3 p-6">
-        <div className="mx-auto max-w-4xl">
+        <div className="mx-auto max-w-4xl space-y-3">
           <BackLink href={backHref} label={returnLabel(returnTo)} />
+          <AiStatusBanner banner={await loadAiBanner(hasMinRole(user.role, "ADMIN"))} isAdmin={hasMinRole(user.role, "ADMIN")} />
         </div>
         <SubmissionForm
           // A new instance for each round, so a committed form never comes back as a stale draft.
@@ -126,6 +131,7 @@ export default async function NewTestCaseSubmissionPage({ searchParams }: Props)
             jiraBaseUrl: issue.jiraBaseUrl,
           }}
           nextRound={nextRound}
+          sheetReaderEmail={(await getSharedReaderInfo().catch(() => null))?.email ?? null}
           committerEmail={user.email}
           // You can't review your own submission, so an admin who approved the last round isn't pre-filled.
           initialReviewers={reviewers.filter((r) => r.email.toLowerCase() !== user.email.toLowerCase())}
@@ -136,6 +142,7 @@ export default async function NewTestCaseSubmissionPage({ searchParams }: Props)
               ? {
                   source: itemLock.source,
                   sheetUrl: itemLock.sheetUrl,
+                  scope: itemLock.scope,
                   currentFile: existing?.rounds[0]?.snapshotFile
                     ? { id: existing.rounds[0].snapshotFile.id, fileName: existing.rounds[0].snapshotFile.fileName }
                     : null,

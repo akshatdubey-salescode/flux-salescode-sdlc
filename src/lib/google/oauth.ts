@@ -30,16 +30,33 @@ export const OPTIONAL_SCOPES = {
 } as const;
 export type OptionalScopeName = keyof typeof OPTIONAL_SCOPES;
 
-function clientId(): string {
-  const id = process.env.GLOBAL_AUTH_GOOGLE_CLIENT_ID;
+/**
+ * Which Google OAuth client to use. "app" is the one Flux signs people in with (GLOBAL_AUTH_GOOGLE_*). "sheets" is
+ * the dedicated client for the test-case Sheets reader (TC_GOOGLE_CLIENT_ID / TC_GOOGLE_CLIENT_SECRET); when those
+ * are not set it falls back to the app client, so nothing breaks before the dedicated one is created.
+ */
+export type GoogleClientKind = "app" | "sheets";
+
+function clientId(kind: GoogleClientKind = "app"): string {
+  const id = (kind === "sheets" ? process.env.TC_GOOGLE_CLIENT_ID?.trim() : "") || process.env.GLOBAL_AUTH_GOOGLE_CLIENT_ID;
   if (!id) throw new Error("GLOBAL_AUTH_GOOGLE_CLIENT_ID is not set");
   return id;
 }
 
-function clientSecret(): string {
-  const secret = process.env.GLOBAL_AUTH_GOOGLE_CLIENT_SECRET;
+function clientSecret(kind: GoogleClientKind = "app"): string {
+  const secret = (kind === "sheets" ? process.env.TC_GOOGLE_CLIENT_SECRET?.trim() : "") || process.env.GLOBAL_AUTH_GOOGLE_CLIENT_SECRET;
   if (!secret) throw new Error("GLOBAL_AUTH_GOOGLE_CLIENT_SECRET is not set");
   return secret;
+}
+
+/** True when the Sheets reader has its own OAuth client (both TC_GOOGLE_* values set). */
+export function hasDedicatedSheetsClient(): boolean {
+  return !!process.env.TC_GOOGLE_CLIENT_ID?.trim() && !!process.env.TC_GOOGLE_CLIENT_SECRET?.trim();
+}
+
+/** The one account allowed to be connected as the Sheets reader, if pinned (TC_GOOGLE_READER_EMAIL). */
+export function pinnedSheetsReaderEmail(): string | null {
+  return process.env.TC_GOOGLE_READER_EMAIL?.trim().toLowerCase() || null;
 }
 
 function callbackUrl(): string {
@@ -74,6 +91,27 @@ export function buildAuthUrl(state: string, extra: OptionalScopeName[] = []): st
 // Token exchange / refresh
 // ---------------------------------------------------------------------------
 
+/**
+ * The consent request for the shared reader account: read-only Sheets and the account's email, nothing else (no
+ * calendar). Limited to the company's Google domain; always asks again so a refresh token is returned.
+ */
+export function buildSharedReaderAuthUrl(state: string, domain: string): string {
+  const pinned = pinnedSheetsReaderEmail();
+  const params = new URLSearchParams({
+    client_id: clientId("sheets"),
+    redirect_uri: callbackUrl(),
+    response_type: "code",
+    scope: ["openid", "email", "https://www.googleapis.com/auth/spreadsheets.readonly"].join(" "),
+    access_type: "offline",
+    prompt: "select_account consent",
+    include_granted_scopes: "false",
+    hd: domain.replace(/^@/, ""),
+    ...(pinned ? { login_hint: pinned } : {}),
+    state,
+  });
+  return `${GOOGLE_AUTH_URL}?${params.toString()}`;
+}
+
 type TokenResponse = {
   access_token: string;
   refresh_token?: string;
@@ -83,11 +121,11 @@ type TokenResponse = {
   id_token?: string;
 };
 
-export async function exchangeCode(code: string): Promise<TokenResponse> {
+export async function exchangeCode(code: string, kind: GoogleClientKind = "app"): Promise<TokenResponse> {
   const body = new URLSearchParams({
     code,
-    client_id: clientId(),
-    client_secret: clientSecret(),
+    client_id: clientId(kind),
+    client_secret: clientSecret(kind),
     redirect_uri: callbackUrl(),
     grant_type: "authorization_code",
   });
@@ -112,13 +150,13 @@ export class GoogleRefreshRevoked extends Error {
   }
 }
 
-async function refreshAccessToken(encryptedRefreshToken: string): Promise<TokenResponse> {
+export async function refreshAccessTokenFor(encryptedRefreshToken: string, kind: GoogleClientKind = "app"): Promise<TokenResponse> {
   const refreshToken = decrypt(encryptedRefreshToken);
 
   const body = new URLSearchParams({
     refresh_token: refreshToken,
-    client_id: clientId(),
-    client_secret: clientSecret(),
+    client_id: clientId(kind),
+    client_secret: clientSecret(kind),
     grant_type: "refresh_token",
   });
 
@@ -259,7 +297,7 @@ export async function getValidAccessToken(userId: string): Promise<string | null
   if (!row.refreshToken) return null;
 
   try {
-    const refreshed = await refreshAccessToken(row.refreshToken);
+    const refreshed = await refreshAccessTokenFor(row.refreshToken);
     const tokenExpiresAt = new Date(Date.now() + refreshed.expires_in * 1000);
     await db
       .update(userIntegrations)

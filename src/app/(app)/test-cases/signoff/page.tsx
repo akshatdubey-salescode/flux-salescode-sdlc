@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { getSharedReaderInfo } from "@/lib/google/shared-reader";
 import { requireAuth } from "@/lib/auth/server";
 import { hasMinRole } from "@/lib/auth/types";
 import { FEATURE_FLAGS, isEnabled } from "@/lib/feature-flags";
@@ -84,6 +85,7 @@ export default async function TestCaseSignoffPage({ searchParams }: Props) {
             returnTo={returnTo}
             cancelHref={backHref}
             lock={{ source: lock.source, sheetUrl: lock.sheetUrl, tabs: lock.tabs }}
+            sheetReaderEmail={(await getSharedReaderInfo().catch(() => null))?.email ?? null}
           />
         )}
       </main>

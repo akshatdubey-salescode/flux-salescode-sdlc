@@ -105,7 +105,7 @@ export function TcBadge({ issueId }: { issueId: string }) {
 
         <ul className="space-y-1">
           <Row done>{s.tcCount} test cases uploaded</Row>
-          <Row done={s.llmReviewed} note={s.llmReviewed ? undefined : "not enabled yet"}>LLM reviewed</Row>
+          <Row done={s.llmReviewed} note={s.llmReviewed ? undefined : "not run yet"}>AI reviewed</Row>
           <Row done={s.roundStatus === "approved"} note={s.roundStatus === "approved" ? undefined : TC_ROUND_STATUS_LABELS[s.roundStatus]}>
             Reviewer approved ({s.reviewersApproved}/{s.reviewersTotal})
           </Row>

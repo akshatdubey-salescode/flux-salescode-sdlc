@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { canApprove, canDecide, canOverride } from "@/lib/test-cases/state";
-import { TC_REVIEWER_STATE_LABELS, type TcReviewerState } from "@/lib/test-cases/values";
+import { AI_REVIEWER_STATE_LABELS, TC_REVIEWER_STATE_LABELS, isAiReviewer, type TcReviewerState } from "@/lib/test-cases/values";
 import type { CommentView, FeedbackFileView } from "@/lib/test-cases/review-service";
 import { CommentThread, type Viewer } from "./comment-thread";
+import { AiReviewBlock } from "./ai-review-block";
+import type { AiRunView } from "@/lib/test-cases/ai-review/service";
 import { invalidateTcSummaries } from "./tc-summary-cache";
 
 const STATE_STYLE: Record<string, string> = {
@@ -31,6 +33,7 @@ export function ReviewPanel({
   feedbackFiles,
   viewer,
   committerEmail,
+  ai,
 }: {
   roundId: string;
   roundNo: number;
@@ -40,6 +43,8 @@ export function ReviewPanel({
   feedbackFiles: FeedbackFileView[];
   viewer: Viewer;
   committerEmail: string;
+  /** The AI review block's data; null when the AI review is not enabled. */
+  ai: { run: AiRunView | null; limits: { used: number; max: number; cooldownUntil: string | null }; canRun: boolean; blockedReason: string | null } | null;
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<null | "approved" | "changes_requested" | "override">(null);
@@ -52,7 +57,8 @@ export function ReviewPanel({
   // Approving is blocked while someone else's change request stands; override is the way past it.
   const approveCheck = canApprove(viewer, reviewers);
   const blockers = reviewers.filter((r) => r.state === "changes_requested");
-  const waiting = reviewers.filter((r) => r.state === "re_review");
+  // The AI waiting on its own run is shown by the AI block; only people are "waiting to re-review".
+  const waiting = reviewers.filter((r) => r.state === "re_review" && !isAiReviewer(r.email));
   const openComments = comments.filter((c) => c.kind === "comment" && !c.resolved);
   const overrideCheck = canOverride({
     actor: viewer,
@@ -112,7 +118,7 @@ export function ReviewPanel({
           <li key={rv.email} className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2 py-1 text-xs dark:border-zinc-700">
             <span className="font-medium text-foreground">{rv.name ?? rv.email}</span>
             <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", STATE_STYLE[rv.state])}>
-              {TC_REVIEWER_STATE_LABELS[rv.state] ?? rv.state}
+              {isAiReviewer(rv.email) ? AI_REVIEWER_STATE_LABELS[rv.state] : (TC_REVIEWER_STATE_LABELS[rv.state] ?? rv.state)}
             </span>
             {rv.decidedRoundNo !== null && rv.decidedRoundNo < roundNo && (rv.state === "approved" || rv.state === "overridden") && (
               <span className="text-[10px] text-muted-foreground" title="Decided on an earlier round and carried over to this one">
@@ -122,6 +128,8 @@ export function ReviewPanel({
           </li>
         ))}
       </ul>
+
+      {ai && <AiReviewBlock roundId={roundId} initialRun={ai.run} limits={ai.limits} canRun={ai.canRun} blockedReason={ai.blockedReason} reviewerState={reviewers.find((r) => isAiReviewer(r.email))?.state ?? null} />}
 
       {blockers.length > 0 && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">

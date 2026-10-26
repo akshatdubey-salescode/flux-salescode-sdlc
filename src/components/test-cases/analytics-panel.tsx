@@ -3,11 +3,15 @@
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { RiCheckboxCircleFill, RiCheckboxBlankCircleLine, RiDownload2Line, RiTimeLine } from "@remixicon/react";
 import { cn } from "@/lib/utils";
+import { FINDING_CATEGORY_LABELS } from "@/lib/test-cases/ai-review/labels";
+import type { FindingCategory } from "@/lib/test-cases/ai-review/baseline";
 import { READINESS_LABELS, type ResultCounts, type RoundTrendPoint, type SetStats, type TypeRow } from "@/lib/test-cases/analytics";
 import {
   TC_CATEGORY_LABELS,
   TC_POLARITY_LABELS,
+  AI_REVIEWER_STATE_LABELS,
   TC_REVIEWER_STATE_LABELS,
+  isAiReviewer,
   TC_ROUND_STATUS_LABELS,
   type TcCategory,
   type TcPolarity,
@@ -82,6 +86,7 @@ export function AnalyticsPanel({ issueId, stats, trend, computedAt }: { issueId:
   const byCategory = stackRows(stats.categorySplit, (k) => TC_CATEGORY_LABELS[k as TcCategory] ?? k, (r) => r.effective);
   const byPolarity = stackRows(stats.polaritySplit, (k) => (k === "unspecified" ? "Unspecified" : TC_POLARITY_LABELS[k as TcPolarity] ?? k), (r) => r.effective);
   const byPriority = stackRows(stats.prioritySplit, (k) => (k === "none" ? "No priority" : String(k)), (r) => r.effective).sort((a, b) => a.name.localeCompare(b.name));
+  const byTab = stats.tabSplit && Object.keys(stats.tabSplit).length > 1 ? stackRows(stats.tabSplit, (k) => String(k), (r) => r.effective) : [];
   const byRole = [
     { name: "Developer", ...stats.dev },
     { name: "Tester", ...stats.tester },
@@ -131,10 +136,17 @@ export function AnalyticsPanel({ issueId, stats, trend, computedAt }: { issueId:
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
+        {stats.scope && stats.scope.tabs.length > 0 && (
+          <Card title="Scope of this review" className="lg:col-span-2">
+            <ScopeCard scope={stats.scope} />
+          </Card>
+        )}
         <Card title="Status checklist">
           <ul className="space-y-1.5">
             <Check done={stats.tcCount > 0}>{stats.tcCount} test cases uploaded</Check>
-            <Check done={stats.llmReviewed} note={stats.llmReviewed ? undefined : "not enabled yet"}>LLM reviewed</Check>
+            <Check done={stats.llmReviewed} note={aiNote(stats)}>
+              AI reviewed
+            </Check>
             <Check done={stats.roundStatus === "approved"} note={TC_ROUND_STATUS_LABELS[stats.roundStatus]}>
               Reviewer approved ({stats.reviewersApproved}/{stats.reviewersTotal})
             </Check>
@@ -159,8 +171,7 @@ export function AnalyticsPanel({ issueId, stats, trend, computedAt }: { issueId:
 
         <Card title="Quality breakdown (estimated)">
           <ul className="space-y-1.5">
-            {QUALITY_LABELS.map(([key, label, weight]) => {
-              const v = stats.qualityComponents[key] as number;
+            {qualityRows(stats).map(([key, label, weight, v]) => {
               return (
                 <li key={key} className="text-xs">
                   <div className="flex justify-between">
@@ -177,11 +188,13 @@ export function AnalyticsPanel({ issueId, stats, trend, computedAt }: { issueId:
           {stats.qualityComponents.changesRequestedPenalty > 0 && (
             <p className="text-[11px] text-amber-700 dark:text-amber-400">−{stats.qualityComponents.changesRequestedPenalty} while reviewer changes are outstanding.</p>
           )}
-          <p className="text-[11px] text-muted-foreground">Based on the sheet&apos;s structure. An LLM review will refine this later.</p>
+          <CoverageNote stats={stats} />
         </Card>
 
+        <AiReviewCard stats={stats} />
         <FeedbackCard stats={stats} />
 
+        {byTab.length > 0 && <Card title="Results by tab"><StackedBars data={byTab} /></Card>}
         <Card title="Results by category"><StackedBars data={byCategory} /></Card>
         <Card title="Results by type (positive / negative / edge)"><StackedBars data={byPolarity} /></Card>
         <Card title="Results by priority"><StackedBars data={byPriority} /></Card>
@@ -205,8 +218,55 @@ export function AnalyticsPanel({ issueId, stats, trend, computedAt }: { issueId:
             </LineChart>
           </ResponsiveContainer>
           <p className="text-[11px] text-muted-foreground">TC counts: {trend.map((t) => `R${t.roundNo} ${t.tcCount}`).join(" · ")}</p>
+          {trend.some((t) => t.scope) && (
+            <ul className="mt-1 space-y-0.5 text-[11px] text-muted-foreground">
+              {trend.map((t) => (
+                <li key={t.roundNo}>
+                  <span className="font-medium text-foreground">R{t.roundNo}</span>: {t.scope ?? "all rows of the chosen tabs"}
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
       )}
+    </div>
+  );
+}
+
+/** Which tabs and rows are under review, and how much of those tabs this item claims (the rest belongs to other features). */
+function ScopeCard({ scope }: { scope: NonNullable<SetStats["scope"]> }) {
+  return (
+    <div className="space-y-2 text-xs">
+      {scope.defaulted && (
+        <p className="rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+          No tab was named when this was submitted, so every test-case tab of the source is reviewed.
+        </p>
+      )}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[420px] border-collapse text-[11px]">
+          <thead>
+            <tr className="border-b border-zinc-200 text-left text-muted-foreground dark:border-zinc-800">
+              {["Tab", "Rows", "In this review", "In the whole tab"].map((h) => (
+                <th key={h} className="px-2 py-1 font-semibold uppercase tracking-wide">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {scope.tabs.map((t) => (
+              <tr key={t.tab} className="border-b border-zinc-100 dark:border-zinc-800/60">
+                <td className="max-w-[220px] truncate px-2 py-1 font-medium text-foreground" title={t.tab}>{t.tab}</td>
+                <td className="px-2 py-1">{t.rows ?? "all"}</td>
+                <td className="px-2 py-1 tabular-nums">{t.inScope}</td>
+                <td className="px-2 py-1 tabular-nums">{t.totalInTab}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        This item covers <span className="font-semibold text-foreground">{scope.inScope}</span> of the {scope.totalInTabs} test cases in these tabs ({scope.coveragePct}%). The rest belong to other features that share
+        the sheet and are not counted here.
+      </p>
     </div>
   );
 }
@@ -221,7 +281,7 @@ function FeedbackCard({ stats }: { stats: SetStats }) {
     ["Change requests", fb.changeRequests],
     ["Resubmissions", fb.resubmissions],
     ["Overrides", fb.overrides, fb.overrides > 0 ? "text-violet-600" : undefined],
-    ["LLM findings", fb.llm.raised],
+    ["AI findings", fb.llm.raised],
   ];
   const rounds = fb.perRound.map((r) => ({ name: `R${r.roundNo}`, "Change requests": r.changeRequests, Comments: r.comments, Waived: r.waived }));
   return (
@@ -234,6 +294,33 @@ function FeedbackCard({ stats }: { stats: SetStats }) {
           </div>
         ))}
       </dl>
+
+      {fb.byTab && fb.byTab.length > 0 && (
+        <div className="overflow-x-auto">
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Feedback by tab</p>
+          <table className="w-full min-w-[420px] border-collapse text-[11px]">
+            <thead>
+              <tr className="border-b border-zinc-200 text-left text-muted-foreground dark:border-zinc-800">
+                {["Tab", "Comments", "Open now", "Resolved", "Waived", "AI"].map((h) => (
+                  <th key={h} className="px-2 py-1 font-semibold uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {fb.byTab.map((t) => (
+                <tr key={t.tab} className="border-b border-zinc-100 dark:border-zinc-800/60">
+                  <td className="max-w-[200px] truncate px-2 py-1 font-medium text-foreground" title={t.tab}>{t.tab}</td>
+                  <td className="px-2 py-1 tabular-nums">{t.comments}</td>
+                  <td className={cn("px-2 py-1 tabular-nums", t.open > 0 && "font-semibold text-amber-600")}>{t.open}</td>
+                  <td className="px-2 py-1 tabular-nums">{t.resolved}</td>
+                  <td className="px-2 py-1 tabular-nums">{t.waived}</td>
+                  <td className="px-2 py-1 tabular-nums">{t.ai}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {fb.byReviewer.length > 0 && (
         <div className="overflow-x-auto">
@@ -249,7 +336,7 @@ function FeedbackCard({ stats }: { stats: SetStats }) {
               {fb.byReviewer.map((r) => (
                 <tr key={r.email} className="border-b border-zinc-100 dark:border-zinc-800/60">
                   <td className="px-2 py-1 font-medium text-foreground">{r.name ?? r.email}</td>
-                  <td className="px-2 py-1 text-muted-foreground">{r.state ? TC_REVIEWER_STATE_LABELS[r.state] : "No longer a reviewer"}</td>
+                  <td className="px-2 py-1 text-muted-foreground">{r.state ? (isAiReviewer(r.email) ? AI_REVIEWER_STATE_LABELS[r.state] : TC_REVIEWER_STATE_LABELS[r.state]) : "No longer a reviewer"}</td>
                   <td className="px-2 py-1 tabular-nums">{r.approvals}</td>
                   <td className="px-2 py-1 tabular-nums">{r.changeRequests}</td>
                   <td className="px-2 py-1 tabular-nums">{r.comments}</td>
@@ -276,6 +363,129 @@ function FeedbackCard({ stats }: { stats: SetStats }) {
         </ResponsiveContainer>
       )}
       <p className="text-[11px] text-muted-foreground">Counts cover every round; the full trail is in Review history below.</p>
+    </Card>
+  );
+}
+
+
+/** Why the quality number is what it is: the sheet's structure, and how much of the review's feedback is fixed. */
+function CoverageNote({ stats }: { stats: SetStats }) {
+  const cov = stats.feedback.coverage;
+  if (stats.qualityComponents.reviewCoverage === null || stats.qualityComponents.reviewCoverage === undefined || !cov) {
+    return <p className="text-[11px] text-muted-foreground">Based on the sheet&apos;s structure only: no AI or reviewer feedback has been recorded yet.</p>;
+  }
+  const sum = (b: { high: number; medium: number; low: number }) => b.high + b.medium + b.low;
+  const open = sum(cov.open);
+  const waived = sum(cov.waived);
+  const fixed = sum(cov.addressed);
+  return (
+    <div className="space-y-1 text-[11px] text-muted-foreground">
+      <p>
+        Review coverage counts the AI review&apos;s and the reviewers&apos; points: <b className="text-foreground">{fixed}</b> fixed, <b className={cn(open > 0 ? "text-amber-600" : "text-foreground")}>{open}</b> open,{" "}
+        <b className={cn(waived > 0 ? "text-amber-600" : "text-foreground")}>{waived}</b> waived by an override. Open and waived points are gaps: only fixing them (and resubmitting) raises the score. High-severity ones weigh most.
+      </p>
+      {cov.open.high + cov.waived.high > 0 && (
+        <p className="font-medium text-amber-700 dark:text-amber-400">
+          {cov.open.high + cov.waived.high} high-severity point{cov.open.high + cov.waived.high === 1 ? "" : "s"} not fixed ({cov.open.high} open, {cov.waived.high} waived): delivery confidence is capped.
+        </p>
+      )}
+    </div>
+  );
+}
+
+
+const QUALITY_PARTS: [keyof SetStats["qualityComponents"], string, number][] = QUALITY_LABELS;
+
+/** The rows of the quality breakdown: the sheet's structure (scaled to what is left), then what the AI review and the reviewers raised. */
+function qualityRows(stats: SetStats): [string, string, number, number][] {
+  const q = stats.qualityComponents;
+  const share = q.reviewCoverageShare ?? 0;
+  const rows: [string, string, number, number][] = QUALITY_PARTS.map(([key, label, base]) => [key, label, Math.round((base * (100 - share)) / 100), q[key] as number]);
+  if (q.aiCoverage !== null && q.aiCoverage !== undefined) rows.push(["aiCoverage", "AI review: findings fixed", q.aiShare, q.aiCoverage]);
+  if (q.reviewerCoverage !== null && q.reviewerCoverage !== undefined) rows.push(["reviewerCoverage", "Reviewer feedback fixed", q.reviewerShare, q.reviewerCoverage]);
+  return rows;
+}
+
+/** The note beside "AI reviewed" in the checklist: how many findings, and where they stand. */
+function aiNote(stats: SetStats): string | undefined {
+  if (!stats.llmReviewed) return "not run on this round yet";
+  const ai = stats.feedback.ai;
+  if (!ai) return undefined;
+  if (ai.findings === 0) return "no findings";
+  const high = ai.bySeverity.high;
+  return `${ai.findings} finding${ai.findings === 1 ? "" : "s"}${high > 0 ? `, ${high} high` : ""} · ${ai.fixed} fixed, ${ai.open} open, ${ai.waived} waived`;
+}
+
+const SEVERITY_STYLE = {
+  high: "border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300",
+  medium: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300",
+  low: "border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300",
+} as const;
+
+/** What the AI review found and how much of it has been dealt with; it feeds the quality estimate. */
+function AiReviewCard({ stats }: { stats: SetStats }) {
+  const ai = stats.feedback.ai;
+  if (!stats.llmReviewed && (!ai || ai.findings === 0)) return null;
+  const q = stats.qualityComponents;
+  if (!ai || ai.findings === 0) {
+    return (
+      <Card title="AI review">
+        <p className="text-xs text-foreground">The AI review ran and raised no findings.</p>
+        <p className="text-[11px] text-muted-foreground">That counts as fully covered in the quality estimate.</p>
+      </Card>
+    );
+  }
+  const total = ai.findings;
+  const seg = [
+    ["Fixed", ai.fixed, "bg-emerald-500"],
+    ["Open", ai.open, "bg-red-500"],
+    ["Waived by an override", ai.waived, "bg-amber-500"],
+  ] as const;
+  return (
+    <Card title="AI review">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="text-2xl font-semibold tabular-nums text-foreground">{total}</span>
+        <span className="text-xs text-muted-foreground">finding{total === 1 ? "" : "s"} across all rounds</span>
+        {q.aiCoverage !== null && q.aiCoverage !== undefined && (
+          <span className="ml-auto text-xs text-muted-foreground">
+            Quality: <b className="tabular-nums text-foreground">{q.aiCoverage}</b>/100 fixed (counts {q.aiShare}% of quality)
+          </span>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {(["high", "medium", "low"] as const).map((k) => (
+          <span key={k} className={cn("rounded-full border px-2 py-0.5 text-[11px] capitalize", SEVERITY_STYLE[k])}>
+            {k} <span className="font-semibold tabular-nums">{ai.bySeverity[k]}</span>
+          </span>
+        ))}
+      </div>
+      <div className="flex h-2 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800" role="img" aria-label={`${ai.fixed} fixed, ${ai.open} open, ${ai.waived} waived`}>
+        {seg.map(([label, n, cls]) => (n > 0 ? <div key={label} className={cls} style={{ width: `${(100 * n) / total}%` }} title={`${label}: ${n}`} /> : null))}
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+        {seg.map(([label, n, cls]) => (
+          <span key={label} className="inline-flex items-center gap-1">
+            <span className={cn("size-2 rounded-full", cls)} />
+            {label} <span className="font-semibold tabular-nums text-foreground">{n}</span>
+          </span>
+        ))}
+      </div>
+      {ai.categories.length > 0 && (
+        <div className="space-y-0.5 pt-1">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">What it found</p>
+          <ul className="text-[11px]">
+            {ai.categories.slice(0, 6).map((c) => (
+              <li key={c.category} className="flex justify-between gap-2 border-b border-zinc-100 py-0.5 dark:border-zinc-800/60">
+                <span className="truncate text-foreground">{FINDING_CATEGORY_LABELS[c.category as FindingCategory] ?? c.category}</span>
+                <span className="shrink-0 tabular-nums text-muted-foreground">
+                  {c.total}
+                  {c.notFixed > 0 && <span className="text-amber-600"> · {c.notFixed} not fixed</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </Card>
   );
 }

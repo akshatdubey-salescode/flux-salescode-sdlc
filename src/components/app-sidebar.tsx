@@ -13,6 +13,7 @@ import {
   RiLogoutBoxRLine,
   RiBriefcaseLine,
   RiUserSettingsLine,
+  RiSparkling2Line,
   RiFileList3Line,
   RiSettings3Line,
   RiTeamLine,
@@ -127,6 +128,7 @@ export const NAV_SECTIONS: NavSection[] = [
     superuserOnly: true,
     items: [
       { label: "User Management", href: "/admin/users", icon: RiUserSettingsLine },
+      { label: "Test Cases Admin", href: "/admin/ai-guidelines", icon: RiSparkling2Line },
       { label: "Superuser Tools", href: "/superuser", icon: RiFlag2Line },
     ],
   },

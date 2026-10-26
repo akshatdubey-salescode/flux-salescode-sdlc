@@ -610,6 +610,55 @@
       "when": 1792515725185,
       "tag": "0087_outstanding_earthquake",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1792596288178,
+      "tag": "0088_brief_leech",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1792599336040,
+      "tag": "0089_hard_felicia_hardy",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1792600018218,
+      "tag": "0090_certain_morlun",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1792600020135,
+      "tag": "0091_colossal_mastermind",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1792601528651,
+      "tag": "0092_cute_orphan",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1792682621377,
+      "tag": "0093_yellow_anthem",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1793004043299,
+      "tag": "0094_careful_sunset_bain",
+      "breakpoints": true
     }
   ]
 }
