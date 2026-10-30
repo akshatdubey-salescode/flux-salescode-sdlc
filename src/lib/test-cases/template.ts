@@ -74,17 +74,40 @@ const HEADER_SYNONYMS: Record<string, CanonicalField> = {
   expected: "expected",
   "share with client": "shareWithClient",
   "dev status": "devStatus",
+  "developer status": "devStatus",
+  "dev test status": "devStatus",
+  "dev testing status": "devStatus",
+  "dev result": "devStatus",
+  // The team's own template has a "Dev Review" column (next to "BA Review") that developers fill with the result.
+  "dev review": "devStatus",
   "dev remarks": "devRemarks",
   "ba review": "baReview",
   "ba remarks": "baRemarks",
   "tester status": "testerStatus",
   "qa status": "testerStatus",
+  "testing status": "testerStatus",
+  "test status": "testerStatus",
+  "tester result": "testerStatus",
+  "qa result": "testerStatus",
   "tester remarks": "testerRemarks",
   "qa remarks": "testerRemarks",
   "tester name date app version": "testerMeta",
   remark: "remark",
   remarks: "remark",
 };
+
+/** The header texts a field is read from, for messages ("Dev Status", "Developer Status", ...). */
+export function acceptedHeaders(field: CanonicalField): string[] {
+  return Object.entries(HEADER_SYNONYMS)
+    .filter(([, f]) => f === field)
+    .map(([h]) => h.replace(/\b\w/g, (c) => c.toUpperCase()));
+}
+
+/** The canonical field a column header (as stored in a case's raw cells) stands for, if any. */
+export function fieldForHeader(label: string): CanonicalField | undefined {
+  const key = normHeader(label);
+  return Object.hasOwn(HEADER_SYNONYMS, key) ? HEADER_SYNONYMS[key] : undefined;
+}
 
 /** Lower-case, treat newlines and slashes as spaces, drop punctuation. */
 export function normHeader(raw: unknown): string {
@@ -193,7 +216,9 @@ function headerFieldsOf(row: unknown[] | undefined): Map<number, CanonicalField>
   const seen = new Set<CanonicalField>();
   row.forEach((cell, c) => {
     const f = HEADER_SYNONYMS[normHeader(cell)];
-    if (f && !seen.has(f)) {
+    // Only the first column of a kind counts, except the two status fields: a sheet may carry both an old and a new
+    // status column, and the one that was filled in has to be found (see getStatus).
+    if (f && (!seen.has(f) || f === "devStatus" || f === "testerStatus")) {
       seen.add(f);
       fields.set(c, f);
     }
@@ -297,8 +322,25 @@ export function parseSheetGrid(grid: unknown[][], opts: ParseOptions = {}): Pars
     if (opts.rowFilter && !opts.rowFilter(rowNumber)) continue;
 
     const get = (field: CanonicalField): string => {
+      if (field === "devStatus" || field === "testerStatus") return getStatus(field);
       for (const [c, f] of sec.fields) if (f === field) return cellText(row[c]);
       return "";
+    };
+    // A sheet can have several columns that mean the same status ("Dev Review" and a new "DEV STATUS", or the old
+    // "Tester Status" still saying "Not Executed" next to a new "TESTER STATUS"). Reading only the first would ignore
+    // the one that was filled in, so: the first column holding a real result (Passed / Failed / Blocked) wins, else the
+    // first column with any text, else empty.
+    const getStatus = (field: CanonicalField): string => {
+      let firstText = "";
+      for (const [c, f] of sec.fields) {
+        if (f !== field) continue;
+        const v = cellText(row[c]);
+        if (!v) continue;
+        const r = normalizeResult(v);
+        if (r.matched && r.value !== "not_run") return v;
+        if (!firstText) firstText = v;
+      }
+      return firstText;
     };
 
     const tcId = get("tcId");

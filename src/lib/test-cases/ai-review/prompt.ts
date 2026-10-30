@@ -99,6 +99,8 @@ export function buildUserPrompt(args: {
   part?: { index: number; total: number };
   /** Which tabs/rows of the sheet were put forward for this item (see describeScope); null for old rounds. */
   scopeText?: string | null;
+  /** Values the sheet uses that are not on Flux's standard lists (already reported separately), as text; null when none. */
+  nonstandardText?: string | null;
 }): string {
   const { issue, allCases, cases } = args;
   const split = allCases.length !== cases.length;
@@ -113,6 +115,9 @@ export function buildUserPrompt(args: {
     ``,
     args.scopeText
       ? `<review_scope>\nThe submitter chose this part of the sheet for this item: ${args.scopeText}.\nThese are the only test cases under review. Other rows or tabs of the same sheet belong to other features: do not ask for, or report as missing, anything that is only a matter of those.\n</review_scope>\n`
+      : ``,
+    args.nonstandardText
+      ? `<nonstandard_values>\nFlux reports these values from the sheet itself, as one finding; do not report them again:\n${args.nonstandardText}\n</nonstandard_values>\n`
       : ``,
     `<review_history>\n${formatHistory(args.history)}\n</review_history>`,
     ``,

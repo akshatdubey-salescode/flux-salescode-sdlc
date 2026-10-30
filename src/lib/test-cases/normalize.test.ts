@@ -73,3 +73,30 @@ test("yes/no", () => {
   assert.equal(parseYesNo(""), null);
   assert.equal(parseYesNo("maybe"), null);
 });
+
+test("the QA types that used to land in Other are categories of their own", () => {
+  for (const [raw, cat] of [
+    ["Offline/Sync", "offline_sync"], ["Offline / Sync", "offline_sync"], ["Configuration", "configuration"], ["Interruption", "interruption"],
+    ["Database", "database"], ["Calculation", "calculation"], ["Report", "report"], ["File/SFTP", "file_sftp"], ["Batch/Scheduler", "batch_scheduler"],
+    ["DB", "database"], ["Reports", "report"], ["config", "configuration"],
+  ] as const) {
+    assert.deepEqual(normalizeTypeColumns("Positive", raw), { polarity: "positive", category: cat, unmatched: [] }, raw);
+  }
+});
+
+test("'Corner' is an edge case", () => {
+  assert.deepEqual(normalizeTypeColumns("Corner", "Functional"), { polarity: "edge", category: "functional", unmatched: [] });
+  assert.equal(normalizeTypeColumns("Corner case", "").polarity, "edge");
+});
+
+test("compound values are read part by part: the first known part wins, unknown parts are still reported", () => {
+  assert.deepEqual(normalizeTypeColumns("Positive", "UI / Functional"), { polarity: "positive", category: "ui", unmatched: [] });
+  assert.deepEqual(normalizeTypeColumns("Negative / Edge Case", "API & Data validation"), { polarity: "negative", category: "api", unmatched: [] });
+  assert.deepEqual(normalizeTypeColumns("", "Functional / Smoke"), { polarity: null, category: "functional", unmatched: [{ column: "type", value: "smoke" }] });
+  assert.deepEqual(normalizeTypeColumns("", "Smoke / Sanity").unmatched, [{ column: "type", value: "Smoke / Sanity" }], "nothing known: the whole value is reported");
+});
+
+test("'Not Executed' and similar mean not run", () => {
+  for (const w of ["Not Executed", "not tested", "Untested", "Yet to start", "To Do"]) assert.deepEqual(normalizeResult(w), { value: "not_run", matched: true }, w);
+  assert.equal(normalizeResult("Executed-ish").matched, false);
+});

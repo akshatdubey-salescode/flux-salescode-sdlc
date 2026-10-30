@@ -22,6 +22,12 @@ const POLARITY_MAP: Record<string, TcPolarity> = {
   "edge case": "edge",
   edge: "edge",
   "edge-case": "edge",
+  // A "corner case" is an edge case; QA sheets use both words.
+  corner: "edge",
+  "corner case": "edge",
+  "corner-case": "edge",
+  "corner cases": "edge",
+  "edge cases": "edge",
 };
 
 const CATEGORY_MAP: Record<string, TcCategory> = {
@@ -40,7 +46,61 @@ const CATEGORY_MAP: Record<string, TcCategory> = {
   "non-functional": "non_functional",
   "non functional": "non_functional",
   performance: "non_functional",
+  "offline/sync": "offline_sync",
+  "offline / sync": "offline_sync",
+  "offline sync": "offline_sync",
+  "offline-sync": "offline_sync",
+  offline: "offline_sync",
+  sync: "offline_sync",
+  configuration: "configuration",
+  configurations: "configuration",
+  config: "configuration",
+  interruption: "interruption",
+  interruptions: "interruption",
+  interrupt: "interruption",
+  database: "database",
+  databases: "database",
+  db: "database",
+  calculation: "calculation",
+  calculations: "calculation",
+  calc: "calculation",
+  report: "report",
+  reports: "report",
+  reporting: "report",
+  "file/sftp": "file_sftp",
+  "file / sftp": "file_sftp",
+  "file-sftp": "file_sftp",
+  file: "file_sftp",
+  files: "file_sftp",
+  sftp: "file_sftp",
+  ftp: "file_sftp",
+  "batch/scheduler": "batch_scheduler",
+  "batch / scheduler": "batch_scheduler",
+  "batch-scheduler": "batch_scheduler",
+  batch: "batch_scheduler",
+  scheduler: "batch_scheduler",
+  "scheduled job": "batch_scheduler",
+  "batch job": "batch_scheduler",
 };
+
+/** What one cell value says: a polarity, a category, or neither. */
+function lookupType(s: string): { pol?: TcPolarity; cat?: TcCategory } {
+  const pol = Object.hasOwn(POLARITY_MAP, s) ? POLARITY_MAP[s] : undefined;
+  const cat = Object.hasOwn(CATEGORY_MAP, s) ? CATEGORY_MAP[s] : undefined;
+  return { pol, cat };
+}
+
+/**
+ * A cell value split into its parts ("UI / Functional", "Negative, Edge Case", "API & Data validation") when the whole
+ * value is not itself a known label. Values that are one concept with a slash ("Offline/Sync", "File/SFTP") are known
+ * labels and never get here.
+ */
+function typeParts(s: string): string[] {
+  return s
+    .split(/\s*(?:\/|,|;|&|\+|\band\b)\s*/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
 
 export type TypeColumns = {
   polarity: TcPolarity | null;
@@ -68,17 +128,27 @@ export function normalizeTypeColumns(classificationRaw: unknown, typeRaw: unknow
   for (const { column, raw } of cells) {
     const s = cleanValue(raw);
     if (!s) continue;
-    const pol = POLARITY_MAP[s];
-    const cat = CATEGORY_MAP[s];
-    if (pol) {
-      polarity ??= pol;
-    } else if (cat) {
-      if (category === null || (column === "type" && !categoryFromType)) {
-        category = cat;
-        categoryFromType = column === "type";
+    const whole = lookupType(s);
+    // The whole value first; a compound ("Functional / UI") is read part by part.
+    const parts = whole.pol || whole.cat ? [{ text: s, ...whole }] : typeParts(s).map((text) => ({ text, ...lookupType(text) }));
+    let recognised = false;
+    for (const part of parts) {
+      if (part.pol) {
+        polarity ??= part.pol;
+        recognised = true;
+      } else if (part.cat) {
+        if (category === null || (column === "type" && !categoryFromType)) {
+          category = part.cat;
+          categoryFromType = column === "type";
+        }
+        recognised = true;
       }
-    } else {
-      unmatched.push({ column, value: String(raw ?? "").replace(/\s+/g, " ").trim() });
+    }
+    // What is not recognised is reported, never dropped: the whole value when nothing in it was known, else just the
+    // unknown parts.
+    if (!recognised) unmatched.push({ column, value: String(raw ?? "").replace(/\s+/g, " ").trim() });
+    else if (parts.length > 1) {
+      for (const part of parts) if (!part.pol && !part.cat) unmatched.push({ column, value: part.text });
     }
   }
   return { polarity, category: category ?? (unmatched.length ? "other" : "unspecified"), unmatched };
@@ -115,6 +185,13 @@ export function normalizeSeverity(raw: unknown): Norm<TcSeverity | null> {
 }
 
 const NOT_RUN_WORDS = new Set([
+  "not executed",
+  "not tested",
+  "untested",
+  "yet to start",
+  "yet to be executed",
+  "to do",
+  "todo",
   "in progress",
   "done - not verified",
   "not run",

@@ -15,5 +15,6 @@ export const FINDING_CATEGORY_LABELS: Record<FindingCategory, string> = {
   prior_feedback_not_addressed: "Earlier feedback not addressed",
   missing_non_functional: "Missing non-functional case",
   missing_data_or_rollout_case: "Missing data / rollout case",
+  nonstandard_value: "Non-standard value",
   other: "Other",
 };

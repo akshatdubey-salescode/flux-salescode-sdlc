@@ -166,3 +166,18 @@ test("the prompt states the chosen scope and prints tab and row for each case", 
   const old = buildUserPrompt({ issue, roundNo: 1, allCases: all, cases: all, history: [] });
   assert.ok(!old.includes("<review_scope>"));
 });
+
+test("the prompt tells the model which non-standard values Flux reports itself", () => {
+  const all = [c("Main::A")];
+  const p = buildUserPrompt({ issue, roundNo: 1, allCases: all, cases: all, history: [], nonstandardText: 'TC type: "Smoke" × 3' });
+  assert.match(p, /<nonstandard_values>/);
+  assert.match(p, /TC type: "Smoke" × 3/);
+  assert.match(p, /do not report them again/);
+  assert.ok(!buildUserPrompt({ issue, roundNo: 1, allCases: all, cases: all, history: [] }).includes("<nonstandard_values>"));
+});
+
+test("the standard type list in the instructions comes from the parser's own lists", () => {
+  for (const label of ["Positive", "Edge case", "Offline / Sync", "Configuration", "Interruption", "Database", "Calculation", "Report", "File / SFTP", "Batch / Scheduler"]) {
+    assert.ok(buildSystem([]).includes(label), label);
+  }
+});
