@@ -34,6 +34,12 @@ export async function resolveSourceInput(args: {
   lock: ItemLock | null;
   /** Sign-off reads exactly the latest round's tabs; submissions read what the user ticked. */
   fixedTabs?: string[];
+  /**
+   * Sign-off only: the result sheet may come from a Google Sheet link or an Excel file whatever the item's source is
+   * (testers often fill a copy). The item's source lock exists so submissions stay in one place; a sign-off does not
+   * change the item's source. Matching by tab name, section and ID still ties the sheet to the approved round.
+   */
+  ignoreSourceLock?: boolean;
 }): Promise<{ ok: true; input: SourceInput } | SourceRequestFailure> {
   const { form, lock } = args;
 
@@ -46,7 +52,7 @@ export async function resolveSourceInput(args: {
   const typedUrl = typeof form.get("sheetUrl") === "string" ? (form.get("sheetUrl") as string).trim() : "";
 
   if (file instanceof File && file.size > 0) {
-    const verdict = checkLock(lock, { source: "xlsx", spreadsheetId: null });
+    const verdict = args.ignoreSourceLock ? { ok: true as const } : checkLock(lock, { source: "xlsx", spreadsheetId: null });
     if (!verdict.ok) return { ok: false, status: 409, error: verdict.reason, code: "source_locked" };
     if (file.size > MAX_XLSX_BYTES) {
       return { ok: false, status: 413, error: "That file is larger than 4 MB. Share it as a Google Sheet link instead.", code: "too_large" };
@@ -58,13 +64,13 @@ export async function resolveSourceInput(args: {
   const url = lock?.source === "google_sheet" && lock.sheetUrl ? (typedUrl || lock.sheetUrl) : typedUrl;
   if (!url) {
     const hint =
-      lock?.source === "xlsx"
+      lock?.source === "xlsx" && !args.ignoreSourceLock
         ? "Attach the revised .xlsx workbook."
         : "Provide a Google Sheet link or an .xlsx file.";
     return { ok: false, status: 400, error: hint };
   }
   const parsed = parseSheetUrl(url);
-  const verdict = checkLock(lock, { source: "google_sheet", spreadsheetId: parsed?.spreadsheetId ?? null });
+  const verdict = args.ignoreSourceLock ? { ok: true as const } : checkLock(lock, { source: "google_sheet", spreadsheetId: parsed?.spreadsheetId ?? null });
   if (!verdict.ok) return { ok: false, status: 409, error: verdict.reason, code: "source_locked" };
   return { ok: true, input: { source: "google_sheet", userId: args.userId, sheetUrl: url, tabs, previousTabs, jiraKey: args.jiraKey } };
 }

@@ -49,7 +49,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ roundId: s
   // and exactly the tabs of the latest round; the user chooses neither.
   const lock = await getItemLock(round.issue.id);
   if (!lock) return NextResponse.json({ error: "No test cases have been submitted for this item." }, { status: 409 });
-  const resolved = await resolveSourceInput({ form, userId: user.id, jiraKey: round.issue.jiraKey, lock, fixedTabs: lock.tabs });
+  const resolved = await resolveSourceInput({ form, userId: user.id, jiraKey: round.issue.jiraKey, lock, fixedTabs: lock.tabs, ignoreSourceLock: true });
   if (!resolved.ok) return NextResponse.json({ error: resolved.error, code: resolved.code }, { status: resolved.status });
 
   try {
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ roundId: s
     }
 
     if (mode === "preview") {
-      return NextResponse.json({ ...base, preview: await previewSignoff(round, parsed, signRole) });
+      return NextResponse.json({ ...base, preview: await previewSignoff(round, parsed, signRole, read.grids) });
     }
 
     const notes = parseOptionalText(form.get("notes")) ?? null;

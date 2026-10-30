@@ -13,7 +13,10 @@ import { getProjectFolder } from "./project-folder-service";
 import { assertLatestRound, countOpenFeedback, freshReviewers, type RoundContext } from "./review-service";
 import { RuleError } from "./rule-error";
 import { describeScope } from "./scope";
-import { matchSignoff, signoffProblem, type SignoffMatch } from "./signoff";
+import { matchSignoff, type SignoffMatch } from "./signoff";
+import { explainSignoffProblem } from "./signoff-diagnose";
+import { mergeOtherRoleStatuses } from "./signoff-merge";
+import { loadLatestSignoffResults } from "./stats-service";
 import { recomputeSafely } from "./stats-service";
 import { canSignOff, roundStatusFrom, type Actor, type SignoffRole } from "./state";
 import type { MultiParsed, TabGrid } from "./multi-tab";
@@ -82,12 +85,21 @@ export type SignoffPreview = {
   moved: number;
   /** What the round reviewed, e.g. "Main rows 12-40 (28 of 142 TCs)". */
   scope: string;
+  /** The other role's current sign-off on this round, if there is one: it stays, and its results are added to the saved sheet. */
+  otherRole: { role: SignoffRole; by: string; label: string; pass: number; fail: number; blocked: number; notRun: number } | null;
 };
+
+async function otherRoleSignoff(roundId: string, role: SignoffRole): Promise<SignoffPreview["otherRole"]> {
+  const other: SignoffRole = role === "dev" ? "tester" : "dev";
+  const latest = (await fetchSignoffs(roundId)).find((s) => s.role === other && s.current);
+  return latest ? { role: other, by: latest.by, label: latest.label, pass: latest.pass, fail: latest.fail, blocked: latest.blocked, notRun: latest.notRun } : null;
+}
 
 export async function previewSignoff(
   ctx: RoundContext,
   parsed: Extract<MultiParsed, { ok: true }>,
   role: SignoffRole,
+  grids: TabGrid[] = [],
 ): Promise<SignoffPreview> {
   const refs = await roundCaseRefs(ctx.roundId);
   const match = matchSignoff(refs, parsed.cases, role, ctx.scope);
@@ -98,9 +110,10 @@ export async function previewSignoff(
     unmatched: match.unmatched,
     missing: match.missing,
     meta: match.meta,
-    problem: signoffProblem(match, refs.length),
+    problem: explainSignoffProblem({ role, match, refs, parsed, grids }),
     moved: match.moved,
     scope: describeScope(ctx.scope),
+    otherRole: await otherRoleSignoff(ctx.roundId, role),
   };
 }
 
@@ -120,7 +133,7 @@ export async function commitSignoff(args: {
   const { ctx } = args;
   const refs = await roundCaseRefs(ctx.roundId);
   const match = matchSignoff(refs, args.parsed.cases, args.role, ctx.scope);
-  const problem = signoffProblem(match, refs.length);
+  const problem = explainSignoffProblem({ role: args.role, match, refs, parsed: args.parsed, grids: args.grids });
   if (problem) return { ok: false, status: 400, error: problem };
 
   const parts = {
@@ -137,8 +150,18 @@ export async function commitSignoff(args: {
   const folder = await getProjectFolder({ id: ctx.issue.projectId, name: ctx.issue.projectName, key: ctx.issue.projectKey });
   const storageKey = buildTcS3Key({ ...parts, folder });
   const headerRows = new Map(args.parsed.tabs.map((t) => [t.title, t.headerRow]));
+  // The saved sheet carries both roles: whatever the other role (dev / tester) already signed off is written into its
+  // own status column, so the second sign-off reads as one sheet. If it has not signed off, nothing is added.
+  const earlier = await loadLatestSignoffResults(ctx.roundId);
+  const merged = mergeOtherRoleStatuses({
+    role: args.role,
+    parsed: args.parsed,
+    grids: args.grids,
+    refs,
+    other: args.role === "dev" ? earlier.tester : earlier.dev,
+  });
   const snapshot = await buildSnapshotXlsx({
-    tabs: args.grids.map((g) => ({ title: g.title, grid: g.grid, headerRow: headerRows.get(g.title) ?? 1 })),
+    tabs: merged.grids.map((g) => ({ title: g.title, grid: g.grid, headerRow: headerRows.get(g.title) ?? 1 })),
   });
   await getStore().put(storageKey, snapshot, XLSX_CONTENT_TYPE);
 

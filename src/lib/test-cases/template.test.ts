@@ -218,3 +218,25 @@ test("an ID with nothing else on the row is a stray label, skipped with a warnin
   assert.deepEqual(r.cases.map((c) => c.tcId), ["TC_001", "TC_002"]);
   assert.ok(r.issues.some((i) => i.severity === "warning" && /section label/.test(i.message)));
 });
+
+test("the QA types, 'Corner' and 'Not Executed' are understood: nothing is reported as unmatched", () => {
+  const grid = [
+    HEADER_A,
+    rowA("TC_001", { cls: "Corner", type: "Offline/Sync", tester: "Not Executed" }),
+    rowA("TC_002", { cls: "Negative", type: "Configuration", tester: "Not Executed" }),
+    rowA("TC_003", { cls: "Positive", type: "Interruption" }),
+    rowA("TC_004", { cls: "Positive", type: "Database" }),
+    rowA("TC_005", { cls: "Positive", type: "Calculation" }),
+    rowA("TC_006", { cls: "Positive", type: "Report" }),
+    rowA("TC_007", { cls: "Edge case", type: "File/SFTP" }),
+    rowA("TC_008", { cls: "Positive", type: "Batch/Scheduler" }),
+  ];
+  const r = parseSheetGrid(grid);
+  assert.ok(r.ok);
+  assert.deepEqual(r.unmapped, []);
+  assert.deepEqual(r.cases.map((c) => c.category), ["offline_sync", "configuration", "interruption", "database", "calculation", "report", "file_sftp", "batch_scheduler"]);
+  assert.equal(r.cases[0].polarity, "edge", "Corner reads as an edge case");
+  assert.equal(r.cases[0].testerResult, "not_run");
+  assert.equal(r.categorySplit.other, 0);
+  assert.equal(r.categorySplit.offline_sync, 1);
+});

@@ -1,19 +1,22 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   RiCheckboxCircleLine,
   RiErrorWarningLine,
+  RiFileExcel2Line,
   RiGoogleLine,
   RiLoader4Line,
 } from "@remixicon/react";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { withReturnTo } from "@/lib/test-cases/return-to";
+import { parseSheetUrl } from "@/lib/test-cases/sheet-url";
 import type { SignoffPreview } from "@/lib/test-cases/signoff-service";
 import { invalidateTcSummaries } from "./tc-summary-cache";
 
@@ -54,15 +57,19 @@ export function SignoffForm({
 }) {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
-  // The source is the item's own, so there is no choice and no link to paste.
-  const mode: "sheet" | "file" = lock.source === "xlsx" ? "file" : "sheet";
+  // The result sheet can be a Google Sheet link or an Excel file whatever the item's own source is (the sign-off never
+  // changes the item's source). The item's own source is just the starting choice, and its link is pre-filled.
+  const [mode, setMode] = useState<"sheet" | "file">(lock.source === "xlsx" ? "file" : "sheet");
+  const [sheetUrl, setSheetUrl] = useState(lock.source === "google_sheet" ? (lock.sheetUrl ?? "") : "");
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<PreviewResponse | null>(null);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState<"validate" | "commit" | null>(null);
   const [error, setError] = useState<FormError | null>(null);
+  // Only the newest read counts: a slower answer for an earlier link or file is dropped.
+  const readSeq = useRef(0);
 
-  const hasInput = mode === "sheet" ? true : file !== null;
+  const hasInput = mode === "sheet" ? sheetUrl.trim().length > 0 : file !== null;
   const preview = result?.preview ?? null;
   const readyToCommit = !!result && result.selectedTabs.length > 0 && !!preview && !preview.problem && busy === null;
 
@@ -72,25 +79,31 @@ export function SignoffForm({
   }, []);
 
   function resetResult() {
+    readSeq.current++;
+    setBusy((b) => (b === "validate" ? null : b));
     setResult(null);
     setError(null);
   }
 
-  function build(action: "preview" | "commit") {
+  function build(action: "preview" | "commit", fileOverride?: File | null) {
     const fd = new FormData();
     fd.set("role", role);
     fd.set("mode", action);
     fd.set("source", mode === "sheet" ? "google_sheet" : "xlsx");
-    if (mode === "file" && file) fd.set("file", file);
+    const chosen = fileOverride !== undefined ? fileOverride : file;
+    if (mode === "file" && chosen) fd.set("file", chosen);
+    if (mode === "sheet" && sheetUrl.trim()) fd.set("sheetUrl", sheetUrl.trim());
     return fd;
   }
 
-  async function validate() {
+  async function validate(fileOverride?: File | null) {
+    const seq = ++readSeq.current;
     setBusy("validate");
     setError(null);
     try {
-      const res = await fetch(`/api/test-cases/rounds/${roundId}/signoff`, { method: "POST", body: build("preview") });
+      const res = await fetch(`/api/test-cases/rounds/${roundId}/signoff`, { method: "POST", body: build("preview", fileOverride) });
       const data = await res.json();
+      if (seq !== readSeq.current) return;
       if (!res.ok) {
         setResult(null);
         setError({ message: data.error ?? "Could not read that source.", code: data.code });
@@ -99,11 +112,19 @@ export function SignoffForm({
       setResult(data as PreviewResponse);
       if (data.error) setError({ message: data.error });
     } catch {
-      setError({ message: "Network error. Try again." });
+      if (seq === readSeq.current) setError({ message: "Network error. Try again." });
     } finally {
-      setBusy(null);
+      if (seq === readSeq.current) setBusy(null);
     }
   }
+
+  // Pasting a link reads it by itself (after a short pause for typing); choosing a file reads it at once.
+  useEffect(() => {
+    if (mode !== "sheet" || !parseSheetUrl(sheetUrl)) return;
+    const timer = setTimeout(() => void validate(), 500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- validate reads the current form state; only a new link should trigger a read
+  }, [sheetUrl, mode]);
 
   async function commit() {
     if (!readyToCommit) return;
@@ -153,19 +174,52 @@ export function SignoffForm({
         <p className="text-xs text-muted-foreground">
           Tabs read: <span className="font-medium text-foreground">{lock.tabs.join(", ") || "the item's tabs"}</span>
         </p>
+        <div className="inline-flex rounded-md border border-zinc-200 p-0.5 dark:border-zinc-800" role="tablist">
+          {(
+            [
+              ["sheet", "Google Sheet link", RiGoogleLine],
+              ["file", "Excel file", RiFileExcel2Line],
+            ] as const
+          ).map(([m, label, Icon]) => (
+            <button
+              key={m}
+              type="button"
+              role="tab"
+              aria-selected={mode === m}
+              onClick={() => {
+                setMode(m);
+                resetResult();
+              }}
+              className={cn(
+                "inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-xs font-semibold transition-colors",
+                mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+              )}
+            >
+              <Icon className="size-3.5" />
+              {label}
+            </button>
+          ))}
+        </div>
+
         {mode === "sheet" ? (
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">This item&apos;s Google Sheet (the same one the test cases came from)</Label>
-            <a
-              href={lock.sheetUrl ?? "#"}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex max-w-full items-center gap-1.5 truncate rounded-md border border-zinc-200 bg-muted/40 px-2.5 py-1.5 text-xs font-medium hover:bg-muted dark:border-zinc-700"
-            >
-              <RiGoogleLine className="size-3.5 shrink-0" />
-              <span className="truncate">{lock.sheetUrl}</span>
-            </a>
-            <p className="text-[11px] text-muted-foreground">Fill your status column in the sheet, then read it here. {sheetReaderEmail ? `Flux reads the sheet as ${sheetReaderEmail}.` : "Flux reads the sheet as you."}</p>
+            <Label htmlFor="signoff-sheet-url" className="text-xs text-muted-foreground">
+              Link to the Google Sheet with your results{lock.source === "google_sheet" ? " (this item's own sheet is filled in)" : ""}
+            </Label>
+            <Input
+              id="signoff-sheet-url"
+              value={sheetUrl}
+              onChange={(e) => {
+                setSheetUrl(e.target.value);
+                resetResult();
+              }}
+              placeholder="https://docs.google.com/spreadsheets/d/…"
+              className="text-xs"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              It must have the tab{lock.tabs.length === 1 ? "" : "s"} {lock.tabs.map((t) => `"${t}"`).join(", ") || "of the approved round"} with the same Test Case IDs. Fill your status column in the sheet, then paste the link; it is read by itself.{" "}
+              {sheetReaderEmail ? `Flux reads the sheet as ${sheetReaderEmail}: share it with your Salescode domain or that address.` : "Flux reads the sheet as you."}
+            </p>
           </div>
         ) : (
           <div className="space-y-1">
@@ -185,6 +239,7 @@ export function SignoffForm({
                     return;
                   }
                   setFile(f);
+                  if (f) void validate(f);
                 }}
               />
               <Button type="button" variant="outline" size="sm" onClick={() => fileInput.current?.click()}>Choose file…</Button>
@@ -194,7 +249,7 @@ export function SignoffForm({
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" size="sm" onClick={() => validate()} disabled={!hasInput || busy !== null}>
+          <Button type="button" size="sm" onClick={() => void validate()} disabled={!hasInput || busy !== null}>
             {busy === "validate" ? <RiLoader4Line className="size-3.5 animate-spin" /> : null}
             {busy === "validate" ? "Reading…" : result ? "Validate again" : "Validate"}
           </Button>
@@ -257,6 +312,7 @@ function PreviewBox({ preview }: { preview: SignoffPreview }) {
         {preview.total} test cases in the approved round
       </p>
       {preview.scope && <p className="text-[11px] text-muted-foreground">Scope of this round: {preview.scope}</p>}
+      <OtherRoleNote preview={preview} />
       <div className="flex flex-wrap gap-1.5">
         {chips.map(([label, n, cls]) => (
           <span key={label} className={cn("rounded-full border px-2 py-0.5 text-[11px]", cls)}>
@@ -284,5 +340,21 @@ function PreviewBox({ preview }: { preview: SignoffPreview }) {
         </p>
       )}
     </div>
+  );
+}
+
+
+/** The other role's sign-off, if any: it stays as recorded and its results are added to the saved sheet. */
+function OtherRoleNote({ preview }: { preview: SignoffPreview }) {
+  const me = ROLE_LABEL[preview.role].toLowerCase();
+  const other = ROLE_LABEL[preview.role === "dev" ? "tester" : "dev"].toLowerCase();
+  const o = preview.otherRole;
+  if (!o) {
+    return <p className="text-[11px] text-muted-foreground">No {other} sign-off yet. You can sign off first; the {other}&apos;s results are added when they sign off.</p>;
+  }
+  return (
+    <p className="rounded-md bg-emerald-50 p-2 text-[11px] text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
+      The {other} already signed off ({o.by}, {o.label}): {o.pass} passed, {o.fail} failed, {o.blocked} blocked, {o.notRun} not run. That sign-off stays as it is, and its results are written into the {other} status column of the sheet saved with your {me} sign-off.
+    </p>
   );
 }

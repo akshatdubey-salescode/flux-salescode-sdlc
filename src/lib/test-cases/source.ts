@@ -69,6 +69,14 @@ function tabList(
   return tabs.map((t) => ({ title: t.title, hidden: t.hidden, suggested: t.title === suggested, previous: previous.includes(t.title), gid: t.sheetId ?? null }));
 }
 
+/** Which tab is missing, which tabs the source has, and which tabs were being looked for (sign-off reads the approved round's tabs). */
+function tabNotFoundMessage(missing: string, tabs: { title: string; hidden: boolean }[], wanted: string[] | null | undefined, what: "sheet" | "file"): string {
+  const have = tabs.filter((t) => !t.hidden).map((t) => `"${t.title}"`);
+  const shown = have.length > 12 ? `${have.slice(0, 12).join(", ")} and ${have.length - 12} more` : have.join(", ");
+  const looking = wanted && wanted.length > 0 ? ` The tabs being read are ${wanted.map((t) => `"${t}"`).join(", ")}.` : "";
+  return `Tab "${missing}" was not found in that ${what}.${looking} This ${what} has the visible tab${have.length === 1 ? "" : "s"}: ${shown || "(none)"}. Tab names must match exactly, including spaces and capital letters.`;
+}
+
 export async function readSource(input: SourceInput): Promise<SourceRead> {
   const previous = input.previousTabs ?? [];
 
@@ -79,7 +87,7 @@ export async function readSource(input: SourceInput): Promise<SourceRead> {
     }
     const { title, tabs } = await listTabs(input.userId, parsed.spreadsheetId);
     const picked = pickTabs({ tabs, requested: input.tabs, previous, gid: parsed.gid, jiraKey: input.jiraKey });
-    if (!picked.ok) throw new SourceError("tab_not_found", `Tab "${picked.missing}" was not found in that sheet.`);
+    if (!picked.ok) throw new SourceError("tab_not_found", tabNotFoundMessage(picked.missing, tabs, input.tabs, "sheet"));
     const suggested = tabNamedAfter(tabs, input.jiraKey);
     const tooMany = picked.defaulted && picked.selected.length > MAX_TABS_PER_ITEM;
     const toRead = tooMany ? [] : picked.selected;
@@ -116,7 +124,7 @@ export async function readSource(input: SourceInput): Promise<SourceRead> {
   }
   const tabs = xlsxTabs(wb);
   const picked = pickTabs({ tabs, requested: input.tabs, previous, jiraKey: input.jiraKey });
-  if (!picked.ok) throw new SourceError("tab_not_found", `Tab "${picked.missing}" was not found in that file.`);
+  if (!picked.ok) throw new SourceError("tab_not_found", tabNotFoundMessage(picked.missing, tabs, input.tabs, "file"));
   const suggested = tabNamedAfter(tabs, input.jiraKey);
   const tooMany = picked.defaulted && picked.selected.length > MAX_TABS_PER_ITEM;
   const toRead = tooMany ? [] : picked.selected;

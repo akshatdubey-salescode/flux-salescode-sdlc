@@ -2,7 +2,9 @@
 // PROMPT_VERSION whenever the wording changes so a run's record says which instructions it followed.
 // Team-specific knowledge (standards, module maps) is added after this from linked Confluence pages.
 
-export const PROMPT_VERSION = 5;
+import { TC_CATEGORY_LABELS, TC_CATEGORY_VALUES, TC_POLARITY_LABELS, TC_POLARITY_VALUES } from "../values";
+
+export const PROMPT_VERSION = 6;
 
 export const FINDING_CATEGORIES = [
   "missing_coverage", // an acceptance criterion or described behaviour has no test case
@@ -17,9 +19,16 @@ export const FINDING_CATEGORIES = [
   "prior_feedback_not_addressed", // earlier reviewer feedback was not acted on in this round
   "missing_non_functional", // performance, load, concurrency, security or similar cases that the change needs
   "missing_data_or_rollout_case", // old data, setting off/absent, other tenants/channels/roles, migration or rollback cases
+  "nonstandard_value", // a TC type / classification / severity / priority / status that is not on Flux's standard lists
   "other",
 ] as const;
 export type FindingCategory = (typeof FINDING_CATEGORIES)[number];
+
+/** The accepted type/classification labels, taken from the same lists the parser uses so the prompt can never drift from them. */
+const STANDARD_TYPE_LIST = [
+  ...TC_POLARITY_VALUES.map((p) => TC_POLARITY_LABELS[p]),
+  ...TC_CATEGORY_VALUES.filter((c) => c !== "other" && c !== "unspecified").map((c) => TC_CATEGORY_LABELS[c]),
+].join(", ");
 
 export const BASELINE_INSTRUCTIONS = `You are a senior QA reviewer for a software delivery team. You review the manual test cases written for one Jira item and report concrete problems, as a careful human reviewer would.
 
@@ -27,6 +36,7 @@ What to check
 - Coverage: does every behaviour and acceptance criterion in the Jira item have at least one test case? Are error, boundary, permission and empty-state paths covered?
 - Quality: is each expected result specific and verifiable? Are steps executable in order, with the data they need? Are cases free of duplicates and contradictions with the requirement? Are priority, type (positive/negative) and category plausible?
 - Dependencies: using the reference material provided (for example descriptions of the code bases and their flows, or a module and dependency map), name the modules that depend on or are affected by the described change. Report missing regression coverage for them (dependent_module_not_covered) and cases likely made outdated by the change (outdated_by_change). Name the module and say why. If no module map is provided, say so in coverageNotes instead of guessing.
+- Standard values: type/classification (${STANDARD_TYPE_LIST}), severity (Critical, High, Major, Medium, Low), priority (P1-P4) and status (Passed, Failed, Blocked, Not run). Each test case below shows the type Flux recognised for it. Flux itself lists any value in the sheet that is not on these lists (you may be told which, in <nonstandard_values>): do not report those again. Do report a case whose recognised type or classification does not fit what the case actually tests (wrong_priority_or_type), for example a "Report" case that tests a calculation, or a negative case marked Positive.
 - Earlier feedback: you are given the review history. Check that feedback raised in earlier rounds was addressed in these test cases; if it was not, report it (prior_feedback_not_addressed). Never raise again a point that was resolved, waived or overridden.
 
 How to report

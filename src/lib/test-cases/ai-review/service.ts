@@ -24,6 +24,8 @@ import { chunkBySize } from "./chunk";
 import { loadKnowledgeForRun, type UsedKnowledge } from "./knowledge";
 import { extractReport, mergeReports, parseReport, type ReviewOutput } from "./parse";
 import { describeScope } from "../scope";
+import { TC_CATEGORY_LABELS } from "../values";
+import { collectNonstandard, nonstandardMessage } from "../nonstandard";
 import { buildSystem, buildUserPrompt, caseSize, makeLabeler, type PromptCase, type PromptHistoryEntry } from "./prompt";
 
 export const MANUAL_COOLDOWN_MS = 60_000;
@@ -120,6 +122,27 @@ async function reapStaleRuns(roundId: string): Promise<void> {
     .from(tcAiReviews)
     .where(and(eq(tcAiReviews.roundId, roundId), eq(tcAiReviews.status, "running"), lt(tcAiReviews.startedAt, cutoff)));
   for (const run of stale) await closeRunAsFailed(run, "The AI review was interrupted. Run it again.");
+}
+
+const SEVERITY_ORDER = { high: 0, medium: 1, low: 2 } as const;
+
+/** The same non-standard-value finding was already resolved or waived on an earlier round of this item: do not raise it again. */
+async function alreadyAccepted(setId: string, message: string): Promise<boolean> {
+  const [hit] = await db
+    .select({ id: tcReviewComments.id })
+    .from(tcReviewComments)
+    .innerJoin(tcRounds, eq(tcRounds.id, tcReviewComments.roundId))
+    .where(
+      and(
+        eq(tcRounds.setId, setId),
+        eq(tcReviewComments.source, "llm"),
+        eq(tcReviewComments.resolved, true),
+        eq(tcReviewComments.body, message),
+        sql`${tcReviewComments.meta}->>'category' = 'nonstandard_value'`,
+      ),
+    )
+    .limit(1);
+  return !!hit;
 }
 
 async function saveOutcome(args: {
@@ -429,7 +452,8 @@ export async function executeAiReview(runId: string): Promise<void> {
         title: r.title,
         module: r.module,
         polarity: r.polarity,
-        category: r.category,
+        // The label people see ('Offline / Sync'), not the stored value ('offline_sync').
+        category: TC_CATEGORY_LABELS[r.category] ?? r.category,
         priority: r.priority,
         preconditions: r.preconditions,
         steps: r.steps,
@@ -437,6 +461,11 @@ export async function executeAiReview(runId: string): Promise<void> {
       };
       return { ...c, size: caseSize(c) };
     });
+    // Values the sheet uses that are not on the standard lists (a TC type nobody mapped, an odd status word): reported by
+    // Flux itself as one finding, so it never depends on the model noticing. The model is told, to avoid repeating it.
+    const nonstandard = collectNonstandard(caseRows.map((r) => r.raw));
+    const nonstandardLines = nonstandard.slice(0, 12).map((v) => `${v.field}: "${v.value}" × ${v.count}`);
+    const nonstandardText = nonstandardLines.length > 0 ? nonstandardLines.join("\n") : null;
     const refToCaseId = new Map(caseRows.map((r) => [r.tcKey, r.id]));
     const knownRefs = new Set(refToCaseId.keys());
 
@@ -451,13 +480,20 @@ export async function executeAiReview(runId: string): Promise<void> {
       Array.from({ length: Math.min(PARALLEL_CALLS, chunks.length) }, async () => {
         while (next < chunks.length) {
           const i = next++;
-          const user = buildUserPrompt({ issue: promptIssue, roundNo: ctx.roundNo, allCases: cases, cases: chunks[i], history, part: { index: i + 1, total: chunks.length }, scopeText: ctx.scope ? describeScope(ctx.scope) : null });
+          const user = buildUserPrompt({ issue: promptIssue, roundNo: ctx.roundNo, allCases: cases, cases: chunks[i], history, part: { index: i + 1, total: chunks.length }, scopeText: ctx.scope ? describeScope(ctx.scope) : null, nonstandardText });
           results[i] = await reviewChunk({ cfg, system, user, knownRefs });
         }
       }),
     );
 
     const output = mergeReports(results.map((r) => r.report));
+    const nsMessage = nonstandardMessage(nonstandard, caseRows.length);
+    if (nsMessage && !(await alreadyAccepted(ctx.setId, nsMessage))) {
+      const affected = nonstandard.reduce((n, v) => n + v.count, 0);
+      // Many odd values (a quarter of the cases or more) is a medium problem; a few stray ones are minor.
+      output.findings.push({ caseRef: null, severity: affected * 4 >= caseRows.length ? "medium" : "low", category: "nonstandard_value", message: nsMessage });
+      output.findings.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+    }
     const outcome = await saveOutcome({
       run,
       ctx,
