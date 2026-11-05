@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { tcAiReviews, tcCases, tcResults, tcReviewComments, tcReviewers, tcRounds, tcSetStats, tcSets, tcSignoffs } from "@/lib/db/schema";
 import { lockItem, type Executor } from "./concurrency";
 import { computeSetStats, type AnalyticsCase, type RoundTrendPoint, type SetStats } from "./analytics";
+import { normalizeResult } from "./normalize";
 import { summariseFeedback, type FeedbackEvent, type ReviewerNow } from "./feedback-stats";
 import { describeScope } from "./scope";
 import { isAiReviewer, type TcResult } from "./values";
@@ -76,6 +77,10 @@ async function loadFeedbackInputs(setId: string, ex: Executor = db): Promise<Fee
 }
 
 /** Stats for one round, from its cases, reviewers, the review thread up to that round, and that round's sign-offs. */
+function emptySheetCounts() {
+  return { pass: 0, fail: 0, blocked: 0, not_run: 0, total: 0 };
+}
+
 async function statsForRound(round: RoundRow, fb: FeedbackInputs, ex: Executor = db): Promise<SetStats> {
   const cases = await ex.select().from(tcCases).where(eq(tcCases.roundId, round.id)).orderBy(asc(tcCases.rowNo));
   // Sign-offs of THIS round only: a new round starts unsigned.
@@ -97,7 +102,17 @@ async function statsForRound(round: RoundRow, fb: FeedbackInputs, ex: Executor =
     testerResult: signoff.hasTester ? (signoff.tester.get(c.id) ?? "not_run") : null,
   }));
 
+  // What the submitted sheet says in its own Dev / Tester status columns: information only (results count from sign-off).
+  const sheetStatus = { dev: emptySheetCounts(), tester: emptySheetCounts() };
+  for (const c of cases) {
+    sheetStatus.dev[normalizeResult(c.devStatus).value]++;
+    sheetStatus.dev.total++;
+    sheetStatus.tester[normalizeResult(c.testerStatus).value]++;
+    sheetStatus.tester.total++;
+  }
+
   return computeSetStats({
+    sheetStatus,
     cases: analyticsCases,
     roundStatus: round.status,
     // People only: the AI reviewer never approves, so it can't be part of "approved x of y".
@@ -204,7 +219,7 @@ export async function fetchStoredStats(setId: string): Promise<{ stats: SetStats
   // Rows stored before the feedback summary existed lack it: bring them up to date rather than render a gap.
   // Same for rows from before the per-tab breakdown and the scope existed (no backfill job needed: they heal on first read).
   const old = row.stats as Partial<SetStats>;
-  if (!old.feedback || !old.trend || !old.tabSplit || !old.scope || !old.feedback.byTab || !old.feedback.coverage || !old.feedback.ai || old.qualityComponents?.aiCoverage === undefined) {
+  if (!old.feedback || !old.trend || !old.tabSplit || !old.scope || !old.feedback.byTab || !old.sheetStatus || !old.feedback.coverage || !old.feedback.ai || old.qualityComponents?.aiCoverage === undefined) {
     const fresh = await recomputeSetStats(setId);
     const [again] = await db.select().from(tcSetStats).where(eq(tcSetStats.setId, setId)).limit(1);
     if (fresh && again) return { stats: fresh, computedAt: again.computedAt, roundNo: again.roundNo };

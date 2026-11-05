@@ -63,10 +63,25 @@ test("history carries status and roles, never names or emails", () => {
   assert.ok(!p.includes("@x.com"));
 });
 
-test("long fields are clipped and size accounts for them", () => {
-  const big = c("A", { steps: "x".repeat(5000) });
-  assert.ok(caseSize(big) < 2000);
+test("only very long fields are clipped (4,000 characters) and size accounts for them", () => {
+  const big = c("A", { steps: "x".repeat(9000) });
+  assert.ok(caseSize(big) < 5000);
   assert.match(buildUserPrompt({ issue, roundNo: 1, allCases: [big], cases: [big], history: [] }), /\[…\]/);
+  // A long but ordinary cell (the old 1,200 limit made the model report "truncated" steps) goes through whole.
+  const mid = c("B", { steps: "y".repeat(3000) });
+  const p = buildUserPrompt({ issue, roundNo: 1, allCases: [mid], cases: [mid], history: [] });
+  assert.ok(p.includes("y".repeat(3000)));
+  assert.ok(!p.includes("[…]"));
+});
+
+test("the model is shown the Classification and Type cells as typed, and told never to report truncation", () => {
+  const a = c("A", { classification: "Corner", tcType: "Offline/Sync" });
+  const p = buildUserPrompt({ issue, roundNo: 1, allCases: [a], cases: [a], history: [] });
+  assert.match(p, /Sheet columns: Classification="Corner"; Type="Offline\/Sync"/);
+  const sys = buildSystem([]);
+  assert.match(sys, /never report a cell as truncated/);
+  assert.match(sys, /never report a value just for being in the other column/);
+  assert.match(sys, /<jira_comments>/);
 });
 
 test("the report is read from the tool block, else from JSON text", () => {

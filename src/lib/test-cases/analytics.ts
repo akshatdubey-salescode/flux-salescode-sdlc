@@ -115,7 +115,11 @@ export type SetInput = {
   llmReviewed?: boolean;
   /** Which tabs and rows the round reviewed (null for rounds from before rows could be chosen). */
   scope?: RoundScope | null;
+  /** The statuses typed in the submitted sheet itself (not sign-offs): shown as information, never counted as results. */
+  sheetStatus?: SheetStatus;
 };
+
+export type SheetStatus = { dev: ResultCounts; tester: ResultCounts };
 
 /** One point per round for the "rounds compared" chart. Past rounds can't change, so each is computed once and stored. */
 export type RoundTrendPoint = {
@@ -168,6 +172,8 @@ export type SetStats = {
   llmReviewed: boolean;
   /** Results per tab (absent on rows stored before tabs were broken out; recomputed on read). */
   tabSplit?: Record<string, TypeRow>;
+  /** What the submitted sheet itself says (absent on stats stored before this existed). */
+  sheetStatus?: SheetStatus;
   scope?: StatsScope;
   /** Filled in when the stats are stored (see recomputeSetStats); absent on rows from before it existed. */
   trend?: RoundTrendPoint[];
@@ -447,6 +453,7 @@ export function computeSetStats(input: SetInput): SetStats {
     confidenceCaps: verdict.caps,
     readiness: verdict.readiness,
     llmReviewed: input.llmReviewed ?? false,
+    sheetStatus: input.sheetStatus,
     tabSplit,
     scope: statsScope(input.scope, tabSplit),
   };

@@ -10,7 +10,8 @@ export type ReviewOutput = { summary: string; coverageNotes: string; findings: F
 
 export const MAX_FINDINGS = 100;
 export const MAX_MESSAGE = 2500;
-const MAX_SUMMARY = 800;
+// The summary and coverage notes are shown in full (the UI folds long ones), so this only guards against runaway output.
+const MAX_SUMMARY = 3000;
 const SEVERITIES = new Set<string>(["high", "medium", "low"]);
 const CATEGORIES = new Set<string>(FINDING_CATEGORIES);
 

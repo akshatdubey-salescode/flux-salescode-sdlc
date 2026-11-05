@@ -113,6 +113,8 @@ export function TcBadge({ issueId }: { issueId: string }) {
           <Row done={s.testerSigned}>Tester signed off</Row>
         </ul>
 
+        <AiReviewLine ai={s.ai} reviewed={s.llmReviewed} />
+
         <dl className="grid grid-cols-4 gap-1 text-center">
           {(
             [
@@ -162,5 +164,52 @@ export function TcBadge({ issueId }: { issueId: string }) {
         <p className="text-[10px] text-muted-foreground">Click for the full test cases page.</p>
       </HoverCardContent>
     </HoverCard>
+  );
+}
+
+
+const SEVERITY_CHIP = {
+  high: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400",
+  medium: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400",
+  low: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
+} as const;
+
+/** Whether the AI review's findings have been dealt with: fixed, still open, or waived (accepted without a fix), by severity. */
+function AiReviewLine({ ai, reviewed }: { ai: TcSummary["ai"]; reviewed: boolean }) {
+  if (!reviewed || !ai) return null;
+  if (ai.findings === 0) return <p className="text-emerald-700 dark:text-emerald-400">AI review: no findings</p>;
+  const sev = ["high", "medium", "low"] as const;
+  const open = sev.reduce((n, k) => n + ai.open[k], 0);
+  const waived = sev.reduce((n, k) => n + ai.waived[k], 0);
+  const addressed = open === 0 && waived === 0;
+  return (
+    <div className="space-y-1 rounded-md border border-zinc-200 p-2 dark:border-zinc-800">
+      <p className={cn("font-semibold", addressed ? "text-emerald-700 dark:text-emerald-400" : "text-foreground")}>
+        {addressed ? "AI review: all addressed" : `AI review: ${open} open${waived > 0 ? `, ${waived} waived` : ""}`}
+        <span className="ml-1 font-normal text-muted-foreground">
+          ({ai.fixed} of {ai.findings} fixed)
+        </span>
+      </p>
+      {open > 0 && (
+        <p className="flex flex-wrap items-center gap-1">
+          <span className="text-muted-foreground">Open:</span>
+          {sev.filter((k) => ai.open[k] > 0).map((k) => (
+            <span key={k} className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold capitalize", SEVERITY_CHIP[k])}>
+              {k} {ai.open[k]}
+            </span>
+          ))}
+        </p>
+      )}
+      {waived > 0 && (
+        <p className="flex flex-wrap items-center gap-1">
+          <span className="text-muted-foreground">Waived, not fixed:</span>
+          {sev.filter((k) => ai.waived[k] > 0).map((k) => (
+            <span key={k} className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold capitalize", SEVERITY_CHIP[k])}>
+              {k} {ai.waived[k]}
+            </span>
+          ))}
+        </p>
+      )}
+    </div>
   );
 }

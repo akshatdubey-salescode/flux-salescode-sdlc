@@ -4,7 +4,7 @@ import { errorResponse, isResponse, requireTestCasesUser } from "@/lib/test-case
 import { getItemLock } from "@/lib/test-cases/lock";
 import { parseTabs, type RealignAnchor } from "@/lib/test-cases/multi-tab";
 import { buildPreview } from "@/lib/test-cases/preview";
-import { latestContentHash, findIssue, findScopeOverlaps } from "@/lib/test-cases/service";
+import { roundContentHashes, findIssue, findScopeOverlaps } from "@/lib/test-cases/service";
 import { checkScope, defaultedNotice } from "@/lib/test-cases/submission";
 import { scopedGrids } from "@/lib/test-cases/scoped-grid";
 import { contentHash } from "@/lib/test-cases/content-hash";
@@ -40,12 +40,12 @@ export async function POST(req: NextRequest) {
 
     // No tab named and too many to take them all: nothing was read; the person ticks tabs.
     if (read.tooManyTabs !== null) {
-      return NextResponse.json({ ...tabsInfo, defaulted: false, tooManyTabs: read.tooManyTabs, notice: null, sameAsRound: null, overlaps: [], preview: null });
+      return NextResponse.json({ ...tabsInfo, defaulted: false, tooManyTabs: read.tooManyTabs, notice: null, sameAsRound: null, sameAsOlderRound: null, overlaps: [], preview: null });
     }
-    if (!read.grids) return NextResponse.json({ ...tabsInfo, defaulted: false, tooManyTabs: null, notice: null, sameAsRound: null, overlaps: [], preview: null });
+    if (!read.grids) return NextResponse.json({ ...tabsInfo, defaulted: false, tooManyTabs: null, notice: null, sameAsRound: null, sameAsOlderRound: null, overlaps: [], preview: null });
 
     const scope = checkScope(read, form.get("scope"));
-    if (!scope.ok) return NextResponse.json({ ...tabsInfo, defaulted: read.defaulted, tooManyTabs: null, notice: null, sameAsRound: null, overlaps: [], preview: { ok: false, error: scope.error }, code: scope.code });
+    if (!scope.ok) return NextResponse.json({ ...tabsInfo, defaulted: read.defaulted, tooManyTabs: null, notice: null, sameAsRound: null, sameAsOlderRound: null, overlaps: [], preview: { ok: false, error: scope.error }, code: scope.code });
 
     // Rows move when someone inserts rows in the live sheet: remember where the previous round's test cases were.
     const anchors = new Map<string, RealignAnchor>();
@@ -56,10 +56,18 @@ export async function POST(req: NextRequest) {
     const preview = buildPreview(parsed);
     // Is this exactly what the latest round already holds? (Only said, never enforced: resubmitting is allowed.)
     let sameAsRound: number | null = null;
+    // The same content as an EARLIER round, not the latest: usually an old download uploaded by mistake.
+    let sameAsOlderRound: { roundNo: number; latestRoundNo: number } | null = null;
     let overlaps: Awaited<ReturnType<typeof findScopeOverlaps>> = [];
     if (parsed.ok) {
-      const latest = await latestContentHash(issueId);
-      sameAsRound = latest && contentHash(scopedGrids(read.grids, parsed)) === latest.hash ? latest.roundNo : null;
+      const hashes = await roundContentHashes(issueId);
+      const mine = contentHash(scopedGrids(read.grids, parsed));
+      const latest = hashes[0];
+      if (latest && mine === latest.hash) sameAsRound = latest.roundNo;
+      else if (latest) {
+        const older = hashes.find((h) => h.hash === mine);
+        if (older) sameAsOlderRound = { roundNo: older.roundNo, latestRoundNo: latest.roundNo };
+      }
       // Other items of this project that review some of the same test cases of this sheet (a warning, never a block).
       overlaps = await findScopeOverlaps({ issueId, projectId: lookup.issue.projectId, spreadsheetId: read.spreadsheetId, tcKeys: parsed.cases.map((c) => c.tcKey) });
     }
@@ -69,6 +77,7 @@ export async function POST(req: NextRequest) {
       tooManyTabs: null,
       notice: parsed.ok ? defaultedNotice(read, parsed.skipped, lookup.issue.jiraKey) : null,
       sameAsRound,
+      sameAsOlderRound,
       overlaps,
       preview,
     });

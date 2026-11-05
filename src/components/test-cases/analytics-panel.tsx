@@ -159,6 +159,7 @@ export function AnalyticsPanel({ issueId, stats, trend, computedAt }: { issueId:
               Feedback resolved or waived
             </Check>
           </ul>
+          <SheetStatusNote stats={stats} />
           <div className="flex flex-wrap gap-1.5 pt-1">
             {RESULT_KEYS.map((k) => (
               <span key={k} className="inline-flex items-center gap-1 rounded-full border border-zinc-200 px-2 py-0.5 text-[11px] dark:border-zinc-700">
@@ -487,5 +488,24 @@ function AiReviewCard({ stats }: { stats: SetStats }) {
         </div>
       )}
     </Card>
+  );
+}
+
+
+/** The sheet's own Dev / Tester status columns are not results: say so when they are filled but nobody has signed off. */
+function SheetStatusNote({ stats }: { stats: SetStats }) {
+  const ss = stats.sheetStatus;
+  if (!ss) return null;
+  const parts: string[] = [];
+  for (const [role, label] of [["dev", "Developer"], ["tester", "Tester"]] as const) {
+    const c = ss[role];
+    if (stats[role].signedOff || c.pass + c.fail + c.blocked === 0) continue;
+    parts.push(`${label}: ${c.pass} passed, ${c.fail} failed, ${c.blocked} blocked`);
+  }
+  if (parts.length === 0) return null;
+  return (
+    <p role="note" className="rounded-md bg-sky-50 p-2 text-[11px] text-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+      The submitted sheet has statuses filled in ({parts.join("; ")}). They are not counted as results, so Executed stays at {stats.executedPct}% until the developer / tester signs off by uploading the sheet.
+    </p>
   );
 }

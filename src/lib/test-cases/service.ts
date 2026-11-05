@@ -479,6 +479,18 @@ export async function latestContentHash(issueId: string): Promise<{ roundNo: num
   return row?.hash ? { roundNo: row.roundNo, hash: row.hash } : null;
 }
 
+/** The content fingerprint of every round's snapshot, newest first (to tell an old download from the current sheet). */
+export async function roundContentHashes(issueId: string): Promise<{ roundNo: number; hash: string }[]> {
+  const rows = await db
+    .select({ roundNo: tcRounds.roundNo, hash: tcFiles.contentHash })
+    .from(tcRounds)
+    .innerJoin(tcSets, eq(tcSets.id, tcRounds.setId))
+    .leftJoin(tcFiles, eq(tcFiles.id, tcRounds.snapshotFileId))
+    .where(eq(tcSets.issueId, issueId))
+    .orderBy(desc(tcRounds.roundNo));
+  return rows.filter((r): r is { roundNo: number; hash: string } => !!r.hash);
+}
+
 export type SameWorkbook = { issueId: string; issueKey: string; roundNo: number };
 
 /**

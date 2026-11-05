@@ -54,6 +54,8 @@ type InspectResponse = {
   missingPrevious: string[];
   /** The newest round already holds exactly this content. */
   sameAsRound: number | null;
+  /** The content equals an earlier round but not the newest: probably an old version of the sheet. */
+  sameAsOlderRound?: { roundNo: number; latestRoundNo: number } | null;
   /** No tab was named, so every visible tab is reviewed (the server warns in `notice`). */
   defaulted: boolean;
   /** No tab named and more visible tabs than one item may review: nothing was read. */
@@ -495,6 +497,13 @@ export function SubmissionForm({
           </p>
         )}
 
+        {result?.sameAsOlderRound && previewCurrent && (
+          <p role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+            This is exactly the content of Round {result.sameAsOlderRound.roundNo}, not the latest Round {result.sameAsOlderRound.latestRoundNo}. It looks like an older version of the{" "}
+            {lockedSheet ? "sheet" : "workbook"}: reviewers would see the changes of {result.sameAsOlderRound.latestRoundNo - result.sameAsOlderRound.roundNo === 1 ? `Round ${result.sameAsOlderRound.latestRoundNo}` : `Rounds ${result.sameAsOlderRound.roundNo + 1}-${result.sameAsOlderRound.latestRoundNo}`} undone and the same feedback again. Download the current {lockedSheet ? "sheet" : "workbook"} and edit that, or re-read it once it has finished saving.
+          </p>
+        )}
+
         {preview && previewCurrent && <PreviewPanel preview={preview} />}
       </section>
 
@@ -706,6 +715,14 @@ function PreviewPanel({ preview }: { preview: Preview }) {
         {preview.errorCount > 0 && <span className="font-semibold text-red-600">{preview.errorCount} error{preview.errorCount === 1 ? "" : "s"}</span>}
         {preview.warningCount > 0 && <span className="font-semibold text-amber-600">{preview.warningCount} warning{preview.warningCount === 1 ? "" : "s"}</span>}
       </div>
+
+      {(preview.sheetStatus.dev > 0 || preview.sheetStatus.tester > 0) && (
+        <p role="note" className="rounded-md bg-sky-50 p-2 text-[11px] text-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+          This sheet already has results filled in ({preview.sheetStatus.dev > 0 ? `${preview.sheetStatus.dev} Dev status` : ""}
+          {preview.sheetStatus.dev > 0 && preview.sheetStatus.tester > 0 ? ", " : ""}
+          {preview.sheetStatus.tester > 0 ? `${preview.sheetStatus.tester} Tester status` : ""}). They are kept with the test cases but not counted as results: Executed and pass rate come from the dev and tester sign-off, which is uploaded after the reviewers approve.
+        </p>
+      )}
 
       {preview.tabs.some((t) => t.rows) && (
         <ul className="space-y-0.5 text-[11px] text-muted-foreground">

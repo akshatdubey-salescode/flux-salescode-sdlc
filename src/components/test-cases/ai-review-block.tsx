@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { AiRunView } from "@/lib/test-cases/ai-review/service";
 import { invalidateTcSummaries } from "./tc-summary-cache";
+import { ExpandableText } from "./expandable-text";
 
 type Limits = { used: number; max: number; cooldownUntil: string | null };
 
@@ -138,7 +139,7 @@ export function AiReviewBlock({
               ? "No issues found. A person still has to approve."
               : `${run.findingCount} finding${run.findingCount === 1 ? "" : "s"} below. ${reviewerState === "overridden" ? "A reviewer overrode them, so they no longer block." : "They block approval until resolved, resubmitted or overridden."}`}
           </p>
-          {run.summary && <p className="whitespace-pre-wrap text-muted-foreground">{run.summary}</p>}
+          {run.summary && <ExpandableText text={run.summary} className="text-muted-foreground" />}
           <p className="text-muted-foreground">
             {run.trigger === "auto" ? "Ran automatically on submission" : "Run on request"} · {fmt(run.finishedAt ?? run.startedAt)} · {run.model}
             {run.knowledge.length > 0 && ` · ${run.knowledge.length} reference page${run.knowledge.length === 1 ? "" : "s"}${run.knowledge.some((k) => k.stale) ? " (some may be out of date)" : ""}`}
