@@ -10,6 +10,7 @@ import { canComment, canResolve, MAX_COMMENT_LENGTH } from "@/lib/test-cases/sta
 import type { CommentView } from "@/lib/test-cases/review-service";
 import { FINDING_CATEGORY_LABELS } from "@/lib/test-cases/ai-review/labels";
 import { invalidateTcSummaries } from "./tc-summary-cache";
+import { ExpandableText } from "./expandable-text";
 
 export type Viewer = { email: string; isAdmin: boolean };
 
@@ -134,7 +135,7 @@ export function CommentThread({
                 </button>
               )}
             </div>
-            {c.body && <p className="mt-1 whitespace-pre-wrap text-foreground">{c.body}</p>}
+            {c.body && <div className="mt-1"><ExpandableText text={c.body} className="text-foreground" /></div>}
           </li>
         ))}
       </ul>

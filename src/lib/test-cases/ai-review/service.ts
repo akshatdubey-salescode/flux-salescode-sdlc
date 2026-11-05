@@ -26,6 +26,8 @@ import { extractReport, mergeReports, parseReport, type ReviewOutput } from "./p
 import { describeScope } from "../scope";
 import { TC_CATEGORY_LABELS } from "../values";
 import { collectNonstandard, nonstandardMessage } from "../nonstandard";
+import { rawFieldValue } from "../template";
+import { loadJiraComments } from "./jira-comments";
 import { buildSystem, buildUserPrompt, caseSize, makeLabeler, type PromptCase, type PromptHistoryEntry } from "./prompt";
 
 export const MANUAL_COOLDOWN_MS = 60_000;
@@ -455,6 +457,8 @@ export async function executeAiReview(runId: string): Promise<void> {
         // The label people see ('Offline / Sync'), not the stored value ('offline_sync').
         category: TC_CATEGORY_LABELS[r.category] ?? r.category,
         priority: r.priority,
+        classification: rawFieldValue(r.raw, "classification"),
+        tcType: rawFieldValue(r.raw, "tcType"),
         preconditions: r.preconditions,
         steps: r.steps,
         expected: r.expected,
@@ -469,7 +473,7 @@ export async function executeAiReview(runId: string): Promise<void> {
     const refToCaseId = new Map(caseRows.map((r) => [r.tcKey, r.id]));
     const knownRefs = new Set(refToCaseId.keys());
 
-    const [history, knowledge] = await Promise.all([loadHistory(ctx), loadKnowledgeForRun(ctx.issue.projectId)]);
+    const [history, knowledge, jiraComments] = await Promise.all([loadHistory(ctx), loadKnowledgeForRun(ctx.issue.projectId), loadJiraComments(ctx.issue.id)]);
     const system = buildSystem(knowledge.docs);
     const promptIssue = { key: ctx.issue.jiraKey, type: ctx.issue.issueType, summary: ctx.issue.summary, description: adfToText(issue?.description) };
 
@@ -480,7 +484,7 @@ export async function executeAiReview(runId: string): Promise<void> {
       Array.from({ length: Math.min(PARALLEL_CALLS, chunks.length) }, async () => {
         while (next < chunks.length) {
           const i = next++;
-          const user = buildUserPrompt({ issue: promptIssue, roundNo: ctx.roundNo, allCases: cases, cases: chunks[i], history, part: { index: i + 1, total: chunks.length }, scopeText: ctx.scope ? describeScope(ctx.scope) : null, nonstandardText });
+          const user = buildUserPrompt({ issue: promptIssue, roundNo: ctx.roundNo, allCases: cases, cases: chunks[i], history, part: { index: i + 1, total: chunks.length }, scopeText: ctx.scope ? describeScope(ctx.scope) : null, nonstandardText, jiraComments });
           results[i] = await reviewChunk({ cfg, system, user, knownRefs });
         }
       }),

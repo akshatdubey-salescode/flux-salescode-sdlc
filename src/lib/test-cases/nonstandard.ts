@@ -61,7 +61,7 @@ export function nonstandardMessage(values: NonstandardValue[], caseCount: number
   const fields = [...new Set(values.map((v) => v.field))];
   const accepted = fields.map((f) => `${f}: ${STANDARD_VALUES[f]}`).join(" | ");
   return (
-    `${affected} value${affected === 1 ? "" : "s"} across ${caseCount} test case${caseCount === 1 ? "" : "s"} do not match the standard lists, so they are kept as typed and counted as "Other" or "not run" in the results and analytics: ` +
+    `${affected} value${affected === 1 ? "" : "s"} across ${caseCount} test case${caseCount === 1 ? "" : "s"} ${affected === 1 ? "does" : "do"} not match the standard lists, so ${affected === 1 ? "it is" : "they are"} kept as typed and counted as "Other" or "not run" in the results and analytics: ` +
     `${lines.join("; ")}${more}. Use a standard value, or ask for the new value to be added to the list. Accepted values: ${accepted}.`
   );
 }

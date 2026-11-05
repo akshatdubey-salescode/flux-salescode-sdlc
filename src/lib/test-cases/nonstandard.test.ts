@@ -38,7 +38,8 @@ test("columns are found by what they are called, in any order or spelling", () =
 test("the finding text names each value with its count and the accepted values; nothing to say gives null", () => {
   assert.equal(nonstandardMessage([], 10), null);
   const msg = nonstandardMessage([{ field: "TC type", value: "Smoke", count: 3 }, { field: "Tester status", value: "Maybe", count: 1 }], 20)!;
-  assert.match(msg, /4 values across 20 test cases/);
+  assert.match(msg, /4 values across 20 test cases do not match/);
+  assert.match(nonstandardMessage([{ field: "TC type", value: "Smoke", count: 1 }], 12)!, /1 value across 12 test cases does not match the standard lists, so it is kept/);
   assert.match(msg, /TC type: "Smoke" × 3/);
   assert.match(msg, /Tester status: "Maybe" × 1/);
   assert.match(msg, /Offline \/ Sync/);

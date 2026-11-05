@@ -4,6 +4,7 @@ import { eq, and } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { jiraProjects } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
+import { isValidUuid } from "@/lib/validation";
 import { hasMinRole, canManageDeliveries } from "@/lib/auth/types";
 import { PageHeader } from "@/components/page-header";
 import {
@@ -24,6 +25,8 @@ export default async function ProjectPage(props: {
 }) {
   const user = await requireAuth();
   const { id } = await props.params;
+  // A mistyped id is a missing page, not a database error.
+  if (!isValidUuid(id)) notFound();
 
   const [project] = await db
     .select()

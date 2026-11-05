@@ -96,6 +96,12 @@ const HEADER_SYNONYMS: Record<string, CanonicalField> = {
   remarks: "remark",
 };
 
+/** A case's value for a field, from its raw cells (header label to text); the first column that has one. */
+export function rawFieldValue(raw: Record<string, string> | null | undefined, field: CanonicalField): string {
+  for (const [label, value] of Object.entries(raw ?? {})) if (fieldForHeader(label) === field && value.trim()) return value.trim();
+  return "";
+}
+
 /** The header texts a field is read from, for messages ("Dev Status", "Developer Status", ...). */
 export function acceptedHeaders(field: CanonicalField): string[] {
   return Object.entries(HEADER_SYNONYMS)

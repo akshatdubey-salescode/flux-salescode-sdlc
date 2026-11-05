@@ -7,6 +7,15 @@ import { tcSetStats } from "@/lib/db/schema";
 import { TC_CATEGORY_LABELS, type TcCategory, type TcRoundStatus } from "./values";
 import type { Readiness, SetStats } from "./analytics";
 
+/** What the AI review raised and where it stands: how many are fixed, and how many are still open or were waived, by severity. */
+export type TcAiSummary = {
+  findings: number;
+  fixed: number;
+  open: { high: number; medium: number; low: number };
+  /** Accepted by an override without being fixed: still gaps. */
+  waived: { high: number; medium: number; low: number };
+};
+
 export type TcTypeRow = { key: string; label: string; total: number; pass: number; fail: number; blocked: number; notRun: number };
 
 export type TcSummary = {
@@ -33,11 +42,20 @@ export type TcSummary = {
   feedbackOpen: number;
   feedbackTotal: number;
   llmReviewed: boolean;
+  /** The AI review's findings and their state; null when its numbers are not in the stored stats yet (older rows). */
+  ai: TcAiSummary | null;
   /** Type split (category) with effective results, largest first, capped for the hover card. */
   byType: TcTypeRow[];
 };
 
 const MAX_TYPE_ROWS = 6;
+
+function aiSummary(s: SetStats): TcAiSummary | null {
+  const c = s.feedback?.aiCoverage;
+  if (!c) return null;
+  const sum = (b: { high: number; medium: number; low: number }) => b.high + b.medium + b.low;
+  return { findings: sum(c.addressed) + sum(c.open) + sum(c.waived), fixed: sum(c.addressed), open: { ...c.open }, waived: { ...c.waived } };
+}
 
 export function toSummary(setId: string, roundNo: number, s: SetStats): TcSummary {
   const byType = (Object.entries(s.categorySplit) as [TcCategory, NonNullable<SetStats["categorySplit"][TcCategory]>][])
@@ -75,6 +93,7 @@ export function toSummary(setId: string, roundNo: number, s: SetStats): TcSummar
     feedbackOpen: s.feedbackOpen,
     feedbackTotal: s.feedbackTotal,
     llmReviewed: s.llmReviewed,
+    ai: aiSummary(s),
     byType,
   };
 }

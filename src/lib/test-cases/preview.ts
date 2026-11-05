@@ -39,6 +39,8 @@ export type Preview =
       /** Tabs left out because they are not test-case sheets (only when no tab was named). */
       skipped: SkippedTab[];
       rows: PreviewRow[];
+      /** What the sheet's own Dev / Tester status columns say (real results only): information, they count after sign-off. */
+      sheetStatus: { dev: number; tester: number };
       /** Commit is allowed only when there are no errors. */
       canCommit: boolean;
     }
@@ -67,6 +69,10 @@ export function buildPreview(parsed: MultiParsed): Preview {
     issues: [...errors, ...warnings].slice(0, PREVIEW_ISSUES),
     unmapped: parsed.unmapped,
     skipped: parsed.skipped,
+    sheetStatus: {
+      dev: parsed.cases.filter((c) => c.devResult !== "not_run").length,
+      tester: parsed.cases.filter((c) => c.testerResult !== "not_run").length,
+    },
     rows: parsed.cases.slice(0, PREVIEW_ROWS).map((c) => ({
       tab: c.sheetTab,
       row: c.rowNumber,

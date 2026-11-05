@@ -4,6 +4,7 @@
 
 import { AI_REVIEWER_EMAIL } from "../values";
 import { BASELINE_INSTRUCTIONS } from "./baseline";
+import { commentsBlock, type JiraComment } from "./jira-comments";
 
 export type KnowledgeDoc = { title: string; scope: "general" | "selected"; text: string; truncated: boolean };
 
@@ -18,6 +19,9 @@ export type PromptCase = {
   polarity: string | null;
   category: string;
   priority: string | null;
+  /** The sheet's TC Classification and TC Type cells as typed (either can hold Positive/Negative or a category). */
+  classification?: string;
+  tcType?: string;
   preconditions: string;
   steps: string;
   expected: string;
@@ -35,7 +39,8 @@ export type PromptHistoryEntry = {
   status: "open" | "resolved" | "waived" | null;
 };
 
-const FIELD_MAX = 1200;
+// Cells are sent in full up to this length: a shorter limit made the model report "truncated" steps that were not.
+const FIELD_MAX = 4000;
 const DESCRIPTION_MAX = 24_000;
 const HISTORY_BODY_MAX = 600;
 const HISTORY_MAX_ENTRIES = 150;
@@ -65,6 +70,7 @@ function formatCase(c: PromptCase): string {
   const where = c.row ? `${c.tab}, row ${c.row}` : c.tab;
   const meta = [where, c.category, c.polarity, c.priority && `priority ${c.priority}`, c.module && `module ${c.module}`].filter(Boolean).join(", ");
   const lines = [`[${c.ref}] ${clip(c.title, 300)}${meta ? ` (${meta})` : ""}`];
+  if (c.classification || c.tcType) lines.push(`  Sheet columns: Classification=${JSON.stringify(c.classification ?? "")}; Type=${JSON.stringify(c.tcType ?? "")}`);
   if (c.preconditions.trim()) lines.push(`  Preconditions: ${clip(c.preconditions, FIELD_MAX)}`);
   lines.push(`  Steps: ${clip(c.steps, FIELD_MAX) || "(none)"}`);
   lines.push(`  Expected: ${clip(c.expected, FIELD_MAX) || "(none)"}`);
@@ -99,6 +105,8 @@ export function buildUserPrompt(args: {
   part?: { index: number; total: number };
   /** Which tabs/rows of the sheet were put forward for this item (see describeScope); null for old rounds. */
   scopeText?: string | null;
+  /** The Jira item's comments (scope changes, clarifications); omitted from the prompt when not passed. */
+  jiraComments?: { comments: JiraComment[]; omitted: number; unavailable: boolean };
   /** Values the sheet uses that are not on Flux's standard lists (already reported separately), as text; null when none. */
   nonstandardText?: string | null;
 }): string {
@@ -113,6 +121,7 @@ export function buildUserPrompt(args: {
     `Description:\n${clip(issue.description, DESCRIPTION_MAX) || "(no description)"}`,
     `</jira_item>`,
     ``,
+    ...(args.jiraComments ? [commentsBlock(args.jiraComments), ``] : []),
     args.scopeText
       ? `<review_scope>\nThe submitter chose this part of the sheet for this item: ${args.scopeText}.\nThese are the only test cases under review. Other rows or tabs of the same sheet belong to other features: do not ask for, or report as missing, anything that is only a matter of those.\n</review_scope>\n`
       : ``,
