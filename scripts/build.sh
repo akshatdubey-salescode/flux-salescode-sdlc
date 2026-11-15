@@ -16,4 +16,8 @@ if [ "${VERCEL_ENV:-}" = "production" ]; then
   pnpm run db:migrate
 fi
 
+# Stamp public/version.json with the commit, branch and environment this build
+# is from, so `curl <host>/version.json` says what is deployed.
+node scripts/build-info.mjs
+
 exec pnpm exec next build
