@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth/server";
 import { BUG_ISSUE_TYPES, BUG_INVALID_STATUSES } from "@/lib/scorecard/config";
 import { currentFiscalQuarterChip } from "@/lib/date-utils";
-import { normalizeEnvironment, priorityBucketSql } from "@/lib/bug-summary";
+import { normalizeEnvironment, priorityBucketSql, isDoneOrCancelled, bugEndDate } from "@/lib/bug-summary";
 import { FRESHDESK_CUSTOM_FIELD } from "@/lib/freshdesk/sync";
 
 // The bug's Issue Owner as a lowercased email. The field itself usually
@@ -99,8 +99,10 @@ export type BugIssueRow = {
   /** Issue Owner field's display name; null when no owner is set. */
   ownerName: string | null;
   assigneeName: string | null;
-  /** ISO timestamp the bug was raised in Jira. */
+  /** ISO timestamp the bug was created in Jira (the "Created" column). */
   createdAt: string | null;
+  /** ISO timestamp the bug was closed (the "Closed" column); null while it is open. */
+  closedAt: string | null;
 };
 
 async function fetchBugIssues({
@@ -188,6 +190,8 @@ async function fetchBugIssues({
       jp.jira_base_url AS jira_base_url,
       ji.assignee_name AS assignee_name,
       ji.jira_created_at AS created_at,
+      ji.completed_at AS completed_at,
+      psm.canonical_status AS canonical_status,
       COALESCE(ow.v->>'displayName', ow.v->0->>'displayName') AS owner_name,
       (
         ji.custom_fields ? ${fdField}
@@ -196,6 +200,8 @@ async function fetchBugIssues({
       COALESCE(envf.env_raw, NULLIF(ji.custom_fields->>'environment', '')) AS env_raw
     FROM jira_issues ji
     JOIN jira_projects jp ON jp.id = ji.project_id
+    LEFT JOIN project_status_mappings psm
+      ON psm.project_id = ji.project_id AND psm.raw_status = ji.status
     LEFT JOIN LATERAL (
       SELECT ji.custom_fields->f.fid AS v
       FROM unnest(COALESCE(jp.issue_owner_field_ids, '{}'::text[]))
@@ -248,6 +254,10 @@ async function fetchBugIssues({
     ownerName: (r.owner_name as string | null) ?? null,
     assigneeName: (r.assignee_name as string | null) ?? null,
     createdAt: r.created_at ? new Date(r.created_at as string | Date).toISOString() : null,
+    closedAt: bugEndDate(
+      !isDoneOrCancelled(r.canonical_status as string | null, r.status_category as string | null),
+      r.completed_at as string | Date | null,
+    ),
   }));
 
   const filtered = env ? rows.filter((r) => r.environment === env) : rows;

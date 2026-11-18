@@ -38,8 +38,11 @@ export type BugRow = {
    * Reproduce" — matching the performance engine's BUG_INVALID_STATUSES.
    */
   isInvalid: boolean;
+  /** Created: when the bug was created in Jira. */
   jiraCreatedAt: string | null;
   jiraUpdatedAt: string | null;
+  /** Closed: when the bug was closed; null while open (see bugEndDate). */
+  jiraClosedAt: string | null;
 };
 
 /** Bucket label for bugs with neither an Issue Owner nor an assignee. */
@@ -296,4 +299,24 @@ export function isDoneOrCancelled(
   if (canonicalStatus) return canonicalStatus === "DONE" || canonicalStatus === "CANCELLED";
   const cat = (statusCategory ?? "").trim().toLowerCase();
   return cat === "done" || cat === "complete";
+}
+
+/**
+ * Closed date shown on bug-detail rows: when the bug was closed (its most recent
+ * move into a done state, `jira_issues.completed_at`). Blank while the bug is
+ * open — including a bug that was closed and then reopened — and blank for the
+ * rare closed bug that has no recorded completion time.
+ */
+export function bugEndDate(isOpen: boolean, completedAt: Date | string | null | undefined): string | null {
+  if (isOpen || !completedAt) return null;
+  const d = completedAt instanceof Date ? completedAt : new Date(completedAt);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/** Compact "05/10/26" (dd/mm/yy) in the viewer's local time, for narrow table columns; empty string for a blank date. */
+export function formatBugDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "2-digit" });
 }

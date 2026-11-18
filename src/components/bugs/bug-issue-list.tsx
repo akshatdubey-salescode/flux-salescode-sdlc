@@ -11,6 +11,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { RcaBadge } from "./rca-badge";
 import { buildIssuesMessage, type CopyRca } from "@/lib/bugs/copy-issues";
 import { localDateStr } from "@/lib/date-utils";
+import { formatBugDate } from "@/lib/bug-summary";
+import { TruncatedTip } from "@/components/ui/truncated-tip";
 
 type BugIssueRow = {
   id: string;
@@ -25,7 +27,10 @@ type BugIssueRow = {
   isCustomerFound: boolean;
   ownerName: string | null;
   assigneeName: string | null;
+  /** Created — when the bug was created in Jira. */
   createdAt: string | null;
+  /** Closed — when it was closed; null while open. */
+  closedAt: string | null;
 };
 
 type BugIssuesResponse = { issues: BugIssueRow[]; truncated: boolean } | { error: string };
@@ -180,13 +185,13 @@ export function BugIssueList({
           )}
         </button>
       </div>
-      {showOwner && (
-        <div className="flex items-center gap-3 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-          <span className="flex-1">Issue</span>
-          <span className="w-40 shrink-0">Owner</span>
-          <span className="w-44 shrink-0" />
-        </div>
-      )}
+      <div className="flex items-center gap-3 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+        <span className="flex-1">Issue</span>
+        {showOwner && <span className="w-40 shrink-0">Owner</span>}
+        <span className="w-16 shrink-0">Created</span>
+        <span className="w-16 shrink-0">Closed</span>
+        <span className="w-44 shrink-0" />
+      </div>
       <div className="divide-y divide-border/50">
         {data.issues.map((issue) => (
           <a
@@ -200,9 +205,11 @@ export function BugIssueList({
               <span className="shrink-0 font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
                 {issue.jiraKey}
               </span>
-              <span className="min-w-0 flex-1 truncate text-foreground group-hover:text-primary">
-                {issue.summary}
-              </span>
+              <TruncatedTip text={issue.summary}>
+                <span className="min-w-0 flex-1 truncate text-foreground group-hover:text-primary">
+                  {issue.summary}
+                </span>
+              </TruncatedTip>
               <RiExternalLinkLine className="size-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-60" />
             </span>
             {showOwner && (
@@ -213,6 +220,12 @@ export function BugIssueList({
                 {issue.ownerName ?? "No owner"}
               </span>
             )}
+            <span className="w-16 shrink-0 whitespace-nowrap text-[11px] text-muted-foreground">
+              {formatBugDate(issue.createdAt)}
+            </span>
+            <span className="w-16 shrink-0 whitespace-nowrap text-[11px] text-muted-foreground">
+              {formatBugDate(issue.closedAt)}
+            </span>
             <span className="flex w-44 shrink-0 items-center justify-end gap-1.5">
               <RcaBadge issueId={issue.id} />
               <Badge variant="outline" className="shrink-0 text-[10px]">

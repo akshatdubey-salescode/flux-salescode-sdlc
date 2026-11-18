@@ -22,10 +22,10 @@ test("header, scope, range, filters and per-issue block with Jira link", () => {
     env: "Prod", cfOnly: true, issues: [issue()], rca: { "CAV-1": { given: true, text: "Race in cart" } }, today: TODAY,
   });
   assert.match(msg, /^🐞 Bug Report — 7 Oct 2026\nCavinKare COE — Rohit Mittal — P1\n/);
-  assert.match(msg, /Raised: 7 Sep 2026 → 6 Oct 2026/);
+  assert.match(msg, /Created: 7 Sep 2026 → 6 Oct 2026/);
   assert.match(msg, /Filters: Env: Prod · Customer-found only/);
   assert.match(msg, /1 issue · RCA given: 1 · not given: 0/);
-  assert.match(msg, /1\. CAV-1 — Order not visible\n   CavinKare COE · P1 · Open · Prod · Customer-found\n   Owner: Rohit Mittal · Assignee: Anish Raj · Raised: 2 Oct 2026\n   RCA: Race in cart\n   https:\/\/jira\.example\/browse\/CAV-1$/);
+  assert.match(msg, /1\. CAV-1 — Order not visible\n   CavinKare COE · P1 · Open · Prod · Customer-found\n   Owner: Rohit Mittal · Assignee: Anish Raj · Created: 2 Oct 2026\n   RCA: Race in cart\n   https:\/\/jira\.example\/browse\/CAV-1$/);
 });
 
 test("priority mix, RCA tally, missing owner and QA-found are reported", () => {
@@ -58,7 +58,20 @@ test("long RCA text is flattened and capped; unknown RCA is skipped", () => {
 
 test("all-time range, truncation note and empty list", () => {
   const msg = buildIssuesMessage({ title: "T", from: "2000-01-01", to: "2026-10-06", issues: [issue()], rca: {}, truncated: true, today: TODAY });
-  assert.match(msg, /Raised: all time/);
+  assert.match(msg, /Created: all time/);
   assert.match(msg, /\(first 1 shown — narrow the date range for the rest\)/);
   assert.match(buildIssuesMessage({ title: "T", issues: [], rca: {}, today: TODAY }), /0 issues/);
+});
+
+test("a closed bug shows its Closed date after Created; an open one shows none", () => {
+  const msg = buildIssuesMessage({
+    title: "All",
+    issues: [
+      issue({ jiraKey: "C-1", closedAt: "2026-10-05T10:00:00.000Z" }),
+      issue({ jiraKey: "C-2", closedAt: null }),
+    ],
+    rca: {}, today: TODAY,
+  });
+  assert.match(msg, /C-1[^\n]*\n[^\n]*\n   Owner: Rohit Mittal · Assignee: Anish Raj · Created: 2 Oct 2026 · Closed: 5 Oct 2026\n/);
+  assert.equal((msg.match(/Closed:/g) ?? []).length, 1);
 });

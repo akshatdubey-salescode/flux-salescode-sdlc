@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { format, parseISO } from "date-fns";
 import type { DateRange as DayPickerRange } from "react-day-picker";
 import { RiCalendarLine } from "@remixicon/react";
@@ -38,7 +38,7 @@ export function DateRangeBar({
   end: string;
   onChange: (start: string, end: string) => void;
   disabled?: boolean;
-  /** Overrides the "Raised" label's own classes — default matches this component's original look; callers with their own filter-bar label style (e.g. Bug Board's Priority/Env labels) can pass theirs instead. */
+  /** Overrides the "Created" label's own classes — default matches this component's original look; callers with their own filter-bar label style (e.g. Bug Board's Priority/Env labels) can pass theirs instead. */
   labelClassName?: string;
 }) {
   const presets = getRangePresets();
@@ -66,14 +66,16 @@ export function DateRangeBar({
   const isCustom = !activeChip;
 
   const [calOpen, setCalOpen] = useState(false);
-  const [calRange, setCalRange] = useState<DayPickerRange | undefined>({
-    from: parseISO(start),
-    to: parseISO(end),
-  });
+  // Starts empty every time the popover opens. Seeding it with the active
+  // range (e.g. a quarter) made react-day-picker treat the first click as an
+  // *adjustment* of that complete range, so the old quarter's start date
+  // stuck around as the custom range's start.
+  const [calRange, setCalRange] = useState<DayPickerRange | undefined>(undefined);
 
-  useEffect(() => {
-    setCalRange({ from: parseISO(start), to: parseISO(end) });
-  }, [start, end]);
+  function handleCalOpenChange(open: boolean) {
+    if (open) setCalRange(undefined);
+    setCalOpen(open);
+  }
 
   function applyCustom() {
     if (!calRange?.from || !calRange?.to) return;
@@ -84,7 +86,7 @@ export function DateRangeBar({
   return (
     <div className={cn("flex flex-wrap items-center gap-1.5", disabled && "opacity-60")}>
       <span className={labelClassName ?? "mr-0.5 text-[10px] font-bold uppercase tracking-widest text-zinc-400"}>
-        Raised
+        Created
       </span>
       {chips.map((c) => {
         const active = activeChip?.start === c.start && activeChip?.end === c.end;
@@ -115,7 +117,7 @@ export function DateRangeBar({
 
       <div className="mx-1 h-4 w-px bg-zinc-200 dark:bg-zinc-700" />
 
-      <Popover open={calOpen} onOpenChange={setCalOpen}>
+      <Popover open={calOpen} onOpenChange={handleCalOpenChange}>
         <PopoverTrigger asChild>
           <button
             disabled={disabled}
@@ -135,13 +137,16 @@ export function DateRangeBar({
             mode="range"
             selected={calRange}
             onSelect={setCalRange}
+            defaultMonth={parseISO(start)}
             numberOfMonths={2}
           />
           <div className="flex items-center justify-between gap-3 border-t border-zinc-200 px-3 py-2.5 dark:border-zinc-800">
             <span className="text-[11px] text-zinc-500">
               {calRange?.from && calRange?.to
                 ? `${format(calRange.from, "MMM d")} – ${format(calRange.to, "MMM d, yyyy")}`
-                : "Select a start and end date"}
+                : calRange?.from
+                  ? `${format(calRange.from, "MMM d, yyyy")} – pick the end date`
+                  : "Pick a start date, then an end date"}
             </span>
             <Button size="sm" disabled={!calRange?.from || !calRange?.to} onClick={applyCustom}>
               Apply

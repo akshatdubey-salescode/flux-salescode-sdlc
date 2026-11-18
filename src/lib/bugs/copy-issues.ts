@@ -15,7 +15,10 @@ export type CopyIssue = {
   isCustomerFound: boolean;
   ownerName: string | null;
   assigneeName: string | null;
+  /** Created — when the bug was created. */
   createdAt: string | null;
+  /** Closed — when it was closed; null/absent while open. */
+  closedAt?: string | null;
 };
 
 export type CopyRca = { given: boolean; text: string | null };
@@ -62,7 +65,7 @@ export function buildIssuesMessage({
   const lines: string[] = [`🐞 Bug Report — ${fmtIsoDay(today)}`, title];
 
   if (from && to) {
-    lines.push(from === ALL_TIME_START ? "Raised: all time" : `Raised: ${fmtIsoDay(from)} → ${fmtIsoDay(to)}`);
+    lines.push(from === ALL_TIME_START ? "Created: all time" : `Created: ${fmtIsoDay(from)} → ${fmtIsoDay(to)}`);
   }
   const filters = [env && `Env: ${env}`, cfOnly && "Customer-found only"].filter(Boolean);
   if (filters.length) lines.push(`Filters: ${filters.join(" · ")}`);
@@ -89,7 +92,8 @@ export function buildIssuesMessage({
     const people = [
       `Owner: ${i.ownerName ?? "Missing Issue Owner"}`,
       i.assigneeName ? `Assignee: ${i.assigneeName}` : null,
-      i.createdAt ? `Raised: ${fmtIsoDay(i.createdAt)}` : null,
+      i.createdAt ? `Created: ${fmtIsoDay(i.createdAt)}` : null,
+      i.closedAt ? `Closed: ${fmtIsoDay(i.closedAt)}` : null,
     ].filter(Boolean);
 
     lines.push("", `${idx + 1}. ${i.jiraKey} — ${i.summary}`, `   ${i.projectName} · ${meta.join(" · ")}`, `   ${people.join(" · ")}`);

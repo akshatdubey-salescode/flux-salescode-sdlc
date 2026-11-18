@@ -251,9 +251,9 @@ export function DeveloperSplit({
         </table>
       </div>
 
-      {/* max-w-5xl: wider than the default because this list carries an Owner column. */}
+      {/* max-w-6xl: wider than the default because this list carries Owner, Created and Closed columns. */}
       {drill && (
-        <BugModal open={allOpen} onOpenChange={setAllOpen} title={`${row.name} — all issues`} className="max-w-5xl sm:max-w-5xl">
+        <BugModal open={allOpen} onOpenChange={setAllOpen} title={`${row.name} — all issues`} className="max-w-6xl sm:max-w-6xl">
           <BugIssueList
             projectId={row.projectId}
             from={dateFrom}
@@ -361,6 +361,7 @@ function DeveloperRowView({
           open={modalOpen}
           onOpenChange={setModalOpen}
           title={`${projectName} — ${o.name}${priorityFilter ? ` — ${priorityFilter}` : ""}`}
+          className="max-w-6xl sm:max-w-6xl"
         >
           <BugIssueList
             projectId={projectId}
