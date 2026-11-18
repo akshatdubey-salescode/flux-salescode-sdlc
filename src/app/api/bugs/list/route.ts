@@ -7,7 +7,7 @@ import { requireAuth } from "@/lib/auth/server";
 import { FRESHDESK_CUSTOM_FIELD } from "@/lib/freshdesk/sync";
 import { BUG_ISSUE_TYPES, BUG_INVALID_STATUSES } from "@/lib/scorecard/config";
 import { currentFiscalQuarterChip } from "@/lib/date-utils";
-import { normalizeEnvironment, priorityBucket, bugBoardPriorityBucket, isDoneOrCancelled, MISSING_ISSUE_OWNER, type BugRow } from "@/lib/bug-summary";
+import { normalizeEnvironment, priorityBucket, bugBoardPriorityBucket, isDoneOrCancelled, bugEndDate, MISSING_ISSUE_OWNER, type BugRow } from "@/lib/bug-summary";
 import { rcaSummary } from "@/lib/jira/rca";
 
 // The bug's Issue Owner as a lowercased email, with the same accountId
@@ -110,6 +110,7 @@ export async function GET(request: NextRequest) {
       isInvalid: b.isInvalid,
       jiraCreatedAt: b.jiraCreatedAt,
       jiraUpdatedAt: b.jiraUpdatedAt,
+      jiraClosedAt: b.jiraClosedAt,
     }));
     return NextResponse.json({ bugs });
   } catch (err) {
@@ -132,7 +133,7 @@ async function fetchAllBugs(start: string, end: string): Promise<ExportBugRow[]>
     WITH base AS (
       SELECT
         ji.id, ji.jira_key, ji.summary, ji.status, ji.status_category, ji.priority,
-        ji.assignee_email, ji.assignee_name, ji.jira_created_at, ji.jira_updated_at,
+        ji.assignee_email, ji.assignee_name, ji.jira_created_at, ji.jira_updated_at, ji.completed_at,
         jp.id            AS project_id,
         jp.name          AS project_name,
         jp.jira_base_url AS jira_base_url,
@@ -186,7 +187,7 @@ async function fetchAllBugs(start: string, end: string): Promise<ExportBugRow[]>
     )
     SELECT
       id, jira_key, summary, status, status_category, priority,
-      assignee_email, assignee_name, jira_created_at, jira_updated_at,
+      assignee_email, assignee_name, jira_created_at, jira_updated_at, completed_at,
       project_id, project_name, jira_base_url, jira_project_key, is_customer, env_raw, canonical_status,
       custom_fields, rca_field_ids,
       COALESCE(owner_val->>'emailAddress', owner_val->0->>'emailAddress') AS owner_email,
@@ -239,6 +240,10 @@ async function fetchAllBugs(start: string, end: string): Promise<ExportBugRow[]>
       isInvalid: false, // excluded at the SQL level above, same as fetchBugBoard
       jiraCreatedAt: jiraCreatedAt ? new Date(jiraCreatedAt).toISOString() : null,
       jiraUpdatedAt: jiraUpdatedAt ? new Date(jiraUpdatedAt).toISOString() : null,
+      jiraClosedAt: bugEndDate(
+        !isDoneOrCancelled(r.canonical_status as string | null, r.status_category as string | null),
+        r.completed_at as string | Date | null,
+      ),
       isCustomerFound: r.is_customer === true,
     };
   });

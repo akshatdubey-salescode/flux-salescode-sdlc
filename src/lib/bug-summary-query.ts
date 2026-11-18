@@ -18,6 +18,7 @@ import {
   resolveEnvironment,
   priorityBucket,
   isDoneOrCancelled,
+  bugEndDate,
   MISSING_ISSUE_OWNER,
   type BugRow,
 } from "@/lib/bug-summary";
@@ -28,7 +29,7 @@ const bugTypeCondition = sql`lower(trim(${jiraIssues.issueType})) in (${sql.join
   sql`, `
 )})`;
 
-/** Restrict to bugs raised (created) within an inclusive YYYY-MM-DD range. */
+/** Restrict to bugs created within an inclusive YYYY-MM-DD range. */
 export function dateRangeConditions(start: string, end: string): SQL[] {
   return [
     sql`${jiraIssues.jiraCreatedAt} is not null`,
@@ -97,6 +98,7 @@ export async function loadBugRows(
       assigneeName: jiraIssues.assigneeName,
       jiraCreatedAt: jiraIssues.jiraCreatedAt,
       jiraUpdatedAt: jiraIssues.jiraUpdatedAt,
+      completedAt: jiraIssues.completedAt,
       issueOwnerFieldIds: jiraProjects.issueOwnerFieldIds,
       environmentFieldIds: jiraProjects.environmentFieldIds,
       rcaFieldIds: jiraProjects.rcaFieldIds,
@@ -165,6 +167,7 @@ export async function loadBugRows(
       isInvalid: BUG_INVALID_STATUSES.has(normalizeStatus(r.status)),
       jiraCreatedAt: r.jiraCreatedAt ? r.jiraCreatedAt.toISOString() : null,
       jiraUpdatedAt: r.jiraUpdatedAt ? r.jiraUpdatedAt.toISOString() : null,
+      jiraClosedAt: bugEndDate(!isDoneOrCancelled(r.canonicalStatus, r.statusCategory), r.completedAt),
     };
   });
 

@@ -1,18 +1,20 @@
 // The AI review's guidelines library: Confluence pages managed centrally by admins (testing standards, the flows
 // of the code bases, module maps). A page marked "general" is used in every project's reviews; any other page is
-// used only in the projects that selected it. The text is cached in the database: a run reads the cache
-// (refreshing pages older than KNOWLEDGE_TTL_MS first, and falling back to the cached copy if Confluence is down),
-// so the model never fetches anything and a review never waits on Confluence.
+// used only in the projects that selected it. The text is cached in the database and the model never fetches
+// anything. Before every run the library is brought in step with Confluence: each page's version is compared with
+// the saved one (one small call) and the text is fetched again only when it moved; pages added with "also add all
+// pages below it" are listed again, so sub-pages created later join the library on their own. If Confluence is down
+// the cached copy is used and flagged stale, so a review never fails because of it.
 
 import { createHash } from "node:crypto";
 import { and, asc, count, eq, inArray, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { jiraProjects, tcAiKnowledgePages, tcAiProjectGuidelines } from "@/lib/db/schema";
 import { decrypt } from "@/lib/crypto";
-import { ConfluenceError, fetchPage, listDescendants, resolvePageRef } from "@/lib/confluence/page";
+import { ConfluenceError, fetchPage, fetchPageVersion, listDescendants, resolvePageRef } from "@/lib/confluence/page";
+import { childrenSyncDue, needsFullRefresh, planNewChildren, versionCheckDue } from "./knowledge-sync";
 import type { KnowledgeDoc } from "./prompt";
 
-export const KNOWLEDGE_TTL_MS = 6 * 60 * 60 * 1000;
 export const MAX_KNOWLEDGE_TOTAL_CHARS = 200_000;
 export const MAX_LIBRARY_PAGES = 50;
 
@@ -26,6 +28,8 @@ export type GuidelineView = {
   enabled: boolean;
   /** Used in every project's reviews. */
   isGeneral: boolean;
+  /** New pages created below this one are added to the library automatically. */
+  syncChildren: boolean;
   /** How many projects selected it (general pages apply to all and are not counted here). */
   projectCount: number;
   /** Whom the page is read with (the project's Jira account); null if that project was deleted. */
@@ -71,6 +75,7 @@ async function toViews(rows: Row[]): Promise<GuidelineView[]> {
     truncated: r.truncated,
     enabled: r.enabled,
     isGeneral: r.isGeneral,
+    syncChildren: r.syncChildren,
     readWith: r.credentialsProjectId && byId.has(r.credentialsProjectId) ? { id: r.credentialsProjectId, name: byId.get(r.credentialsProjectId)! } : null,
     fetchedAt: r.fetchedAt ? r.fetchedAt.toISOString() : null,
     lastError: r.lastError,
@@ -159,6 +164,8 @@ export async function addGuideline(args: {
               contentHash: sha(page.text),
               truncated: page.truncated,
               fetchedAt: new Date(),
+              syncChildren: !!args.includeChildren && w.id === rootId,
+              childrenSyncedAt: args.includeChildren && w.id === rootId ? new Date() : null,
               addedBy: args.addedBy,
             })
             .onConflictDoNothing({ target: tcAiKnowledgePages.pageId })
@@ -171,6 +178,10 @@ export async function addGuideline(args: {
       }
     }),
   );
+  // A page that was already in the library (or added on its own earlier) starts following its section from now on.
+  if (args.includeChildren) {
+    await db.update(tcAiKnowledgePages).set({ syncChildren: true, childrenSyncedAt: new Date() }).where(eq(tcAiKnowledgePages.pageId, rootId));
+  }
   // Reading order = the order Confluence listed them in.
   const order = new Map(wanted.map((w, i) => [w.id, i]));
   result.added.sort((a, b) => (order.get(a.url.match(/pageId=(\d+)/)?.[1] ?? rootId) ?? 0) - (order.get(b.url.match(/pageId=(\d+)/)?.[1] ?? rootId) ?? 0));
@@ -208,10 +219,15 @@ export async function refreshGuideline(id: string): Promise<{ ok: true; page: Gu
   }
 }
 
-export async function updateGuideline(id: string, patch: { enabled?: boolean; isGeneral?: boolean }): Promise<boolean> {
-  const set: Partial<Pick<Row, "enabled" | "isGeneral">> = {};
+export async function updateGuideline(id: string, patch: { enabled?: boolean; isGeneral?: boolean; syncChildren?: boolean }): Promise<boolean> {
+  const set: Partial<Pick<Row, "enabled" | "isGeneral" | "syncChildren" | "childrenSyncedAt">> = {};
   if (typeof patch.enabled === "boolean") set.enabled = patch.enabled;
   if (typeof patch.isGeneral === "boolean") set.isGeneral = patch.isGeneral;
+  if (typeof patch.syncChildren === "boolean") {
+    set.syncChildren = patch.syncChildren;
+    // Switching it on: list the section at the next review rather than waiting out the interval.
+    if (patch.syncChildren) set.childrenSyncedAt = null;
+  }
   if (Object.keys(set).length === 0) return true;
   const rows = await db.update(tcAiKnowledgePages).set(set).where(eq(tcAiKnowledgePages.id, id)).returning({ id: tcAiKnowledgePages.id });
   return rows.length > 0;
@@ -241,14 +257,88 @@ export async function setProjectGuidelines(args: { projectId: string; guidelineI
   return { ok: true };
 }
 
+const failureText = (err: unknown, fallback: string) => (err instanceof ConfluenceError ? err.message : fallback);
+
+/**
+ * Adds the pages created below a followed section since it was last listed. They are read right away, take the
+ * section's "general" setting and the same Jira account, and are selected for every project that selected the
+ * section, so a new page behaves like the ones next to it. Returns how many were added.
+ */
+async function syncSectionChildren(root: Row): Promise<number> {
+  const site = root.credentialsProjectId ? await projectSite(root.credentialsProjectId) : null;
+  if (!site) return 0; // the page's own refresh records why (the reading project is gone)
+  try {
+    const listed = await listDescendants(site, root.pageId);
+    const known = new Set((await db.select({ pageId: tcAiKnowledgePages.pageId }).from(tcAiKnowledgePages)).map((r) => r.pageId));
+    const { toAdd, skipped } = planNewChildren(listed, known, MAX_LIBRARY_PAGES - known.size);
+    const base = site.baseUrl.replace(/\/+$/, "");
+    const addedIds: string[] = [];
+    for (const child of toAdd) {
+      try {
+        const page = await fetchPage({ baseUrl: site.baseUrl, email: site.email, apiToken: site.apiToken, pageId: child.id });
+        const [row] = await db
+          .insert(tcAiKnowledgePages)
+          .values({
+            credentialsProjectId: root.credentialsProjectId,
+            isGeneral: root.isGeneral,
+            url: `${base}/wiki/pages/viewpage.action?pageId=${child.id}`,
+            pageId: child.id,
+            title: page.title,
+            bodyText: page.text,
+            version: page.version,
+            contentHash: sha(page.text),
+            truncated: page.truncated,
+            fetchedAt: new Date(),
+            addedBy: "auto-sync",
+          })
+          .onConflictDoNothing({ target: tcAiKnowledgePages.pageId })
+          .returning({ id: tcAiKnowledgePages.id });
+        if (row) addedIds.push(row.id);
+      } catch {
+        // One unreadable sub-page must not stop the others; it is picked up again at the next listing.
+      }
+    }
+    if (addedIds.length > 0 && !root.isGeneral) {
+      const projects = await db.select({ projectId: tcAiProjectGuidelines.projectId }).from(tcAiProjectGuidelines).where(eq(tcAiProjectGuidelines.guidelineId, root.id));
+      if (projects.length > 0) {
+        await db
+          .insert(tcAiProjectGuidelines)
+          .values(projects.flatMap((p) => addedIds.map((guidelineId) => ({ projectId: p.projectId, guidelineId, selectedBy: "auto-sync" }))))
+          .onConflictDoNothing();
+      }
+    }
+    await db
+      .update(tcAiKnowledgePages)
+      .set({
+        childrenSyncedAt: new Date(),
+        ...(skipped > 0 ? { lastError: `${skipped} new page${skipped === 1 ? " below this one was" : "s below this one were"} not added: the library is full (${MAX_LIBRARY_PAGES} pages).` } : {}),
+      })
+      .where(eq(tcAiKnowledgePages.id, root.id));
+    return addedIds.length;
+  } catch (err) {
+    await db.update(tcAiKnowledgePages).set({ lastError: failureText(err, "Could not list the pages below this one.") }).where(eq(tcAiKnowledgePages.id, root.id));
+    return 0;
+  }
+}
+
 /**
  * The guidelines for a project's review: every enabled general page, plus the enabled pages this project selected.
- * Stale pages are refreshed first; if a refresh fails the cached copy is used and flagged stale. Total size is
- * capped; pages that don't fit are shortened or left out. General pages come first.
+ * First the followed sections are listed again (new sub-pages join the library), then every page is compared with
+ * Confluence by version and re-read only if it changed. If Confluence can't be reached the cached copy is used and
+ * flagged stale. Total size is capped; pages that don't fit are shortened or left out. General pages come first.
  */
 export async function loadKnowledgeForRun(projectId: string): Promise<{ docs: KnowledgeDoc[]; used: UsedKnowledge[] }> {
-  const picks = await db.select({ id: tcAiProjectGuidelines.guidelineId }).from(tcAiProjectGuidelines).where(eq(tcAiProjectGuidelines.projectId, projectId));
-  const pickIds = picks.map((p) => p.id);
+  const now = Date.now();
+  const pickedIds = async () => (await db.select({ id: tcAiProjectGuidelines.guidelineId }).from(tcAiProjectGuidelines).where(eq(tcAiProjectGuidelines.projectId, projectId))).map((p) => p.id);
+
+  // 1. Sections this project's reviews use: pick up pages created below them since the last listing. A section's own
+  // page may be switched off (it is often just a contents page); its sub-pages are followed all the same.
+  const picked = new Set(await pickedIds());
+  const sections = await db.select().from(tcAiKnowledgePages).where(eq(tcAiKnowledgePages.syncChildren, true));
+  await Promise.all(sections.filter((r) => (r.isGeneral || picked.has(r.id)) && childrenSyncDue(r.childrenSyncedAt, now)).map((r) => syncSectionChildren(r)));
+
+  // 2. The pages themselves (including any just added).
+  const pickIds = await pickedIds();
   const rows = await db
     .select()
     .from(tcAiKnowledgePages)
@@ -256,11 +346,30 @@ export async function loadKnowledgeForRun(projectId: string): Promise<{ docs: Kn
     .orderBy(asc(tcAiKnowledgePages.createdAt));
   rows.sort((a, b) => Number(b.isGeneral) - Number(a.isGeneral));
 
-  const now = Date.now();
+  // 3. Latest text: ask Confluence only for the version, fetch the text only when it moved.
+  const sites = new Map<string, ReturnType<typeof projectSite>>();
+  const siteFor = (id: string) => {
+    if (!sites.has(id)) sites.set(id, projectSite(id));
+    return sites.get(id)!;
+  };
   const fresh = await Promise.all(
-    rows.map(async (r) => {
-      const age = r.fetchedAt ? now - r.fetchedAt.getTime() : Infinity;
-      if (age < KNOWLEDGE_TTL_MS) return { row: r, stale: r.lastError !== null };
+    rows.map(async (r): Promise<{ row: Row; stale: boolean }> => {
+      if (!versionCheckDue(r.fetchedAt, now)) return { row: r, stale: r.lastError !== null };
+      const site = r.credentialsProjectId ? await siteFor(r.credentialsProjectId) : null;
+      if (!site) {
+        await refreshGuideline(r.id); // records why the page can't be read
+        return { row: r, stale: true };
+      }
+      try {
+        const remote = await fetchPageVersion({ baseUrl: site.baseUrl, email: site.email, apiToken: site.apiToken, pageId: r.pageId });
+        if (!needsFullRefresh({ savedVersion: r.version, remoteVersion: remote.version, lastError: r.lastError })) {
+          await db.update(tcAiKnowledgePages).set({ fetchedAt: new Date() }).where(eq(tcAiKnowledgePages.id, r.id));
+          return { row: r, stale: false };
+        }
+      } catch (err) {
+        await db.update(tcAiKnowledgePages).set({ lastError: failureText(err, "Could not check the page.") }).where(eq(tcAiKnowledgePages.id, r.id));
+        return { row: r, stale: true };
+      }
       const refreshed = await refreshGuideline(r.id);
       if (refreshed.ok) {
         const [latest] = await db.select().from(tcAiKnowledgePages).where(eq(tcAiKnowledgePages.id, r.id)).limit(1);

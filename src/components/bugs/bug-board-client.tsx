@@ -410,7 +410,7 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
     if (exporting || !start || !end) return;
     setExporting(true);
     try {
-      // Every filter currently applied on screen — Priority, Raised (date
+      // Every filter currently applied on screen — Priority, Created (date
       // range, already start/end), Env, Projects, Developers, Customer-found
       // only — so the export is exactly what's filtered, not everything in
       // the date range. /api/bugs/list applies these server-side, against
@@ -929,6 +929,7 @@ export function BugBoardClient({ showOpenColumn }: { showOpenColumn: boolean }) 
         open={missingOwnerOpen}
         onOpenChange={setMissingOwnerOpen}
         title="Bugs with no issue owner"
+        className="max-w-6xl sm:max-w-6xl"
       >
         <BugIssueList unassignedOnly from={resolvedFrom} to={resolvedTo} shareTitle="Bugs with no issue owner" />
       </BugModal>
@@ -1184,6 +1185,7 @@ function ProjectRowView({
         open={modalOpen}
         onOpenChange={setModalOpen}
         title={`${p.projectName} — ${ownerName}${priorityFilter ? ` — ${priorityFilter}` : ""}`}
+        className="max-w-6xl sm:max-w-6xl"
       >
         <BugIssueList
           projectId={p.projectId}

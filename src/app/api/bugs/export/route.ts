@@ -128,6 +128,7 @@ async function buildWorkbook(rows: BugRow[], opts: Opts): Promise<ArrayBuffer> {
 type BugColKey =
   | keyof BugRow
   | "createdAt"
+  | "closedAt"
   | "updatedAt"
   | "open"
   | "project"
@@ -152,6 +153,7 @@ function bugColumns(showProject: boolean): BugCol[] {
     { header: "Open", key: "open", min: 6, max: 8 },
     { header: "RCA", key: "rca", min: 9, max: 12 },
     { header: "Created", key: "createdAt", min: 12, max: 14 },
+    { header: "Closed", key: "closedAt", min: 12, max: 14 },
     { header: "Updated", key: "updatedAt", min: 12, max: 14 }
   );
   return cols;
@@ -159,7 +161,7 @@ function bugColumns(showProject: boolean): BugCol[] {
 
 function subtitle(rows: BugRow[], opts: Opts): string {
   const parts = [`${rows.length} bug${rows.length === 1 ? "" : "s"}`];
-  if (opts.start && opts.end) parts.push(`Raised ${fmtDate(opts.start)} – ${fmtDate(opts.end)}`);
+  if (opts.start && opts.end) parts.push(`Created ${fmtDate(opts.start)} – ${fmtDate(opts.end)}`);
   if (opts.environment) parts.push(`Env: ${opts.environment}`);
   if (opts.excludeInvalid) parts.push("excl. Not-a-bug / Can't Reproduce");
   const generatedOn = new Date().toLocaleDateString("en-GB", {
@@ -290,8 +292,10 @@ function addBugsSheet(wb: ExcelJS.Workbook, rows: BugRow[], opts: Opts) {
           break;
         }
         case "createdAt":
+        case "closedAt":
         case "updatedAt": {
-          const iso = col.key === "createdAt" ? bug.jiraCreatedAt : bug.jiraUpdatedAt;
+          const iso =
+            col.key === "createdAt" ? bug.jiraCreatedAt : col.key === "closedAt" ? bug.jiraClosedAt : bug.jiraUpdatedAt;
           display = fmtDate(iso);
           cell.value = display;
           cell.font = { name: "Calibri", size: 10, color: { argb: MUTED } };
@@ -459,6 +463,7 @@ function devDetailColumns(showProject: boolean, showOpen: boolean): DevDetailCol
     { header: "Owner", key: "ownerName", min: 14, max: 28 },
     { header: "Assignee", key: "assigneeName", min: 14, max: 28 },
     { header: "Created", key: "createdAt", min: 12, max: 14 },
+    { header: "Closed", key: "closedAt", min: 12, max: 14 },
     { header: "Updated", key: "updatedAt", min: 12, max: 14 }
   );
   return cols;
@@ -596,8 +601,10 @@ function addDeveloperDetailSheet(
             break;
           }
           case "createdAt":
+          case "closedAt":
           case "updatedAt": {
-            const iso = col.key === "createdAt" ? bug.jiraCreatedAt : bug.jiraUpdatedAt;
+            const iso =
+              col.key === "createdAt" ? bug.jiraCreatedAt : col.key === "closedAt" ? bug.jiraClosedAt : bug.jiraUpdatedAt;
             display = fmtDate(iso);
             cell.value = display;
             cell.font = { name: "Calibri", size: 10, color: { argb: MUTED } };

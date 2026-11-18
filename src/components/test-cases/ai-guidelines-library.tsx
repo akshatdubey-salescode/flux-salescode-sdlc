@@ -135,7 +135,7 @@ export function AiGuidelinesLibrary({ aiConfigured }: { aiConfigured: boolean })
           </label>
           <label className="inline-flex items-center gap-1.5 text-muted-foreground">
             <input type="checkbox" checked={withChildren} onChange={(e) => setWithChildren(e.target.checked)} />
-            Also add all pages below it
+            Also add all pages below it, now and when new ones are created
           </label>
           <Button type="submit" size="sm" className="ml-auto" disabled={!url.trim() || !readWith || busy === "add"}>
             {busy === "add" && <RiLoader4Line className="size-3.5 animate-spin" />}
@@ -183,6 +183,15 @@ export function AiGuidelinesLibrary({ aiConfigured }: { aiConfigured: boolean })
                   />
                   In use
                 </label>
+                <label className="inline-flex items-center gap-1.5 text-muted-foreground" title="Pages created below this one in Confluence are added to the library automatically, before the next review.">
+                  <input
+                    type="checkbox"
+                    checked={p.syncChildren}
+                    disabled={busy === p.id}
+                    onChange={(e) => call(p.id, () => fetch(`/api/test-cases/ai-guidelines/${p.id}`, { method: "PATCH", headers: json, body: JSON.stringify({ syncChildren: e.target.checked }) }))}
+                  />
+                  Follow sub-pages
+                </label>
                 <Button
                   type="button"
                   size="sm"
@@ -211,8 +220,9 @@ export function AiGuidelinesLibrary({ aiConfigured }: { aiConfigured: boolean })
               <p className="mt-1 text-[11px] text-muted-foreground">
                 Version {p.version} · {Math.max(1, Math.round(p.chars / 1000))}k characters{p.truncated ? " (shortened)" : ""} · read {fmt(p.fetchedAt)}
                 {p.readWith ? ` · read with ${p.readWith.name}'s Jira account` : " · reader project removed"}
+                {p.syncChildren ? " · new pages below it are added automatically" : ""}
               </p>
-              {p.lastError && <p className="mt-0.5 text-[11px] text-destructive">Last refresh failed: {p.lastError} The earlier copy is still used.</p>}
+              {p.lastError && <p className="mt-0.5 text-[11px] text-destructive">Last check failed: {p.lastError} The earlier copy is still used.</p>}
             </li>
           ))}
         </ul>

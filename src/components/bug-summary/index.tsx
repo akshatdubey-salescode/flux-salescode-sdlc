@@ -34,8 +34,10 @@ import {
   buildOwnerSummaries,
   type BugRow,
   type BugPriorityBucket,
+  formatBugDate,
 } from "@/lib/bug-summary";
 import { DateRangeBar } from "./date-range-bar";
+import { TruncatedTip } from "@/components/ui/truncated-tip";
 import { DelayLogButton } from "@/components/delay-tracker/delay-log-button";
 import { DeliveryBadge } from "@/components/delivery-tracker/delivery-badge";
 import { RcaBadge } from "@/components/bugs/rca-badge";
@@ -62,6 +64,8 @@ type DetailSortKey =
   | "priority"
   | "environment"
   | "status"
+  | "start"
+  | "end"
   | "updated";
 
 const SORT_KEYS: DetailSortKey[] = [
@@ -73,6 +77,8 @@ const SORT_KEYS: DetailSortKey[] = [
   "priority",
   "environment",
   "status",
+  "start",
+  "end",
   "updated",
 ];
 const DEFAULT_SORT: DetailSortKey = "priority";
@@ -243,7 +249,7 @@ export function BugTracker({
       updateParams({ [QP.dir]: sortDir === "asc" ? "desc" : "asc" });
     } else {
       // Sensible default direction per column: text ascending, time descending.
-      updateParams({ [QP.sort]: key, [QP.dir]: key === "updated" ? "desc" : "asc" });
+      updateParams({ [QP.sort]: key, [QP.dir]: key === "updated" || key === "start" || key === "end" ? "desc" : "asc" });
     }
   }
 
@@ -374,6 +380,22 @@ export function BugTracker({
           break;
         case "status":
           cmp = a.status.localeCompare(b.status);
+          break;
+        case "start":
+          cmp =
+            new Date(a.jiraCreatedAt ?? 0).getTime() -
+            new Date(b.jiraCreatedAt ?? 0).getTime();
+          break;
+        case "end":
+          // Open bugs have no end date — keep them at the bottom whichever way
+          // the column is sorted, so the closed ones read as one block.
+          if (!a.jiraClosedAt || !b.jiraClosedAt) {
+            if (a.jiraClosedAt) return -1;
+            if (b.jiraClosedAt) return 1;
+            cmp = 0;
+          } else {
+            cmp = new Date(a.jiraClosedAt).getTime() - new Date(b.jiraClosedAt).getTime();
+          }
           break;
         case "updated":
           cmp =
@@ -534,7 +556,7 @@ export function BugTracker({
         <div className="rounded-lg border border-dashed border-zinc-200 p-12 text-center dark:border-zinc-800">
           <RiBugLine className="mx-auto size-6 text-zinc-300 dark:text-zinc-600" />
           <p className="mt-2 text-sm font-medium text-zinc-600 dark:text-zinc-300">
-            No bugs raised in this period
+            No bugs created in this period
           </p>
           <p className="mt-1 text-xs text-zinc-400">
             Try a wider date range, or check that bugs have synced from Jira.
@@ -744,6 +766,8 @@ export function BugTracker({
                       <SortHeader label="Priority" col="priority" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-24" />
                       <SortHeader label="Environment" col="environment" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-28" />
                       <SortHeader label="Status" col="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-36" />
+                      <SortHeader label="Created" col="start" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-20" />
+                      <SortHeader label="Closed" col="end" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-20" />
                       <SortHeader label="Updated" col="updated" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-24 text-right" />
                       <th className="w-10 px-2 py-2" />
                     </tr>
@@ -751,7 +775,7 @@ export function BugTracker({
                   <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/80">
                     {detailPageItems.length === 0 ? (
                       <tr>
-                        <td colSpan={showProject ? 10 : 9} className="px-4 py-12 text-center text-zinc-400">
+                        <td colSpan={showProject ? 12 : 11} className="px-4 py-12 text-center text-zinc-400">
                           No bugs match the current filters.
                         </td>
                       </tr>
@@ -792,19 +816,22 @@ export function BugTracker({
                             )}
                             <td className="px-3 py-2 max-w-0">
                               {url ? (
-                                <a
-                                  href={url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="block truncate font-medium text-zinc-800 hover:text-zinc-950 dark:text-zinc-200 dark:hover:text-zinc-50"
-                                  title={b.summary}
-                                >
-                                  {b.summary}
-                                </a>
+                                <TruncatedTip text={b.summary}>
+                                  <a
+                                    href={url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="block truncate font-medium text-zinc-800 hover:text-zinc-950 dark:text-zinc-200 dark:hover:text-zinc-50"
+                                  >
+                                    {b.summary}
+                                  </a>
+                                </TruncatedTip>
                               ) : (
-                                <span className="block truncate font-medium text-zinc-800 dark:text-zinc-200" title={b.summary}>
-                                  {b.summary}
-                                </span>
+                                <TruncatedTip text={b.summary}>
+                                  <span className="block truncate font-medium text-zinc-800 dark:text-zinc-200">
+                                    {b.summary}
+                                  </span>
+                                </TruncatedTip>
                               )}
                             </td>
                             <td className="px-3 py-2">
@@ -870,6 +897,12 @@ export function BugTracker({
                               >
                                 {b.status}
                               </span>
+                            </td>
+                            <td className="px-3 py-2 whitespace-nowrap text-zinc-600 dark:text-zinc-400">
+                              {formatBugDate(b.jiraCreatedAt)}
+                            </td>
+                            <td className="px-3 py-2 whitespace-nowrap text-zinc-600 dark:text-zinc-400">
+                              {formatBugDate(b.jiraClosedAt)}
                             </td>
                             <td className="px-3 py-2 text-right text-zinc-400">
                               {formatRelativeTime(b.jiraUpdatedAt)}

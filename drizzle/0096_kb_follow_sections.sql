@@ -1,0 +1,2 @@
+ALTER TABLE "tc_ai_knowledge_pages" ADD COLUMN "sync_children" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "tc_ai_knowledge_pages" ADD COLUMN "children_synced_at" timestamp with time zone;
