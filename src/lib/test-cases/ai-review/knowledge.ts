@@ -7,16 +7,17 @@
 // the cached copy is used and flagged stale, so a review never fails because of it.
 
 import { createHash } from "node:crypto";
-import { and, asc, count, eq, inArray, or } from "drizzle-orm";
+import { and, asc, count, eq, inArray, max, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { jiraProjects, tcAiKnowledgePages, tcAiProjectGuidelines } from "@/lib/db/schema";
 import { decrypt } from "@/lib/crypto";
 import { ConfluenceError, fetchPage, fetchPageVersion, listDescendants, resolvePageRef } from "@/lib/confluence/page";
-import { childrenSyncDue, needsFullRefresh, planNewChildren, versionCheckDue } from "./knowledge-sync";
+import { childrenSyncDue, movePage, needsFullRefresh, packPages, planNewChildren, versionCheckDue } from "./knowledge-sync";
+import { compactText } from "./compact";
+import { MAX_KNOWLEDGE_TOTAL_CHARS, MAX_LIBRARY_PAGES } from "./limits";
 import type { KnowledgeDoc } from "./prompt";
 
-export const MAX_KNOWLEDGE_TOTAL_CHARS = 200_000;
-export const MAX_LIBRARY_PAGES = 50;
+export { MAX_KNOWLEDGE_TOTAL_CHARS, MAX_LIBRARY_PAGES };
 
 export type GuidelineView = {
   id: string;
@@ -30,6 +31,10 @@ export type GuidelineView = {
   isGeneral: boolean;
   /** New pages created below this one are added to the library automatically. */
   syncChildren: boolean;
+  /** Place in the reading order (1 = first). Pages further down are the first to be left out when space runs out. */
+  rank: number;
+  /** In use, but too far down to fit when every page above it is also in use: such a review leaves it out. */
+  overLimit: boolean;
   /** How many projects selected it (general pages apply to all and are not counted here). */
   projectCount: number;
   /** Whom the page is read with (the project's Jira account); null if that project was deleted. */
@@ -38,7 +43,8 @@ export type GuidelineView = {
   lastError: string | null;
 };
 
-export type UsedKnowledge = { id: string; title: string; version: number; hash: string; stale: boolean };
+/** A page a review used, or (`omitted`) one that was in use but did not fit the size limit and was left out. */
+export type UsedKnowledge = { id: string; title: string; version: number; hash: string; stale: boolean; omitted?: boolean };
 
 const sha = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 16);
 
@@ -71,11 +77,13 @@ async function toViews(rows: Row[]): Promise<GuidelineView[]> {
     url: r.url,
     title: r.title,
     version: r.version,
-    chars: r.bodyText.length,
+    chars: compactText(r.bodyText).length,
     truncated: r.truncated,
     enabled: r.enabled,
     isGeneral: r.isGeneral,
     syncChildren: r.syncChildren,
+    rank: r.priority,
+    overLimit: false,
     readWith: r.credentialsProjectId && byId.has(r.credentialsProjectId) ? { id: r.credentialsProjectId, name: byId.get(r.credentialsProjectId)! } : null,
     fetchedAt: r.fetchedAt ? r.fetchedAt.toISOString() : null,
     lastError: r.lastError,
@@ -84,11 +92,32 @@ async function toViews(rows: Row[]): Promise<GuidelineView[]> {
 
 export type KnowledgeFailure = { ok: false; status: number; error: string };
 
-/** The whole library, general pages first. */
+/** The whole library in reading order (most important first), marking the pages that would not fit if all were used. */
 export async function listLibrary(): Promise<GuidelineView[]> {
-  const rows = await db.select().from(tcAiKnowledgePages).orderBy(asc(tcAiKnowledgePages.createdAt));
+  const rows = await db.select().from(tcAiKnowledgePages).orderBy(asc(tcAiKnowledgePages.priority), asc(tcAiKnowledgePages.createdAt));
   const views = await toViews(rows);
-  return views.sort((a, b) => Number(b.isGeneral) - Number(a.isGeneral));
+  const { omitted } = packPages(views.filter((v) => v.enabled), MAX_KNOWLEDGE_TOTAL_CHARS);
+  const over = new Set(omitted.map((v) => v.id));
+  return views.map((v, i) => ({ ...v, rank: i + 1, overLimit: over.has(v.id) }));
+}
+
+/** The next free place at the end of the reading order. */
+async function nextPriority(): Promise<number> {
+  const [row] = await db.select({ top: max(tcAiKnowledgePages.priority) }).from(tcAiKnowledgePages);
+  return (row?.top ?? 0) + 1;
+}
+
+/** Moves a page one place up or down the reading order. Returns false if the page does not exist. */
+export async function moveGuideline(id: string, direction: "up" | "down"): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const rows = await tx.select({ id: tcAiKnowledgePages.id }).from(tcAiKnowledgePages).orderBy(asc(tcAiKnowledgePages.priority), asc(tcAiKnowledgePages.createdAt));
+    const index = rows.findIndex((r) => r.id === id);
+    if (index < 0) return false;
+    const moved = movePage(rows, index, direction);
+    // Rewrite 1..n so equal or gappy numbers from earlier inserts never make the order ambiguous.
+    for (let i = 0; i < moved.length; i++) await tx.update(tcAiKnowledgePages).set({ priority: i + 1 }).where(eq(tcAiKnowledgePages.id, moved[i].id));
+    return true;
+  });
 }
 
 /** The library with, for one project, which non-general pages it has selected. */
@@ -138,12 +167,14 @@ export async function addGuideline(args: {
   }
 
   const wanted = [{ id: rootId, title: "" }, ...children];
+  const firstPriority = await nextPriority();
   const result: Extract<AddResult, { ok: true }> = { ok: true, added: [], alreadyThere: [], failed: [] };
   const base = site.baseUrl.replace(/\/+$/, "");
   let next = 0;
   await Promise.all(
     Array.from({ length: Math.min(3, wanted.length) }, async () => {
       while (next < wanted.length) {
+        const place = next;
         const w = wanted[next++];
         if (result.added.length >= room) {
           result.failed.push({ title: w.title || w.id, error: `The library is full (${MAX_LIBRARY_PAGES} pages).` });
@@ -159,11 +190,12 @@ export async function addGuideline(args: {
               url: (w.id === rootId ? args.url.trim() : `${base}/wiki/pages/viewpage.action?pageId=${w.id}`).slice(0, 1000),
               pageId: w.id,
               title: page.title,
-              bodyText: page.text,
+              bodyText: compactText(page.text),
               version: page.version,
-              contentHash: sha(page.text),
+              contentHash: sha(compactText(page.text)),
               truncated: page.truncated,
               fetchedAt: new Date(),
+              priority: firstPriority + place,
               syncChildren: !!args.includeChildren && w.id === rootId,
               childrenSyncedAt: args.includeChildren && w.id === rootId ? new Date() : null,
               addedBy: args.addedBy,
@@ -208,7 +240,7 @@ export async function refreshGuideline(id: string): Promise<{ ok: true; page: Gu
     const page = await fetchPage({ baseUrl: site.baseUrl, email: site.email, apiToken: site.apiToken, pageId: row.pageId });
     const [updated] = await db
       .update(tcAiKnowledgePages)
-      .set({ title: page.title, bodyText: page.text, version: page.version, contentHash: sha(page.text), truncated: page.truncated, fetchedAt: new Date(), lastError: null })
+      .set({ title: page.title, bodyText: compactText(page.text), version: page.version, contentHash: sha(compactText(page.text)), truncated: page.truncated, fetchedAt: new Date(), lastError: null })
       .where(eq(tcAiKnowledgePages.id, id))
       .returning();
     return { ok: true, page: (await toViews([updated]))[0] };
@@ -273,7 +305,9 @@ async function syncSectionChildren(root: Row): Promise<number> {
     const { toAdd, skipped } = planNewChildren(listed, known, MAX_LIBRARY_PAGES - known.size);
     const base = site.baseUrl.replace(/\/+$/, "");
     const addedIds: string[] = [];
-    for (const child of toAdd) {
+    // New pages go to the end of the reading order: they are the first to be left out if space is short.
+    const firstPriority = await nextPriority();
+    for (const [place, child] of toAdd.entries()) {
       try {
         const page = await fetchPage({ baseUrl: site.baseUrl, email: site.email, apiToken: site.apiToken, pageId: child.id });
         const [row] = await db
@@ -284,11 +318,12 @@ async function syncSectionChildren(root: Row): Promise<number> {
             url: `${base}/wiki/pages/viewpage.action?pageId=${child.id}`,
             pageId: child.id,
             title: page.title,
-            bodyText: page.text,
+            bodyText: compactText(page.text),
             version: page.version,
-            contentHash: sha(page.text),
+            contentHash: sha(compactText(page.text)),
             truncated: page.truncated,
             fetchedAt: new Date(),
+            priority: firstPriority + place,
             addedBy: "auto-sync",
           })
           .onConflictDoNothing({ target: tcAiKnowledgePages.pageId })
@@ -343,8 +378,7 @@ export async function loadKnowledgeForRun(projectId: string): Promise<{ docs: Kn
     .select()
     .from(tcAiKnowledgePages)
     .where(and(eq(tcAiKnowledgePages.enabled, true), pickIds.length > 0 ? or(eq(tcAiKnowledgePages.isGeneral, true), inArray(tcAiKnowledgePages.id, pickIds)) : eq(tcAiKnowledgePages.isGeneral, true)))
-    .orderBy(asc(tcAiKnowledgePages.createdAt));
-  rows.sort((a, b) => Number(b.isGeneral) - Number(a.isGeneral));
+    .orderBy(asc(tcAiKnowledgePages.priority), asc(tcAiKnowledgePages.createdAt));
 
   // 3. Latest text: ask Confluence only for the version, fetch the text only when it moved.
   const sites = new Map<string, ReturnType<typeof projectSite>>();
@@ -379,16 +413,14 @@ export async function loadKnowledgeForRun(projectId: string): Promise<{ docs: Kn
     }),
   );
 
-  const docs: KnowledgeDoc[] = [];
-  const used: UsedKnowledge[] = [];
-  let budget = MAX_KNOWLEDGE_TOTAL_CHARS;
-  for (const { row, stale } of fresh) {
-    if (!row.bodyText || budget <= 0) continue;
-    const text = row.bodyText.length > budget ? `${row.bodyText.slice(0, budget).trimEnd()}\n[…shortened]` : row.bodyText;
-    budget -= text.length;
-    docs.push({ title: row.title, scope: row.isGeneral ? "general" : "selected", text, truncated: row.truncated || text !== row.bodyText });
-    used.push({ id: row.id, title: row.title, version: row.version, hash: row.contentHash, stale });
-  }
+  // 4. Fit the pages into the size limit in priority order: whole pages only, the ones further down are left out.
+  const candidates = fresh.map((f) => ({ ...f, text: compactText(f.row.bodyText) })).map((f) => ({ ...f, chars: f.text.length }));
+  const { fit, omitted } = packPages(candidates, MAX_KNOWLEDGE_TOTAL_CHARS);
+  const docs: KnowledgeDoc[] = fit.map(({ row, text }) => ({ title: row.title, scope: row.isGeneral ? "general" : "selected", text, truncated: row.truncated }));
+  const used: UsedKnowledge[] = [
+    ...fit.map(({ row, stale }) => ({ id: row.id, title: row.title, version: row.version, hash: row.contentHash, stale })),
+    ...omitted.map(({ row, stale }) => ({ id: row.id, title: row.title, version: row.version, hash: row.contentHash, stale, omitted: true })),
+  ];
   return { docs, used };
 }
 

@@ -34,3 +34,31 @@ export function planNewChildren<T extends { id: string }>(
   const cap = Math.max(0, room);
   return { toAdd: fresh.slice(0, cap), skipped: Math.max(0, fresh.length - cap) };
 }
+
+/**
+ * Fits pages into a size budget, in the given order (most important first). A page that does not fit whole is left
+ * out rather than cut in the middle, and the pages after it still get their chance with what space remains.
+ */
+export function packPages<T extends { chars: number }>(ordered: T[], budget: number): { fit: T[]; omitted: T[] } {
+  const fit: T[] = [];
+  const omitted: T[] = [];
+  let left = budget;
+  for (const page of ordered) {
+    if (page.chars > 0 && page.chars <= left) {
+      fit.push(page);
+      left -= page.chars;
+    } else if (page.chars > 0) {
+      omitted.push(page);
+    }
+  }
+  return { fit, omitted };
+}
+
+/** The pages in their new order after moving one up or down by one place (no change at the ends). */
+export function movePage<T>(ordered: T[], index: number, direction: "up" | "down"): T[] {
+  const to = direction === "up" ? index - 1 : index + 1;
+  if (index < 0 || index >= ordered.length || to < 0 || to >= ordered.length) return ordered;
+  const next = [...ordered];
+  [next[index], next[to]] = [next[to], next[index]];
+  return next;
+}
