@@ -2657,6 +2657,10 @@ export const tcAiKnowledgePages = pgTable(
     fetchedAt: timestamp("fetched_at", { withTimezone: true }),
     lastError: text("last_error"),
     enabled: boolean("enabled").notNull().default(true),
+    // Added with "also add all pages below it": new pages created under this one later are added to the library
+    // automatically (see syncSectionChildren). Children themselves are plain pages.
+    syncChildren: boolean("sync_children").notNull().default(false),
+    childrenSyncedAt: timestamp("children_synced_at", { withTimezone: true }),
     addedBy: text("added_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

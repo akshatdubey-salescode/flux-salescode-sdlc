@@ -105,6 +105,31 @@ export async function fetchPage(args: { baseUrl: string; email: string; apiToken
   };
 }
 
+/**
+ * Just the title and current version number of a page: a small call, used to learn whether the saved copy is still
+ * the latest before deciding to fetch the whole text. Confluence raises the version on every save.
+ */
+export async function fetchPageVersion(args: { baseUrl: string; email: string; apiToken: string; pageId: string }): Promise<{ title: string; version: number }> {
+  const base = args.baseUrl.replace(/\/+$/, "");
+  const auth = Buffer.from(`${args.email}:${args.apiToken}`).toString("base64");
+  let res: Response;
+  try {
+    res = await fetch(`${base}/wiki/rest/api/content/${encodeURIComponent(args.pageId)}?expand=version`, {
+      headers: { authorization: `Basic ${auth}`, accept: "application/json" },
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    throw new ConfluenceError("Could not reach Confluence.", "failed");
+  }
+  if (res.status === 401 || res.status === 403) throw new ConfluenceError("This project's Jira account can't read that page any more.", "no_access");
+  if (res.status === 404) throw new ConfluenceError("That page was not found. It may have been deleted or moved.", "not_found");
+  if (!res.ok) throw new ConfluenceError(`Confluence answered with an error (${res.status}).`, "failed");
+  const json = (await res.json().catch(() => null)) as { title?: string; version?: { number?: number } } | null;
+  const version = Number(json?.version?.number);
+  if (!json || !Number.isFinite(version)) throw new ConfluenceError("Confluence returned a page without a version.", "failed");
+  return { title: (json.title ?? "Untitled").slice(0, 200), version };
+}
+
 type Site = { baseUrl: string; email: string; apiToken: string };
 
 const authHeaders = (site: Site) => ({ authorization: `Basic ${Buffer.from(`${site.email}:${site.apiToken}`).toString("base64")}`, accept: "application/json" });

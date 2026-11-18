@@ -10,7 +10,7 @@ async function guard() {
   return user;
 }
 
-/** Turn a page on/off, make it general (used in every project) or not, or re-read it ({ refresh: true }). */
+/** Turn a page on/off, make it general (used in every project) or not, follow its sub-pages or not, or re-read it ({ refresh: true }). */
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const user = await guard();
   if (isResponse(user)) return user;
@@ -18,12 +18,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (!isValidUuid(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   const parsed = await readJsonObject(req);
   if (!parsed.ok) return parsed.response;
-  const { enabled, isGeneral, refresh } = parsed.body;
-  if (typeof enabled !== "boolean" && typeof isGeneral !== "boolean" && refresh !== true) return NextResponse.json({ error: "Nothing to change." }, { status: 400 });
+  const { enabled, isGeneral, syncChildren, refresh } = parsed.body;
+  if (typeof enabled !== "boolean" && typeof isGeneral !== "boolean" && typeof syncChildren !== "boolean" && refresh !== true) return NextResponse.json({ error: "Nothing to change." }, { status: 400 });
 
   const changed = await updateGuideline(id, {
     enabled: typeof enabled === "boolean" ? enabled : undefined,
     isGeneral: typeof isGeneral === "boolean" ? isGeneral : undefined,
+    syncChildren: typeof syncChildren === "boolean" ? syncChildren : undefined,
   });
   if (!changed) return NextResponse.json({ error: "Page not found." }, { status: 404 });
   if (refresh === true) {
