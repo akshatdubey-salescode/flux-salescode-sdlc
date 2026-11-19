@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { RiDeleteBinLine, RiLoader4Line, RiRefreshLine } from "@remixicon/react";
+import { RiArrowDownLine, RiArrowUpLine, RiDeleteBinLine, RiLoader4Line, RiRefreshLine } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { AiStatusPanel } from "./ai-status-panel";
 import { GoogleReaderPanel } from "./google-reader-panel";
 import type { GuidelineView } from "@/lib/test-cases/ai-review/knowledge";
+import { MAX_KNOWLEDGE_TOTAL_CHARS } from "@/lib/test-cases/ai-review/limits";
 
 type ProjectOption = { id: string; name: string; key: string };
 
@@ -27,7 +28,7 @@ export function AiGuidelinesLibrary({ aiConfigured }: { aiConfigured: boolean })
   const [url, setUrl] = useState("");
   const [readWith, setReadWith] = useState("");
   const [general, setGeneral] = useState(false);
-  const [withChildren, setWithChildren] = useState(false);
+  const [withChildren, setWithChildren] = useState(true);
   const [added, setAdded] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -75,7 +76,11 @@ export function AiGuidelinesLibrary({ aiConfigured }: { aiConfigured: boolean })
           The Confluence pages the AI reads before it reviews test cases: testing standards, the detailed flows of the code bases, module and dependency maps.
           Pages marked <b>General</b>{" "}
           are used in every project. Other pages are used only in the projects that select them (each project&apos;s AI Review tab).
-          Flux reads the pages and keeps a copy; the AI never browses Confluence itself.
+          Flux reads the pages and keeps a copy, checked against Confluence before every review; the AI never browses Confluence itself.
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          The order below is the order of importance. A review carries about {Math.round(MAX_KNOWLEDGE_TOTAL_CHARS / 1000)}k characters of guidelines; if the pages it uses are more than that, the ones
+          at the bottom are left out whole (the review shows which). New pages found below a followed page are added at the bottom.
         </p>
         {!aiConfigured && (
           <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
@@ -154,15 +159,29 @@ export function AiGuidelinesLibrary({ aiConfigured }: { aiConfigured: boolean })
         </p>
       ) : (
         <ul className="space-y-2">
-          {pages.map((p) => (
-            <li key={p.id} className={cn("rounded-lg border border-zinc-200 p-3 text-xs dark:border-zinc-800", !p.enabled && "opacity-60")}>
+          {pages.map((p, i) => (
+            <li key={p.id} className={cn("rounded-lg border border-zinc-200 p-3 text-xs dark:border-zinc-800", !p.enabled && "opacity-60", p.overLimit && "border-amber-300 dark:border-amber-800")}>
               <div className="flex flex-wrap items-center gap-2">
+                <span className="flex shrink-0 items-center gap-0.5" title="Reading order and importance: the pages at the bottom are the first to be left out when a review has more than it can carry.">
+                  <span className="w-5 text-right font-mono text-[11px] text-muted-foreground">{p.rank}</span>
+                  <Button type="button" size="icon-sm" variant="ghost" disabled={busy === p.id || i === 0} aria-label="Move up" onClick={() => call(p.id, () => fetch(`/api/test-cases/ai-guidelines/${p.id}`, { method: "PATCH", headers: json, body: JSON.stringify({ move: "up" }) }))}>
+                    <RiArrowUpLine className="size-3.5" />
+                  </Button>
+                  <Button type="button" size="icon-sm" variant="ghost" disabled={busy === p.id || i === pages.length - 1} aria-label="Move down" onClick={() => call(p.id, () => fetch(`/api/test-cases/ai-guidelines/${p.id}`, { method: "PATCH", headers: json, body: JSON.stringify({ move: "down" }) }))}>
+                    <RiArrowDownLine className="size-3.5" />
+                  </Button>
+                </span>
                 <a href={p.url} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 truncate font-semibold text-primary hover:underline" title={p.url}>
                   {p.title}
                 </a>
                 <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", p.isGeneral ? "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400")}>
                   {p.isGeneral ? "General" : `${p.projectCount} project${p.projectCount === 1 ? "" : "s"}`}
                 </span>
+                {p.overLimit && (
+                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" title="A review that uses every page above this one has no room left for it, so it leaves it out. Move it up, or switch off a page above, to use it.">
+                    Over the size limit
+                  </span>
+                )}
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-3">
                 <label className="inline-flex items-center gap-1.5 text-muted-foreground">

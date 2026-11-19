@@ -142,7 +142,8 @@ export function AiReviewBlock({
           {run.summary && <ExpandableText text={run.summary} className="text-muted-foreground" />}
           <p className="text-muted-foreground">
             {run.trigger === "auto" ? "Ran automatically on submission" : "Run on request"} · {fmt(run.finishedAt ?? run.startedAt)} · {run.model}
-            {run.knowledge.length > 0 && ` · ${run.knowledge.length} reference page${run.knowledge.length === 1 ? "" : "s"}${run.knowledge.some((k) => k.stale) ? " (some may be out of date)" : ""}`}
+            {run.knowledge.some((k) => !k.omitted) && ` · ${run.knowledge.filter((k) => !k.omitted).length} reference page${run.knowledge.filter((k) => !k.omitted).length === 1 ? "" : "s"}${run.knowledge.some((k) => !k.omitted && k.stale) ? " (some may be out of date)" : ""}`}
+            {run.knowledge.some((k) => k.omitted) && ` · ${run.knowledge.filter((k) => k.omitted).length} left out for size (${run.knowledge.filter((k) => k.omitted).map((k) => k.title).join(", ")})`}
           </p>
         </div>
       )}

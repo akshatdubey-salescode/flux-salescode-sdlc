@@ -37,7 +37,7 @@ export function parsePageUrl(url: string, jiraBaseUrl: string): PageRef {
   return { pageId: id };
 }
 
-const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", ndash: "-", mdash: "-", rsquo: "'", lsquo: "'", ldquo: '"', rdquo: '"', hellip: "...", eacute: "é" };
+const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", ndash: "-", mdash: "-", times: "×", middot: "·", rarr: "→", larr: "←", harr: "↔", le: "≤", ge: "≥", ne: "≠", plusmn: "±", bull: "•", laquo: "«", raquo: "»",  rsquo: "'", lsquo: "'", ldquo: '"', rdquo: '"', hellip: "...", eacute: "é" };
 
 function decode(s: string): string {
   return s

@@ -2660,6 +2660,9 @@ export const tcAiKnowledgePages = pgTable(
     // Added with "also add all pages below it": new pages created under this one later are added to the library
     // automatically (see syncSectionChildren). Children themselves are plain pages.
     syncChildren: boolean("sync_children").notNull().default(false),
+    // Reading order and importance: lower comes first. When the pages in use are more than a review can carry,
+    // the ones further down are left out whole.
+    priority: integer("priority").notNull().default(0),
     childrenSyncedAt: timestamp("children_synced_at", { withTimezone: true }),
     addedBy: text("added_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
