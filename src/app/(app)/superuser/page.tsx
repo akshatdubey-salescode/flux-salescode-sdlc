@@ -7,7 +7,7 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
-import { RiFlag2Line, RiRefreshLine, RiLightbulbLine, RiDeleteBin2Line, RiCalendarLine, RiCustomerService2Line, RiArrowLeftRightLine, RiGithubLine, RiGitMergeLine, RiGitBranchLine, RiBuilding2Line, RiMegaphoneLine, RiTeamLine, RiGroupLine, RiTruckLine, RiMailSendLine } from "@remixicon/react";
+import { RiFlag2Line, RiRefreshLine, RiLightbulbLine, RiDeleteBin2Line, RiCalendarLine, RiCustomerService2Line, RiArrowLeftRightLine, RiGithubLine, RiGitMergeLine, RiGitBranchLine, RiBuilding2Line, RiMegaphoneLine, RiTeamLine, RiGroupLine, RiTruckLine, RiMailSendLine, RiKey2Line } from "@remixicon/react";
 
 const TOOLS = [
   {
@@ -39,6 +39,12 @@ const TOOLS = [
     icon: RiGitBranchLine,
     title: "Repo Branches",
     description: "Count extra branches (beyond the default) in a repo's Lines of Code. Shared commits are deduped, so nothing is double-counted.",
+  },
+  {
+    href: "/superuser/api-tokens",
+    icon: RiKey2Line,
+    title: "API Tokens",
+    description: "Let other apps call selected Flux APIs (like the bug board) with a no-expiry token. Create, revoke, and share each endpoint's docs.",
   },
   {
     href: "/superuser/feature-flags",
