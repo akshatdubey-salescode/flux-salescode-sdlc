@@ -197,6 +197,16 @@ export async function listSupportTickets(projectId: string): Promise<SupportTick
   return rows.map((r) => toSupportTicketRow({ ...r, jiraCreatedAt: r.jiraCreatedAt! }));
 }
 
+/** The project's Jira site root (no trailing slash), for building /browse links. */
+export async function getJiraBaseUrl(projectId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ jiraBaseUrl: jiraProjects.jiraBaseUrl })
+    .from(jiraProjects)
+    .where(eq(jiraProjects.id, projectId))
+    .limit(1);
+  return row ? row.jiraBaseUrl.replace(/\/+$/, "") : null;
+}
+
 /** The issue's created timestamp, or NotFoundError when it isn't in the project. */
 async function issueInProject(
   q: Tx | typeof db,

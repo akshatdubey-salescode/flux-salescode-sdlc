@@ -40,6 +40,7 @@ export default async function ProjectPage(props: {
   const isSuperuser = hasMinRole(user.role, "SUPERUSER");
   const canManage = canManageDeliveries(user);
   const aiReviewTab = isAdmin && (await isEnabled(FEATURE_FLAGS.TEST_CASES));
+  const supportTab = await isEnabled(FEATURE_FLAGS.SUPPORT_REPORTS);
 
   return (
     <div className="flex flex-col min-h-svh min-w-0 w-full">
@@ -71,7 +72,7 @@ export default async function ProjectPage(props: {
 
       <main className="flex-1 min-w-0 w-full">
         <Suspense fallback={<TabsSkeleton />}>
-          <ProjectTabs projectId={project.id} projectName={project.name} hasFreshdesk={project.freshdeskCompanyId != null} isAdmin={isAdmin} isSuperuser={isSuperuser} canManageDeliveries={canManage} aiReviewTab={aiReviewTab} aiConfigured={isLlmConfigured()} />
+          <ProjectTabs projectId={project.id} projectName={project.name} hasFreshdesk={project.freshdeskCompanyId != null} isAdmin={isAdmin} isSuperuser={isSuperuser} canManageDeliveries={canManage} aiReviewTab={aiReviewTab} aiConfigured={isLlmConfigured()} supportTab={supportTab} />
         </Suspense>
       </main>
     </div>
