@@ -111,7 +111,7 @@ test("ticketTimesError: raised time can't be after the first response", () => {
   assert.equal(ticketTimesError({ ...responded, raisedAt: new Date("2026-11-19T09:00:00Z") }, { raisedAt: null }), null);
   // Clearing when the response predates Jira creation would break the invariant.
   const early = { jiraCreatedAt, raisedAt: new Date("2026-11-19T08:00:00Z"), firstRespondedAt: new Date("2026-11-19T09:00:00Z") };
-  assert.equal(ticketTimesError(early, { raisedAt: null }), "Raised time can't be after the first response");
+  assert.equal(ticketTimesError(early, { raisedAt: null }), "Can't clear the raised time: the first response is before the Jira creation time");
   // Unrelated patches never trip on stored values.
   assert.equal(ticketTimesError(early, { usersReported: 3 }), null);
 });
