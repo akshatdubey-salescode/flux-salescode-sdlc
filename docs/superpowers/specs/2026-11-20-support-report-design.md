@@ -322,11 +322,11 @@ windows bucket tickets by it too.
 - *Builder's call:* the mock's "Confidential — Internal Use Only" is changed to
   "Confidential", because the mail goes to the client.
 
-### Year-to-date Excel attachment (user decision, 2026-11-20)
+### All-tickets Excel attachment (user decision, 2026-11-20; scope widened the same day from year-to-date to project start)
 
 - **Scope:** every support ticket (label-matched, as the Tickets view lists
-  them) whose *effective raised time* falls on an IST date from 1 Jan of the
-  report year to the report date, inclusive. Open and closed, every category,
+  them) whose *effective raised time* falls on an IST date up to the report
+  date, inclusive, with no lower bound (from the start of the project). Open and closed, every category,
   uncategorised included. Independent of the project's period setting.
 - **Snapshot:** each build/rebuild stores the rows on the report as
   `data.ytdTickets` (`YtdTicketRow[]`, `src/lib/support/ytd.ts`). The
@@ -346,12 +346,12 @@ windows bucket tickets by it too.
   durations are Salescode office-hour time (client-owned stretches excluded),
   "–" when not yet responded/resolved; ETA is Flux's, else Jira's due date.
   The header row is bold, filled, frozen and filtered.
-- **File name:** `Support tickets YTD - {project} - {d MMM yyyy}.xlsx`, with
+- **File name:** `Support tickets - {project} - {d MMM yyyy}.xlsx`, with
   `\ / : * ? " < > |` replaced by "-".
 - **Review:** `GET /api/projects/[id]/support/reports/[reportId]/attachment`
   (any signed-in user, like the preview) downloads the same workbook; 404 for
   reports built before attachments existed. The Reports view shows
-  **Download Excel** and "Attached to the email: N tickets raised 1 Jan – …",
+  **Download Excel** and "Attached to the email: N tickets raised from project start to …",
   and the Approve dialog names the attachment.
 
 ### Settings

@@ -121,10 +121,10 @@ end-to-end test, set it on your machine against a local database).
 - **§1** no longer has an "ISSUES RECEIVED" header row; "REQUESTS RECEIVED"
   stays.
 
-## Year-to-date Excel attachment (user decision, 2026-11-20)
+## All-tickets Excel attachment (user decision, 2026-11-20)
 
 The email carries an Excel workbook of every support ticket raised (effective
-raised time, IST) from 1 Jan of the report year to the report date — open and
+raised time, IST) from the start of the project up to the report date — open and
 closed, all categories, uncategorised included, regardless of the period
 setting.
 
@@ -139,7 +139,7 @@ setting.
   Open/Closed, Raised / First Response / Resolved (IST), Response and
   Resolution Time (Salescode office hours), Currently With, RCA Shared,
   Users Reported, Users Impacted, ETA.
-- **File name.** `Support tickets YTD - {project} - 20 Nov 2026.xlsx`.
+- **File name.** `Support tickets - {project} - 20 Nov 2026.xlsx`.
 - **Review.** Reports view → **Download Excel** (route
   `GET /api/projects/[id]/support/reports/[reportId]/attachment`). The
   Approve dialog lists the attachment name.

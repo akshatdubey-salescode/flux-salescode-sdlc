@@ -1,4 +1,4 @@
-// The support report's year-to-date Excel attachment: one sheet per IST
+// The support report's all-time (project start → report date) Excel attachment: one sheet per IST
 // year-month of the raised time (user decision, 2026-11-20). Built only from
 // the rows stored on the report (`data.ytdTickets`), never from live data, so
 // the attachment sent is the one that could be downloaded for review.
@@ -63,7 +63,7 @@ export async function buildYtdWorkbook(
 ): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = "Flux";
-  wb.title = `Support tickets YTD - ${meta.projectName} - ${meta.reportDate}`;
+  wb.title = `Support tickets - ${meta.projectName} - ${meta.reportDate}`;
 
   const byMonth = new Map<string, YtdTicketRow[]>();
   for (const r of rows) {

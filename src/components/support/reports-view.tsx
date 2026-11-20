@@ -472,8 +472,8 @@ export function ReportsView({ projectId }: { projectId: string }) {
                       </Button>
                       <span>
                         {ytdTickets.length === 0
-                          ? "No year-to-date tickets"
-                          : `Attached to the email: ${ytdTickets.length} ticket${ytdTickets.length === 1 ? "" : "s"} raised 1 Jan – ${formatDayMonthYear(report.data.reportDate)}`}
+                          ? "No support tickets yet"
+                          : `Attached to the email: ${ytdTickets.length} ticket${ytdTickets.length === 1 ? "" : "s"} raised from project start to ${formatDayMonthYear(report.data.reportDate)}`}
                       </span>
                     </>
                   ) : (

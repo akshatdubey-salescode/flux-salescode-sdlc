@@ -2,9 +2,9 @@
 // No DB/server imports (store types come in via `import type`), so it is unit
 // tested in ytd.test.ts and safe for client components.
 //
-// User decision, 2026-11-20: the email carries every support ticket whose
-// effective raised time falls on an IST date from 1 Jan of the report year to
-// the report date inclusive — open and closed, all categories, uncategorised
+// User decision, 2026-11-20 (revised the same day): the email carries every
+// support ticket whose effective raised time falls on an IST date from the
+// start of the project up to the report date inclusive (no lower bound) — open and closed, all categories, uncategorised
 // included — independent of the project's period setting. The rows are
 // computed at build time and stored on the report, so what is sent is what
 // was previewed.
@@ -20,12 +20,8 @@ export function buildYtdRows(
   reportDate: string,
   officeHours: OfficeHours,
 ): YtdTicketRow[] {
-  const start = `${reportDate.slice(0, 4)}-01-01`;
   return rows
-    .filter((t) => {
-      const d = istDateOf(t.createdAt);
-      return d >= start && d <= reportDate;
-    })
+    .filter((t) => istDateOf(t.createdAt) <= reportDate)
     .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.jiraKey.localeCompare(b.jiraKey))
     .map((t) => ({
       jiraKey: t.jiraKey,
@@ -62,6 +58,6 @@ export function formatDayMonthYear(ymd: string): string {
 
 /** The attachment's file name; characters invalid in file names become "-". */
 export function ytdAttachmentFilename(projectName: string, reportDate: string): string {
-  const name = `Support tickets YTD - ${projectName} - ${formatDayMonthYear(reportDate)}.xlsx`;
+  const name = `Support tickets - ${projectName} - ${formatDayMonthYear(reportDate)}.xlsx`;
   return name.replace(/[\\/:*?"<>|]/g, "-");
 }

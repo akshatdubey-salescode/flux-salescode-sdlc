@@ -39,22 +39,22 @@ function mk(p: Partial<SupportTicketRow> = {}): SupportTicketRow {
 
 const keys = (rows: { jiraKey: string }[]) => rows.map((r) => r.jiraKey);
 
-test("includes 1 Jan 00:00 IST and report-date tickets; excludes 31 Dec and after the report date", () => {
-  const jan1 = mk({ jiraKey: "JAN1", createdAt: ist("2026-01-01T00:00:00") });
+test("everything from project start up to the report date; nothing after it", () => {
+  const old = mk({ jiraKey: "OLD", createdAt: ist("2024-03-15T11:00:00") });
   const dec31 = mk({ jiraKey: "DEC31", createdAt: ist("2025-12-31T23:59:00") });
   const today = mk({ jiraKey: "TODAY", createdAt: ist("2026-11-20T23:59:00") });
   const tomorrow = mk({ jiraKey: "TOMORROW", createdAt: ist("2026-11-21T00:00:00") });
-  const rows = buildYtdRows([today, dec31, tomorrow, jan1], REPORT_DATE, DEFAULT_OFFICE_HOURS);
-  assert.deepEqual(keys(rows), ["JAN1", "TODAY"]);
+  const rows = buildYtdRows([today, dec31, tomorrow, old], REPORT_DATE, DEFAULT_OFFICE_HOURS);
+  assert.deepEqual(keys(rows), ["OLD", "DEC31", "TODAY"]);
 });
 
 test("the effective raised time (Flux raised_at) decides inclusion, not Jira creation", () => {
-  // Created in Jira on 2 Jan, but raised by the client on 30 Dec: out.
+  // Created in Jira before the report date, but raised (per Flux) after it: out.
   const movedOut = mk({
     jiraKey: "OUT",
-    createdAt: ist("2025-12-30T12:00:00"),
-    raisedAt: ist("2025-12-30T12:00:00"),
-    jiraCreatedAt: ist("2026-01-02T12:00:00"),
+    createdAt: ist("2026-11-21T12:00:00"),
+    raisedAt: ist("2026-11-21T12:00:00"),
+    jiraCreatedAt: ist("2026-11-19T12:00:00"),
   });
   // Created in Jira on 31 Dec, but raised on 1 Jan: in, with the Flux time.
   const movedIn = mk({
@@ -135,10 +135,10 @@ test("no response / open → null minutes and null instants; the row is JSON-saf
 test("ytdAttachmentFilename formats the date and replaces characters invalid in file names", () => {
   assert.equal(
     ytdAttachmentFilename("Coke Argentina", "2026-11-20"),
-    "Support tickets YTD - Coke Argentina - 20 Nov 2026.xlsx",
+    "Support tickets - Coke Argentina - 20 Nov 2026.xlsx",
   );
   assert.equal(
     ytdAttachmentFilename('A/B\\C:D*E?F"G<H>I|J', "2026-01-05"),
-    "Support tickets YTD - A-B-C-D-E-F-G-H-I-J - 5 Jan 2026.xlsx",
+    "Support tickets - A-B-C-D-E-F-G-H-I-J - 5 Jan 2026.xlsx",
   );
 });
