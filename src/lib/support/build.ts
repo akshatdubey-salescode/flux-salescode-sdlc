@@ -16,6 +16,7 @@ import {
   upsertAwaitingReport,
 } from "./store";
 import { reportWindow } from "./windows";
+import { buildYtdRows } from "./ytd";
 
 export async function buildSupportReport(
   projectId: string,
@@ -48,6 +49,9 @@ export async function buildSupportReport(
     tickets,
     now: new Date(),
   });
+  // Year-to-date snapshot for the Excel attachment, independent of the period
+  // setting (user decision, 2026-11-20).
+  data.ytdTickets = buildYtdRows(tickets, reportDate, settings.officeHours);
 
   const result = await upsertAwaitingReport(projectId, reportDate, data, by);
   return { ...result, lapsed };

@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { jiraProjects, users } from "@/lib/db/schema";
 import { ConflictError, isSendEnabled } from "./approval";
 import { approverNoticeEmail, renderSupportReportEmail } from "./render-email";
+import { buildYtdWorkbook, ytdAttachmentFilename } from "./ytd-workbook";
 import { claimForSending, getReport, getSettings, markFailed, markSent, NotFoundError } from "./store";
 
 export { ConflictError, approvalBlocker, canApproveReports, isSendEnabled } from "./approval";
@@ -14,6 +15,7 @@ async function sendViaResend(args: {
   cc?: string[];
   subject: string;
   html: string;
+  attachments?: { filename: string; content: Buffer }[];
 }): Promise<string | null> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new Error("Email is not configured (RESEND_API_KEY missing)");
@@ -25,6 +27,7 @@ async function sendViaResend(args: {
     ...(args.cc && args.cc.length > 0 ? { cc: args.cc } : {}),
     subject: args.subject,
     html: args.html,
+    ...(args.attachments && args.attachments.length > 0 ? { attachments: args.attachments } : {}),
   });
   if (error) throw new Error(error.message ?? "Email send failed");
   return data?.id ?? null;
@@ -49,11 +52,25 @@ export async function approveAndSend(
   let messageId: string | null;
   try {
     const { subject, html } = renderSupportReportEmail(data);
+    // The YTD workbook comes from the claimed (previewed) snapshot only.
+    // Reports built before attachments existed lack it and go without one.
+    const attachments = data.ytdTickets
+      ? [
+          {
+            filename: ytdAttachmentFilename(data.projectName, data.reportDate),
+            content: await buildYtdWorkbook(data.ytdTickets, {
+              projectName: data.projectName,
+              reportDate: data.reportDate,
+            }),
+          },
+        ]
+      : [];
     messageId = await sendViaResend({
       to: settings.toEmails,
       cc: settings.ccEmails,
       subject,
       html,
+      attachments,
     });
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
