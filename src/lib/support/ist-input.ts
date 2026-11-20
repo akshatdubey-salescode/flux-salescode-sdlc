@@ -19,7 +19,7 @@ export function fromIstInputValue(v: string): Date | null {
 
 const IST_DATETIME = new Intl.DateTimeFormat("en-IN", {
   timeZone: "Asia/Kolkata",
-  day: "2-digit",
+  day: "numeric",
   month: "short",
   year: "numeric",
   hour: "2-digit",

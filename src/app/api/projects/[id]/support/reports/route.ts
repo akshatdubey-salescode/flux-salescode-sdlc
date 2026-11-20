@@ -13,13 +13,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const { id } = await params;
   const blocked = await guardProject(id);
   if (blocked) return blocked;
-  const [rows, settings] = await Promise.all([listReports(id, 60), getSettings(id)]);
-  // `data` is the whole report payload; the list doesn't need it.
-  const reports = rows.map((r) => {
-    const { data, ...rest } = r;
-    void data;
-    return rest;
-  });
+  // listReports already leaves out the large `data` payload.
+  const [reports, settings] = await Promise.all([listReports(id, 60), getSettings(id)]);
   return NextResponse.json({
     reports,
     canApprove: canApproveReports(user, settings),

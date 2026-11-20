@@ -2,7 +2,7 @@
 // report. Framework-free: no HTTP / Next.js concerns live here; routes map the
 // exported error classes to status codes.
 
-import { and, desc, eq, inArray, isNull, lt, sql, type SQLWrapper } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, inArray, isNull, lt, sql, type SQLWrapper } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
 import {
@@ -415,9 +415,15 @@ export async function getReport(id: string): Promise<SupportReport | null> {
   return row ?? null;
 }
 
-export async function listReports(projectId: string, limit = 60): Promise<SupportReport[]> {
+/** Report rows for the history list — every column except the (large) `data` payload. */
+export async function listReports(
+  projectId: string,
+  limit = 60,
+): Promise<Omit<SupportReport, "data">[]> {
+  const { data: _data, ...columns } = getTableColumns(supportReports);
+  void _data;
   return db
-    .select()
+    .select(columns)
     .from(supportReports)
     .where(eq(supportReports.projectId, projectId))
     .orderBy(desc(supportReports.reportDate))
