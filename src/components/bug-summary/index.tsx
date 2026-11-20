@@ -34,7 +34,14 @@ import {
   buildOwnerSummaries,
   type BugRow,
   type BugPriorityBucket,
+  type BugSortKey,
   formatBugDate,
+  asBugSortKey,
+  DEFAULT_BUG_SORT,
+  DEFAULT_BUG_SORT_DIR,
+  applyBugScopeFilters,
+  applyBugDetailFilters,
+  sortBugs,
 } from "@/lib/bug-summary";
 import { DateRangeBar } from "./date-range-bar";
 import { TruncatedTip } from "@/components/ui/truncated-tip";
@@ -55,34 +62,9 @@ type Props = {
   extraParams?: Record<string, string>;
 };
 
-type DetailSortKey =
-  | "key"
-  | "project"
-  | "summary"
-  | "owner"
-  | "assignee"
-  | "priority"
-  | "environment"
-  | "status"
-  | "start"
-  | "end"
-  | "updated";
-
-const SORT_KEYS: DetailSortKey[] = [
-  "key",
-  "project",
-  "summary",
-  "owner",
-  "assignee",
-  "priority",
-  "environment",
-  "status",
-  "start",
-  "end",
-  "updated",
-];
-const DEFAULT_SORT: DetailSortKey = "priority";
-const DEFAULT_DIR: "asc" | "desc" = "asc";
+type DetailSortKey = BugSortKey;
+const DEFAULT_SORT: DetailSortKey = DEFAULT_BUG_SORT;
+const DEFAULT_DIR: "asc" | "desc" = DEFAULT_BUG_SORT_DIR;
 
 const SUMMARY_PAGE_SIZE = 20;
 const DETAIL_PAGE_SIZE = 25;
@@ -100,14 +82,6 @@ const QP = {
   inv: "bs_inv", // "0" = include invalid statuses; absent = exclude (default)
   proj: "bs_proj", // comma-separated project keys; absent = all projects
 } as const;
-
-// Severity ordering so the Priority column sorts P1 → P2 → P3 → Other.
-const BUCKET_RANK: Record<BugPriorityBucket, number> = {
-  P1: 0,
-  P2: 1,
-  P3: 2,
-  Other: 3,
-};
 
 // Severity colour ramp (most → least urgent): red → orange → amber → sky → slate.
 // Keyed by a normalized level so both numeric (P0–P4) and named (Highest/High/…)
@@ -151,10 +125,6 @@ function defaultRange(): { start: string; end: string } {
   return allTime ? { start: allTime.start, end: allTime.end } : { start: "", end: "" };
 }
 
-function asSortKey(v: string | null): DetailSortKey {
-  return v && (SORT_KEYS as string[]).includes(v) ? (v as DetailSortKey) : DEFAULT_SORT;
-}
-
 export function BugTracker({
   dataUrl,
   exportTitle,
@@ -175,7 +145,7 @@ export function BugTracker({
   const envFilter = searchParams.get(QP.env); // null when absent
   const ownerFilter = searchParams.get(QP.owner); // owner key, null when absent
   const q = searchParams.get(QP.q) ?? "";
-  const sortKey = asSortKey(searchParams.get(QP.sort));
+  const sortKey = asBugSortKey(searchParams.get(QP.sort));
   const sortDir: "asc" | "desc" = searchParams.get(QP.dir) === "desc" ? "desc" : "asc";
   // Exclude "Not a bug" / "Can't Reproduce" by default; bs_inv=0 includes them.
   const excludeInvalid = searchParams.get(QP.inv) !== "0";
@@ -271,13 +241,7 @@ export function BugTracker({
   // Global filters (project + environment + invalid-status exclusion) feed BOTH
   // tables, so the developer-wise counts re-aggregate too.
   const filteredBugs = useMemo(
-    () =>
-      bugs.filter(
-        (b) =>
-          (!projectFilter || projectFilter.has(b.projectKey)) &&
-          (!envFilter || b.environment === envFilter) &&
-          (!excludeInvalid || !b.isInvalid)
-      ),
+    () => applyBugScopeFilters(bugs, { projects: projectFilter, env: envFilter, excludeInvalid }),
     [bugs, projectFilter, envFilter, excludeInvalid]
   );
 
@@ -330,84 +294,11 @@ export function BugTracker({
     return [...ordered, ...rest];
   }, [bugs]);
 
-  const detailSorted = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    let list = filteredBugs.filter((b) => {
-      // Clicking a developer shows every bug they touch — as owner OR assignee.
-      if (ownerFilter) {
-        const ownerKey = b.ownerEmail ?? b.ownerName;
-        const assigneeKey = b.assigneeEmail ?? b.assigneeName;
-        if (ownerKey !== ownerFilter && assigneeKey !== ownerFilter) return false;
-      }
-      if (!needle) return true;
-      return (
-        b.jiraKey.toLowerCase().includes(needle) ||
-        b.summary.toLowerCase().includes(needle) ||
-        b.ownerName.toLowerCase().includes(needle) ||
-        (b.assigneeName ?? "").toLowerCase().includes(needle) ||
-        b.environment.toLowerCase().includes(needle) ||
-        (b.priority ?? "").toLowerCase().includes(needle) ||
-        b.status.toLowerCase().includes(needle) ||
-        b.projectKey.toLowerCase().includes(needle) ||
-        b.projectName.toLowerCase().includes(needle)
-      );
-    });
-
-    const dir = sortDir === "asc" ? 1 : -1;
-    list = [...list].sort((a, b) => {
-      let cmp = 0;
-      switch (sortKey) {
-        case "key":
-          cmp = a.jiraKey.localeCompare(b.jiraKey, undefined, { numeric: true });
-          break;
-        case "project":
-          cmp = a.projectKey.localeCompare(b.projectKey);
-          break;
-        case "summary":
-          cmp = a.summary.localeCompare(b.summary);
-          break;
-        case "owner":
-          cmp = a.ownerName.localeCompare(b.ownerName);
-          break;
-        case "assignee":
-          cmp = (a.assigneeName ?? "").localeCompare(b.assigneeName ?? "");
-          break;
-        case "priority":
-          cmp = BUCKET_RANK[a.priorityBucket] - BUCKET_RANK[b.priorityBucket];
-          break;
-        case "environment":
-          cmp = a.environment.localeCompare(b.environment);
-          break;
-        case "status":
-          cmp = a.status.localeCompare(b.status);
-          break;
-        case "start":
-          cmp =
-            new Date(a.jiraCreatedAt ?? 0).getTime() -
-            new Date(b.jiraCreatedAt ?? 0).getTime();
-          break;
-        case "end":
-          // Open bugs have no end date — keep them at the bottom whichever way
-          // the column is sorted, so the closed ones read as one block.
-          if (!a.jiraClosedAt || !b.jiraClosedAt) {
-            if (a.jiraClosedAt) return -1;
-            if (b.jiraClosedAt) return 1;
-            cmp = 0;
-          } else {
-            cmp = new Date(a.jiraClosedAt).getTime() - new Date(b.jiraClosedAt).getTime();
-          }
-          break;
-        case "updated":
-          cmp =
-            new Date(a.jiraUpdatedAt ?? 0).getTime() -
-            new Date(b.jiraUpdatedAt ?? 0).getTime();
-          break;
-      }
-      if (cmp === 0) cmp = a.jiraKey.localeCompare(b.jiraKey, undefined, { numeric: true });
-      return cmp * dir;
-    });
-    return list;
-  }, [filteredBugs, q, ownerFilter, sortKey, sortDir]);
+  const detailSorted = useMemo(
+    () =>
+      sortBugs(applyBugDetailFilters(filteredBugs, { owner: ownerFilter, q }), sortKey, sortDir),
+    [filteredBugs, q, ownerFilter, sortKey, sortDir]
+  );
 
   // Reset pagination when the underlying filtered set changes.
   useEffect(() => setSummaryPage(1), [projectFilterParam, envFilter, excludeInvalid, bugs]);
