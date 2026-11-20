@@ -2747,7 +2747,8 @@ export const supportReportSettings = pgTable("support_report_settings", {
     .primaryKey()
     .references(() => jiraProjects.id, { onDelete: "cascade" }),
   enabled: boolean("enabled").notNull().default(false),
-  supportLabel: text("support_label").notNull().default("support"),
+  // Jira label that marks a support ticket. Default "external" (user decision, 2026-11-20).
+  supportLabel: text("support_label").notNull().default("external"),
   // 'mtd' | 'ytd' | 'custom'
   periodMode: text("period_mode").notNull().default("mtd"),
   periodStart: date("period_start"),
@@ -2793,6 +2794,11 @@ export const supportTickets = pgTable(
     usersReported: integer("users_reported"),
     usersImpacted: integer("users_impacted"),
     eta: date("eta"),
+    // When the client actually raised the ticket (may predate Jira creation).
+    // Effective raised time = raised_at ?? jira_issues.jira_created_at.
+    raisedAt: timestamp("raised_at", { withTimezone: true }),
+    // RCA shared with the client; the report's RCA counts read only this.
+    rcaShared: boolean("rca_shared").notNull().default(false),
     updatedBy: text("updated_by").references(() => users.id),
     updatedByName: text("updated_by_name"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
