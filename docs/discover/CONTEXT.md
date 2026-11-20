@@ -63,7 +63,9 @@ build on them.
 **Discover feed**
 : The /discover landing page. A card grid of Published Showcases (cover,
   title, tagline, Author, Tags, upvote and comment counts), with a Newest
-  (default) / Popular sort, Tag filter chips and full-text search (ADR-0005).
+  (default) / Popular sort and full-text search (ADR-0005). There is no
+  tag-chip row; clicking a Tag on a Showcase filters the feed, shown as a
+  clearable "#tag ×" pill.
   A "My Showcases" tab lists the user's Drafts and Published entries. Linked as
   "Discover" in the sidebar.
 

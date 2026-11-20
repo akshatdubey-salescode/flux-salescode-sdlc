@@ -5,15 +5,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { RiCloseLine, RiSearchLine } from "@remixicon/react";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
 
-export function FeedControls({
-  tags,
-  mineCount,
-}: {
-  tags: { tag: string; count: number }[];
-  mineCount: number;
-}) {
+export function FeedControls({ mineCount }: { mineCount: number }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -42,7 +35,7 @@ export function FeedControls({
   }, [q]);
 
   return (
-    <div className="space-y-3">
+    <div>
       <div className="flex flex-wrap items-center gap-3">
         <Tabs value={tab} onValueChange={(v) => update({ tab: v === "mine" ? "mine" : null })}>
           <TabsList>
@@ -67,33 +60,20 @@ export function FeedControls({
                 <TabsTrigger value="popular">Popular</TabsTrigger>
               </TabsList>
             </Tabs>
+            {activeTag && (
+              <button
+                type="button"
+                onClick={() => update({ tag: null })}
+                title="Clear tag filter"
+                className="inline-flex items-center gap-1 rounded-full border border-primary bg-primary px-2.5 py-0.5 text-xs text-primary-foreground"
+              >
+                #{activeTag}
+                <RiCloseLine size={12} />
+              </button>
+            )}
           </>
         )}
       </div>
-      {tab === "all" && tags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {tags.slice(0, 24).map(({ tag, count }) => {
-            const active = tag === activeTag;
-            return (
-              <button
-                key={tag}
-                type="button"
-                onClick={() => update({ tag: active ? null : tag })}
-                className={cn(
-                  "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs transition-colors",
-                  active
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-zinc-200 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800",
-                )}
-              >
-                #{tag}
-                <span className={active ? "opacity-80" : "text-zinc-400"}>{count}</span>
-                {active && <RiCloseLine size={12} />}
-              </button>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }

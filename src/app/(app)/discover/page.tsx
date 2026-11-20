@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { FeedControls } from "@/components/discover/feed-controls";
 import { ShowcaseCard } from "@/components/discover/showcase-card";
 import { normalizeTag } from "@/lib/discover/core";
-import { listMyShowcases, listPublishedShowcases, listTags } from "@/lib/discover/service";
+import { listMyShowcases, listPublishedShowcases } from "@/lib/discover/service";
 import { createShowcase } from "./actions";
 
 export default async function DiscoverPage(props: {
@@ -21,10 +21,9 @@ export default async function DiscoverPage(props: {
   const tag = normalizeTag(str("tag"));
   const sort = str("sort") === "popular" ? "popular" : "newest";
 
-  const [mine, feed, tags] = await Promise.all([
+  const [mine, feed] = await Promise.all([
     listMyShowcases(user.id),
     tab === "all" ? listPublishedShowcases({ viewerId: user.id, q, tag, sort }) : Promise.resolve([]),
-    listTags(),
   ]);
   const items = tab === "mine" ? mine : feed;
   const filtered = Boolean(q || tag);
@@ -58,7 +57,7 @@ export default async function DiscoverPage(props: {
           </p>
         </div>
 
-        <FeedControls tags={tags} mineCount={mine.length} />
+        <FeedControls mineCount={mine.length} />
 
         {items.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-zinc-300 py-16 text-center dark:border-zinc-700">
