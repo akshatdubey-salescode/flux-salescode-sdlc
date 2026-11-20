@@ -1,7 +1,7 @@
 # Support reports (the 17:00 client report)
 
 A daily client support report per project, built from Jira issues that carry the
-project's support label, held for a person to review, and mailed to the client
+project's **external label** (Settings → "External label", default `external`), held for a person to review, and mailed to the client
 only after an approver presses **Approve & send**. Nothing reaches a client
 without that click: the scheduler builds and notifies, it never sends.
 
@@ -14,7 +14,8 @@ admins) Settings.
 | Piece | Where |
 | --- | --- |
 | Tables (settings, per-ticket fields, ownership log, reports) | `support_report_settings`, `support_tickets`, `support_ticket_ownership_events`, `support_reports` in `src/lib/db/schema.ts` |
-| Migration | `drizzle/0098_eager_katie_power.sql` |
+| Migrations | `drizzle/0098_eager_katie_power.sql` (tables), `drizzle/0099_aromatic_gateway.sql` (raised time, RCA toggle, `external` label default) |
+| Joined row → ticket / report input (effective raised time, RCA toggle) | `src/lib/support/ticket-row.ts` (+ `.test.ts`) |
 | Shared types, categories, defaults | `src/lib/support/types.ts` |
 | Office-hours / Salescode-time math | `src/lib/support/time.ts` (+ `.test.ts`) |
 | IST day windows (FTD, MTD / YTD / custom) | `src/lib/support/windows.ts` (+ `.test.ts`) |
@@ -98,16 +99,39 @@ So the switch has to be per deployment: set the variable to `true` on prod
 only, and leave it unset on UAT, previews and local machines (for a local
 end-to-end test, set it on your machine against a local database).
 
+## Ticket data entered in Flux (user decisions, 2026-11-20)
+
+- **External label.** The Jira label that marks a support ticket defaults to
+  `external` (was `support`). The DB field is still `support_label`; only the
+  default and the UI copy changed. Existing projects keep the label they saved.
+- **Raised time.** `support_tickets.raised_at` (Tickets view → **Raised (IST)**)
+  records when the client really raised the ticket, which can be earlier than
+  the Jira creation time. The **effective raised time** is
+  `raised_at ?? jira_created_at`, and it replaces the Jira creation time
+  everywhere: FTD / period / Open bucketing, the SLA response and resolution
+  clocks, §3 order, §4 Reported On and Age, and the Tickets view's Salescode
+  time. It can't be in the future or after the first response; clearing it
+  falls back to the Jira creation time (refused if the first response would
+  then be before it). The first response and ownership changes can't be
+  earlier than the effective raised time.
+- **RCA shared.** `support_tickets.rca_shared` (Tickets view → **RCA shared**
+  switch) is the only source for §1's "RCA Shared" row and §3's new
+  "RCA Shared" column. The Jira RCA field is no longer read. Reports stored
+  before this change show "–" in that column.
+- **§1** no longer has an "ISSUES RECEIVED" header row; "REQUESTS RECEIVED"
+  stays.
+
 ## Ownership, backdating and office hours
 
 Every SLA number counts **Salescode-owned minutes inside office hours**, not
 wall-clock time.
 
-- **Ownership.** A ticket starts owned by Salescode at its Jira creation time.
+- **Ownership.** A ticket starts owned by Salescode at its effective raised
+  time (raised time, else Jira creation time).
   The Tickets view records changes (Salescode ↔ Client) in
   `support_ticket_ownership_events`, optionally **backdated**: a change can be
   entered after the fact with the time it really happened, but not before the
-  ticket was created or in the future. Events are never removed — a delete is
+  ticket was raised or in the future. Events are never removed — a delete is
   a soft delete that keeps who deleted it, and the history dialog shows both.
 - **Counting rules** (`salescodeMinutes` in `time.ts`):
   - events are sorted by time, so entry order doesn't matter;
@@ -129,8 +153,10 @@ wall-clock time.
 
 ## Applying the migration
 
-The tables come from `drizzle/0098_eager_katie_power.sql`, generated with
-`drizzle-kit generate`. **Never `db:push`.** Applying it is a deploy step for
+The tables come from `drizzle/0098_eager_katie_power.sql`; `drizzle/0099_aromatic_gateway.sql`
+adds `support_tickets.raised_at`, `support_tickets.rca_shared` (default false) and
+sets the `support_report_settings.support_label` default to `external`. Both were
+generated with `drizzle-kit generate`. **Never `db:push`.** Applying it is a deploy step for
 whoever deploys, against the target database:
 
 ```bash

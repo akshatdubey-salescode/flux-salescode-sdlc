@@ -90,7 +90,7 @@ tickets), and the SLA clock only runs while a ticket is with Salescode.
    - **§2 SLA Report:** Agreed SLA, Avg Response Time and Avg Resolution Time,
      for P1–P4
    - **§3 P1 & P2 Ticket Impact:** Issue ID / Heading, Severity,
-     Users Reported, Users Impacted
+     Users Reported, Users Impacted, RCA Shared (added 2026-11-20)
    - **§4 Open Bug Detail:** Reported On, Bug ID / Description, Age, Priority,
      ETA
    - **Footer:** "FTD = For The Day | MTD = Month To Date"
@@ -99,9 +99,13 @@ tickets), and the SLA clock only runs while a ticket is with Salescode.
 
 ### What makes a ticket a support ticket
 
-- A per-project setting `support_label` (default `support`). Any synced
-  `jira_issues` row in that project whose `labels` contains it (case-insensitive)
-  is a support ticket.
+- A per-project setting `support_label`, shown in the UI as **External label**
+  (default `external`). Any synced `jira_issues` row in that project whose
+  `labels` contains it (case-insensitive) is a support ticket. *User decision
+  (2026-11-20):* the default changed from `support` to `external` and the UI
+  copy from "Support label" to "External label"; the column/field name
+  `support_label` / `supportLabel` is unchanged. Migration 0099 changes only the
+  column default, so existing settings rows keep whatever label they saved.
 - Labels already sync via the poller and the Jira webhook. No Jira field
   discovery is needed.
 - If the label is removed in Jira, the ticket drops out of the Support tab and
@@ -138,7 +142,9 @@ the first time anyone edits the ticket, or when the report builder first sees it
 | `project_id` | denormalised for querying |
 | `category` | enum, see below. Null = uncategorised. |
 | `owner_side` | `salescode` / `client`, current value, default `salescode` |
-| `first_responded_at` | timestamptz, manually entered |
+| `raised_at` | nullable timestamptz. When the client actually raised the ticket; may be earlier than the Jira creation time, never in the future, never after `first_responded_at`. Null = use the Jira creation time. *User decision, 2026-11-20.* |
+| `rca_shared` | bool, default false. Toggled in Flux; the only source of "RCA Shared". *User decision, 2026-11-20.* |
+| `first_responded_at` | timestamptz, manually entered; must not be before the effective raised time |
 | `users_reported`, `users_impacted` | nullable ints |
 | `eta` | nullable date. When empty, the report falls back to the Jira end/due date (`endDateFieldIds`), then "—". |
 | `updated_by`, `updated_at` | |
@@ -158,6 +164,22 @@ Jira issue type is bug-family (`BUG_ISSUE_TYPES`). Otherwise it is
 the approval screen ("3 tickets uncategorised — not counted"), and are left out
 of the report.
 
+**Effective raised time** (*user decision, 2026-11-20*) = `raised_at ?? jira_created_at`.
+It replaces the Jira creation time everywhere this feature used it: FTD /
+period / open bucketing, the SLA response and resolution start, §3 ordering,
+§4 Reported On and Age, the Tickets view's Salescode time, and the lower bound
+for the first response and for ownership events. It is fed in once, as
+`ReportTicketInput.createdAt`, by the row mapper (`ticket-row.ts`), so the
+aggregation itself is unchanged. Clearing `raised_at` falls back to the Jira
+creation time; that is refused if it would put the first response before the
+ticket was raised. The Tickets view shows a **Raised (IST)** column next to
+"Created (IST)"; when no raised time is set it shows the Jira creation time
+muted, like the ETA cell's Jira due date.
+
+**RCA shared** (*user decision, 2026-11-20*): a per-ticket Flux toggle
+(`rca_shared`, **RCA shared** switch next to Category in the Tickets view). The
+Jira RCA field is no longer read by this feature.
+
 **Ownership log.** New table `support_ticket_ownership_events`:
 
 - columns: `issue_id`, `side` (`salescode` / `client`), `at`, `by_user`,
@@ -168,7 +190,7 @@ of the report.
 **Corrections** (builder's call, the user approved without objecting):
 
 - **Backdating:** a toggle defaults to "now", but its `at` can be set to any
-  moment between the ticket's creation and now.
+  moment between the ticket's effective raised time and now.
 - **Removing a wrong flip:** an event can be soft-deleted, which sets
   `deleted_at`, `deleted_by` and `deleted_by_name`. Deleted events are ignored
   by the time math and still shown, struck through, in the history.
@@ -202,9 +224,13 @@ of the report.
 
 The two report figures:
 
-- **Response time** = `salescodeMinutes(jiraCreatedAt, first_responded_at)`.
+The clock starts at the **effective raised time** (`raisedAt` below =
+`raised_at ?? jira_created_at`, user decision 2026-11-20), and the IST day
+windows bucket tickets by it too.
+
+- **Response time** = `salescodeMinutes(raisedAt, first_responded_at)`.
   Only tickets with `first_responded_at` set are counted.
-- **Resolution time** = `salescodeMinutes(jiraCreatedAt, completedAt)`. Only
+- **Resolution time** = `salescodeMinutes(raisedAt, completedAt)`. Only
   tickets that are done count, using `completedAt` (the most recent transition
   into Done) and the open/closed rule `isDoneOrCancelled`. See "Which tickets
   count" for cancelled tickets.
@@ -239,9 +265,11 @@ The two report figures:
 **§1 Support Ticket Summary — the rows:**
 
 - Total Bugs (category `bug`)
-- RCA Shared: bugs whose Jira RCA field (`rcaFieldIds`) is non-empty. This is a
+- RCA Shared: bugs whose Flux **RCA shared** toggle is on (`rca_shared`; *user
+  decision, 2026-11-20* — the Jira RCA field is no longer read). This is a
   subset of Total Bugs and is **not** added into Total.
-- ISSUES RECEIVED: Understanding, Data Issue
+- Understanding, Data Issue (no group header: *user decision, 2026-11-20*
+  removed the "ISSUES RECEIVED" header row)
 - REQUESTS RECEIVED: Data Upload, Image Upload, Others
 - Total = Bugs + Understanding + Data Issue + Data Upload + Image Upload + Others
 
@@ -265,16 +293,18 @@ The two report figures:
 
 - Contents: P1/P2 eligible tickets created in the period, whether open or closed.
 - Columns: `KEY · summary`, the severity pill, `users_reported` and
-  `users_impacted`, with "–" when a value is empty.
+  `users_impacted`, with "–" when a value is empty, then **RCA Shared**
+  ("Yes" / "No" from the toggle; *user decision, 2026-11-20*). Reports stored
+  before the toggle existed have no value and show "–".
 - Empty state: "No P1 / P2 tickets reported."
 
 **§4 Open Bug Detail:**
 
 - Contents: open tickets with category `bug` created in the period window.
 - Columns:
-  - Reported On (created date)
+  - Reported On (effective raised date, IST)
   - `KEY · summary`
-  - Age (whole calendar days since creation, e.g. "4 d")
+  - Age (whole calendar days since the effective raised date, e.g. "4 d")
   - priority pill
   - ETA
 - Sort: priority, then oldest first.
@@ -295,7 +325,7 @@ New table `support_report_settings`, one row per project:
 | Field | Notes |
 |---|---|
 | `enabled` | bool, default false |
-| `support_label` | text, default `support` |
+| `support_label` | text, default `external` (was `support`; user decision, 2026-11-20). UI: "External label". |
 | `period_mode` | `mtd` / `ytd` / `custom` |
 | `period_start` | date, custom only |
 | `to_emails`, `cc_emails` | text[]. Can't enable with an empty To. |
@@ -372,8 +402,9 @@ New project tab **Support**, visible to everyone, with three sub-views:
 
 **Tickets.** A table of support tickets:
 
-- columns: Key, Summary, Jira status, Priority, Created, **Category** (select),
-  **On** (Salescode/Client toggle), **First response** (datetime picker),
+- columns: Key, Summary, Jira status, Priority, Created (Jira), **Raised**
+  (IST datetime picker; Jira creation time muted when unset), **Category**
+  (select), **RCA shared** (switch), **On** (Salescode/Client toggle), **First response** (datetime picker),
   **Users reported / impacted** (number inputs), **ETA** (date), and a computed
   "Salescode time so far"
 - filters: open/closed, category (including "Uncategorised"), priority
