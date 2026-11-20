@@ -2843,6 +2843,9 @@ export const supportReports = pgTable(
     recipientsCc: text("recipients_cc").array(),
     providerMessageId: text("provider_message_id"),
     error: text("error"),
+    // Set once by the 17:00 cron when it claims the "ready for approval" notice,
+    // so the notice goes out at most once per report. Manual builds never set it.
+    approversNotifiedAt: timestamp("approvers_notified_at", { withTimezone: true }),
   },
   (t) => [uniqueIndex("support_reports_project_date_idx").on(t.projectId, t.reportDate)]
 );
