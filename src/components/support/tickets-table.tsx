@@ -26,6 +26,7 @@ import {
 } from "@/lib/support/types";
 import { formatIstDateTime, fromIstInputValue, toIstInputValue } from "@/lib/support/ist-input";
 import { OwnershipDialog, SIDE_LABELS } from "./ownership-dialog";
+import { IstDateTimePicker } from "./ist-datetime-picker";
 
 /** SupportTicketRow as it arrives over JSON (dates are ISO strings). */
 export type SupportTicketDto = {
@@ -552,43 +553,25 @@ function FirstResponseCell({
   label: string;
   onCommit: (iso: string | null) => void;
 }) {
-  const initial = value ? toIstInputValue(value) : "";
-  const [draft, setDraft] = useState(initial);
-
-  function commit(el: HTMLInputElement) {
-    // A half-filled datetime-local reads as "" with badInput set; don't treat it as a clear.
-    if (el.validity.badInput) {
-      toast.error("Enter a complete date and time");
-      setDraft(initial);
-      return;
-    }
-    if (draft === initial) return;
-    if (draft === "") {
-      onCommit(null);
-      return;
-    }
-    const d = fromIstInputValue(draft);
-    if (!d) {
-      toast.error("Enter a valid date and time");
-      setDraft(initial);
-      return;
-    }
-    onCommit(d.toISOString());
-  }
+  const current = value ? toIstInputValue(value) : null;
 
   return (
-    <Input
-      type="datetime-local"
-      aria-label={label}
-      title="First response (IST)"
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={(e) => commit(e.currentTarget)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-        if (e.key === "Escape") setDraft(initial);
+    <IstDateTimePicker
+      value={current}
+      label={label}
+      placeholder="Set first response"
+      size="sm"
+      noFuture
+      allowClear
+      onChange={(v) => {
+        if (v === null) return onCommit(null);
+        const d = fromIstInputValue(v);
+        if (!d) {
+          toast.error("Enter a valid date and time");
+          return;
+        }
+        onCommit(d.toISOString());
       }}
-      className="h-7 w-44 text-xs"
     />
   );
 }

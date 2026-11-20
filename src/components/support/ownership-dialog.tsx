@@ -23,13 +23,13 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { OwnerSide } from "@/lib/support/types";
 import { formatIstDateTime, fromIstInputValue, toIstInputValue } from "@/lib/support/ist-input";
+import { IstDateTimePicker } from "./ist-datetime-picker";
 
 export const SIDE_LABELS: Record<OwnerSide, string> = {
   salescode: "Salescode",
@@ -196,11 +196,12 @@ export function OwnershipDialog({
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="ownership-at">Since (IST)</Label>
-              <Input
+              <IstDateTimePicker
                 id="ownership-at"
-                type="datetime-local"
+                label="Since"
                 value={at}
-                onChange={(e) => setAt(e.target.value)}
+                noFuture
+                onChange={(v) => setAt(v ?? toIstInputValue(new Date()))}
               />
             </div>
           </div>

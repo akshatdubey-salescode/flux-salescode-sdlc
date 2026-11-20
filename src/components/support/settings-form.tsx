@@ -6,6 +6,7 @@ import { RiCloseLine } from "@remixicon/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { TimeOfDayPicker } from "./ist-datetime-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -523,23 +524,20 @@ export function SettingsForm({ projectId }: { projectId: string }) {
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-end gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="support-start">Start (IST)</Label>
-              <Input
-                id="support-start"
-                type="time"
+              <Label>Start (IST)</Label>
+              <TimeOfDayPicker
+                label="Office hours start"
                 value={officeHours.start}
-                onChange={(e) => setOfficeHours({ ...officeHours, start: e.target.value })}
-                className="w-32"
+                onChange={(v) => setOfficeHours({ ...officeHours, start: v })}
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="support-end">End (IST)</Label>
-              <Input
-                id="support-end"
-                type="time"
+              <Label>End (IST)</Label>
+              <TimeOfDayPicker
+                label="Office hours end"
                 value={officeHours.end}
-                onChange={(e) => setOfficeHours({ ...officeHours, end: e.target.value })}
-                className="w-32"
+                allowEndOfDay
+                onChange={(v) => setOfficeHours({ ...officeHours, end: v })}
               />
             </div>
           </div>
