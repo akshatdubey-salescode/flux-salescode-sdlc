@@ -83,3 +83,28 @@ test("approver notice", () => {
   const b = approverNoticeEmail({ projectName: "Acme", reportDate: "2026-11-20", reviewUrl: "https://x", uncategorisedCount: 0 });
   assert.ok(!b.html.includes("blocked"));
 });
+
+test("SLA table is metrics x priorities", () => {
+  const { html } = renderSupportReportEmail(fixture());
+  const sec = html.slice(html.indexOf("SLA REPORT — MTD"), html.indexOf("P1 &amp; P2 TICKET"));
+  const idx = ["Metric", ">P1<", ">P2<", ">P3<", ">P4<"].map((m) => sec.indexOf(m));
+  assert.ok(idx.every((i) => i >= 0) && [...idx].sort((a, b) => a - b).join() === idx.join());
+  const rows = ["Agreed SLA", "Avg Response Time", "Avg Resolution Time"].map((m) => sec.indexOf(m));
+  assert.ok(rows.every((i) => i > idx[4]) && [...rows].sort((a, b) => a - b).join() === rows.join());
+  assert.ok(!sec.includes("border-radius:10px"));
+  assert.ok(html.includes(">Category<"));
+});
+
+test("escapes sharedBy/projectName and dashes null user counts", () => {
+  const { html, subject } = renderSupportReportEmail(
+    fixture({
+      sharedBy: "<i>me</i>",
+      projectName: "A&B",
+      impact: [{ jiraKey: "A-1", summary: "s", priority: "P1", usersReported: null, usersImpacted: null }],
+    }),
+  );
+  assert.ok(html.includes("Shared by: &lt;i&gt;me&lt;/i&gt;"));
+  assert.ok(subject.includes("A&B"));
+  assert.ok(html.includes("<title>Issue Report — Daily Update | A&amp;B"));
+  assert.ok(html.includes("text-align:center;\">–</td>"));
+});

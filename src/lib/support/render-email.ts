@@ -75,8 +75,8 @@ function summarySection(d: SupportReportData): string {
     `<tr>${label(t, bold)}${cells(r, bold)}</tr>`;
 
   return `${sectionBar(1, "SUPPORT TICKET SUMMARY")}${tableOpen}
-<tr>${th("", `background:${TEAL_DARK};`)}${groupHead}</tr>
-<tr>${th("", `background:${TEAL_DARK};`)}${subHead}</tr>
+<tr>${th("Category", `background:${TEAL_DARK};text-align:left;`, 'rowspan="2"')}${groupHead}</tr>
+<tr>${subHead}</tr>
 ${row("bugs", "Total Bugs", true)}
 ${row("rca", "RCA Shared")}
 ${group("ISSUES RECEIVED")}
@@ -91,16 +91,21 @@ ${row("total", "Total", true)}
 }
 
 function slaSection(d: SupportReportData): string {
-  const head = ["Priority", "Agreed SLA", "Avg Response Time", "Avg Resolution Time"]
-    .map((h) => th(h, `background:${TEAL_DARK};`))
-    .join("");
-  const rows = PRIORITIES.map((p) => {
-    const s = d.sla[p];
-    return `<tr>${td(pill(p), "text-align:center;")}${td(
-      `Response: ${formatDuration(s.agreed.responseMin)}<br>Resolution: ${formatDuration(s.agreed.resolutionMin)}`,
-      "text-align:center;",
-    )}${td(formatDuration(s.avgResponseMin), "text-align:center;")}${td(formatDuration(s.avgResolutionMin), "text-align:center;")}</tr>`;
-  }).join("");
+  const head =
+    th("Metric", `background:${TEAL_DARK};text-align:left;`) +
+    PRIORITIES.map((p) => th(p, `background:${PRIORITY_COLOR[p]};`)).join("");
+  const row = (label: string, cell: (p: Priority) => string, bold = false): string =>
+    `<tr>${td(label, `font-weight:${bold ? "bold" : "normal"};`)}${PRIORITIES.map((p) => td(cell(p), "text-align:center;")).join("")}</tr>`;
+  const rows = [
+    row(
+      "Agreed SLA",
+      (p) =>
+        `Response: ${formatDuration(d.sla[p].agreed.responseMin)}<br>Resolution: ${formatDuration(d.sla[p].agreed.resolutionMin)}`,
+      true,
+    ),
+    row("Avg Response Time", (p) => formatDuration(d.sla[p].avgResponseMin)),
+    row("Avg Resolution Time", (p) => formatDuration(d.sla[p].avgResolutionMin)),
+  ].join("");
   return `${sectionBar(2, `SLA REPORT — ${d.periodLabel}`)}${tableOpen}<tr>${head}</tr>${rows}</table>`;
 }
 
@@ -158,7 +163,8 @@ ${slaSection(data)}
 ${impactSection(data)}
 ${openBugsSection(data)}
 </td></tr>
-<tr><td style="background:${TEAL_DARK};padding:14px 20px;border-radius:0 0 8px 8px;margin-top:20px;">
+<tr><td style="height:20px;line-height:20px;font-size:0;">&nbsp;</td></tr>
+<tr><td style="background:${TEAL_DARK};padding:14px 20px;border-radius:8px;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
 <td style="${FONT}font-size:11px;color:#d9eeee;">Issue Report — ${esc(data.sharedBy)} · FTD = For The Day | ${esc(data.periodLabel)}</td>
 <td align="right" style="${FONT}font-size:11px;color:#d9eeee;">Confidential</td>
