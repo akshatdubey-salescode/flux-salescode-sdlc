@@ -121,6 +121,31 @@ end-to-end test, set it on your machine against a local database).
 - **§1** no longer has an "ISSUES RECEIVED" header row; "REQUESTS RECEIVED"
   stays.
 
+## Year-to-date Excel attachment (user decision, 2026-11-20)
+
+The email carries an Excel workbook of every support ticket raised (effective
+raised time, IST) from 1 Jan of the report year to the report date — open and
+closed, all categories, uncategorised included, regardless of the period
+setting.
+
+- **Snapshot.** Built with the report (`data.ytdTickets`); Rebuild refreshes
+  it. Approve & send generates the workbook from the stored snapshot only, so
+  what goes out is what could be downloaded for review. Reports built before
+  this change have no snapshot: they send without an attachment, and the
+  Reports view says "Rebuild to include the Excel attachment".
+- **Sheets.** One per IST month with tickets ("Jan 2026", "Mar 2026", …),
+  oldest raised first; no tickets at all → a single "No tickets" sheet.
+- **Columns.** Jira Key, Summary, Category, Priority, Jira Status,
+  Open/Closed, Raised / First Response / Resolved (IST), Response and
+  Resolution Time (Salescode office hours), Currently With, RCA Shared,
+  Users Reported, Users Impacted, ETA.
+- **File name.** `Support tickets YTD - {project} - 20 Nov 2026.xlsx`.
+- **Review.** Reports view → **Download Excel** (route
+  `GET /api/projects/[id]/support/reports/[reportId]/attachment`). The
+  Approve dialog lists the attachment name.
+- **Failure.** If the workbook can't be generated the send fails cleanly
+  (report → `failed`, Retry available); nothing is sent without it.
+
 ## Ownership, backdating and office hours
 
 Every SLA number counts **Salescode-owned minutes inside office hours**, not

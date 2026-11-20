@@ -94,6 +94,10 @@ tickets), and the SLA clock only runs while a ticket is with Salescode.
    - **§4 Open Bug Detail:** Reported On, Bug ID / Description, Age, Priority,
      ETA
    - **Footer:** "FTD = For The Day | MTD = Month To Date"
+8. **Year-to-date Excel attachment (2026-11-20):** "Attach all the
+   year-to-present support tickets in the mail as an Excel report, based on
+   raised date only, with year-month segregation as sheets." See
+   "Year-to-date Excel attachment" below.
 
 ## Design
 
@@ -317,6 +321,38 @@ windows bucket tickets by it too.
 - Footer: "Issue Report — {shared_by} · FTD = For The Day | {Period label}".
 - *Builder's call:* the mock's "Confidential — Internal Use Only" is changed to
   "Confidential", because the mail goes to the client.
+
+### Year-to-date Excel attachment (user decision, 2026-11-20)
+
+- **Scope:** every support ticket (label-matched, as the Tickets view lists
+  them) whose *effective raised time* falls on an IST date from 1 Jan of the
+  report year to the report date, inclusive. Open and closed, every category,
+  uncategorised included. Independent of the project's period setting.
+- **Snapshot:** each build/rebuild stores the rows on the report as
+  `data.ytdTickets` (`YtdTicketRow[]`, `src/lib/support/ytd.ts`). The
+  workbook is generated at send time only from the claimed row's stored
+  snapshot, so the attachment sent is the one that could be reviewed. A
+  report stored before this change has no `ytdTickets` and is sent without an
+  attachment; an empty snapshot still attaches a workbook with one
+  "No tickets" sheet (header only). Generation runs before Resend accepts the
+  mail, so a failure marks the report `failed` — never a partial send.
+- **Sheets:** one per IST year-month of the raised time that has tickets,
+  chronological, named like "Jan 2026"; empty months are skipped. Rows are
+  oldest raised first.
+- **Columns:** Jira Key | Summary | Category | Priority | Jira Status |
+  Open/Closed | Raised (IST) | First Response (IST) | Response Time (office hrs) |
+  Resolved (IST) | Resolution Time (office hrs) | Currently With | RCA Shared |
+  Users Reported | Users Impacted | ETA. Times are IST ("20 Nov 2026, 15:22");
+  durations are Salescode office-hour time (client-owned stretches excluded),
+  "–" when not yet responded/resolved; ETA is Flux's, else Jira's due date.
+  The header row is bold, filled, frozen and filtered.
+- **File name:** `Support tickets YTD - {project} - {d MMM yyyy}.xlsx`, with
+  `\ / : * ? " < > |` replaced by "-".
+- **Review:** `GET /api/projects/[id]/support/reports/[reportId]/attachment`
+  (any signed-in user, like the preview) downloads the same workbook; 404 for
+  reports built before attachments existed. The Reports view shows
+  **Download Excel** and "Attached to the email: N tickets raised 1 Jan – …",
+  and the Approve dialog names the attachment.
 
 ### Settings
 
