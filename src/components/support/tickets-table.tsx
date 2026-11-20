@@ -109,7 +109,7 @@ export function TicketsTable({ projectId }: { projectId: string }) {
   // "Now" for open tickets' Salescode time; ticks every minute.
   const [now, setNow] = useState(() => new Date());
 
-  const [status, setStatus] = useState<StatusFilter>("open");
+  const [status, setStatus] = useState<StatusFilter>("all");
   const [category, setCategory] = useState<string>(ALL);
   const [priority, setPriority] = useState<string>(ALL);
   const [search, setSearch] = useState("");
