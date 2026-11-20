@@ -48,7 +48,7 @@ tickets), and the SLA clock only runs while a ticket is with Salescode.
   separate feature.
 - One report spanning several projects. It is strictly one report per Flux
   project.
-- Business-hours SLA math. The clock runs 24/7.
+- Public-holiday calendars. Office hours are a weekly pattern only.
 - Auto-sending. Nothing goes to a client without an explicit approval click.
 
 ## Anti-goals (this would be a failure even if it "works")
@@ -181,13 +181,24 @@ of the report.
 
 ### Time math (pure, unit-tested module)
 
-`salescodeMinutes(createdAt, endAt, events)` works like this:
+`salescodeMinutes(createdAt, endAt, events, officeHours)` works like this:
 
 - It walks the intervals from `createdAt` to `endAt`.
 - The starting side is Salescode.
 - Each event switches the side at its `at`.
-- It sums the minutes spent on Salescode.
+- It sums the minutes spent on Salescode **that fall inside office hours**.
 - Events outside the window are clamped to it.
+
+**Office hours (user's decision):**
+
+- Time is counted only within office hours, IST.
+- Default: **10:00–19:00**.
+- The hours are configurable per project in settings.
+- Working days are also a per-project setting, default **Mon–Fri**. *Builder's
+  call:* the user didn't specify days.
+- A ticket raised at 21:00 starts counting at 10:00 the next working day.
+- This applies to response time, resolution time, and the "Salescode time so
+  far" shown in the Tickets view.
 
 The two report figures:
 
@@ -286,6 +297,8 @@ New table `support_report_settings`, one row per project:
 | `approver_user_ids` | text[] of `users.id` |
 | `shared_by` | text, default "L2 Support" |
 | `sla` | jsonb `{P1:{responseMin,resolutionMin},…}`, defaults P1 10/240, P2 10/480, P3 30/1440, P4 30/2400 |
+| `work_start`, `work_end` | text `HH:MM` IST, default `10:00` / `19:00`; start < end |
+| `work_days` | int[] 0–6 Sunday-first, default `{1,2,3,4,5}`, non-empty |
 | `updated_by`, `updated_at` | |
 
 ### Daily report lifecycle
@@ -415,6 +428,8 @@ following `FEATURE_FLAGS`.
 - Resolution time includes cancelled tickets.
 - Only the production deployment (`SUPPORT_REPORTS_SEND_ENABLED`) builds and
   sends.
+- Office hours default to Mon–Fri, 10:00–19:00 IST. The days are configurable
+  per project.
 - Response time is also measured only on Salescode time.
 - Open = all open eligible tickets regardless of period.
 - P3/P4 have no Open column, per the mock.
