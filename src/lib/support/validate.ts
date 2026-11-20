@@ -116,6 +116,9 @@ export function ticketTimesError(
   const effectiveRaised = raisedAt ?? stored.jiraCreatedAt;
   const response = touchesResponse ? (patch.firstRespondedAt ?? null) : stored.firstRespondedAt;
   if (!response || !isBeforeTicketCreated(response, effectiveRaised)) return null;
+  if (touchesRaised && raisedAt === null) {
+    return "Can't clear the raised time: the first response is before the Jira creation time";
+  }
   return touchesRaised
     ? "Raised time can't be after the first response"
     : "First response is before the ticket was raised";

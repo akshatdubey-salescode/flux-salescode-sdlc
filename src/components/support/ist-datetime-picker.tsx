@@ -117,6 +117,8 @@ export function IstDateTimePicker({
   function apply() {
     if (tooLate) return;
     setOpen(false);
+    // Empty field opened on its fallback (e.g. the Jira time) and set unchanged: nothing to save.
+    if (value === null && emptyDraft !== undefined && draft === emptyDraft) return;
     if (draft !== value) onChange(draft);
   }
 
