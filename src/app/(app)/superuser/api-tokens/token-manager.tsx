@@ -60,8 +60,8 @@ export type ProjectOption = { id: string; key: string; name: string };
 export type EndpointInfo = {
   scope: string;
   title: string;
-  method: string;
-  path: string;
+  routes: { method: string; path: string }[];
+  examplePath: string;
   summary: string;
   projectScoped: boolean;
   docs: string;
@@ -159,9 +159,13 @@ function EndpointItem({ endpoint: e }: { endpoint: EndpointInfo }) {
             {e.scope}
           </Badge>
         </div>
-        <p className="font-mono text-xs text-zinc-600 dark:text-zinc-400">
-          <span className="font-semibold">{e.method}</span> {e.path}
-        </p>
+        <div className="space-y-0.5">
+          {e.routes.map((r) => (
+            <p key={r.path} className="font-mono text-xs text-zinc-600 dark:text-zinc-400">
+              <span className="font-semibold">{r.method}</span> {r.path}
+            </p>
+          ))}
+        </div>
         <p className="text-xs text-zinc-500 dark:text-zinc-400">{e.summary}</p>
       </div>
       <div className="flex shrink-0 gap-1.5">
@@ -343,16 +347,13 @@ function CreateTokenDialog({
     });
   }
 
-  // A ready-to-run curl for the first granted endpoint, with a real project id
-  // filled in where we can.
+  // A ready-to-run curl for the first granted API.
   const exampleCurl = useMemo(() => {
     if (!created) return "";
     const endpoint = endpoints.find((e) => created.scopes.includes(e.scope));
     if (!endpoint) return "";
-    const projectId = created.projectIds?.[0] ?? projects[0]?.id ?? "{projectId}";
-    const path = endpoint.path.replace("{projectId}", projectId);
-    return `curl -H "Authorization: Bearer ${created.token}" \\\n  "${baseUrl}${path}"`;
-  }, [created, endpoints, projects, baseUrl]);
+    return `curl -H "Authorization: Bearer ${created.token}" \\\n  "${baseUrl}${endpoint.examplePath}"`;
+  }, [created, endpoints, baseUrl]);
 
   const projectOptions = useMemo(
     () => projects.map((p) => ({ value: p.id, label: `${p.key} · ${p.name}` })),
@@ -453,9 +454,11 @@ function CreateTokenDialog({
                       />
                       <span className="space-y-0.5">
                         <span className="block text-sm text-zinc-900 dark:text-zinc-100">{e.title}</span>
-                        <span className="block font-mono text-xs text-zinc-500">
-                          {e.method} {e.path}
-                        </span>
+                        {e.routes.map((r) => (
+                          <span key={r.path} className="block font-mono text-xs text-zinc-500">
+                            {r.method} {r.path}
+                          </span>
+                        ))}
                       </span>
                     </label>
                   ))}

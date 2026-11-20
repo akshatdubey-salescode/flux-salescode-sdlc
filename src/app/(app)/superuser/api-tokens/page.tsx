@@ -60,8 +60,8 @@ export default async function ApiTokensPage() {
   const endpoints: EndpointInfo[] = EXPOSED_ENDPOINTS.map((e) => ({
     scope: e.scope,
     title: e.title,
-    method: e.method,
-    path: e.path,
+    routes: e.routes,
+    examplePath: e.examplePath,
     summary: e.summary,
     projectScoped: e.projectScoped,
     docs: e.docs.replaceAll("{{BASE_URL}}", baseUrl),

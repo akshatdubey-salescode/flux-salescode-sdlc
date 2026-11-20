@@ -3,7 +3,15 @@
 // internal route, bad input is a 400 with a reason — an external caller
 // should learn its filter was wrong, not get silently unfiltered data.
 
-import { BUG_SORT_KEYS, type BugPriorityBucket, type BugSortKey } from "@/lib/bug-summary";
+import {
+  BUG_SORT_KEYS,
+  applyBugScopeFilters,
+  applyBugDetailFilters,
+  sortBugs,
+  type BugPriorityBucket,
+  type BugRow,
+  type BugSortKey,
+} from "@/lib/bug-summary";
 
 export const BUGS_DEFAULT_LIMIT = 1000;
 export const BUGS_MAX_LIMIT = 5000;
@@ -132,4 +140,62 @@ export function parseBugsQuery(
       offset,
     },
   };
+}
+
+/**
+ * Applies a parsed query to loaded rows: scope filters, detail filters,
+ * status/priority, sort, then the page. Shared by the per-project and the
+ * cross-project bug endpoints so both answer the same way.
+ */
+export function applyBugsQuery(
+  rows: BugRow[],
+  query: BugsQuery
+): { total: number; page: BugRow[] } {
+  const scoped = applyBugScopeFilters(rows, { env: query.env, excludeInvalid: !query.includeInvalid });
+  const detailed = applyBugDetailFilters(scoped, { owner: query.owner, q: query.q }).filter(
+    (b) =>
+      (query.status === "all" || (query.status === "open" ? b.isOpen : !b.isOpen)) &&
+      (!query.priority || query.priority.includes(b.priorityBucket))
+  );
+  const sorted = sortBugs(detailed, query.sort, query.dir);
+  return { total: sorted.length, page: sorted.slice(query.offset, query.offset + query.limit) };
+}
+
+export type ProjectRef = { id: string; key: string; jiraBaseUrl: string };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Resolves a `projects=` list (Jira keys and/or Flux project ids, comma
+ * separated, case-insensitive) against the known projects. A key shared by
+ * projects on two Jira sites is ambiguous and must be given by id instead.
+ */
+export function resolveProjectRefs(
+  raw: string,
+  projects: ProjectRef[]
+): { ok: true; ids: string[] } | { ok: false; message: string } {
+  const parts = [...new Set(raw.split(",").map((p) => p.trim()).filter(Boolean))];
+  if (parts.length === 0) return { ok: false, message: "'projects' is empty." };
+
+  const ids: string[] = [];
+  const unknown: string[] = [];
+  const ambiguous: string[] = [];
+  for (const part of parts) {
+    const matches = UUID_RE.test(part)
+      ? projects.filter((p) => p.id === part.toLowerCase())
+      : projects.filter((p) => p.key.toLowerCase() === part.toLowerCase());
+    if (matches.length === 0) unknown.push(part);
+    else if (matches.length > 1) ambiguous.push(part);
+    else if (!ids.includes(matches[0].id)) ids.push(matches[0].id);
+  }
+  if (unknown.length) {
+    return { ok: false, message: `Unknown project(s): ${unknown.join(", ")}. List valid ones with GET /api/v1/projects.` };
+  }
+  if (ambiguous.length) {
+    return {
+      ok: false,
+      message: `Project key(s) ${ambiguous.join(", ")} exist on more than one Jira site; use the project id instead (see GET /api/v1/projects).`,
+    };
+  }
+  return { ok: true, ids };
 }

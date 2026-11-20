@@ -59,3 +59,42 @@ test("rejects bad input with a reason", () => {
     assert.equal(r.ok, false, qs);
   }
 });
+
+test("resolves project keys and ids, rejecting unknown and ambiguous ones", async () => {
+  const { resolveProjectRefs } = await import("./bugs-params");
+  const A = "11111111-1111-1111-1111-111111111111";
+  const B = "22222222-2222-2222-2222-222222222222";
+  const C = "33333333-3333-3333-3333-333333333333";
+  const projects = [
+    { id: A, key: "SC", jiraBaseUrl: "https://one.atlassian.net" },
+    { id: B, key: "DEV", jiraBaseUrl: "https://one.atlassian.net" },
+    { id: C, key: "DEV", jiraBaseUrl: "https://two.atlassian.net" },
+  ];
+  assert.deepEqual(resolveProjectRefs("sc", projects), { ok: true, ids: [A] });
+  assert.deepEqual(resolveProjectRefs(`SC, ${B.toUpperCase()}, sc`, projects), { ok: true, ids: [A, B] });
+  assert.equal(resolveProjectRefs("DEV", projects).ok, false); // ambiguous
+  assert.equal(resolveProjectRefs("NOPE", projects).ok, false);
+  assert.equal(resolveProjectRefs(" , ", projects).ok, false);
+});
+
+test("applyBugsQuery filters, sorts and pages", async () => {
+  const { applyBugsQuery } = await import("./bugs-params");
+  const r = parse("status=open&sort=key&limit=1&offset=1");
+  assert.ok(r.ok);
+  const base = {
+    id: "x", summary: "", projectKey: "SC", projectName: "S", jiraBaseUrl: null, status: "Open",
+    statusCategory: null, priority: "P2", priorityBucket: "P2" as const, environment: "Prod",
+    rcaGiven: false, rcaText: null, ownerName: "o", ownerEmail: null, assigneeName: null,
+    assigneeEmail: null, isOpen: true, isInvalid: false, jiraCreatedAt: null, jiraUpdatedAt: null,
+    jiraClosedAt: null,
+  };
+  const rows = [
+    { ...base, jiraKey: "SC-3" },
+    { ...base, jiraKey: "SC-1" },
+    { ...base, jiraKey: "SC-2", isOpen: false },
+    { ...base, jiraKey: "SC-4", isInvalid: true },
+  ];
+  const out = applyBugsQuery(rows, r.query);
+  assert.equal(out.total, 2);
+  assert.deepEqual(out.page.map((b) => b.jiraKey), ["SC-3"]);
+});

@@ -4,8 +4,7 @@ import { db } from "@/lib/db";
 import { jiraProjects } from "@/lib/db/schema";
 import { authenticateApiToken } from "@/lib/auth/api-token";
 import { fetchProjectBugs } from "@/lib/bug-summary-query";
-import { applyBugScopeFilters, applyBugDetailFilters, sortBugs } from "@/lib/bug-summary";
-import { parseBugsQuery } from "@/lib/external-api/bugs-params";
+import { applyBugsQuery, parseBugsQuery } from "@/lib/external-api/bugs-params";
 import { localDateStr, ALL_TIME_START } from "@/lib/date-utils";
 
 // External, token-authed bug board. Docs: src/lib/external-api/docs/bugs.ts.
@@ -48,21 +47,11 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
 
     const rows = await fetchProjectBugs(projectId, query.start, query.end);
 
-    const scoped = applyBugScopeFilters(rows, {
-      env: query.env,
-      excludeInvalid: !query.includeInvalid,
-    });
-    const detailed = applyBugDetailFilters(scoped, { owner: query.owner, q: query.q }).filter(
-      (b) =>
-        (query.status === "all" || (query.status === "open" ? b.isOpen : !b.isOpen)) &&
-        (!query.priority || query.priority.includes(b.priorityBucket))
-    );
-    const sorted = sortBugs(detailed, query.sort, query.dir);
-    const page = sorted.slice(query.offset, query.offset + query.limit);
+    const { total, page } = applyBugsQuery(rows, query);
 
     return NextResponse.json({
       project,
-      total: sorted.length,
+      total,
       count: page.length,
       limit: query.limit,
       offset: query.offset,
