@@ -2,8 +2,8 @@
 // report. Framework-free: no HTTP / Next.js concerns live here; routes map the
 // exported error classes to status codes.
 
-import { and, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
+import { and, desc, eq, inArray, isNull, lt, sql, type SQLWrapper } from "drizzle-orm";
+import type { PgColumn } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
 import {
   jiraIssues,
@@ -142,9 +142,26 @@ export async function listEnabledProjectIds(): Promise<string[]> {
 // Support tickets
 // ---------------------------------------------------------------------------
 
+/**
+ * Correlated subquery: the issue's live (non-deleted) ownership events as a
+ * JSON array of {side, at}, oldest first. Written with an explicit
+ * `"support_ticket_ownership_events" as "ev"` because interpolating a drizzle
+ * `alias(...)` in a raw FROM renders only `"ev"` (no table) and fails with
+ * 42P01. Exported so the rendered SQL is unit-tested.
+ */
+export function liveEventsJsonSql(issueIdRef: SQLWrapper) {
+  const t = supportTicketOwnershipEvents;
+  const ev = sql.identifier("ev");
+  const col = (c: PgColumn) => sql`${ev}.${sql.identifier(c.name)}`;
+  return sql<RawSupportTicket["events"]>`(
+        select coalesce(json_agg(json_build_object('side', ${col(t.side)}, 'at', ${col(t.at)}) order by ${col(t.at)}), '[]'::json)
+        from ${t} as ${ev}
+        where ${col(t.issueId)} = ${issueIdRef} and ${col(t.deletedAt)} is null
+      )`;
+}
+
 export async function listSupportTickets(projectId: string): Promise<SupportTicketRow[]> {
   const { supportLabel } = await getSettings(projectId);
-  const ev = alias(supportTicketOwnershipEvents, "ev");
 
   const rows = await db
     .select({
@@ -168,11 +185,7 @@ export async function listSupportTickets(projectId: string): Promise<SupportTick
       usersReported: supportTickets.usersReported,
       usersImpacted: supportTickets.usersImpacted,
       fluxEta: supportTickets.eta,
-      events: sql<RawSupportTicket["events"]>`(
-        select coalesce(json_agg(json_build_object('side', ${ev.side}, 'at', ${ev.at}) order by ${ev.at}), '[]'::json)
-        from ${ev}
-        where ${ev.issueId} = ${jiraIssues.id} and ${ev.deletedAt} is null
-      )`,
+      events: liveEventsJsonSql(jiraIssues.id),
     })
     .from(jiraIssues)
     .innerJoin(jiraProjects, eq(jiraIssues.projectId, jiraProjects.id))
