@@ -43,7 +43,7 @@ test("subject and key copy", () => {
 
 test("escapes Jira strings", () => {
   const { html } = renderSupportReportEmail(
-    fixture({ impact: [{ jiraKey: "A-1", summary: "<b>x</b>", priority: "P1", usersReported: null, usersImpacted: 3 }] }),
+    fixture({ impact: [{ jiraKey: "A-1", summary: "<b>x</b>", priority: "P1", usersReported: null, usersImpacted: 3, rcaShared: false }] }),
   );
   assert.ok(html.includes("&lt;b&gt;x&lt;/b&gt;"));
   assert.ok(!html.includes("<b>x</b>"));
@@ -100,11 +100,43 @@ test("escapes sharedBy/projectName and dashes null user counts", () => {
     fixture({
       sharedBy: "<i>me</i>",
       projectName: "A&B",
-      impact: [{ jiraKey: "A-1", summary: "s", priority: "P1", usersReported: null, usersImpacted: null }],
+      impact: [{ jiraKey: "A-1", summary: "s", priority: "P1", usersReported: null, usersImpacted: null, rcaShared: true }],
     }),
   );
   assert.ok(html.includes("Shared by: &lt;i&gt;me&lt;/i&gt;"));
   assert.ok(subject.includes("A&B"));
   assert.ok(html.includes("<title>Issue Report — Daily Update | A&amp;B"));
   assert.ok(html.includes("text-align:center;\">–</td>"));
+});
+
+test("summary: no ISSUES RECEIVED header, REQUESTS RECEIVED kept, row order unchanged", () => {
+  const { html } = renderSupportReportEmail(fixture());
+  assert.ok(!html.includes("ISSUES RECEIVED"));
+  assert.ok(html.includes("REQUESTS RECEIVED"));
+  const order = ["Total Bugs", "RCA Shared", "Understanding", "Data Issue", "REQUESTS RECEIVED", "Data Upload", "Image Upload", "Others", ">Total<"];
+  const at = order.map((s) => html.indexOf(s));
+  assert.ok(at.every((i) => i >= 0), JSON.stringify(at));
+  assert.deepEqual([...at].sort((a, b) => a - b), at);
+});
+
+test("impact: RCA Shared column after Users Impacted, Yes / No / – for older reports", () => {
+  const { html } = renderSupportReportEmail(
+    fixture({
+      impact: [
+        { jiraKey: "A-1", summary: "yes", priority: "P1", usersReported: 1, usersImpacted: 2, rcaShared: true },
+        { jiraKey: "A-2", summary: "no", priority: "P2", usersReported: 1, usersImpacted: 2, rcaShared: false },
+        // A report stored before the toggle existed has no rcaShared.
+        { jiraKey: "A-3", summary: "old", priority: "P2", usersReported: 1, usersImpacted: 2 },
+      ],
+    }),
+  );
+  const section = html.slice(html.indexOf("TICKET IMPACT REPORT"), html.indexOf("OPEN BUG DETAIL"));
+  assert.ok(section.indexOf(">Users Impacted<") < section.indexOf(">RCA Shared<"));
+  const cells = (key: string) => {
+    const row = section.slice(section.indexOf(`<b>${key}</b>`));
+    return row.slice(0, row.indexOf("</tr>"));
+  };
+  assert.ok(cells("A-1").endsWith('text-align:center;">Yes</td>'), cells("A-1"));
+  assert.ok(cells("A-2").endsWith('text-align:center;">No</td>'), cells("A-2"));
+  assert.ok(cells("A-3").endsWith('text-align:center;">–</td>'), cells("A-3"));
 });

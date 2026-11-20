@@ -79,7 +79,6 @@ function summarySection(d: SupportReportData): string {
 <tr>${subHead}</tr>
 ${row("bugs", "Total Bugs", true)}
 ${row("rca", "RCA Shared")}
-${group("ISSUES RECEIVED")}
 ${row("understanding", CATEGORY_LABELS.understanding)}
 ${row("data_issue", CATEGORY_LABELS.data_issue)}
 ${group("REQUESTS RECEIVED")}
@@ -114,14 +113,16 @@ function impactSection(d: SupportReportData): string {
   if (d.impact.length === 0) {
     return `${sectionBar(3, title)}${tableOpen}<tr>${td("No P1 / P2 tickets reported.", `color:${MUTED};text-align:center;padding:16px;`)}</tr></table>`;
   }
-  const head = ["Issue ID / Heading", "Severity", "Users Reported", "Users Impacted"]
+  const head = ["Issue ID / Heading", "Severity", "Users Reported", "Users Impacted", "RCA Shared"]
     .map((h) => th(h, `background:${TEAL_DARK};`))
     .join("");
   const n = (v: number | null): string => (v == null ? "–" : String(v));
+  // Older stored reports predate the RCA toggle and lack the field.
+  const yesNo = (v: boolean | undefined): string => (v === undefined ? "–" : v ? "Yes" : "No");
   const rows = d.impact
     .map(
       (i) =>
-        `<tr>${td(`<b>${esc(i.jiraKey)}</b> · ${esc(i.summary)}`)}${td(pill(i.priority), "text-align:center;")}${td(n(i.usersReported), "text-align:center;")}${td(n(i.usersImpacted), "text-align:center;")}</tr>`,
+        `<tr>${td(`<b>${esc(i.jiraKey)}</b> · ${esc(i.summary)}`)}${td(pill(i.priority), "text-align:center;")}${td(n(i.usersReported), "text-align:center;")}${td(n(i.usersImpacted), "text-align:center;")}${td(yesNo(i.rcaShared), "text-align:center;")}</tr>`,
     )
     .join("");
   return `${sectionBar(3, title)}${tableOpen}<tr>${head}</tr>${rows}</table>`;
