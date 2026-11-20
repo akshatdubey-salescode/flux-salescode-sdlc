@@ -60,6 +60,21 @@ export function Markdown({ content }: { content: string }) {
           <strong className="font-semibold text-zinc-900 dark:text-zinc-50">{children}</strong>
         ),
         em: ({ children }) => <em className="italic">{children}</em>,
+        img: ({ src, alt }) =>
+          typeof src === "string" && src ? (
+            // Showcase images are same-origin redirects to signed URLs, which next/image can't optimise.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={src}
+              alt={alt ?? ""}
+              loading="lazy"
+              className="my-3 block max-w-full h-auto rounded-lg border border-zinc-200 dark:border-zinc-700"
+            />
+          ) : (
+            <span className="my-2 inline-block rounded bg-zinc-100 px-2 py-1 text-xs text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+              {alt || "image"}
+            </span>
+          ),
         table: ({ children }) => (
           <div className="overflow-x-auto mb-3">
             <table className="w-full text-sm border-collapse">{children}</table>

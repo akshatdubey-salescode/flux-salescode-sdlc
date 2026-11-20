@@ -687,6 +687,13 @@
       "when": 1795172382842,
       "tag": "0098_api_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1795172382843,
+      "tag": "0099_discover_showcases",
+      "breakpoints": true
     }
   ]
 }
