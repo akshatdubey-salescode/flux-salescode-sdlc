@@ -2,8 +2,7 @@
 // schema.ts imports from here as types only, so there is no runtime cycle.
 
 export const SUPPORT_CATEGORIES = [
-  "bugs",
-  "rca",
+  "bug",
   "understanding",
   "data_issue",
   "data_upload",
@@ -13,12 +12,11 @@ export const SUPPORT_CATEGORIES = [
 export type SupportCategory = (typeof SUPPORT_CATEGORIES)[number];
 
 export const CATEGORY_LABELS: Record<SupportCategory, string> = {
-  bugs: "Bugs",
-  rca: "RCA",
+  bug: "Bug",
   understanding: "Understanding",
-  data_issue: "Data issue",
-  data_upload: "Data upload",
-  image_upload: "Image upload",
+  data_issue: "Data Issue",
+  data_upload: "Data Upload",
+  image_upload: "Image Upload",
   others: "Others",
 };
 
