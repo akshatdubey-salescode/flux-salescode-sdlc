@@ -212,6 +212,17 @@ async function issueInProject(
   return row;
 }
 
+/** True when the issue exists and belongs to the project. */
+export async function issueBelongsToProject(projectId: string, issueId: string): Promise<boolean> {
+  try {
+    await issueInProject(db, projectId, issueId);
+    return true;
+  } catch (e) {
+    if (e instanceof NotFoundError) return false;
+    throw e;
+  }
+}
+
 export async function updateSupportTicket(
   projectId: string,
   issueId: string,
