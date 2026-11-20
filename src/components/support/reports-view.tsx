@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
-import { RiErrorWarningLine, RiRefreshLine } from "@remixicon/react";
+import { RiDownload2Line, RiErrorWarningLine, RiRefreshLine } from "@remixicon/react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,6 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { formatIstDateTime } from "@/lib/support/ist-input";
+import { formatDayMonthYear, ytdAttachmentFilename } from "@/lib/support/ytd";
 import {
   CATEGORY_LABELS,
   SUPPORT_CATEGORIES,
@@ -313,6 +314,9 @@ export function ReportsView({ projectId }: { projectId: string }) {
   const report = shown?.report ?? null;
   const uncategorised = report?.data.uncategorised ?? [];
   const fixedCount = uncategorised.filter((u) => fixedCats[u.issueId]).length;
+  // The YTD Excel snapshot stored on the build; absent on reports built before 2026-11-20.
+  const ytdTickets = report?.data.ytdTickets;
+  const attachmentName = report ? ytdAttachmentFilename(report.data.projectName, report.data.reportDate) : null;
   const approveReason = !shown
     ? "Loading…"
     : shown.blocker ?? (!canApprove ? "Only this project's approvers can send the report" : null);
@@ -457,6 +461,25 @@ export function ReportsView({ projectId }: { projectId: string }) {
                 <p className="text-xs text-zinc-500">
                   Subject: <span className="text-zinc-800 dark:text-zinc-200">{shown.subject}</span>
                 </p>
+                <div className="flex flex-wrap items-center gap-2 py-1 text-xs text-zinc-500">
+                  {ytdTickets ? (
+                    <>
+                      <Button variant="outline" size="sm" asChild>
+                        <a href={`${base}/reports/${report.id}/attachment`} download={attachmentName ?? undefined}>
+                          <RiDownload2Line className="size-3.5" />
+                          Download Excel
+                        </a>
+                      </Button>
+                      <span>
+                        {ytdTickets.length === 0
+                          ? "No year-to-date tickets"
+                          : `Attached to the email: ${ytdTickets.length} ticket${ytdTickets.length === 1 ? "" : "s"} raised 1 Jan – ${formatDayMonthYear(report.data.reportDate)}`}
+                      </span>
+                    </>
+                  ) : (
+                    <span>Rebuild to include the Excel attachment</span>
+                  )}
+                </div>
                 <iframe
                   title={`Support report preview for ${report.reportDate}`}
                   srcDoc={shown.html}
@@ -489,6 +512,12 @@ export function ReportsView({ projectId }: { projectId: string }) {
                     <div>
                       <dt className="text-xs text-zinc-500">CC</dt>
                       <dd className="break-all">{recipients ? recipients.ccEmails.join(", ") || "—" : "—"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-zinc-500">Attachment</dt>
+                      <dd className="break-all">
+                        {ytdTickets ? attachmentName : "None — rebuild to include the Excel attachment"}
+                      </dd>
                     </div>
                   </dl>
                   <AlertDialogFooter>
