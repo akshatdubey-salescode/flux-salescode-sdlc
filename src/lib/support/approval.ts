@@ -13,7 +13,7 @@ export class ConflictError extends Error {
   }
 }
 
-export function isSendEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+export function isSendEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return env.SUPPORT_REPORTS_SEND_ENABLED === "true";
 }
 
@@ -33,7 +33,7 @@ export function canApproveReports(
 export function approvalBlocker(
   report: { status: string; data: SupportReportData },
   settings: SettingsInput,
-  env: NodeJS.ProcessEnv = process.env,
+  env: Record<string, string | undefined> = process.env,
 ): string | null {
   if (!isSendEnabled(env)) return "Sending is disabled in this environment";
   if (report.status === "lapsed") return "This report has lapsed";

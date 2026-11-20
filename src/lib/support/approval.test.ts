@@ -4,7 +4,7 @@ import { approvalBlocker, canApproveReports, isSendEnabled } from "./approval";
 import type { SettingsInput } from "./store";
 import type { SupportReportData } from "./types";
 
-const ON = { SUPPORT_REPORTS_SEND_ENABLED: "true" } as NodeJS.ProcessEnv;
+const ON = { SUPPORT_REPORTS_SEND_ENABLED: "true" };
 const settings = (o: Partial<SettingsInput> = {}) =>
   ({ toEmails: ["a@x.com"], ccEmails: [], approverUserIds: [], ...o }) as SettingsInput;
 const report = (status = "awaiting_approval", unc = 0) => ({
@@ -14,7 +14,7 @@ const report = (status = "awaiting_approval", unc = 0) => ({
 
 test("isSendEnabled", () => {
   assert.equal(isSendEnabled({}), false);
-  assert.equal(isSendEnabled({ SUPPORT_REPORTS_SEND_ENABLED: "true" } as NodeJS.ProcessEnv), true);
+  assert.equal(isSendEnabled({ SUPPORT_REPORTS_SEND_ENABLED: "true" }), true);
 });
 
 test("canApproveReports", () => {
