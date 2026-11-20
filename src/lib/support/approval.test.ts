@@ -17,6 +17,16 @@ test("isSendEnabled", () => {
   assert.equal(isSendEnabled({ SUPPORT_REPORTS_SEND_ENABLED: "true" }), true);
 });
 
+test("isSendEnabled is strict", () => {
+  for (const v of ["TRUE", "1", " true"]) {
+    assert.equal(isSendEnabled({ SUPPORT_REPORTS_SEND_ENABLED: v }), false);
+  }
+});
+
+test("approvalBlocker: sent wins over uncategorised", () => {
+  assert.equal(approvalBlocker(report("sent", 2), settings(), ON), "Already sent");
+});
+
 test("canApproveReports", () => {
   const s = { approverUserIds: ["bob@x.com"] };
   assert.equal(canApproveReports({ id: "a@x.com", email: "a@x.com", role: "ADMIN" }, s), true);

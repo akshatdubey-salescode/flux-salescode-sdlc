@@ -3,7 +3,7 @@
 import { eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { jiraProjects, users } from "@/lib/db/schema";
-import { ConflictError } from "./approval";
+import { ConflictError, isSendEnabled } from "./approval";
 import { approverNoticeEmail, renderSupportReportEmail } from "./render-email";
 import { claimForSending, getReport, getSettings, markFailed, markSent, NotFoundError } from "./store";
 
@@ -33,39 +33,59 @@ async function sendViaResend(args: {
 export async function approveAndSend(
   reportId: string,
   approver: { id: string; name: string },
+  expectedBuiltAt: Date,
 ): Promise<{ status: "sent" } | { status: "failed"; error: string }> {
+  if (!isSendEnabled()) throw new ConflictError("Sending is disabled in this environment");
   const report = await getReport(reportId);
   if (!report) throw new NotFoundError("Report not found");
   const settings = await getSettings(report.projectId);
 
-  if (!(await claimForSending(reportId))) throw new ConflictError();
+  const data = await claimForSending(reportId, expectedBuiltAt);
+  if (!data) {
+    throw new ConflictError("Report changed or is already being sent — reload and review again");
+  }
 
-  // From here on nothing may throw: record the outcome on the row instead.
+  // Phase 1: anything failing before Resend accepts the mail is a clean failure.
+  let messageId: string | null;
   try {
-    const { subject, html } = renderSupportReportEmail(report.data);
-    const messageId = await sendViaResend({
+    const { subject, html } = renderSupportReportEmail(data);
+    messageId = await sendViaResend({
       to: settings.toEmails,
       cc: settings.ccEmails,
       subject,
       html,
     });
-    await markSent(reportId, {
-      approvedBy: approver.id,
-      approvedByName: approver.name,
-      to: settings.toEmails,
-      cc: settings.ccEmails,
-      messageId,
-    });
-    return { status: "sent" };
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
     try {
       await markFailed(reportId, { approvedBy: approver.id, approvedByName: approver.name, error });
     } catch (markErr) {
-      console.error("[support-report] markFailed failed", markErr);
+      console.error("[support-report] markFailed failed", { reportId, markErr });
     }
     return { status: "failed", error };
   }
+
+  // Phase 2: the mail is out. Never move to 'failed' (that would allow a resend).
+  const sent = {
+    approvedBy: approver.id,
+    approvedByName: approver.name,
+    to: settings.toEmails,
+    cc: settings.ccEmails,
+    messageId,
+  };
+  try {
+    await markSent(reportId, sent);
+  } catch {
+    try {
+      await markSent(reportId, sent);
+    } catch (err) {
+      console.error(
+        "[support-report] EMAIL SENT but markSent failed; row left in 'sending' to block resends",
+        { reportId, messageId, err },
+      );
+    }
+  }
+  return { status: "sent" };
 }
 
 export async function notifyApprovers(
@@ -74,6 +94,7 @@ export async function notifyApprovers(
   reportId: string,
   appUrl: string,
 ): Promise<void> {
+  if (!isSendEnabled()) return;
   try {
     const [settings, report, [project]] = await Promise.all([
       getSettings(projectId),

@@ -401,7 +401,7 @@ export async function upsertAwaitingReport(
   return { id: row.id, created: row.created };
 }
 
-/** Lapse every awaiting report for the project dated before `reportDate`. */
+/** Lapse every awaiting or failed report for the project dated before `reportDate`. */
 export async function lapseOlderAwaiting(projectId: string, reportDate: string): Promise<number> {
   const rows = await db
     .update(supportReports)
@@ -410,15 +410,22 @@ export async function lapseOlderAwaiting(projectId: string, reportDate: string):
       and(
         eq(supportReports.projectId, projectId),
         lt(supportReports.reportDate, reportDate),
-        eq(supportReports.status, "awaiting_approval"),
+        inArray(supportReports.status, ["awaiting_approval", "failed"]),
       ),
     )
     .returning({ id: supportReports.id });
   return rows.length;
 }
 
-/** Single conditional UPDATE … RETURNING: exactly one concurrent caller wins. */
-export async function claimForSending(id: string): Promise<boolean> {
+/**
+ * Single conditional UPDATE … RETURNING: exactly one concurrent caller wins, and
+ * only if the row is still the build the approver reviewed (built_at matches).
+ * Returns the claimed data (what must be sent), or null when not claimed.
+ */
+export async function claimForSending(
+  id: string,
+  expectedBuiltAt: Date,
+): Promise<SupportReportData | null> {
   const rows = await db
     .update(supportReports)
     .set({ status: "sending" })
@@ -426,10 +433,11 @@ export async function claimForSending(id: string): Promise<boolean> {
       and(
         eq(supportReports.id, id),
         inArray(supportReports.status, ["awaiting_approval", "failed"]),
+        eq(supportReports.builtAt, expectedBuiltAt),
       ),
     )
-    .returning({ id: supportReports.id });
-  return rows.length === 1;
+    .returning({ data: supportReports.data });
+  return rows[0]?.data ?? null;
 }
 
 export async function markSent(

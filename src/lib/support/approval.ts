@@ -24,7 +24,6 @@ export function canApproveReports(
   if (hasMinRole(user.role, "ADMIN")) return true;
   const listed = new Set(settings.approverUserIds.map((s) => s.toLowerCase()));
   return (
-    settings.approverUserIds.includes(user.id) ||
     listed.has(user.id.toLowerCase()) ||
     listed.has(user.email.toLowerCase())
   );
