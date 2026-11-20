@@ -104,4 +104,31 @@ export type SupportReportData = {
     eta: string | null;
   }[];
   uncategorised: { issueId: string; jiraKey: string; summary: string }[];
+  // Year-to-date ticket snapshot for the Excel attachment (added 2026-11-20).
+  // Reports stored before then lack it and are sent without an attachment.
+  ytdTickets?: YtdTicketRow[];
+};
+
+/**
+ * One support ticket raised (IST) between 1 Jan of the report year and the
+ * report date, as stored on the report and written to the Excel attachment.
+ * JSON-serialisable: instants are ISO strings, calendar days YYYY-MM-DD.
+ */
+export type YtdTicketRow = {
+  jiraKey: string;
+  summary: string;
+  category: SupportCategory | null;
+  priority: Priority;
+  status: string; // Jira status name
+  isOpen: boolean;
+  raisedAt: string; // ISO, effective raised time
+  firstRespondedAt: string | null;
+  responseMin: number | null; // Salescode office-hour minutes, raised → first response
+  resolvedAt: string | null;
+  resolutionMin: number | null; // Salescode office-hour minutes, raised → resolved
+  ownerSide: OwnerSide;
+  rcaShared: boolean;
+  usersReported: number | null;
+  usersImpacted: number | null;
+  eta: string | null; // YYYY-MM-DD, Flux value or Jira due-date fallback
 };
