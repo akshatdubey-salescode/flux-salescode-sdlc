@@ -19,7 +19,6 @@ const COLUMNS: { header: string; width: number; value: (r: YtdTicketRow) => stri
   { header: "Summary", width: 60, value: (r) => r.summary },
   { header: "Category", width: 16, value: (r) => (r.category ? CATEGORY_LABELS[r.category] : "Uncategorised") },
   { header: "Priority", width: 10, value: (r) => r.priority },
-  { header: "Jira Status", width: 18, value: (r) => r.status },
   { header: "Open/Closed", width: 13, value: (r) => (r.isOpen ? "Open" : "Closed") },
   { header: "Raised (IST)", width: 20, value: (r) => formatIstDateTime(r.raisedAt) },
   {

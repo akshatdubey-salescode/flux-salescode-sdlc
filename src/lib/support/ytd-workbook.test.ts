@@ -69,7 +69,6 @@ test("header row text, bold, frozen and filtered", async () => {
     "Summary",
     "Category",
     "Priority",
-    "Jira Status",
     "Open/Closed",
     "Raised (IST)",
     "First Response (IST)",
@@ -121,7 +120,6 @@ test("a closed ticket's formatted values", async () => {
     "Scheme not applied",
     "Data Issue",
     "P1",
-    "Done",
     "Closed",
     "20 Nov 2026, 15:22",
     "20 Nov 2026, 15:30",
@@ -141,16 +139,16 @@ test("an open, uncategorised ticket with no response: dashes and empty cells", a
   const ws = wb.worksheets[0];
   const v = ws.getRow(2).values as unknown[];
   assert.equal(v[3], "Uncategorised");
-  assert.equal(v[6], "Open");
-  assert.equal(v[8], undefined); // First Response (IST) empty
-  assert.equal(v[9], "–");
-  assert.equal(v[10], undefined); // Resolved (IST) empty
-  assert.equal(v[11], "–");
-  assert.equal(v[12], "Salescode");
-  assert.equal(v[13], "No");
+  assert.equal(v[5], "Open");
+  assert.equal(v[7], undefined); // First Response (IST) empty
+  assert.equal(v[8], "–");
+  assert.equal(v[9], undefined); // Resolved (IST) empty
+  assert.equal(v[10], "–");
+  assert.equal(v[11], "Salescode");
+  assert.equal(v[12], "No");
+  assert.equal(v[13], undefined);
   assert.equal(v[14], undefined);
   assert.equal(v[15], undefined);
-  assert.equal(v[16], undefined);
 });
 
 test("no tickets → a single 'No tickets' sheet with the header row only", async () => {

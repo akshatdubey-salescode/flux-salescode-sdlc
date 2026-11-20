@@ -339,7 +339,7 @@ windows bucket tickets by it too.
 - **Sheets:** one per IST year-month of the raised time that has tickets,
   chronological, named like "Jan 2026"; empty months are skipped. Rows are
   oldest raised first.
-- **Columns:** Jira Key | Summary | Category | Priority | Jira Status |
+- **Columns:** Jira Key | Summary | Category | Priority |
   Open/Closed | Raised (IST) | First Response (IST) | Response Time (office hrs) |
   Resolved (IST) | Resolution Time (office hrs) | Currently With | RCA Shared |
   Users Reported | Users Impacted | ETA. Times are IST ("20 Nov 2026, 15:22");

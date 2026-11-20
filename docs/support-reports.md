@@ -135,7 +135,7 @@ setting.
   Reports view says "Rebuild to include the Excel attachment".
 - **Sheets.** One per IST month with tickets ("Jan 2026", "Mar 2026", …),
   oldest raised first; no tickets at all → a single "No tickets" sheet.
-- **Columns.** Jira Key, Summary, Category, Priority, Jira Status,
+- **Columns.** Jira Key, Summary, Category, Priority,
   Open/Closed, Raised / First Response / Resolved (IST), Response and
   Resolution Time (Salescode office hours), Currently With, RCA Shared,
   Users Reported, Users Impacted, ETA.
