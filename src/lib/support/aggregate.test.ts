@@ -72,8 +72,9 @@ test("counts FTD, period and open per priority", () => {
     mk({ priority: "P4", category: "data_issue", createdAt: ist("2026-10-20T12:00") }),
   ]);
   assert.deepEqual(d.summary.bugs.P3, { ftd: 1, period: 2, open: 1 });
-  assert.deepEqual(d.summary.data_issue.P4, { ftd: 0, period: 0, open: 1 });
-  assert.deepEqual(d.summary.total.all, { ftd: 1, period: 2, open: 2 });
+  // created last month and still open: outside the period, so not counted at all
+  assert.deepEqual(d.summary.data_issue.P4, { ftd: 0, period: 0, open: 0 });
+  assert.deepEqual(d.summary.total.all, { ftd: 1, period: 2, open: 1 });
   assert.equal(d.projectName, "Coke");
   assert.equal(d.periodLabel, "MTD");
   assert.equal(d.sharedBy, "L2 Support");
@@ -146,7 +147,23 @@ test("all equals sum of priorities", () => {
       assert.equal(d.summary.total[k][col], sum, `total.${k}.${col}`);
     }
   }
-  assert.deepEqual(d.summary.total.all, { ftd: 5, period: 7, open: 6 });
+  assert.deepEqual(d.summary.total.all, { ftd: 5, period: 7, open: 5 });
+});
+
+test("open counts only open tickets created in the period", () => {
+  const d = run([
+    mk({ priority: "P3", createdAt: ist("2026-07-20T12:00") }), // old, open: excluded
+    mk({ priority: "P3", createdAt: ist("2026-11-02T12:00") }), // this month, open
+    mk({ priority: "P3", createdAt: ist("2026-11-03T12:00"), resolvedAt: ist("2026-11-04T12:00") }),
+  ]);
+  assert.deepEqual(d.summary.bugs.P3, { ftd: 0, period: 2, open: 1 });
+  assert.deepEqual(d.summary.total.all, { ftd: 0, period: 2, open: 1 });
+  assert.equal(d.openBugs.length, 1);
+});
+
+test("old open uncategorised tickets are not listed", () => {
+  const d = run([mk({ category: null, createdAt: ist("2026-07-20T12:00") })]);
+  assert.equal(d.uncategorised.length, 0);
 });
 
 test("sla averages exclude client time", () => {
@@ -225,7 +242,7 @@ test("impact lists P1/P2 in period only", () => {
 });
 
 test("openBugs sorted by priority then age, with ageDays", () => {
-  const old4 = mk({ priority: "P4", createdAt: ist("2026-10-01T12:00"), eta: "2026-11-30" });
+  const old4 = mk({ priority: "P4", createdAt: ist("2026-11-01T12:00"), eta: "2026-11-30" });
   const new4 = mk({ priority: "P4" });
   const p2 = mk({ priority: "P2", createdAt: ist("2026-11-18T12:00") });
   const d = run([
@@ -234,6 +251,7 @@ test("openBugs sorted by priority then age, with ageDays", () => {
     p2,
     mk({ priority: "P1", resolvedAt: ist("2026-11-20T12:00") }),
     mk({ priority: "P1", category: "data_issue" }),
+    mk({ priority: "P1", createdAt: ist("2026-10-01T12:00") }), // before the period
   ]);
   assert.deepEqual(
     d.openBugs.map((b) => b.jiraKey),
@@ -242,8 +260,8 @@ test("openBugs sorted by priority then age, with ageDays", () => {
   assert.deepEqual(d.openBugs[1], {
     jiraKey: old4.jiraKey,
     summary: old4.summary,
-    createdOn: "2026-10-01",
-    ageDays: 50,
+    createdOn: "2026-11-01",
+    ageDays: 19,
     priority: "P4",
     eta: "2026-11-30",
   });

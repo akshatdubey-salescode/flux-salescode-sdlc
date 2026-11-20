@@ -224,8 +224,13 @@ The two report figures:
   - **MTD:** created from the 1st of D's month to D
   - **YTD:** created from 1 Jan of D's year to D
   - **Custom:** created from the configured start date to D
-- **Open:** every eligible ticket not done/cancelled, **regardless of creation
-  date**. An old open P1 must not vanish on the 1st of the month.
+- **Open:** tickets created in the period window that are still not
+  done/cancelled. *User decision (2026-11-20), replacing the original
+  "regardless of creation date" rule:* an MTD report's Open column is this
+  month's open tickets only. The same window applies to §4 Open Bug Detail
+  and to the uncategorised check that blocks approval. Consequence: an old
+  ticket still open on the 1st of the month no longer appears in an MTD
+  report.
 - **§2 SLA and §3 Impact** use the period window. Their section titles show the
   period label ("SLA REPORT — MTD").
 
@@ -265,7 +270,7 @@ The two report figures:
 
 **§4 Open Bug Detail:**
 
-- Contents: open tickets with category `bug`.
+- Contents: open tickets with category `bug` created in the period window.
 - Columns:
   - Reported On (created date)
   - `KEY · summary`
@@ -431,7 +436,7 @@ following `FEATURE_FLAGS`.
 - Office hours default to Mon–Fri, 10:00–19:00 IST. The days are configurable
   per project.
 - Response time is also measured only on Salescode time.
-- Open = all open eligible tickets regardless of period.
+- ~~Open = all open eligible tickets regardless of period.~~ Replaced by the user on 2026-11-20: Open = open tickets created in the period.
 - P3/P4 have no Open column, per the mock.
 - The footer says "Confidential", not "Internal Use Only".
 - ETA falls back to the Jira end/due date.

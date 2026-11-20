@@ -71,13 +71,16 @@ export function buildReportData(args: {
     const d = istDateOf(t.createdAt);
     return d >= window.start && d <= window.end;
   };
-  const isOpen = (t: ReportTicketInput) => t.resolvedAt === null;
+  // Open = still open AND created in the report period: an MTD report's
+  // "Open" is this month's tickets that are still open, not every open
+  // ticket ever (user decision, 2026-11-20).
+  const isOpen = (t: ReportTicketInput) => t.resolvedAt === null && inPeriod(t);
 
   const uncategorised: SupportReportData["uncategorised"] = [];
   const counted: Categorised[] = [];
   for (const t of args.tickets) {
     if (t.category === null) {
-      if (isFtd(t) || inPeriod(t) || isOpen(t)) {
+      if (isFtd(t) || inPeriod(t)) {
         uncategorised.push({ issueId: t.issueId, jiraKey: t.jiraKey, summary: t.summary });
       }
     } else {
