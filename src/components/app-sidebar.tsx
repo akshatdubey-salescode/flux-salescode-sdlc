@@ -30,6 +30,7 @@ import {
   RiMedalLine,
   RiBugLine,
   RiAddBoxLine,
+  RiCompass3Line,
 } from "@remixicon/react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -93,6 +94,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Dashboard", href: "/home", icon: RiHome3Line },
       { label: "Search", href: "/search", icon: RiSearchLine },
+      { label: "Discover", href: "/discover", icon: RiCompass3Line },
     ],
   },
   {
