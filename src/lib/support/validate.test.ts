@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseOwnershipBody, parseTicketPatch } from "./validate";
+import { parseOwnershipBody, parseSettingsBody, parseTicketPatch } from "./validate";
 
 const now = new Date("2026-11-20T10:00:00Z");
 
@@ -49,4 +49,99 @@ test("ownership: rejects bad side / at / extra keys", () => {
   for (const b of [null, {}, { side: "x" }, { side: "client", at: "nope" }, { side: "client", extra: 1 }]) {
     assert.equal(parseOwnershipBody(b, now).ok, false, JSON.stringify(b));
   }
+});
+
+// ---- parseSettingsBody ----
+
+const goodSettings = () => ({
+  enabled: true,
+  supportLabel: "  support ",
+  periodMode: "mtd",
+  periodStart: null,
+  toEmails: [" A@x.com ", "a@x.com", "b@y.org"],
+  ccEmails: ["C@z.io"],
+  approverUserIds: ["User-1", "boss@x.com"],
+  sharedBy: " L2 Support ",
+  sla: {
+    P1: { responseMin: 10, resolutionMin: 240 },
+    P2: { responseMin: 10, resolutionMin: 480 },
+    P3: { responseMin: 30, resolutionMin: 1440 },
+    P4: { responseMin: 30, resolutionMin: 2400 },
+  },
+  officeHours: { start: "10:00", end: "19:00", days: [1, 2, 3, 4, 5] },
+});
+
+test("settings: valid body is normalised", () => {
+  const r = parseSettingsBody(goodSettings());
+  assert.ok(r.ok);
+  if (r.ok) {
+    assert.equal(r.value.supportLabel, "support");
+    assert.equal(r.value.sharedBy, "L2 Support");
+    assert.deepEqual(r.value.toEmails, ["a@x.com", "b@y.org"]);
+    assert.deepEqual(r.value.ccEmails, ["c@z.io"]);
+    assert.deepEqual(r.value.approverUserIds, ["user-1", "boss@x.com"]);
+  }
+});
+
+test("settings: rejects non-object, empty label, empty sharedBy", () => {
+  assert.equal(parseSettingsBody(null).ok, false);
+  assert.equal(parseSettingsBody([]).ok, false);
+  assert.equal(parseSettingsBody({ ...goodSettings(), supportLabel: "  " }).ok, false);
+  assert.equal(parseSettingsBody({ ...goodSettings(), sharedBy: "" }).ok, false);
+});
+
+test("settings: email validation", () => {
+  assert.equal(parseSettingsBody({ ...goodSettings(), toEmails: ["nope"] }).ok, false);
+  assert.equal(parseSettingsBody({ ...goodSettings(), ccEmails: ["a b@x.com"] }).ok, false);
+  assert.equal(parseSettingsBody({ ...goodSettings(), toEmails: "a@x.com" }).ok, false);
+});
+
+test("settings: enabled requires a To; disabled does not", () => {
+  assert.equal(parseSettingsBody({ ...goodSettings(), toEmails: [] }).ok, false);
+  assert.ok(parseSettingsBody({ ...goodSettings(), enabled: false, toEmails: [] }).ok);
+});
+
+test("settings: periodMode", () => {
+  assert.equal(parseSettingsBody({ ...goodSettings(), periodMode: "weekly" }).ok, false);
+  assert.equal(parseSettingsBody({ ...goodSettings(), periodMode: "custom", periodStart: null }).ok, false);
+  assert.equal(parseSettingsBody({ ...goodSettings(), periodMode: "custom", periodStart: "2026-02-30" }).ok, false);
+  const c = parseSettingsBody({ ...goodSettings(), periodMode: "custom", periodStart: "2026-04-01" });
+  assert.ok(c.ok);
+  if (c.ok) assert.equal(c.value.periodStart, "2026-04-01");
+  const m = parseSettingsBody({ ...goodSettings(), periodMode: "ytd", periodStart: "2026-04-01" });
+  assert.ok(m.ok);
+  if (m.ok) assert.equal(m.value.periodStart, null);
+});
+
+test("settings: SLA values", () => {
+  const bad = (mut: (s: ReturnType<typeof goodSettings>) => void) => {
+    const s = goodSettings();
+    mut(s);
+    return parseSettingsBody(s).ok;
+  };
+  assert.equal(bad((s) => { s.sla.P1.responseMin = 0; }), false);
+  assert.equal(bad((s) => { s.sla.P2.resolutionMin = 1.5; }), false);
+  assert.equal(bad((s) => { s.sla.P3.resolutionMin = -5; }), false);
+  assert.equal(bad((s) => { delete (s.sla as Record<string, unknown>).P4; }), false);
+  assert.equal(bad((s) => { (s.sla.P1 as Record<string, unknown>).responseMin = "10"; }), false);
+});
+
+test("settings: office hours", () => {
+  const oh = (o: unknown) => parseSettingsBody({ ...goodSettings(), officeHours: o }).ok;
+  assert.ok(oh({ start: "00:00", end: "24:00", days: [0, 6] }));
+  assert.equal(oh({ start: "10:00", end: "10:00", days: [1] }), false);
+  assert.equal(oh({ start: "19:00", end: "10:00", days: [1] }), false);
+  assert.equal(oh({ start: "24:00", end: "24:00", days: [1] }), false);
+  assert.equal(oh({ start: "9:00", end: "19:00", days: [1] }), false);
+  assert.equal(oh({ start: "10:60", end: "19:00", days: [1] }), false);
+  assert.equal(oh({ start: "10:00", end: "19:00", days: [] }), false);
+  assert.equal(oh({ start: "10:00", end: "19:00", days: [1, 1] }), false);
+  assert.equal(oh({ start: "10:00", end: "19:00", days: [7] }), false);
+  assert.equal(oh({ start: "10:00", end: "19:00", days: [1.5] }), false);
+});
+
+test("settings: approverUserIds", () => {
+  assert.equal(parseSettingsBody({ ...goodSettings(), approverUserIds: [""] }).ok, false);
+  assert.equal(parseSettingsBody({ ...goodSettings(), approverUserIds: [3] }).ok, false);
+  assert.equal(parseSettingsBody({ ...goodSettings(), approverUserIds: "x" }).ok, false);
 });
