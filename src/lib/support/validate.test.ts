@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isBeforeTicketCreated, parseOwnershipBody, parseSettingsBody, parseTicketPatch } from "./validate";
+import {
+  isBeforeTicketCreated,
+  parseOwnershipBody,
+  parseSettingsBody,
+  parseTicketPatch,
+  ticketTimesError,
+} from "./validate";
 
 const now = new Date("2026-11-20T10:00:00Z");
 
@@ -39,6 +45,75 @@ test("patch: rejects bad input", () => {
 });
 test("patch: firstRespondedAt within 1 minute slack ok", () => {
   assert.ok(parseTicketPatch({ firstRespondedAt: "2026-11-20T10:00:30Z" }, now).ok);
+});
+test("patch: raisedAt accepts ISO (past, even before Jira creation) and null", () => {
+  const r = parseTicketPatch({ raisedAt: "2026-10-31T18:30:00Z" }, now);
+  assert.ok(r.ok);
+  if (r.ok) assert.equal(r.value.raisedAt?.toISOString(), "2026-10-31T18:30:00.000Z");
+  const cleared = parseTicketPatch({ raisedAt: null }, now);
+  assert.ok(cleared.ok);
+  if (cleared.ok) assert.deepEqual(cleared.value, { raisedAt: null });
+  assert.ok(parseTicketPatch({ raisedAt: "2026-11-20T10:00:30Z" }, now).ok); // 1 min slack
+});
+test("patch: raisedAt rejects junk and the future", () => {
+  for (const b of [
+    { raisedAt: "yesterday" },
+    { raisedAt: 1732000000000 },
+    { raisedAt: "2026-11-20" },
+    { raisedAt: "2026-11-20T10:05:00Z" },
+  ]) {
+    assert.equal(parseTicketPatch(b, now).ok, false, JSON.stringify(b));
+  }
+});
+test("patch: rcaShared must be a boolean", () => {
+  const on = parseTicketPatch({ rcaShared: true }, now);
+  assert.ok(on.ok);
+  if (on.ok) assert.deepEqual(on.value, { rcaShared: true });
+  const off = parseTicketPatch({ rcaShared: false }, now);
+  assert.ok(off.ok);
+  if (off.ok) assert.deepEqual(off.value, { rcaShared: false });
+  for (const v of [null, "true", 1, 0, {}]) {
+    assert.equal(parseTicketPatch({ rcaShared: v }, now).ok, false, JSON.stringify(v));
+  }
+});
+test("ticketTimesError: first response vs effective raised time", () => {
+  const jiraCreatedAt = new Date("2026-11-19T10:00:00Z");
+  const stored = { jiraCreatedAt, raisedAt: null, firstRespondedAt: null };
+  // First response before Jira creation, no raised time -> rejected.
+  assert.match(
+    ticketTimesError(stored, { firstRespondedAt: new Date("2026-11-19T09:00:00Z") }) ?? "",
+    /before the ticket was raised/,
+  );
+  // Same response is fine once the ticket is raised earlier (stored or in the same patch).
+  const raisedEarly = { ...stored, raisedAt: new Date("2026-11-19T08:00:00Z") };
+  assert.equal(ticketTimesError(raisedEarly, { firstRespondedAt: new Date("2026-11-19T09:00:00Z") }), null);
+  assert.equal(
+    ticketTimesError(stored, {
+      raisedAt: new Date("2026-11-19T08:00:00Z"),
+      firstRespondedAt: new Date("2026-11-19T09:00:00Z"),
+    }),
+    null,
+  );
+  // Clearing the response is always fine.
+  assert.equal(ticketTimesError(stored, { firstRespondedAt: null }), null);
+});
+test("ticketTimesError: raised time can't be after the first response", () => {
+  const jiraCreatedAt = new Date("2026-11-19T10:00:00Z");
+  const responded = { jiraCreatedAt, raisedAt: null, firstRespondedAt: new Date("2026-11-19T10:30:00Z") };
+  assert.equal(
+    ticketTimesError(responded, { raisedAt: new Date("2026-11-19T11:00:00Z") }),
+    "Raised time can't be after the first response",
+  );
+  // Equal is fine; earlier than Jira creation is the point.
+  assert.equal(ticketTimesError(responded, { raisedAt: new Date("2026-11-19T10:30:00Z") }), null);
+  assert.equal(ticketTimesError(responded, { raisedAt: new Date("2026-11-18T10:00:00Z") }), null);
+  // Clearing falls back to Jira creation, which is still before the response.
+  assert.equal(ticketTimesError({ ...responded, raisedAt: new Date("2026-11-19T09:00:00Z") }, { raisedAt: null }), null);
+  // Clearing when the response predates Jira creation would break the invariant.
+  const early = { jiraCreatedAt, raisedAt: new Date("2026-11-19T08:00:00Z"), firstRespondedAt: new Date("2026-11-19T09:00:00Z") };
+  assert.equal(ticketTimesError(early, { raisedAt: null }), "Raised time can't be after the first response");
+  // Unrelated patches never trip on stored values.
+  assert.equal(ticketTimesError(early, { usersReported: 3 }), null);
 });
 test("ownership: defaults at to now", () => {
   const r = parseOwnershipBody({ side: "client" }, now);

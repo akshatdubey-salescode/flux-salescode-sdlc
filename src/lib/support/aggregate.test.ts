@@ -9,6 +9,7 @@ import {
   type SummaryRowKey,
 } from "./types";
 import { buildReportData } from "./aggregate";
+import { toSupportTicketRow, type RawSupportTicket } from "./ticket-row";
 
 const ist = (s: string) => new Date(s + "+05:30");
 const ALL: OfficeHours = { start: "00:00", end: "24:00", days: [0, 1, 2, 3, 4, 5, 6] };
@@ -238,7 +239,91 @@ test("impact lists P1/P2 in period only", () => {
     priority: "P2",
     usersReported: 3,
     usersImpacted: 40,
+    rcaShared: false,
   });
+});
+
+test("impact entries carry the RCA shared toggle", () => {
+  const shared = mk({ priority: "P1", createdAt: ist("2026-11-03T11:00"), rcaGiven: true });
+  const not = mk({ priority: "P2", createdAt: ist("2026-11-04T11:00") });
+  const d = run([shared, not]);
+  assert.deepEqual(
+    d.impact.map((i) => [i.jiraKey, i.rcaShared]),
+    [
+      [shared.jiraKey, true],
+      [not.jiraKey, false],
+    ],
+  );
+});
+
+// Raised time (user decision, 2026-11-20): the row mapper feeds the effective
+// raised time into createdAt, so every bucket follows it.
+function mapped(over: Partial<RawSupportTicket>) {
+  return toSupportTicketRow({
+    issueId: "raw-1",
+    jiraKey: "RL-900",
+    summary: "Raised before Jira",
+    status: "Open",
+    statusCategory: "To Do",
+    canonicalStatus: null,
+    issueType: "Bug",
+    priority: "High",
+    customFields: {},
+    jiraCreatedAt: ist("2026-11-15T12:00"),
+    jiraUpdatedAt: null,
+    completedAt: null,
+    endDateFieldIds: null,
+    storedCategory: null,
+    ownerSide: null,
+    raisedAt: null,
+    rcaShared: null,
+    firstRespondedAt: null,
+    usersReported: null,
+    usersImpacted: null,
+    fluxEta: null,
+    events: null,
+    ...over,
+  });
+}
+
+test("raised in October, created in Jira in November: counts in October, not the Nov MTD", () => {
+  const t = mapped({ raisedAt: ist("2026-10-28T12:00"), jiraCreatedAt: ist("2026-11-02T12:00") });
+  const nov = run([t]);
+  assert.equal(nov.summary.bugs.all.period, 0);
+  assert.equal(nov.summary.bugs.all.open, 0);
+  assert.equal(nov.openBugs.length, 0);
+
+  const oct = run([t], {
+    reportDate: "2026-10-31",
+    window: { start: "2026-10-01", end: "2026-10-31", label: "MTD" },
+  });
+  assert.equal(oct.summary.bugs.all.period, 1);
+  assert.equal(oct.summary.bugs.all.open, 1);
+  assert.deepEqual(
+    oct.openBugs.map((b) => [b.jiraKey, b.createdOn, b.ageDays]),
+    [["RL-900", "2026-10-28", 3]],
+  );
+});
+
+test("open bug detail: Reported On and Age use the raised time, not Jira creation", () => {
+  const raised = mapped({ raisedAt: ist("2026-11-03T09:00") }); // Jira: 15 Nov
+  const plain = mapped({ issueId: "raw-2", jiraKey: "RL-901" }); // no raised time
+  const d = run([raised, plain]);
+  assert.deepEqual(
+    d.openBugs.map((b) => [b.jiraKey, b.createdOn, b.ageDays]),
+    [
+      ["RL-900", "2026-11-03", 17],
+      ["RL-901", "2026-11-15", 5],
+    ],
+  );
+});
+
+test("raised time starts the SLA response clock", () => {
+  const t = mapped({
+    raisedAt: ist("2026-11-15T11:00"),
+    firstRespondedAt: ist("2026-11-15T12:30"), // 30 min after Jira creation, 90 after raised
+  });
+  assert.equal(run([t]).sla.P2.avgResponseMin, 90);
 });
 
 test("openBugs sorted by priority then age, with ageDays", () => {

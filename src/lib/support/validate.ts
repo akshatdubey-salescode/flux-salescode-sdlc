@@ -12,9 +12,19 @@ export type TicketPatch = Partial<{
   usersReported: number | null;
   usersImpacted: number | null;
   eta: string | null;
+  raisedAt: Date | null;
+  rcaShared: boolean;
 }>;
 
-const ALLOWED = ["category", "firstRespondedAt", "usersReported", "usersImpacted", "eta"];
+const ALLOWED = [
+  "category",
+  "firstRespondedAt",
+  "usersReported",
+  "usersImpacted",
+  "eta",
+  "raisedAt",
+  "rcaShared",
+];
 const FUTURE_SLACK_MS = 60_000;
 
 function parseIso(v: unknown): Date | null {
@@ -67,7 +77,48 @@ export function parseTicketPatch(body: unknown, now: Date = new Date()): Result<
     }
     out.eta = v as string | null;
   }
+  // Raised time may predate the Jira creation time (that's the point) but not
+  // the future. null clears it (falls back to Jira creation).
+  if ("raisedAt" in b) {
+    const v = b.raisedAt;
+    if (v === null) out.raisedAt = null;
+    else {
+      const d = parseIso(v);
+      if (!d) return { ok: false, error: "raisedAt must be an ISO timestamp or null" };
+      if (d.getTime() > now.getTime() + FUTURE_SLACK_MS) {
+        return { ok: false, error: "raisedAt cannot be in the future" };
+      }
+      out.raisedAt = d;
+    }
+  }
+  if ("rcaShared" in b) {
+    if (typeof b.rcaShared !== "boolean") return { ok: false, error: "rcaShared must be a boolean" };
+    out.rcaShared = b.rcaShared;
+  }
   return { ok: true, value: out };
+}
+
+/**
+ * Cross-field check for a ticket patch against the stored ticket: the first
+ * response may not precede the effective raised time (Flux raised time, else
+ * Jira creation). A response before the ticket was raised would count as 0
+ * minutes and flatter the client-facing Avg Response Time. Returns the error
+ * message, or null when the patch is consistent.
+ */
+export function ticketTimesError(
+  stored: { jiraCreatedAt: Date | null; raisedAt: Date | null; firstRespondedAt: Date | null },
+  patch: TicketPatch,
+): string | null {
+  const touchesRaised = "raisedAt" in patch;
+  const touchesResponse = "firstRespondedAt" in patch;
+  if (!touchesRaised && !touchesResponse) return null;
+  const raisedAt = touchesRaised ? (patch.raisedAt ?? null) : stored.raisedAt;
+  const effectiveRaised = raisedAt ?? stored.jiraCreatedAt;
+  const response = touchesResponse ? (patch.firstRespondedAt ?? null) : stored.firstRespondedAt;
+  if (!response || !isBeforeTicketCreated(response, effectiveRaised)) return null;
+  return touchesRaised
+    ? "Raised time can't be after the first response"
+    : "First response is before the ticket was raised";
 }
 
 export function parseOwnershipBody(
@@ -210,9 +261,10 @@ export function parseSettingsBody(body: unknown): Result<SettingsInput> {
 }
 
 /**
- * True when `at` is earlier than the ticket's Jira creation time. A ticket with
- * no recorded creation time is never "before" it.
+ * True when `at` is earlier than the ticket's effective raised time (Flux
+ * raised time, else Jira creation). A ticket with no such time is never
+ * "before" it.
  */
-export function isBeforeTicketCreated(at: Date, jiraCreatedAt: Date | null): boolean {
-  return jiraCreatedAt !== null && at.getTime() < jiraCreatedAt.getTime();
+export function isBeforeTicketCreated(at: Date, raisedAt: Date | null): boolean {
+  return raisedAt !== null && at.getTime() < raisedAt.getTime();
 }

@@ -49,10 +49,10 @@ export type ReportTicketInput = {
   summary: string;
   priority: Priority;
   category: SupportCategory | null;
-  createdAt: Date;
+  createdAt: Date; // effective raised time: Flux raised_at ?? Jira creation
   resolvedAt: Date | null; // null = open
   firstRespondedAt: Date | null;
-  rcaGiven: boolean;
+  rcaGiven: boolean; // Flux rca_shared toggle
   usersReported: number | null;
   usersImpacted: number | null;
   eta: string | null; // YYYY-MM-DD, Flux value or Jira due-date fallback
@@ -91,6 +91,9 @@ export type SupportReportData = {
     priority: "P1" | "P2";
     usersReported: number | null;
     usersImpacted: number | null;
+    // Flux RCA toggle (added 2026-11-20). Reports stored before then lack it;
+    // the email renders "–" for undefined.
+    rcaShared?: boolean;
   }[];
   openBugs: {
     jiraKey: string;

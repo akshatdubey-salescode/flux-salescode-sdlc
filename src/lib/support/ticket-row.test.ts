@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { toSupportTicketRow, type RawSupportTicket } from "./ticket-row";
+import { effectiveRaisedAt, toSupportTicketRow, type RawSupportTicket } from "./ticket-row";
 
 const created = new Date("2026-11-10T05:00:00Z");
 const updated = new Date("2026-11-12T05:00:00Z");
@@ -20,10 +20,11 @@ function raw(over: Partial<RawSupportTicket> = {}): RawSupportTicket {
     jiraCreatedAt: created,
     jiraUpdatedAt: updated,
     completedAt: null,
-    rcaFieldIds: ["customfield_rca"],
     endDateFieldIds: null,
     storedCategory: null,
     ownerSide: null,
+    raisedAt: null,
+    rcaShared: null,
     firstRespondedAt: null,
     usersReported: null,
     usersImpacted: null,
@@ -76,12 +77,34 @@ test("eta: Flux value, else Jira due date, else null", () => {
   assert.equal(both.fluxEta, "2026-11-22");
 });
 
-test("rcaGiven reads the discovered RCA field", () => {
-  assert.equal(toSupportTicketRow(raw()).rcaGiven, false);
+test("rcaGiven comes from the Flux rca_shared toggle only; the Jira RCA field is ignored", () => {
+  assert.equal(toSupportTicketRow(raw()).rcaGiven, false); // no support_tickets row yet
+  assert.equal(toSupportTicketRow(raw({ rcaShared: false })).rcaGiven, false);
+  assert.equal(toSupportTicketRow(raw({ rcaShared: true })).rcaGiven, true);
   assert.equal(
     toSupportTicketRow(raw({ customFields: { customfield_rca: "  config drift " } })).rcaGiven,
-    true,
+    false,
   );
+});
+
+test("createdAt is the effective raised time: raisedAt when set, else Jira creation", () => {
+  const plain = toSupportTicketRow(raw());
+  assert.equal(plain.createdAt, created);
+  assert.equal(plain.raisedAt, null);
+  assert.equal(plain.jiraCreatedAt, created);
+
+  const raisedAt = new Date("2026-10-30T04:00:00Z");
+  const raised = toSupportTicketRow(raw({ raisedAt }));
+  assert.equal(raised.createdAt, raisedAt);
+  assert.equal(raised.raisedAt, raisedAt);
+  assert.equal(raised.jiraCreatedAt, created);
+});
+
+test("effectiveRaisedAt prefers the Flux raised time", () => {
+  const r = new Date("2026-11-09T05:00:00Z");
+  assert.equal(effectiveRaisedAt(null, created), created);
+  assert.equal(effectiveRaisedAt(r, created), r);
+  assert.equal(effectiveRaisedAt(null, null), null);
 });
 
 test("events parsed from ISO strings and sorted; ownerSide defaults to salescode", () => {

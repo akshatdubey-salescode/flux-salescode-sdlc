@@ -142,6 +142,7 @@ export function buildReportData(args: {
       priority: t.priority as "P1" | "P2",
       usersReported: t.usersReported,
       usersImpacted: t.usersImpacted,
+      rcaShared: t.rcaGiven,
     }));
 
   // §4 open bugs

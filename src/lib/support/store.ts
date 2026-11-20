@@ -22,11 +22,15 @@ import {
   type OwnerSide,
   type PeriodMode,
   type SlaTargets,
-  type SupportCategory,
   type SupportReportData,
 } from "./types";
-import { toSupportTicketRow, type RawSupportTicket, type SupportTicketRow } from "./ticket-row";
-import { isBeforeTicketCreated } from "./validate";
+import {
+  effectiveRaisedAt,
+  toSupportTicketRow,
+  type RawSupportTicket,
+  type SupportTicketRow,
+} from "./ticket-row";
+import { isBeforeTicketCreated, ticketTimesError, type TicketPatch } from "./validate";
 
 export type { SupportTicketRow } from "./ticket-row";
 
@@ -69,7 +73,7 @@ const PERIOD_MODES: readonly PeriodMode[] = ["mtd", "ytd", "custom"];
 function defaultSettings(): SettingsInput {
   return {
     enabled: false,
-    supportLabel: "support",
+    supportLabel: "external", // user decision, 2026-11-20
     periodMode: "mtd",
     periodStart: null,
     toEmails: [],
@@ -178,10 +182,11 @@ export async function listSupportTickets(projectId: string): Promise<SupportTick
       jiraCreatedAt: jiraIssues.jiraCreatedAt,
       jiraUpdatedAt: jiraIssues.jiraUpdatedAt,
       completedAt: jiraIssues.completedAt,
-      rcaFieldIds: jiraProjects.rcaFieldIds,
       endDateFieldIds: jiraProjects.endDateFieldIds,
       storedCategory: supportTickets.category,
       ownerSide: supportTickets.ownerSide,
+      raisedAt: supportTickets.raisedAt,
+      rcaShared: supportTickets.rcaShared,
       firstRespondedAt: supportTickets.firstRespondedAt,
       usersReported: supportTickets.usersReported,
       usersImpacted: supportTickets.usersImpacted,
@@ -206,7 +211,7 @@ export async function listSupportTickets(projectId: string): Promise<SupportTick
         sql`exists (select 1 from unnest(${jiraIssues.labels}) l where lower(l) = lower(${supportLabel}))`,
       ),
     )
-    .orderBy(desc(jiraIssues.jiraCreatedAt));
+    .orderBy(desc(sql`coalesce(${supportTickets.raisedAt}, ${jiraIssues.jiraCreatedAt})`));
 
   return rows.map((r) => toSupportTicketRow({ ...r, jiraCreatedAt: r.jiraCreatedAt! }));
 }
@@ -221,15 +226,24 @@ export async function getJiraBaseUrl(projectId: string): Promise<string | null> 
   return row ? row.jiraBaseUrl.replace(/\/+$/, "") : null;
 }
 
-/** The issue's created timestamp, or NotFoundError when it isn't in the project. */
+/**
+ * The issue's Jira creation time plus the Flux raised / first-response times
+ * (null when unset or no support_tickets row yet), or NotFoundError when the
+ * issue isn't in the project.
+ */
 async function issueInProject(
   q: Tx | typeof db,
   projectId: string,
   issueId: string,
-): Promise<{ jiraCreatedAt: Date | null }> {
+): Promise<{ jiraCreatedAt: Date | null; raisedAt: Date | null; firstRespondedAt: Date | null }> {
   const [row] = await q
-    .select({ jiraCreatedAt: jiraIssues.jiraCreatedAt })
+    .select({
+      jiraCreatedAt: jiraIssues.jiraCreatedAt,
+      raisedAt: supportTickets.raisedAt,
+      firstRespondedAt: supportTickets.firstRespondedAt,
+    })
     .from(jiraIssues)
+    .leftJoin(supportTickets, eq(supportTickets.issueId, jiraIssues.id))
     .where(and(eq(jiraIssues.id, issueId), eq(jiraIssues.projectId, projectId)))
     .limit(1);
   if (!row) throw new NotFoundError("Issue not found in this project");
@@ -250,22 +264,9 @@ export async function issueBelongsToProject(projectId: string, issueId: string):
 export async function updateSupportTicket(
   projectId: string,
   issueId: string,
-  patch: Partial<{
-    category: SupportCategory | null;
-    firstRespondedAt: Date | null;
-    usersReported: number | null;
-    usersImpacted: number | null;
-    eta: string | null;
-  }>,
+  patch: TicketPatch,
   by: Actor,
 ): Promise<void> {
-  const issue = await issueInProject(db, projectId, issueId);
-  // A response before the ticket existed would count as 0 minutes and flatter
-  // the client-facing Avg Response Time.
-  if (patch.firstRespondedAt && isBeforeTicketCreated(patch.firstRespondedAt, issue.jiraCreatedAt)) {
-    throw new ValidationError("First response is before the ticket was created");
-  }
-
   // Only keys actually present in the patch are written.
   const set: Partial<typeof supportTickets.$inferInsert> = {};
   if ("category" in patch) set.category = patch.category ?? null;
@@ -273,12 +274,22 @@ export async function updateSupportTicket(
   if ("usersReported" in patch) set.usersReported = patch.usersReported ?? null;
   if ("usersImpacted" in patch) set.usersImpacted = patch.usersImpacted ?? null;
   if ("eta" in patch) set.eta = patch.eta ?? null;
-  const audit = { updatedBy: by.id, updatedByName: by.name, updatedAt: new Date() };
+  if ("raisedAt" in patch) set.raisedAt = patch.raisedAt ?? null;
+  if ("rcaShared" in patch && patch.rcaShared !== undefined) set.rcaShared = patch.rcaShared;
 
-  await db
-    .insert(supportTickets)
-    .values({ issueId, projectId, ...set, ...audit })
-    .onConflictDoUpdate({ target: supportTickets.issueId, set: { ...set, ...audit } });
+  await db.transaction(async (tx) => {
+    await issueInProject(tx, projectId, issueId); // NotFoundError before any write
+    // Upsert + row lock (also writes the audit columns), then re-read under the
+    // lock so a concurrent raised-time / first-response edit can't slip past
+    // the cross-field check below.
+    await lockTicketRow(tx, projectId, issueId, by);
+    const issue = await issueInProject(tx, projectId, issueId);
+    const err = ticketTimesError(issue, patch);
+    if (err) throw new ValidationError(err);
+    if (Object.keys(set).length > 0) {
+      await tx.update(supportTickets).set(set).where(eq(supportTickets.issueId, issueId));
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -352,14 +363,17 @@ export async function addOwnershipEvent(
 ): Promise<void> {
   if (Number.isNaN(at.getTime())) throw new ValidationError("Invalid time");
   await db.transaction(async (tx) => {
-    const issue = await issueInProject(tx, projectId, issueId);
-    if (isBeforeTicketCreated(at, issue.jiraCreatedAt)) {
-      throw new ValidationError("Time is before the ticket was created");
-    }
+    await issueInProject(tx, projectId, issueId); // NotFoundError before any write
     if (at.getTime() > Date.now() + 60_000) {
       throw new ValidationError("Time is in the future");
     }
+    // Read the raised time under the row lock so a concurrent raised-time edit
+    // is seen (a validation error rolls back the upsert).
     await lockTicketRow(tx, projectId, issueId, by);
+    const issue = await issueInProject(tx, projectId, issueId);
+    if (isBeforeTicketCreated(at, effectiveRaisedAt(issue.raisedAt, issue.jiraCreatedAt))) {
+      throw new ValidationError("Time is before the ticket was raised");
+    }
     await tx
       .insert(supportTicketOwnershipEvents)
       .values({ issueId, side, at, byUser: by.id, byName: by.name });
