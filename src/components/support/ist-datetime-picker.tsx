@@ -86,6 +86,7 @@ export function IstDateTimePicker({
   size = "default",
   className,
   id,
+  emptyDraft,
 }: {
   value: string | null;
   onChange: (v: string | null) => void;
@@ -97,12 +98,14 @@ export function IstDateTimePicker({
   size?: "sm" | "default";
   className?: string;
   id?: string;
+  /** Where the picker starts when `value` is null (IST wall time); defaults to now. */
+  emptyDraft?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState<string>(value ?? toIstInputValue(new Date()));
+  const [draft, setDraft] = useState<string>(value ?? emptyDraft ?? toIstInputValue(new Date()));
 
   function onOpenChange(next: boolean) {
-    if (next) setDraft(value ?? toIstInputValue(new Date()));
+    if (next) setDraft(value ?? emptyDraft ?? toIstInputValue(new Date()));
     setOpen(next);
   }
 

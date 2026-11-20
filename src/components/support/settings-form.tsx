@@ -381,7 +381,7 @@ export function SettingsForm({ projectId }: { projectId: string }) {
         <CardHeader>
           <CardTitle>Daily report</CardTitle>
           <CardDescription>
-            Built at 17:00 IST from Jira issues carrying the support label, then held for approval before it is
+            Built at 17:00 IST from Jira issues carrying the external label, then held for approval before it is
             mailed to the client.
           </CardDescription>
         </CardHeader>
@@ -394,7 +394,7 @@ export function SettingsForm({ projectId }: { projectId: string }) {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="support-label">Support label</Label>
+              <Label htmlFor="support-label">External label</Label>
               <Input
                 id="support-label"
                 value={supportLabel}

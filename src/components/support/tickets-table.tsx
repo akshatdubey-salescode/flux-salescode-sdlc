@@ -35,9 +35,14 @@ export type SupportTicketDto = {
   summary: string;
   priority: Priority;
   category: SupportCategory | null;
+  /** Effective raised time: raisedAt ?? jiraCreatedAt. */
   createdAt: string;
+  /** Flux raised time; null = falls back to the Jira creation time. */
+  raisedAt: string | null;
+  jiraCreatedAt: string;
   resolvedAt: string | null;
   firstRespondedAt: string | null;
+  /** Flux "RCA shared" toggle. */
   rcaGiven: boolean;
   usersReported: number | null;
   usersImpacted: number | null;
@@ -63,6 +68,8 @@ type TicketPatch = Partial<{
   usersReported: number | null;
   usersImpacted: number | null;
   eta: string | null;
+  raisedAt: string | null;
+  rcaShared: boolean;
 }>;
 
 type StatusFilter = "open" | "closed" | "all";
@@ -82,6 +89,8 @@ const FIELD_LABELS: Record<keyof TicketPatch, string> = {
   usersReported: "Users reported",
   usersImpacted: "Users impacted",
   eta: "ETA",
+  raisedAt: "Raised time",
+  rcaShared: "RCA shared",
 };
 
 const TH = "px-3 py-2.5 text-left text-xs font-medium whitespace-nowrap text-zinc-500";
@@ -337,7 +346,9 @@ export function TicketsTable({ projectId }: { projectId: string }) {
               <th className={TH}>Jira status</th>
               <th className={TH}>Priority</th>
               <th className={TH}>Created (IST)</th>
+              <th className={TH}>Raised (IST)</th>
               <th className={TH}>Category</th>
+              <th className={TH}>RCA shared</th>
               <th className={TH}>On</th>
               <th className={TH}>First response (IST)</th>
               <th className={TH}>Users reported</th>
@@ -349,7 +360,7 @@ export function TicketsTable({ projectId }: { projectId: string }) {
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={12} className="px-4 py-8 text-center text-sm text-zinc-400">
+                <td colSpan={14} className="px-4 py-8 text-center text-sm text-zinc-400">
                   No tickets match these filters.
                 </td>
               </tr>
@@ -380,7 +391,18 @@ export function TicketsTable({ projectId }: { projectId: string }) {
                     <Badge className={PRIORITY_BADGE[t.priority]}>{t.priority}</Badge>
                   </td>
                   <td className={cn(TD, "text-xs whitespace-nowrap text-zinc-500")}>
-                    {formatIstDateTime(t.createdAt)}
+                    {formatIstDateTime(t.jiraCreatedAt)}
+                  </td>
+                  <td className={TD}>
+                    <RaisedCell
+                      key={`${t.issueId}:${t.raisedAt ?? ""}`}
+                      raisedAt={t.raisedAt}
+                      jiraCreatedAt={t.jiraCreatedAt}
+                      label={`Raised (IST) for ${t.jiraKey}`}
+                      onCommit={(iso) =>
+                        save(t, { raisedAt: iso }, { raisedAt: iso, createdAt: iso ?? t.jiraCreatedAt })
+                      }
+                    />
                   </td>
                   <td className={TD}>
                     <Select
@@ -409,6 +431,13 @@ export function TicketsTable({ projectId }: { projectId: string }) {
                         ))}
                       </SelectContent>
                     </Select>
+                  </td>
+                  <td className={TD}>
+                    <Switch
+                      checked={t.rcaGiven}
+                      onCheckedChange={(checked) => save(t, { rcaShared: checked }, { rcaGiven: checked })}
+                      aria-label={`RCA shared for ${t.jiraKey}`}
+                    />
                   </td>
                   <td className={TD}>
                     <div className="flex items-center gap-1.5 whitespace-nowrap">
@@ -560,6 +589,43 @@ function FirstResponseCell({
       value={current}
       label={label}
       placeholder="Set first response"
+      size="sm"
+      noFuture
+      allowClear
+      onChange={(v) => {
+        if (v === null) return onCommit(null);
+        const d = fromIstInputValue(v);
+        if (!d) {
+          toast.error("Enter a valid date and time");
+          return;
+        }
+        onCommit(d.toISOString());
+      }}
+    />
+  );
+}
+
+/**
+ * Flux raised time (IST). When unset, shows the Jira creation time muted, like
+ * the ETA cell shows the Jira due date; clearing falls back to it.
+ */
+function RaisedCell({
+  raisedAt,
+  jiraCreatedAt,
+  label,
+  onCommit,
+}: {
+  raisedAt: string | null;
+  jiraCreatedAt: string;
+  label: string;
+  onCommit: (iso: string | null) => void;
+}) {
+  return (
+    <IstDateTimePicker
+      value={raisedAt ? toIstInputValue(raisedAt) : null}
+      emptyDraft={toIstInputValue(jiraCreatedAt)}
+      label={label}
+      placeholder={`${formatIstDateTime(jiraCreatedAt)} (Jira)`}
       size="sm"
       noFuture
       allowClear
