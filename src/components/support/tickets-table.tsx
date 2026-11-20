@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { RiCalendarLine, RiHistoryLine, RiRefreshLine, RiSearchLine } from "@remixicon/react";
@@ -24,13 +24,8 @@ import {
   type Priority,
   type SupportCategory,
 } from "@/lib/support/types";
-import {
-  OwnershipDialog,
-  SIDE_LABELS,
-  formatIstDateTime,
-  fromLocalInputValue,
-  toLocalInputValue,
-} from "./ownership-dialog";
+import { formatIstDateTime, fromIstInputValue, toIstInputValue } from "@/lib/support/ist-input";
+import { OwnershipDialog, SIDE_LABELS } from "./ownership-dialog";
 
 /** SupportTicketRow as it arrives over JSON (dates are ISO strings). */
 export type SupportTicketDto = {
@@ -123,6 +118,11 @@ export function TicketsTable({ projectId }: { projectId: string }) {
 
   const url = `/api/projects/${projectId}/support/tickets`;
 
+  // Bumped by every load and every optimistic edit. A load applies its
+  // response only if nothing newer started meanwhile, so a slow, older
+  // response never overwrites newer state.
+  const seqRef = useRef(0);
+
   const fetchTickets = useCallback(async (): Promise<TicketsResponse> => {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -131,9 +131,10 @@ export function TicketsTable({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     let cancelled = false;
+    const seq = ++seqRef.current;
     fetchTickets()
       .then((d) => {
-        if (cancelled) return;
+        if (cancelled || seq !== seqRef.current) return;
         setData(d);
         setLoadError(false);
         setNow(new Date());
@@ -153,13 +154,15 @@ export function TicketsTable({ projectId }: { projectId: string }) {
 
   const reload = useCallback(async () => {
     setRefreshing(true);
+    const seq = ++seqRef.current;
     try {
       const d = await fetchTickets();
+      if (seq !== seqRef.current) return;
       setData(d);
       setLoadError(false);
       setNow(new Date());
     } catch {
-      toast.error("Failed to refresh tickets");
+      if (seq === seqRef.current) toast.error("Failed to refresh tickets");
     } finally {
       setRefreshing(false);
     }
@@ -178,6 +181,7 @@ export function TicketsTable({ projectId }: { projectId: string }) {
     for (const k of keys) (snapshot as Record<string, unknown>)[k] = row[k];
     const label = FIELD_LABELS[Object.keys(patch)[0] as keyof TicketPatch];
 
+    seqRef.current++; // any in-flight load predates this edit
     updateRow(row.issueId, (t) => ({ ...t, ...optimistic }));
     try {
       const res = await fetch(`${url}/${row.issueId}`, {
@@ -307,6 +311,7 @@ export function TicketsTable({ projectId }: { projectId: string }) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search key or summary…"
+            aria-label="Search tickets by key or summary"
             className="h-7 w-60 pl-8 text-xs"
           />
         </div>
@@ -333,7 +338,7 @@ export function TicketsTable({ projectId }: { projectId: string }) {
               <th className={TH}>Created (IST)</th>
               <th className={TH}>Category</th>
               <th className={TH}>On</th>
-              <th className={TH}>First response</th>
+              <th className={TH}>First response (IST)</th>
               <th className={TH}>Users reported</th>
               <th className={TH}>Users impacted</th>
               <th className={TH}>ETA</th>
@@ -433,6 +438,7 @@ export function TicketsTable({ projectId }: { projectId: string }) {
                     <FirstResponseCell
                       key={`${t.issueId}:${t.firstRespondedAt ?? ""}`}
                       value={t.firstRespondedAt}
+                      label={`First response (IST) for ${t.jiraKey}`}
                       onCommit={(iso) => save(t, { firstRespondedAt: iso }, { firstRespondedAt: iso })}
                     />
                   </td>
@@ -536,15 +542,17 @@ function NumberCell({
   );
 }
 
-/** datetime-local in browser time; commits ISO (or null when cleared) on blur or Enter. */
+/** datetime-local as IST wall time; commits ISO (or null when cleared) on blur or Enter. */
 function FirstResponseCell({
   value,
+  label,
   onCommit,
 }: {
   value: string | null;
+  label: string;
   onCommit: (iso: string | null) => void;
 }) {
-  const initial = value ? toLocalInputValue(new Date(value)) : "";
+  const initial = value ? toIstInputValue(value) : "";
   const [draft, setDraft] = useState(initial);
 
   function commit(el: HTMLInputElement) {
@@ -559,7 +567,7 @@ function FirstResponseCell({
       onCommit(null);
       return;
     }
-    const d = fromLocalInputValue(draft);
+    const d = fromIstInputValue(draft);
     if (!d) {
       toast.error("Enter a valid date and time");
       setDraft(initial);
@@ -571,7 +579,8 @@ function FirstResponseCell({
   return (
     <Input
       type="datetime-local"
-      aria-label="First response"
+      aria-label={label}
+      title="First response (IST)"
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={(e) => commit(e.currentTarget)}

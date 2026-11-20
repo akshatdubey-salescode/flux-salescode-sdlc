@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { format } from "date-fns";
 import { toast } from "sonner";
 import { RiDeleteBinLine } from "@remixicon/react";
 import {
@@ -30,6 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { OwnerSide } from "@/lib/support/types";
+import { formatIstDateTime, fromIstInputValue, toIstInputValue } from "@/lib/support/ist-input";
 
 export const SIDE_LABELS: Record<OwnerSide, string> = {
   salescode: "Salescode",
@@ -59,32 +59,6 @@ type Props = {
   onChanged: () => void;
 };
 
-/** `yyyy-MM-ddTHH:mm` in the browser's local time, for datetime-local inputs. */
-export function toLocalInputValue(d: Date): string {
-  return format(d, "yyyy-MM-dd'T'HH:mm");
-}
-
-/** Parses a datetime-local value (browser local time); null when empty/invalid. */
-export function fromLocalInputValue(v: string): Date | null {
-  if (!v) return null;
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-const IST_DATETIME = new Intl.DateTimeFormat("en-IN", {
-  timeZone: "Asia/Kolkata",
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
-
-export function formatIstDateTime(iso: string): string {
-  return IST_DATETIME.format(new Date(iso));
-}
-
 async function errorMessage(res: Response, fallback: string): Promise<string> {
   try {
     const body = (await res.json()) as { error?: unknown };
@@ -109,7 +83,7 @@ export function OwnershipDialog({
   onChanged,
 }: Props) {
   const [side, setSide] = useState<OwnerSide>(initialSide ?? "salescode");
-  const [at, setAt] = useState(() => toLocalInputValue(new Date()));
+  const [at, setAt] = useState(() => toIstInputValue(new Date()));
   const [saving, setSaving] = useState(false);
   const [events, setEvents] = useState<HistoryEvent[] | null>(null);
   const [historyError, setHistoryError] = useState(false);
@@ -151,7 +125,7 @@ export function OwnershipDialog({
   }, [open, base]);
 
   async function handleConfirm() {
-    const when = fromLocalInputValue(at);
+    const when = fromIstInputValue(at);
     if (!when) {
       toast.error("Enter a valid date and time");
       return;
@@ -221,7 +195,7 @@ export function OwnershipDialog({
               </Select>
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="ownership-at">Since</Label>
+              <Label htmlFor="ownership-at">Since (IST)</Label>
               <Input
                 id="ownership-at"
                 type="datetime-local"
