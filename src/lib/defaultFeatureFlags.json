@@ -20,5 +20,6 @@
     "mttr"
   ],
   "showBugBoardOpenColumn": false,
-  "enableTestCases": false
+  "enableTestCases": false,
+  "enableSupportReports": false
 }
