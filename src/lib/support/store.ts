@@ -452,6 +452,28 @@ export async function lapseOlderAwaiting(projectId: string, reportDate: string):
 }
 
 /**
+ * Claims the one-time "ready for approval" notice for a report. A single
+ * conditional UPDATE … WHERE approvers_notified_at IS NULL RETURNING id, so
+ * exactly one concurrent caller gets true. Also requires the report to still be
+ * awaiting approval, so a report that was sent or lapsed meanwhile is not
+ * announced. Callers claim first and send after: a failed send is not retried.
+ */
+export async function markApproversNotified(reportId: string): Promise<boolean> {
+  const rows = await db
+    .update(supportReports)
+    .set({ approversNotifiedAt: sql`now()` })
+    .where(
+      and(
+        eq(supportReports.id, reportId),
+        isNull(supportReports.approversNotifiedAt),
+        eq(supportReports.status, "awaiting_approval"),
+      ),
+    )
+    .returning({ id: supportReports.id });
+  return rows.length > 0;
+}
+
+/**
  * Single conditional UPDATE … RETURNING: exactly one concurrent caller wins, and
  * only if the row is still the build the approver reviewed (built_at matches).
  * Returns the claimed data (what must be sent), or null when not claimed.

@@ -29,6 +29,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
 }
 
 // "Build now": first day, or a missed cron. Allowed while sending is disabled.
+// Lapses older unapproved reports (inside buildSupportReport) but never notifies
+// approvers; the 17:00 cron still sends today's notice.
 export async function POST(_req: NextRequest, { params }: Params) {
   const user = await requireAuth();
   const { id } = await params;
@@ -39,7 +41,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
   try {
     const result = await buildSupportReport(id, istToday(), { id: user.id, name: await displayName(user) });
     if ("blocked" in result) {
-      return NextResponse.json({ error: "Today's report has already been sent or is being sent" }, { status: 409 });
+      return NextResponse.json({ error: "Today's report is no longer awaiting approval (sending, sent or failed)" }, { status: 409 });
     }
     return NextResponse.json(result);
   } catch (e) {

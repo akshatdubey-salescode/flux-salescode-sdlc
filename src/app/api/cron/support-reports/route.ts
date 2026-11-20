@@ -1,7 +1,8 @@
 import { istToday } from "@/lib/scheduled-processes/recurrence";
 import { buildSupportReport } from "@/lib/support/build";
 import { isSendEnabled, notifyApprovers } from "@/lib/support/send";
-import { lapseOlderAwaiting, listEnabledProjectIds } from "@/lib/support/store";
+import { approverNoticeCandidate } from "@/lib/support/notice";
+import { listEnabledProjectIds, markApproversNotified } from "@/lib/support/store";
 
 // The 17:00 IST support-report run.
 //
@@ -11,10 +12,13 @@ import { lapseOlderAwaiting, listEnabledProjectIds } from "@/lib/support/store";
 // same Authorization header, injected from CRON_SECRET); POST is kept so an
 // external scheduler can take the job over without a code change.
 //
-// For each enabled project: lapse older unapproved reports, build today's, and
-// notify approvers only when the build created a fresh row. Safe to call more
-// than once a day — a rebuild of an awaiting report does not re-notify, and a
-// report already sending/sent is left untouched (counted as `skipped`).
+// For each enabled project: build today's report (the build itself lapses older
+// unapproved reports) and send the approvers' "ready for approval" notice once
+// per report. The notice is claimed with a conditional UPDATE on
+// approvers_notified_at before sending, so a second call the same day never
+// re-notifies, and a manual "Build now" earlier in the day (which never
+// notifies) does not suppress it. A report already sending/sent/failed is left
+// untouched (counted as `skipped`).
 export const maxDuration = 300; // Vercel caps this to the plan's actual max if lower.
 
 function authorized(req: Request): boolean {
@@ -40,19 +44,22 @@ async function handle(req: Request) {
 
   try {
     const today = istToday();
-    const stats = { built: 0, lapsed: 0, skipped: 0, failed: 0, errors: [] as string[] };
+    const stats = { built: 0, lapsed: 0, notified: 0, skipped: 0, failed: 0, errors: [] as string[] };
 
     for (const projectId of await listEnabledProjectIds()) {
       try {
-        stats.lapsed += await lapseOlderAwaiting(projectId, today);
         const result = await buildSupportReport(projectId, today, null);
+        stats.lapsed += result.lapsed;
         if ("blocked" in result) {
           stats.skipped++;
           continue;
         }
         stats.built++;
-        if (result.created) {
-          await notifyApprovers(projectId, today, result.id, appUrl);
+        // Claim first, then send: only the caller that wins the claim mails.
+        const noticeId = approverNoticeCandidate(isSendEnabled(), result);
+        if (noticeId && (await markApproversNotified(noticeId))) {
+          stats.notified++;
+          await notifyApprovers(projectId, today, noticeId, appUrl);
         }
       } catch (err) {
         stats.failed++;

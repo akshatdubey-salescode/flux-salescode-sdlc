@@ -14,13 +14,14 @@ admins) Settings.
 | Piece | Where |
 | --- | --- |
 | Tables (settings, per-ticket fields, ownership log, reports) | `support_report_settings`, `support_tickets`, `support_ticket_ownership_events`, `support_reports` in `src/lib/db/schema.ts` |
-| Migration | `drizzle/0096_round_wrecking_crew.sql` |
+| Migration | `drizzle/0098_eager_katie_power.sql` |
 | Shared types, categories, defaults | `src/lib/support/types.ts` |
 | Office-hours / Salescode-time math | `src/lib/support/time.ts` (+ `.test.ts`) |
 | IST day windows (FTD, MTD / YTD / custom) | `src/lib/support/windows.ts` (+ `.test.ts`) |
 | Tickets → report data (pure) | `src/lib/support/aggregate.ts` (+ `.test.ts`) |
 | Report data → email HTML + subject | `src/lib/support/render-email.ts` (+ `.test.ts`) |
-| Build / rebuild a day's report | `src/lib/support/build.ts` |
+| Build / rebuild a day's report (lapses older ones first) | `src/lib/support/build.ts` |
+| Whether the cron should claim the approver notice (pure) | `src/lib/support/notice.ts` (+ `.test.ts`) |
 | Approval rules, env gate, approver check | `src/lib/support/approval.ts` (+ `.test.ts`) |
 | Claim → send → mark sent/failed | `src/lib/support/send.ts` |
 | Reads/writes and the race-safe claims | `src/lib/support/store.ts` |
@@ -35,18 +36,32 @@ admins) Settings.
 1. **17:00 IST — build.** `vercel.json` registers the cron at `30 11 * * *`
    (11:30 UTC = 17:00 IST) with `Authorization: Bearer $CRON_SECRET`. For each
    project whose settings are **enabled** it:
-   - lapses any older report that is still awaiting approval or failed — a
-     report not sent on its day is never sent later;
    - builds today's report (`buildSupportReport`) — an upsert on
      `(project_id, report_date)` that only overwrites a row still
-     `awaiting_approval`, so a sent or sending report is left alone;
-   - emails the approvers a "report ready for review" notice, only when the
-     build created a fresh row (re-running the cron doesn't re-notify).
+     `awaiting_approval`, so a sent, sending or failed report is left alone;
+   - emails the approvers a "report ready for review" notice once per report.
+     The cron first claims it with a conditional
+     `UPDATE … SET approvers_notified_at = now() WHERE id = $1 AND
+     approvers_notified_at IS NULL AND status = 'awaiting_approval'`
+     (`markApproversNotified`) and sends only if it won the claim, so
+     re-running the cron never re-notifies. The claim is taken only where
+     sending is enabled, so UAT never uses up prod's notice. Because the
+     notice is claimed before it is sent, a failed notice mail is logged and
+     not retried.
+
+   **Every build lapses older reports.** `buildSupportReport` — whether called
+   by the cron, **Build now** or **Rebuild** — first marks every report of the
+   project dated before the one being built that is still awaiting approval
+   or failed as `lapsed`. A report not sent on its day is never sent later,
+   and only one day's report is ever approvable. The cron's response reports
+   the count as `lapsed`.
 2. **Review.** An approver opens **Support → Reports**: the stored report is
    rendered exactly as the client will see it (a sandboxed iframe). Tickets
    still uncategorised are listed with a category picker; categorising them
    and pressing **Rebuild** recomputes the report from live ticket data.
-   **Build now** covers the first day or a missed cron.
+   **Build now** covers the first day or a missed cron. Build now and Rebuild
+   never notify approvers; a report built by hand before 17:00 still gets the
+   cron's notice (it is rebuilt then, and its notice has not been claimed).
 3. **Approve & send.** The confirm dialog lists To, CC and the subject. The
    request carries the `builtAt` of the preview on screen; the server claims
    the row with one conditional `UPDATE … WHERE status IN (awaiting, failed)
@@ -114,7 +129,7 @@ wall-clock time.
 
 ## Applying the migration
 
-The tables come from `drizzle/0096_round_wrecking_crew.sql`, generated with
+The tables come from `drizzle/0098_eager_katie_power.sql`, generated with
 `drizzle-kit generate`. **Never `db:push`.** Applying it is a deploy step for
 whoever deploys, against the target database:
 
