@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseOwnershipBody, parseSettingsBody, parseTicketPatch } from "./validate";
+import { isBeforeTicketCreated, parseOwnershipBody, parseSettingsBody, parseTicketPatch } from "./validate";
 
 const now = new Date("2026-11-20T10:00:00Z");
 
@@ -144,4 +144,15 @@ test("settings: approverUserIds", () => {
   assert.equal(parseSettingsBody({ ...goodSettings(), approverUserIds: [""] }).ok, false);
   assert.equal(parseSettingsBody({ ...goodSettings(), approverUserIds: [3] }).ok, false);
   assert.equal(parseSettingsBody({ ...goodSettings(), approverUserIds: "x" }).ok, false);
+});
+
+test("isBeforeTicketCreated: earlier than creation is rejected, equal or later is fine", () => {
+  const created = new Date("2026-11-20T08:00:00Z");
+  assert.equal(isBeforeTicketCreated(new Date("2026-11-20T07:59:59Z"), created), true);
+  assert.equal(isBeforeTicketCreated(new Date("2026-11-20T08:00:00Z"), created), false);
+  assert.equal(isBeforeTicketCreated(new Date("2026-11-20T09:00:00Z"), created), false);
+});
+
+test("isBeforeTicketCreated: no creation time never rejects", () => {
+  assert.equal(isBeforeTicketCreated(new Date("2000-01-01T00:00:00Z"), null), false);
 });

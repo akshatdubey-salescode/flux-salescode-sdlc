@@ -208,3 +208,11 @@ export function parseSettingsBody(body: unknown): Result<SettingsInput> {
     },
   };
 }
+
+/**
+ * True when `at` is earlier than the ticket's Jira creation time. A ticket with
+ * no recorded creation time is never "before" it.
+ */
+export function isBeforeTicketCreated(at: Date, jiraCreatedAt: Date | null): boolean {
+  return jiraCreatedAt !== null && at.getTime() < jiraCreatedAt.getTime();
+}

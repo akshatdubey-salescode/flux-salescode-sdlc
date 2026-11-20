@@ -4,7 +4,7 @@ import { requireAuth } from "@/lib/auth/server";
 import { authOptions } from "@/lib/auth/nextauth-options";
 import { isValidUuid } from "@/lib/validation";
 import { FEATURE_FLAGS, isEnabled } from "@/lib/feature-flags";
-import { NotFoundError, updateSupportTicket } from "@/lib/support/store";
+import { NotFoundError, updateSupportTicket, ValidationError } from "@/lib/support/store";
 import { parseTicketPatch } from "@/lib/support/validate";
 
 type Params = { params: Promise<{ id: string; issueId: string }> };
@@ -35,6 +35,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     });
   } catch (e) {
     if (e instanceof NotFoundError) return NextResponse.json({ error: e.message }, { status: 404 });
+    if (e instanceof ValidationError) return NextResponse.json({ error: e.message }, { status: 400 });
     throw e;
   }
   return NextResponse.json({ ok: true });

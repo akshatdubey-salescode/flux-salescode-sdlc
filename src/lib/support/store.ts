@@ -26,6 +26,7 @@ import {
   type SupportReportData,
 } from "./types";
 import { toSupportTicketRow, type RawSupportTicket, type SupportTicketRow } from "./ticket-row";
+import { isBeforeTicketCreated } from "./validate";
 
 export type { SupportTicketRow } from "./ticket-row";
 
@@ -258,7 +259,12 @@ export async function updateSupportTicket(
   }>,
   by: Actor,
 ): Promise<void> {
-  await issueInProject(db, projectId, issueId);
+  const issue = await issueInProject(db, projectId, issueId);
+  // A response before the ticket existed would count as 0 minutes and flatter
+  // the client-facing Avg Response Time.
+  if (patch.firstRespondedAt && isBeforeTicketCreated(patch.firstRespondedAt, issue.jiraCreatedAt)) {
+    throw new ValidationError("First response is before the ticket was created");
+  }
 
   // Only keys actually present in the patch are written.
   const set: Partial<typeof supportTickets.$inferInsert> = {};
@@ -347,7 +353,7 @@ export async function addOwnershipEvent(
   if (Number.isNaN(at.getTime())) throw new ValidationError("Invalid time");
   await db.transaction(async (tx) => {
     const issue = await issueInProject(tx, projectId, issueId);
-    if (issue.jiraCreatedAt && at.getTime() < issue.jiraCreatedAt.getTime()) {
+    if (isBeforeTicketCreated(at, issue.jiraCreatedAt)) {
       throw new ValidationError("Time is before the ticket was created");
     }
     if (at.getTime() > Date.now() + 60_000) {
