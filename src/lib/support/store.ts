@@ -104,7 +104,7 @@ export async function getSettings(projectId: string): Promise<SettingsInput> {
     approverUserIds: row.approverUserIds,
     sharedBy: row.sharedBy,
     sla: row.sla,
-    officeHours: { start: row.workStart, end: row.workEnd, days: row.workDays },
+    officeHours: { start: row.workStart, end: row.workEnd, days: row.workDays, timeZone: row.timeZone },
   };
 }
 
@@ -126,6 +126,7 @@ export async function saveSettings(
     workStart: input.officeHours.start,
     workEnd: input.officeHours.end,
     workDays: input.officeHours.days,
+    timeZone: input.officeHours.timeZone,
     updatedBy: userId,
     updatedAt: new Date(),
   };
@@ -135,12 +136,12 @@ export async function saveSettings(
     .onConflictDoUpdate({ target: supportReportSettings.projectId, set: values });
 }
 
-export async function listEnabledProjectIds(): Promise<string[]> {
-  const rows = await db
-    .select({ projectId: supportReportSettings.projectId })
+/** Projects whose daily report is enabled, with each one's IANA timezone. */
+export async function listEnabledProjects(): Promise<{ projectId: string; timeZone: string }[]> {
+  return db
+    .select({ projectId: supportReportSettings.projectId, timeZone: supportReportSettings.timeZone })
     .from(supportReportSettings)
     .where(eq(supportReportSettings.enabled, true));
-  return rows.map((r) => r.projectId);
 }
 
 // ---------------------------------------------------------------------------

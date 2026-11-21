@@ -98,6 +98,14 @@ tickets), and the SLA clock only runs while a ticket is with Salescode.
    year-to-present support tickets in the mail as an Excel report, based on
    raised date only, with year-month segregation as sheets." See
    "Year-to-date Excel attachment" below.
+9. **Per-project timezone (2026-11-21):** "Different clients would have
+   different time zones." Each project has an IANA timezone (default
+   Asia/Kolkata). Decisions: office hours are read in the client's timezone;
+   times are entered and shown in the project's timezone everywhere (pickers,
+   Tickets, Reports, email, Excel), labelled with the zone; the report is
+   built at 17:00 in the project's timezone for the client's calendar day (cron
+   every 30 minutes, building each project in its 17:00–17:29 local window).
+   This supersedes "IST" wherever it appears below.
 
 ## Design
 

@@ -29,6 +29,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const buffer = await buildYtdWorkbook(data.ytdTickets, {
     projectName: data.projectName,
     reportDate: data.reportDate,
+    timeZone: data.timeZone,
   });
   const filename = ytdAttachmentFilename(data.projectName, data.reportDate);
   return new NextResponse(new Uint8Array(buffer), {

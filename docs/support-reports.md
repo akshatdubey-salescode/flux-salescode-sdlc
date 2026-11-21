@@ -1,5 +1,7 @@
 # Support reports (the 17:00 client report)
 
+<!-- 17:00 is in each project's own timezone since 2026-11-21. -->
+
 A daily client support report per project, built from Jira issues that carry the
 project's **external label** (Settings → "External label", default `external`), held for a person to review, and mailed to the client
 only after an approver presses **Approve & send**. Nothing reaches a client
@@ -14,15 +16,16 @@ admins) Settings.
 | Piece | Where |
 | --- | --- |
 | Tables (settings, per-ticket fields, ownership log, reports) | `support_report_settings`, `support_tickets`, `support_ticket_ownership_events`, `support_reports` in `src/lib/db/schema.ts` |
-| Migrations | `drizzle/0098_eager_katie_power.sql` (tables), `drizzle/0099_aromatic_gateway.sql` (raised time, RCA toggle, `external` label default) |
+| Migrations | `drizzle/0098_eager_katie_power.sql` (tables), `drizzle/0099_aromatic_gateway.sql` (raised time, RCA toggle, `external` label default), `drizzle/0100_peaceful_firebrand.sql` (per-project timezone) |
 | Joined row → ticket / report input (effective raised time, RCA toggle) | `src/lib/support/ticket-row.ts` (+ `.test.ts`) |
 | Shared types, categories, defaults | `src/lib/support/types.ts` |
+| Timezone helpers (calendar day, wall time ↔ instant, labels; DST-aware) | `src/lib/support/tz.ts` (+ `.test.ts`) |
 | Office-hours / Salescode-time math | `src/lib/support/time.ts` (+ `.test.ts`) |
-| IST day windows (FTD, MTD / YTD / custom) | `src/lib/support/windows.ts` (+ `.test.ts`) |
+| Period windows (FTD, MTD / YTD / custom) | `src/lib/support/windows.ts` (+ `.test.ts`) |
 | Tickets → report data (pure) | `src/lib/support/aggregate.ts` (+ `.test.ts`) |
 | Report data → email HTML + subject | `src/lib/support/render-email.ts` (+ `.test.ts`) |
 | Build / rebuild a day's report (lapses older ones first) | `src/lib/support/build.ts` |
-| Whether the cron should claim the approver notice (pure) | `src/lib/support/notice.ts` (+ `.test.ts`) |
+| Whether a project is due (17:00 local) and should get the approver notice (pure) | `src/lib/support/notice.ts` (+ `.test.ts`) |
 | Approval rules, env gate, approver check | `src/lib/support/approval.ts` (+ `.test.ts`) |
 | Claim → send → mark sent/failed | `src/lib/support/send.ts` |
 | Reads/writes and the race-safe claims | `src/lib/support/store.ts` |
@@ -34,9 +37,11 @@ admins) Settings.
 
 ## How a day runs
 
-1. **17:00 IST — build.** `vercel.json` registers the cron at `30 11 * * *`
-   (11:30 UTC = 17:00 IST) with `Authorization: Bearer $CRON_SECRET`. For each
-   project whose settings are **enabled** it:
+1. **17:00 local — build.** `vercel.json` registers the cron every 30 minutes
+   (`0,30 * * * *`) with `Authorization: Bearer $CRON_SECRET`. Each run picks
+   the **enabled** projects whose own timezone reads 17:00–17:29 (exactly one
+   run per day lands there for any whole, half- or quarter-hour offset) and,
+   for each, using the project's calendar day as the report date:
    - builds today's report (`buildSupportReport`) — an upsert on
      `(project_id, report_date)` that only overwrites a row still
      `awaiting_approval`, so a sent, sending or failed report is left alone;
@@ -104,7 +109,7 @@ end-to-end test, set it on your machine against a local database).
 - **External label.** The Jira label that marks a support ticket defaults to
   `external` (was `support`). The DB field is still `support_label`; only the
   default and the UI copy changed. Existing projects keep the label they saved.
-- **Raised time.** `support_tickets.raised_at` (Tickets view → **Raised (IST)**)
+- **Raised time.** `support_tickets.raised_at` (Tickets view → **Raised (zone)**)
   records when the client really raised the ticket, which can be earlier than
   the Jira creation time. The **effective raised time** is
   `raised_at ?? jira_created_at`, and it replaces the Jira creation time
@@ -124,7 +129,7 @@ end-to-end test, set it on your machine against a local database).
 ## All-tickets Excel attachment (user decision, 2026-11-20)
 
 The email carries an Excel workbook of every support ticket raised (effective
-raised time, IST) from the start of the project up to the report date — open and
+raised time, project timezone) from the start of the project up to the report date — open and
 closed, all categories, uncategorised included, regardless of the period
 setting.
 
@@ -133,10 +138,10 @@ setting.
   what goes out is what could be downloaded for review. Reports built before
   this change have no snapshot: they send without an attachment, and the
   Reports view says "Rebuild to include the Excel attachment".
-- **Sheets.** One per IST month with tickets ("Jan 2026", "Mar 2026", …),
+- **Sheets.** One per month (project timezone) with tickets ("Jan 2026", "Mar 2026", …),
   oldest raised first; no tickets at all → a single "No tickets" sheet.
 - **Columns.** Jira Key, Summary, Category, Priority,
-  Open/Closed, Raised / First Response / Resolved (IST), Response and
+  Open/Closed, Raised / First Response / Resolved (in the project's zone, e.g. "Raised (IST)"), Response and
   Resolution Time (Salescode office hours), Currently With, RCA Shared,
   Users Reported, Users Impacted, ETA.
 - **File name.** `Support tickets - {project} - 20 Nov 2026.xlsx`.
@@ -145,6 +150,28 @@ setting.
   Approve dialog lists the attachment name.
 - **Failure.** If the workbook can't be generated the send fails cleanly
   (report → `failed`, Retry available); nothing is sent without it.
+
+## Per-project timezone (user decision, 2026-11-21)
+
+Each project has a **Timezone** (Settings → Timezone & office hours; column
+`support_report_settings.time_zone`, IANA name, default `Asia/Kolkata`). It
+drives everything time-related for that project:
+
+- **Report day.** FTD, the MTD / YTD / custom period, Open, §4 Reported On and
+  Age, and the attachment's month sheets use calendar days in that zone.
+  "Today" for **Build now** is the project's today.
+- **Build time.** The cron builds each project at 17:00 in its zone (see
+  above). Half-hourly crons need Vercel's Pro plan.
+- **Office hours** (e.g. 10:00–19:00 Mon–Fri) are read as wall time in that
+  zone, DST included, so they are the client's business hours.
+- **Entry and display.** The Raised / First response pickers, the ownership
+  dialog, the Tickets and Reports views, and the Excel columns all use that
+  zone, labelled with its short name ("IST", "EST", "GMT-3").
+
+The zone is stored on each report (`data.timeZone`) so the Excel attachment
+matches the report it was built with; reports built before this change have
+none and are treated as IST. Changing a project's timezone affects the next
+build or Rebuild; stored ticket times are instants and don't move.
 
 ## Ownership, backdating and office hours
 
@@ -163,8 +190,8 @@ wall-clock time.
   - an event at or before the start sets the starting side;
   - events after the end (resolution, first response, or "now") are ignored;
   - a stretch still open at the end stops counting at the end.
-- **Office hours** are per project (Settings): start / end in IST (default
-  10:00–19:00) and working days (default Mon–Fri). Only the overlap of
+- **Office hours** are per project (Settings): start / end in the project's
+  timezone (default 10:00–19:00) and working days (default Mon–Fri). Only the overlap of
   Salescode stretches with those hours counts. A ticket raised Friday 18:30 and
   resolved Monday 10:30 counts 60 minutes; one raised and resolved entirely
   outside office hours counts 0.
@@ -172,7 +199,7 @@ wall-clock time.
   **resolution** to the Jira resolution (Done/Cancelled). Both are averaged
   per priority and shown against the agreed SLA from Settings. Tickets without
   a priority count as P4, so the P1–P4 columns always add up to All.
-- **Days are IST calendar days.** "FTD" is the report date in IST, and the
+- **Days are calendar days in the project's timezone.** "FTD" is the report date there, and the
   period column is MTD, YTD, or from a custom start date — all ending on the
   report date.
 
@@ -180,8 +207,9 @@ wall-clock time.
 
 The tables come from `drizzle/0098_eager_katie_power.sql`; `drizzle/0099_aromatic_gateway.sql`
 adds `support_tickets.raised_at`, `support_tickets.rca_shared` (default false) and
-sets the `support_report_settings.support_label` default to `external`. Both were
-generated with `drizzle-kit generate`. **Never `db:push`.** Applying it is a deploy step for
+sets the `support_report_settings.support_label` default to `external`. They were
+generated with `drizzle-kit generate`; `drizzle/0100_peaceful_firebrand.sql` adds
+`support_report_settings.time_zone` (default `Asia/Kolkata`). **Never `db:push`.** Applying it is a deploy step for
 whoever deploys, against the target database:
 
 ```bash

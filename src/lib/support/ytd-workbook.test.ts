@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import ExcelJS from "exceljs";
 import type { YtdTicketRow } from "./types";
-import { buildYtdWorkbook, YTD_HEADERS } from "./ytd-workbook";
+import { buildYtdWorkbook, ytdHeaders } from "./ytd-workbook";
+
+const YTD_HEADERS = ytdHeaders();
 
 const META = { projectName: "Demo", reportDate: "2026-11-20" };
 const iso = (s: string) => new Date(s + "+05:30").toISOString();
@@ -160,4 +162,20 @@ test("no tickets → a single 'No tickets' sheet with the header row only", asyn
   const ws = wb.worksheets[0];
   assert.equal(ws.rowCount, 1);
   assert.deepEqual(rowValues(ws, 1), YTD_HEADERS);
+});
+
+test("a project in another timezone: its months, times and header labels", async () => {
+  const BA = "America/Argentina/Buenos_Aires";
+  // 1 Dec 01:00 UTC is 30 Nov 22:00 in Buenos Aires: the Nov sheet.
+  const wb = await load(
+    await buildYtdWorkbook(
+      [mk({ jiraKey: "RL-7", raisedAt: "2026-12-01T01:00:00.000Z" })],
+      { ...META, reportDate: "2026-12-01", timeZone: BA },
+    ),
+  );
+  assert.deepEqual(wb.worksheets.map((w) => w.name), ["Nov 2026"]);
+  const ws = wb.worksheets[0];
+  assert.equal(ws.getCell("F1").value, "Raised (GMT-3)");
+  assert.equal(ws.getCell("F2").value, "30 Nov 2026, 22:00");
+  assert.deepEqual(ytdHeaders(BA, "2026-12-01"), rowValues(ws, 1));
 });

@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/server";
-import { istToday } from "@/lib/scheduled-processes/recurrence";
 import { buildSupportReport } from "@/lib/support/build";
 import { canApproveReports, isSendEnabled } from "@/lib/support/send";
 import { getSettings, listReports, NotFoundError } from "@/lib/support/store";
 import { displayName, guardProject, requireApprover } from "@/lib/support/route-guard";
+import { dateInZone } from "@/lib/support/tz";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -19,7 +19,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
     reports,
     canApprove: canApproveReports(user, settings),
     sendEnabled: isSendEnabled(),
-    today: istToday(),
+    // "Today" is the project's calendar day, in its timezone.
+    today: dateInZone(new Date(), settings.officeHours.timeZone),
+    timeZone: settings.officeHours.timeZone,
   });
 }
 
@@ -34,7 +36,9 @@ export async function POST(_req: NextRequest, { params }: Params) {
   const gate = await requireApprover(user, id);
   if ("res" in gate) return gate.res;
   try {
-    const result = await buildSupportReport(id, istToday(), { id: user.id, name: await displayName(user) });
+    const { officeHours } = await getSettings(id);
+    const today = dateInZone(new Date(), officeHours.timeZone);
+    const result = await buildSupportReport(id, today, { id: user.id, name: await displayName(user) });
     if ("blocked" in result) {
       return NextResponse.json({ error: "Today's report is no longer awaiting approval (sending, sent or failed)" }, { status: 409 });
     }

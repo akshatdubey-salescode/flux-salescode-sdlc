@@ -38,10 +38,17 @@ export const DEFAULT_SLA: SlaTargets = {
 
 export type OwnershipEvent = { side: OwnerSide; at: Date };
 
-// start/end are HH:MM in IST; days are Sunday-first (0 = Sunday).
-export type OfficeHours = { start: string; end: string; days: number[] };
+// start/end are HH:MM wall time in `timeZone` (the project's IANA timezone,
+// which also sets the report day and display times); days are Sunday-first
+// (0 = Sunday).
+export type OfficeHours = { start: string; end: string; days: number[]; timeZone: string };
 
-export const DEFAULT_OFFICE_HOURS: OfficeHours = { start: "10:00", end: "19:00", days: [1, 2, 3, 4, 5] };
+export const DEFAULT_OFFICE_HOURS: OfficeHours = {
+  start: "10:00",
+  end: "19:00",
+  days: [1, 2, 3, 4, 5],
+  timeZone: "Asia/Kolkata",
+};
 
 export type ReportTicketInput = {
   issueId: string;
@@ -107,11 +114,14 @@ export type SupportReportData = {
   // Year-to-date ticket snapshot for the Excel attachment (added 2026-11-20).
   // Reports stored before then lack it and are sent without an attachment.
   ytdTickets?: YtdTicketRow[];
+  // The project's IANA timezone when built (added 2026-11-21); reports stored
+  // before then were IST.
+  timeZone?: string;
 };
 
 /**
- * One support ticket raised (IST) between 1 Jan of the report year and the
- * report date, as stored on the report and written to the Excel attachment.
+ * One support ticket raised (in the project's timezone) from the start of the
+ * project up to the report date, as stored on the report and written to the Excel attachment.
  * JSON-serialisable: instants are ISO strings, calendar days YYYY-MM-DD.
  */
 export type YtdTicketRow = {

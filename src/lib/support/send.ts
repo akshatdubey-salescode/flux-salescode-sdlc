@@ -61,6 +61,7 @@ export async function approveAndSend(
             content: await buildYtdWorkbook(data.ytdTickets, {
               projectName: data.projectName,
               reportDate: data.reportDate,
+              timeZone: data.timeZone,
             }),
           },
         ]

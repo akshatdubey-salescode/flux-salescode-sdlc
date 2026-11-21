@@ -143,7 +143,7 @@ const goodSettings = () => ({
     P3: { responseMin: 30, resolutionMin: 1440 },
     P4: { responseMin: 30, resolutionMin: 2400 },
   },
-  officeHours: { start: "10:00", end: "19:00", days: [1, 2, 3, 4, 5] },
+  officeHours: { start: "10:00", end: "19:00", days: [1, 2, 3, 4, 5], timeZone: "Asia/Kolkata" },
 });
 
 test("settings: valid body is normalised", () => {
@@ -230,4 +230,16 @@ test("isBeforeTicketCreated: earlier than creation is rejected, equal or later i
 
 test("isBeforeTicketCreated: no creation time never rejects", () => {
   assert.equal(isBeforeTicketCreated(new Date("2000-01-01T00:00:00Z"), null), false);
+});
+
+test("parseSettingsBody: timezone is validated, and defaults to Asia/Kolkata when absent", () => {
+  const withTz = (timeZone: unknown) =>
+    parseSettingsBody({ ...goodSettings(), officeHours: { start: "10:00", end: "19:00", days: [1], timeZone } });
+  const ba = withTz("America/Argentina/Buenos_Aires");
+  assert.ok(ba.ok && ba.value.officeHours.timeZone === "America/Argentina/Buenos_Aires");
+  const bad = withTz("Mars/Olympus");
+  assert.ok(!bad.ok && /officeHours\.timeZone/.test(bad.error));
+  assert.equal(withTz(42).ok, false);
+  const absent = parseSettingsBody({ ...goodSettings(), officeHours: { start: "10:00", end: "19:00", days: [1] } });
+  assert.ok(absent.ok && absent.value.officeHours.timeZone === "Asia/Kolkata");
 });

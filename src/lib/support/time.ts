@@ -1,28 +1,27 @@
 // Pure Salescode-time math (no server/DB imports; safe for client components).
 import type { OfficeHours, OwnershipEvent } from "./types";
+import { addDays, dateInZone, wallTimeToInstant, weekdayOf } from "./tz";
 
 const MIN_MS = 60_000;
 const DAY_MS = 86_400_000;
-const IST_OFFSET_MS = 330 * MIN_MS;
 
-function hhmmToMinutes(s: string): number {
-  const [h, m] = s.split(":").map(Number);
-  return h * 60 + (m || 0);
-}
-
-/** Minutes of [start, end) that fall on an IST working day within office hours. */
+/**
+ * Minutes of [start, end) that fall on a working day within office hours, both
+ * read as wall time in the office hours' timezone (DST-aware).
+ */
 export function officeMinutesBetween(start: Date, end: Date, hours: OfficeHours): number {
-  const s = start.getTime() + IST_OFFSET_MS; // IST wall-clock as pseudo-UTC
-  const e = end.getTime() + IST_OFFSET_MS;
+  const s = start.getTime();
+  const e = end.getTime();
   if (e <= s) return 0;
-  const openMs = hhmmToMinutes(hours.start) * MIN_MS;
-  const closeMs = hhmmToMinutes(hours.end) * MIN_MS;
+  const tz = hours.timeZone;
   let totalMs = 0;
-  for (let day = Math.floor(s / DAY_MS); day <= Math.floor((e - 1) / DAY_MS); day++) {
-    const dow = (((day + 4) % 7) + 7) % 7; // 1970-01-01 was a Thursday
-    if (!hours.days.includes(dow)) continue;
-    const from = Math.max(s, day * DAY_MS + openMs);
-    const to = Math.min(e, day * DAY_MS + closeMs);
+  const last = dateInZone(new Date(e - 1), tz);
+  for (let day = dateInZone(start, tz); day <= last; day = addDays(day, 1)) {
+    if (!hours.days.includes(weekdayOf(day))) continue;
+    const open = wallTimeToInstant(day, hours.start, tz).getTime();
+    const close = wallTimeToInstant(day, hours.end, tz).getTime();
+    const from = Math.max(s, open);
+    const to = Math.min(e, close);
     if (to > from) totalMs += to - from;
   }
   return totalMs / MIN_MS;
@@ -66,7 +65,7 @@ export function formatDuration(min: number | null): string {
   return m === 0 ? `${h} hr` : `${h} hr ${m} min`;
 }
 
-/** Whole days between two YYYY-MM-DD IST calendar dates. */
-export function ageDays(createdOnIst: string, reportDate: string): number {
-  return Math.round((Date.parse(reportDate) - Date.parse(createdOnIst)) / DAY_MS);
+/** Whole days between two YYYY-MM-DD calendar dates (both in the project's timezone). */
+export function ageDays(createdOn: string, reportDate: string): number {
+  return Math.round((Date.parse(reportDate) - Date.parse(createdOn)) / DAY_MS);
 }

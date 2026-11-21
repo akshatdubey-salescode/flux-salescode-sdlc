@@ -5,7 +5,7 @@ import { ageDays, formatDuration, officeMinutesBetween, salescodeMinutes } from 
 
 const ist = (s: string) => new Date(s + "+05:30");
 const H = DEFAULT_OFFICE_HOURS;
-const ALL: OfficeHours = { start: "00:00", end: "24:00", days: [0, 1, 2, 3, 4, 5, 6] };
+const ALL: OfficeHours = { start: "00:00", end: "24:00", days: [0, 1, 2, 3, 4, 5, 6], timeZone: "Asia/Kolkata" };
 const S = ist("2026-11-02T00:00");
 const h = (n: number) => new Date(S.getTime() + n * 3600_000);
 
@@ -78,4 +78,20 @@ test("formatDuration", () => {
 test("ageDays", () => {
   assert.equal(ageDays("2026-11-16", "2026-11-20"), 4);
   assert.equal(ageDays("2026-11-20", "2026-11-20"), 0);
+});
+
+test("officeMinutesBetween: office hours are read in the project's timezone", () => {
+  const BA: OfficeHours = { ...H, timeZone: "America/Argentina/Buenos_Aires" };
+  // Fri 20 Nov 2026 09:00–20:00 Buenos Aires (UTC-3) = 12:00–23:00 UTC: 10:00–19:00 there counts 540.
+  assert.equal(officeMinutesBetween(new Date("2026-11-20T12:00:00Z"), new Date("2026-11-20T23:00:00Z"), BA), 540);
+  // The same instants under IST hours: 17:30 Fri → 04:30 Sat IST, only 17:30–19:00 counts.
+  assert.equal(officeMinutesBetween(new Date("2026-11-20T12:00:00Z"), new Date("2026-11-20T23:00:00Z"), H), 90);
+});
+
+test("officeMinutesBetween: DST day keeps 10:00–19:00 local", () => {
+  const NY: OfficeHours = { ...H, timeZone: "America/New_York" };
+  // Mon 2 Nov 2026 (EST, after the 1 Nov fall-back): 10:00–19:00 EST = 15:00–00:00 UTC.
+  assert.equal(officeMinutesBetween(new Date("2026-11-02T00:00:00Z"), new Date("2026-11-03T05:00:00Z"), NY), 540);
+  // Fri 30 Oct 2026 (EDT): 10:00–19:00 EDT = 14:00–23:00 UTC.
+  assert.equal(officeMinutesBetween(new Date("2026-10-30T14:00:00Z"), new Date("2026-10-30T23:00:00Z"), NY), 540);
 });

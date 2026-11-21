@@ -13,7 +13,7 @@ import {
   type SupportReportData,
 } from "./types";
 import { ageDays, salescodeMinutes } from "./time";
-import { istDateOf } from "./windows";
+import { dateInZone } from "./tz";
 
 const SUMMARY_ROWS: SummaryRowKey[] = [
   "bugs",
@@ -66,9 +66,11 @@ export function buildReportData(args: {
 }): SupportReportData {
   const { reportDate, window, officeHours } = args;
 
-  const isFtd = (t: ReportTicketInput) => istDateOf(t.createdAt) === reportDate;
+  const tz = officeHours.timeZone;
+  const dayOf = (d: Date) => dateInZone(d, tz);
+  const isFtd = (t: ReportTicketInput) => dayOf(t.createdAt) === reportDate;
   const inPeriod = (t: ReportTicketInput) => {
-    const d = istDateOf(t.createdAt);
+    const d = dayOf(t.createdAt);
     return d >= window.start && d <= window.end;
   };
   // Open = still open AND created in the report period: an MTD report's
@@ -154,7 +156,7 @@ export function buildReportData(args: {
         a.createdAt.getTime() - b.createdAt.getTime(),
     )
     .map((t) => {
-      const createdOn = istDateOf(t.createdAt);
+      const createdOn = dayOf(t.createdAt);
       return {
         jiraKey: t.jiraKey,
         summary: t.summary,
@@ -175,5 +177,6 @@ export function buildReportData(args: {
     impact,
     openBugs,
     uncategorised,
+    timeZone: tz,
   };
 }

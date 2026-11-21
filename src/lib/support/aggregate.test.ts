@@ -12,7 +12,7 @@ import { buildReportData } from "./aggregate";
 import { toSupportTicketRow, type RawSupportTicket } from "./ticket-row";
 
 const ist = (s: string) => new Date(s + "+05:30");
-const ALL: OfficeHours = { start: "00:00", end: "24:00", days: [0, 1, 2, 3, 4, 5, 6] };
+const ALL: OfficeHours = { start: "00:00", end: "24:00", days: [0, 1, 2, 3, 4, 5, 6], timeZone: "Asia/Kolkata" };
 const MTD = { start: "2026-11-01", end: "2026-11-20", label: "MTD" };
 const ROWS: SummaryRowKey[] = [
   "bugs",
@@ -369,4 +369,14 @@ test("1st-of-month report: ftd equals period", () => {
     }
   }
   assert.equal(d.summary.total.all.ftd, 2);
+});
+
+test("FTD and period days are the project's calendar days, not IST's", () => {
+  // 20 Nov 2026 22:00 in Buenos Aires = 21 Nov 06:30 IST: FTD for a Buenos Aires report dated 20 Nov.
+  const t = mk({ createdAt: new Date("2026-11-21T01:00:00Z") });
+  const ba = run([t], { reportDate: "2026-11-20", officeHours: { ...ALL, timeZone: "America/Argentina/Buenos_Aires" } });
+  assert.equal(ba.summary.total.all.ftd, 1);
+  assert.equal(ba.timeZone, "America/Argentina/Buenos_Aires");
+  const ist = run([t], { reportDate: "2026-11-20" });
+  assert.equal(ist.summary.total.all.ftd, 0);
 });

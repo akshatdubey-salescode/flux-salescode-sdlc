@@ -2766,7 +2766,11 @@ export const supportReportSettings = pgTable("support_report_settings", {
     .default(sql`'{}'::text[]`),
   sharedBy: text("shared_by").notNull().default("L2 Support"),
   sla: jsonb("sla").$type<SlaTargets>().notNull(),
-  // Office hours (IST, HH:MM) and working days (Sunday-first) for SLA counting.
+  // IANA timezone of the client (user decision, 2026-11-21): sets the report
+  // day, the 17:00 build time, how office hours are read, and every time typed
+  // or shown for the project's support tickets.
+  timeZone: text("time_zone").notNull().default("Asia/Kolkata"),
+  // Office hours (HH:MM in time_zone) and working days (Sunday-first) for SLA counting.
   workStart: text("work_start").notNull().default("10:00"),
   workEnd: text("work_end").notNull().default("19:00"),
   workDays: integer("work_days")

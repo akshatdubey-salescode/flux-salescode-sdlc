@@ -694,6 +694,13 @@
       "when": 1795172770921,
       "tag": "0099_aromatic_gateway",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1795247508335,
+      "tag": "0100_peaceful_firebrand",
+      "breakpoints": true
     }
   ]
 }

@@ -1,14 +1,10 @@
 import { format } from "date-fns";
 import type { PeriodMode } from "./types";
 
-/** Pure IST date windows for the support report. No server/DB imports. */
-
-const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
-
-/** The IST (Asia/Kolkata) calendar day of an instant, "YYYY-MM-DD". */
-export function istDateOf(d: Date): string {
-  return new Date(d.getTime() + IST_OFFSET_MS).toISOString().slice(0, 10);
-}
+/**
+ * Pure report-period windows over calendar days in the project's timezone
+ * (see tz.ts for turning instants into those days). No server/DB imports.
+ */
 
 /** A local-time Date for a YYYY-MM-DD day, so date-fns formats it unshifted. */
 function localDay(value: string): Date {

@@ -3,6 +3,7 @@
 import { isValidDateString } from "@/lib/validation";
 import { PRIORITIES, SUPPORT_CATEGORIES, type OwnerSide, type PeriodMode, type SlaTargets, type SupportCategory } from "./types";
 import type { SettingsInput } from "./store";
+import { DEFAULT_TIME_ZONE, isValidTimeZone } from "./tz";
 
 type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -221,7 +222,7 @@ export function parseSettingsBody(body: unknown): Result<SettingsInput> {
   if (!oh || typeof oh !== "object" || Array.isArray(oh)) {
     return { ok: false, error: "officeHours is required" };
   }
-  const { start, end, days } = oh as Record<string, unknown>;
+  const { start, end, days, timeZone } = oh as Record<string, unknown>;
   if (typeof start !== "string" || !HHMM_RE.test(start)) {
     return { ok: false, error: "officeHours.start must be HH:MM" };
   }
@@ -238,6 +239,11 @@ export function parseSettingsBody(body: unknown): Result<SettingsInput> {
     new Set(days).size !== days.length
   ) {
     return { ok: false, error: "officeHours.days must be a non-empty list of distinct integers 0-6" };
+  }
+
+  // Absent → the default (Asia/Kolkata), so older clients keep working.
+  if (timeZone !== undefined && !isValidTimeZone(timeZone)) {
+    return { ok: false, error: "officeHours.timeZone must be a valid IANA timezone, e.g. Asia/Kolkata" };
   }
 
   const ids = b.approverUserIds;
@@ -258,7 +264,12 @@ export function parseSettingsBody(body: unknown): Result<SettingsInput> {
       approverUserIds,
       sharedBy,
       sla,
-      officeHours: { start, end, days: days as number[] },
+      officeHours: {
+        start,
+        end,
+        days: days as number[],
+        timeZone: timeZone === undefined ? DEFAULT_TIME_ZONE : (timeZone as string).trim(),
+      },
     },
   };
 }

@@ -1,13 +1,16 @@
-import { istToday } from "@/lib/scheduled-processes/recurrence";
 import { buildSupportReport } from "@/lib/support/build";
 import { isSendEnabled, notifyApprovers } from "@/lib/support/send";
-import { approverNoticeCandidate } from "@/lib/support/notice";
-import { listEnabledProjectIds, markApproversNotified } from "@/lib/support/store";
+import { approverNoticeCandidate, isBuildDue } from "@/lib/support/notice";
+import { listEnabledProjects, markApproversNotified } from "@/lib/support/store";
+import { dateInZone, minutesOfDayInZone } from "@/lib/support/tz";
 
-// The 17:00 IST support-report run.
+// The 17:00-local support-report run.
 //
 // Bearer CRON_SECRET guard, mirroring scheduled-processes. Registered in
-// vercel.json at 11:30 UTC — 17:00 IST, the zone report dates are judged in.
+// vercel.json every 30 minutes; each run builds only the projects whose own
+// timezone (Settings → Timezone) reads 17:00–17:29 — so every client's report
+// is built at 17:00 their time, for their calendar day (user decision,
+// 2026-11-21). Other projects are counted as `notDue`.
 // GET is handled as well as POST because Vercel Cron issues a GET (with this
 // same Authorization header, injected from CRON_SECRET); POST is kept so an
 // external scheduler can take the job over without a code change.
@@ -43,10 +46,15 @@ async function handle(req: Request) {
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin).replace(/\/$/, "");
 
   try {
-    const today = istToday();
-    const stats = { built: 0, lapsed: 0, notified: 0, skipped: 0, failed: 0, errors: [] as string[] };
+    const now = new Date();
+    const stats = { built: 0, lapsed: 0, notified: 0, skipped: 0, notDue: 0, failed: 0, errors: [] as string[] };
 
-    for (const projectId of await listEnabledProjectIds()) {
+    for (const { projectId, timeZone } of await listEnabledProjects()) {
+      if (!isBuildDue(minutesOfDayInZone(now, timeZone))) {
+        stats.notDue++;
+        continue;
+      }
+      const today = dateInZone(now, timeZone);
       try {
         const result = await buildSupportReport(projectId, today, null);
         stats.lapsed += result.lapsed;

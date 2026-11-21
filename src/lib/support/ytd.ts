@@ -3,7 +3,8 @@
 // tested in ytd.test.ts and safe for client components.
 //
 // User decision, 2026-11-20 (revised the same day): the email carries every
-// support ticket whose effective raised time falls on an IST date from the
+// support ticket whose effective raised time falls on a date (in the project's
+// timezone) from the
 // start of the project up to the report date inclusive (no lower bound) — open and closed, all categories, uncategorised
 // included — independent of the project's period setting. The rows are
 // computed at build time and stored on the report, so what is sent is what
@@ -13,7 +14,7 @@ import { format } from "date-fns";
 import type { SupportTicketRow } from "./ticket-row";
 import type { OfficeHours, YtdTicketRow } from "./types";
 import { salescodeMinutes } from "./time";
-import { istDateOf } from "./windows";
+import { dateInZone } from "./tz";
 
 export function buildYtdRows(
   rows: SupportTicketRow[],
@@ -21,7 +22,7 @@ export function buildYtdRows(
   officeHours: OfficeHours,
 ): YtdTicketRow[] {
   return rows
-    .filter((t) => istDateOf(t.createdAt) <= reportDate)
+    .filter((t) => dateInZone(t.createdAt, officeHours.timeZone) <= reportDate)
     .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.jiraKey.localeCompare(b.jiraKey))
     .map((t) => ({
       jiraKey: t.jiraKey,

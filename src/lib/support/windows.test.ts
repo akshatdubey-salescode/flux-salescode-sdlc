@@ -1,11 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { istDateOf, reportWindow } from "./windows";
-
-test("istDateOf rolls over at 18:30Z", () => {
-  assert.equal(istDateOf(new Date("2026-11-19T19:00:00Z")), "2026-11-20");
-  assert.equal(istDateOf(new Date("2026-11-19T18:29:00Z")), "2026-11-19");
-});
+import { reportWindow } from "./windows";
 
 test("mtd window", () => {
   assert.deepEqual(reportWindow("2026-11-20", "mtd", null), {

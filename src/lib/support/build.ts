@@ -1,4 +1,5 @@
-// Builds (or rebuilds) the stored support report for one project and IST day.
+// Builds (or rebuilds) the stored support report for one project and day (a
+// calendar day in the project's timezone).
 //
 // Every build path (cron, "Build now", Rebuild) first lapses the project's
 // older awaiting/failed reports, so only one day's report is ever approvable.
@@ -52,6 +53,7 @@ export async function buildSupportReport(
   // Year-to-date snapshot for the Excel attachment, independent of the period
   // setting (user decision, 2026-11-20).
   data.ytdTickets = buildYtdRows(tickets, reportDate, settings.officeHours);
+  data.timeZone = settings.officeHours.timeZone;
 
   const result = await upsertAwaitingReport(projectId, reportDate, data, by);
   return { ...result, lapsed };

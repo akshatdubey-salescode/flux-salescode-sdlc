@@ -6,7 +6,8 @@ import { RiCloseLine } from "@remixicon/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { TimeOfDayPicker } from "./ist-datetime-picker";
+import { TimeOfDayPicker } from "./zoned-datetime-picker";
+import { localTimeHint, TimeZonePicker } from "./time-zone-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -71,7 +72,7 @@ function fingerprint(s: Settings): string {
     s.ccEmails,
     s.approverUserIds,
     PRIORITIES.map((p) => [s.sla[p].responseMin, s.sla[p].resolutionMin]),
-    [s.officeHours.start, s.officeHours.end, s.officeHours.days],
+    [s.officeHours.start, s.officeHours.end, s.officeHours.days, s.officeHours.timeZone],
   ]);
 }
 
@@ -381,8 +382,8 @@ export function SettingsForm({ projectId }: { projectId: string }) {
         <CardHeader>
           <CardTitle>Daily report</CardTitle>
           <CardDescription>
-            Built at 17:00 IST from Jira issues carrying the external label, then held for approval before it is
-            mailed to the client.
+            Built at 17:00 in the project&apos;s timezone ({officeHours.timeZone}) from Jira issues carrying the
+            external label, then held for approval before it is mailed to the client.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -516,15 +517,26 @@ export function SettingsForm({ projectId }: { projectId: string }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Office hours</CardTitle>
+          <CardTitle>Timezone &amp; office hours</CardTitle>
           <CardDescription>
-            SLA time only counts Salescode-owned minutes inside these hours (IST).
+            The client&apos;s timezone sets the report day, the 17:00 build time, and every time entered or shown
+            for this project. SLA time only counts Salescode-owned minutes inside these office hours, read in
+            that timezone.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="support-timezone">Timezone</Label>
+            <TimeZonePicker
+              id="support-timezone"
+              value={officeHours.timeZone}
+              onChange={(tz) => setOfficeHours({ ...officeHours, timeZone: tz })}
+            />
+            <p className="text-xs text-muted-foreground">{localTimeHint(officeHours.timeZone)}</p>
+          </div>
           <div className="flex flex-wrap items-end gap-3">
             <div className="space-y-1.5">
-              <Label>Start (IST)</Label>
+              <Label>Start</Label>
               <TimeOfDayPicker
                 label="Office hours start"
                 value={officeHours.start}
@@ -532,7 +544,7 @@ export function SettingsForm({ projectId }: { projectId: string }) {
               />
             </div>
             <div className="space-y-1.5">
-              <Label>End (IST)</Label>
+              <Label>End</Label>
               <TimeOfDayPicker
                 label="Office hours end"
                 value={officeHours.end}

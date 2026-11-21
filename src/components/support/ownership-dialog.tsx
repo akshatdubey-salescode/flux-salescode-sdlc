@@ -28,8 +28,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { OwnerSide } from "@/lib/support/types";
-import { formatIstDateTime, fromIstInputValue, toIstInputValue } from "@/lib/support/ist-input";
-import { IstDateTimePicker } from "./ist-datetime-picker";
+import { formatZonedDateTime, fromZonedInputValue, toZonedInputValue, zoneLabel } from "@/lib/support/tz";
+import { ZonedDateTimePicker } from "./zoned-datetime-picker";
 
 export const SIDE_LABELS: Record<OwnerSide, string> = {
   salescode: "Salescode",
@@ -53,6 +53,8 @@ type Props = {
   jiraKey?: string;
   /** Side pre-selected in the "record a change" form; null = history only. */
   initialSide?: OwnerSide | null;
+  /** The project's IANA timezone: times are entered and shown in it. */
+  timeZone: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Called after an event is added or deleted, so the caller can refetch. */
@@ -78,12 +80,15 @@ export function OwnershipDialog({
   issueId,
   jiraKey,
   initialSide = null,
+  timeZone,
   open,
   onOpenChange,
   onChanged,
 }: Props) {
   const [side, setSide] = useState<OwnerSide>(initialSide ?? "salescode");
-  const [at, setAt] = useState(() => toIstInputValue(new Date()));
+  const [at, setAt] = useState(() => toZonedInputValue(new Date(), timeZone));
+  const zone = zoneLabel(timeZone);
+  const fmt = (iso: string) => formatZonedDateTime(iso, timeZone);
   const [saving, setSaving] = useState(false);
   const [events, setEvents] = useState<HistoryEvent[] | null>(null);
   const [historyError, setHistoryError] = useState(false);
@@ -125,7 +130,7 @@ export function OwnershipDialog({
   }, [open, base]);
 
   async function handleConfirm() {
-    const when = fromIstInputValue(at);
+    const when = fromZonedInputValue(at, timeZone);
     if (!when) {
       toast.error("Enter a valid date and time");
       return;
@@ -195,13 +200,14 @@ export function OwnershipDialog({
               </Select>
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="ownership-at">Since (IST)</Label>
-              <IstDateTimePicker
+              <Label htmlFor="ownership-at">Since ({zone})</Label>
+              <ZonedDateTimePicker
+                timeZone={timeZone}
                 id="ownership-at"
                 label="Since"
                 value={at}
                 noFuture
-                onChange={(v) => setAt(v ?? toIstInputValue(new Date()))}
+                onChange={(v) => setAt(v ?? toZonedInputValue(new Date(), timeZone))}
               />
             </div>
           </div>
@@ -228,9 +234,9 @@ export function OwnershipDialog({
                 <thead>
                   <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
                     <th className="px-3 py-2 text-left font-medium text-zinc-500">Side</th>
-                    <th className="px-3 py-2 text-left font-medium text-zinc-500">At (IST)</th>
+                    <th className="px-3 py-2 text-left font-medium text-zinc-500">At ({zone})</th>
                     <th className="px-3 py-2 text-left font-medium text-zinc-500">By</th>
-                    <th className="px-3 py-2 text-left font-medium text-zinc-500">Entered (IST)</th>
+                    <th className="px-3 py-2 text-left font-medium text-zinc-500">Entered ({zone})</th>
                     <th className="px-3 py-2" />
                   </tr>
                 </thead>
@@ -243,14 +249,14 @@ export function OwnershipDialog({
                         className={deleted ? "text-zinc-400 line-through" : "text-zinc-700 dark:text-zinc-300"}
                         title={
                           deleted
-                            ? `Deleted ${formatIstDateTime(ev.deletedAt!)}${ev.deletedByName ? ` by ${ev.deletedByName}` : ""}`
+                            ? `Deleted ${fmt(ev.deletedAt!)}${ev.deletedByName ? ` by ${ev.deletedByName}` : ""}`
                             : undefined
                         }
                       >
                         <td className="px-3 py-2">{SIDE_LABELS[ev.side]}</td>
-                        <td className="px-3 py-2 whitespace-nowrap">{formatIstDateTime(ev.at)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{fmt(ev.at)}</td>
                         <td className="px-3 py-2">{ev.byName ?? "—"}</td>
-                        <td className="px-3 py-2 whitespace-nowrap">{formatIstDateTime(ev.createdAt)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{fmt(ev.createdAt)}</td>
                         <td className="px-3 py-1 text-right">
                           {!deleted && (
                             <AlertDialog>
@@ -268,7 +274,7 @@ export function OwnershipDialog({
                                 <AlertDialogHeader>
                                   <AlertDialogTitle>Delete this ownership event?</AlertDialogTitle>
                                   <AlertDialogDescription>
-                                    {SIDE_LABELS[ev.side]} since {formatIstDateTime(ev.at)} will stop
+                                    {SIDE_LABELS[ev.side]} since {fmt(ev.at)} will stop
                                     counting towards Salescode time. It stays in the history, struck
                                     through.
                                   </AlertDialogDescription>

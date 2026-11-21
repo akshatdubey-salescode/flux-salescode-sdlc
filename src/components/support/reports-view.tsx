@@ -21,7 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { formatIstDateTime } from "@/lib/support/ist-input";
+import { DEFAULT_TIME_ZONE, formatZonedDateTime, zoneLabel } from "@/lib/support/tz";
 import { formatDayMonthYear, ytdAttachmentFilename } from "@/lib/support/ytd";
 import {
   CATEGORY_LABELS,
@@ -48,7 +48,13 @@ type ReportRow = {
   error: string | null;
 };
 
-type ListResponse = { reports: ReportRow[]; canApprove: boolean; sendEnabled: boolean; today: string };
+type ListResponse = {
+  reports: ReportRow[];
+  canApprove: boolean;
+  sendEnabled: boolean;
+  today: string; // the project's calendar day
+  timeZone?: string; // the project's IANA timezone
+};
 
 type DetailResponse = {
   report: ReportRow & { data: SupportReportData };
@@ -153,6 +159,9 @@ export function ReportsView({ projectId }: { projectId: string }) {
   const [delivery, setDelivery] = useState<Record<string, Delivery>>({});
 
   const todayReport = list?.reports.find((r) => r.reportDate === list.today) ?? null;
+  const tz = list?.timeZone ?? DEFAULT_TIME_ZONE;
+  const zone = zoneLabel(tz);
+  const fmtTime = (iso: string) => formatZonedDateTime(iso, tz);
   const currentId = selectedId ?? todayReport?.id ?? null;
 
   const listSeq = useRef(0);
@@ -339,12 +348,12 @@ export function ReportsView({ projectId }: { projectId: string }) {
           </CardTitle>
           <CardDescription>
             {report
-              ? `Built ${formatIstDateTime(report.builtAt)} IST by ${report.builtByName ?? "the 17:00 schedule"}`
-              : "Built automatically at 17:00 IST, then held here for approval."}
+              ? `Built ${fmtTime(report.builtAt)} ${zone} by ${report.builtByName ?? "the 17:00 schedule"}`
+              : `Built automatically at 17:00 ${zone}, then held here for approval.`}
             {report?.status === "sent" && report.sentAt && (
               <>
                 {" "}
-                · Sent {formatIstDateTime(report.sentAt)} IST
+                · Sent {fmtTime(report.sentAt)} {zone}
                 {report.approvedByName ? ` by ${report.approvedByName}` : ""}
               </>
             )}
@@ -370,7 +379,7 @@ export function ReportsView({ projectId }: { projectId: string }) {
                   {busy === "build" ? "Building…" : "Build now"}
                 </Button>
               ) : (
-                <span>It is built at 17:00 IST; an approver can also build it on demand.</span>
+                <span>It is built at 17:00 {zone}; an approver can also build it on demand.</span>
               )}
             </div>
           ) : detailError && !shown ? (
@@ -549,7 +558,7 @@ export function ReportsView({ projectId }: { projectId: string }) {
                     <th className={TH}>Date</th>
                     <th className={TH}>Status</th>
                     <th className={TH}>Approver</th>
-                    <th className={TH}>Sent at (IST)</th>
+                    <th className={TH}>Sent at ({zone})</th>
                     <th className={TH}>Recipients</th>
                     <th className={TH}>Delivery</th>
                     <th className={TH} />
@@ -570,7 +579,7 @@ export function ReportsView({ projectId }: { projectId: string }) {
                         </td>
                         <td className={cn(TD, "text-xs text-zinc-600 dark:text-zinc-400")}>{r.approvedByName ?? "–"}</td>
                         <td className={cn(TD, "text-xs whitespace-nowrap text-zinc-500")}>
-                          {r.sentAt ? formatIstDateTime(r.sentAt) : "–"}
+                          {r.sentAt ? fmtTime(r.sentAt) : "–"}
                         </td>
                         <td className={cn(TD, "text-xs text-zinc-600 dark:text-zinc-400")}>
                           {r.recipientsTo ? (

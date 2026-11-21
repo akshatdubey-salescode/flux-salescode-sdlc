@@ -24,9 +24,9 @@ import {
   type Priority,
   type SupportCategory,
 } from "@/lib/support/types";
-import { formatIstDateTime, fromIstInputValue, toIstInputValue } from "@/lib/support/ist-input";
+import { formatZonedDateTime, fromZonedInputValue, toZonedInputValue, zoneLabel } from "@/lib/support/tz";
 import { OwnershipDialog, SIDE_LABELS } from "./ownership-dialog";
-import { IstDateTimePicker } from "./ist-datetime-picker";
+import { ZonedDateTimePicker } from "./zoned-datetime-picker";
 
 /** SupportTicketRow as it arrives over JSON (dates are ISO strings). */
 export type SupportTicketDto = {
@@ -260,6 +260,8 @@ export function TicketsTable({ projectId }: { projectId: string }) {
   }
 
   const label = data.settings.supportLabel;
+  const tz = data.settings.officeHours.timeZone;
+  const zone = zoneLabel(tz);
 
   if (data.tickets.length === 0) {
     return (
@@ -345,12 +347,12 @@ export function TicketsTable({ projectId }: { projectId: string }) {
               <th className={TH}>Summary</th>
               <th className={TH}>Jira status</th>
               <th className={TH}>Priority</th>
-              <th className={TH}>Created (IST)</th>
-              <th className={TH}>Raised (IST)</th>
+              <th className={TH}>Created ({zone})</th>
+              <th className={TH}>Raised ({zone})</th>
               <th className={TH}>Category</th>
               <th className={TH}>RCA shared</th>
               <th className={TH}>On</th>
-              <th className={TH}>First response (IST)</th>
+              <th className={TH}>First response ({zone})</th>
               <th className={TH}>Users reported</th>
               <th className={TH}>Users impacted</th>
               <th className={TH}>ETA</th>
@@ -391,14 +393,15 @@ export function TicketsTable({ projectId }: { projectId: string }) {
                     <Badge className={PRIORITY_BADGE[t.priority]}>{t.priority}</Badge>
                   </td>
                   <td className={cn(TD, "text-xs whitespace-nowrap text-zinc-500")}>
-                    {formatIstDateTime(t.jiraCreatedAt)}
+                    {formatZonedDateTime(t.jiraCreatedAt, tz)}
                   </td>
                   <td className={TD}>
                     <RaisedCell
                       key={`${t.issueId}:${t.raisedAt ?? ""}`}
                       raisedAt={t.raisedAt}
                       jiraCreatedAt={t.jiraCreatedAt}
-                      label={`Raised (IST) for ${t.jiraKey}`}
+                      timeZone={tz}
+                      label={`Raised (${zone}) for ${t.jiraKey}`}
                       onCommit={(iso) =>
                         save(t, { raisedAt: iso }, { raisedAt: iso, createdAt: iso ?? t.jiraCreatedAt })
                       }
@@ -468,7 +471,8 @@ export function TicketsTable({ projectId }: { projectId: string }) {
                     <FirstResponseCell
                       key={`${t.issueId}:${t.firstRespondedAt ?? ""}`}
                       value={t.firstRespondedAt}
-                      label={`First response (IST) for ${t.jiraKey}`}
+                      timeZone={tz}
+                      label={`First response (${zone}) for ${t.jiraKey}`}
                       onCommit={(iso) => save(t, { firstRespondedAt: iso }, { firstRespondedAt: iso })}
                     />
                   </td>
@@ -514,6 +518,7 @@ export function TicketsTable({ projectId }: { projectId: string }) {
           issueId={dialogTarget.issueId}
           jiraKey={dialogTarget.jiraKey}
           initialSide={dialogTarget.side}
+          timeZone={tz}
           open={dialogOpen}
           onOpenChange={setDialogOpen}
           onChanged={reload}
@@ -572,20 +577,23 @@ function NumberCell({
   );
 }
 
-/** datetime-local as IST wall time; commits ISO (or null when cleared) on blur or Enter. */
+/** First-response picker in the project's timezone; commits ISO (or null when cleared). */
 function FirstResponseCell({
   value,
+  timeZone,
   label,
   onCommit,
 }: {
   value: string | null;
+  timeZone: string;
   label: string;
   onCommit: (iso: string | null) => void;
 }) {
-  const current = value ? toIstInputValue(value) : null;
+  const current = value ? toZonedInputValue(value, timeZone) : null;
 
   return (
-    <IstDateTimePicker
+    <ZonedDateTimePicker
+      timeZone={timeZone}
       value={current}
       label={label}
       placeholder="Set first response"
@@ -594,7 +602,7 @@ function FirstResponseCell({
       allowClear
       onChange={(v) => {
         if (v === null) return onCommit(null);
-        const d = fromIstInputValue(v);
+        const d = fromZonedInputValue(v, timeZone);
         if (!d) {
           toast.error("Enter a valid date and time");
           return;
@@ -606,32 +614,35 @@ function FirstResponseCell({
 }
 
 /**
- * Flux raised time (IST). When unset, shows the Jira creation time muted, like
+ * Flux raised time (project timezone). When unset, shows the Jira creation time muted, like
  * the ETA cell shows the Jira due date; clearing falls back to it.
  */
 function RaisedCell({
   raisedAt,
   jiraCreatedAt,
+  timeZone,
   label,
   onCommit,
 }: {
   raisedAt: string | null;
   jiraCreatedAt: string;
+  timeZone: string;
   label: string;
   onCommit: (iso: string | null) => void;
 }) {
   return (
-    <IstDateTimePicker
-      value={raisedAt ? toIstInputValue(raisedAt) : null}
-      emptyDraft={toIstInputValue(jiraCreatedAt)}
+    <ZonedDateTimePicker
+      timeZone={timeZone}
+      value={raisedAt ? toZonedInputValue(raisedAt, timeZone) : null}
+      emptyDraft={toZonedInputValue(jiraCreatedAt, timeZone)}
       label={label}
-      placeholder={`${formatIstDateTime(jiraCreatedAt)} (Jira)`}
+      placeholder={`${formatZonedDateTime(jiraCreatedAt, timeZone)} (Jira)`}
       size="sm"
       noFuture
       allowClear
       onChange={(v) => {
         if (v === null) return onCommit(null);
-        const d = fromIstInputValue(v);
+        const d = fromZonedInputValue(v, timeZone);
         if (!d) {
           toast.error("Enter a valid date and time");
           return;

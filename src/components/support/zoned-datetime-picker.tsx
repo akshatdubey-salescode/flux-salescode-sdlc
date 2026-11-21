@@ -8,11 +8,11 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { fromIstInputValue, formatIstDateTime, toIstInputValue } from "@/lib/support/ist-input";
+import { formatZonedDateTime, fromZonedInputValue, toZonedInputValue, zoneLabel } from "@/lib/support/tz";
 
 // App-styled replacements for the browser's datetime-local / time inputs.
-// Values stay in the same `YYYY-MM-DDTHH:mm` IST wall-time format the
-// ist-input helpers use, so callers convert exactly as before.
+// Values are `YYYY-MM-DDTHH:mm` wall time in the project's timezone (the
+// `timeZone` prop); callers convert with toZonedInputValue / fromZonedInputValue.
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const HOURS = Array.from({ length: 24 }, (_, i) => pad(i));
@@ -73,10 +73,12 @@ function TimeSelects({
 }
 
 /**
- * Date + time picker in IST. `value` / `onChange` use `YYYY-MM-DDTHH:mm`
- * (IST wall time) or null. Changes apply on "Set", not on every click.
+ * Date + time picker in the project's timezone. `value` / `onChange` use
+ * `YYYY-MM-DDTHH:mm` (wall time in `timeZone`) or null. Changes apply on
+ * "Set", not on every click.
  */
-export function IstDateTimePicker({
+export function ZonedDateTimePicker({
+  timeZone,
   value,
   onChange,
   label,
@@ -88,6 +90,8 @@ export function IstDateTimePicker({
   id,
   emptyDraft,
 }: {
+  /** IANA timezone the wall time is in (the project's Settings → Timezone). */
+  timeZone: string;
   value: string | null;
   onChange: (v: string | null) => void;
   label: string;
@@ -98,21 +102,23 @@ export function IstDateTimePicker({
   size?: "sm" | "default";
   className?: string;
   id?: string;
-  /** Where the picker starts when `value` is null (IST wall time); defaults to now. */
+  /** Where the picker starts when `value` is null (wall time in `timeZone`); defaults to now. */
   emptyDraft?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState<string>(value ?? emptyDraft ?? toIstInputValue(new Date()));
+  const nowWall = () => toZonedInputValue(new Date(), timeZone);
+  const [draft, setDraft] = useState<string>(value ?? emptyDraft ?? nowWall());
 
   function onOpenChange(next: boolean) {
-    if (next) setDraft(value ?? emptyDraft ?? toIstInputValue(new Date()));
+    if (next) setDraft(value ?? emptyDraft ?? nowWall());
     setOpen(next);
   }
 
-  const nowIst = toIstInputValue(new Date());
+  const now = nowWall();
+  const zone = zoneLabel(timeZone);
   const hour = draft.slice(11, 13);
   const minute = draft.slice(14, 16);
-  const tooLate = noFuture && draft > nowIst;
+  const tooLate = noFuture && draft > now;
 
   function apply() {
     if (tooLate) return;
@@ -122,7 +128,7 @@ export function IstDateTimePicker({
     if (draft !== value) onChange(draft);
   }
 
-  const shown = value ? fromIstInputValue(value) : null;
+  const shown = value ? fromZonedInputValue(value, timeZone) : null;
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
@@ -132,12 +138,12 @@ export function IstDateTimePicker({
           variant="outline"
           size={size === "sm" ? "sm" : "default"}
           aria-label={label}
-          title={`${label} (IST)`}
+          title={`${label} (${zone}, ${timeZone})`}
           className={cn("justify-start font-normal", size === "sm" ? "h-7 w-44 text-xs" : "w-full", className)}
         >
           <RiCalendarLine className="text-muted-foreground" />
           {shown ? (
-            <span>{formatIstDateTime(shown.toISOString())}</span>
+            <span>{formatZonedDateTime(shown, timeZone)}</span>
           ) : (
             <span className="text-muted-foreground">{placeholder}</span>
           )}
@@ -148,7 +154,7 @@ export function IstDateTimePicker({
           mode="single"
           selected={dayOf(draft)}
           defaultMonth={dayOf(draft)}
-          disabled={noFuture ? { after: dayOf(nowIst) } : undefined}
+          disabled={noFuture ? { after: dayOf(now) } : undefined}
           onSelect={(d) => {
             if (d) setDraft(`${format(d, "yyyy-MM-dd")}${draft.slice(10)}`);
           }}
@@ -163,7 +169,9 @@ export function IstDateTimePicker({
               onHour={(h) => setDraft(`${draft.slice(0, 11)}${h}${draft.slice(13)}`)}
               onMinute={(m) => setDraft(`${draft.slice(0, 14)}${m}`)}
             />
-            <span className="text-xs text-muted-foreground">IST</span>
+            <span className="text-xs text-muted-foreground" title={timeZone}>
+              {zone}
+            </span>
           </div>
         </div>
         {tooLate && (
@@ -171,7 +179,7 @@ export function IstDateTimePicker({
         )}
         <div className="flex items-center justify-between gap-2 border-t px-3 py-2">
           <div className="flex gap-1">
-            <Button variant="ghost" size="sm" onClick={() => setDraft(toIstInputValue(new Date()))}>
+            <Button variant="ghost" size="sm" onClick={() => setDraft(nowWall())}>
               Now
             </Button>
             {allowClear && value !== null && (
