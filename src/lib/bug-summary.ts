@@ -320,3 +320,158 @@ export function formatBugDate(iso: string | null | undefined): string {
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "2-digit" });
 }
+
+// ---------------------------------------------------------------------------
+// Filtering + sorting — shared by the Bug Summary UI and the external
+// /api/v1 bug endpoint, so both always agree on what a filter means.
+// Two stages, mirroring the UI: scope filters feed the developer-wise counts
+// AND the detail list; detail filters + sort only narrow the detail list.
+// ---------------------------------------------------------------------------
+
+export type BugSortKey =
+  | "key"
+  | "project"
+  | "summary"
+  | "owner"
+  | "assignee"
+  | "priority"
+  | "environment"
+  | "status"
+  | "start"
+  | "end"
+  | "updated";
+
+export const BUG_SORT_KEYS: BugSortKey[] = [
+  "key",
+  "project",
+  "summary",
+  "owner",
+  "assignee",
+  "priority",
+  "environment",
+  "status",
+  "start",
+  "end",
+  "updated",
+];
+export const DEFAULT_BUG_SORT: BugSortKey = "priority";
+export const DEFAULT_BUG_SORT_DIR: "asc" | "desc" = "asc";
+
+export function asBugSortKey(v: string | null | undefined): BugSortKey {
+  return v && (BUG_SORT_KEYS as string[]).includes(v) ? (v as BugSortKey) : DEFAULT_BUG_SORT;
+}
+
+// Severity ordering so priority sorts P1 → P2 → P3 → Other.
+export const BUCKET_RANK: Record<BugPriorityBucket, number> = {
+  P1: 0,
+  P2: 1,
+  P3: 2,
+  Other: 3,
+};
+
+export type BugScopeFilters = {
+  /** Project keys to keep; null/empty = all projects. */
+  projects?: ReadonlySet<string> | null;
+  /** Exact normalized environment label; null = any. */
+  env?: string | null;
+  /** Drop "Not a bug" / "Can't Reproduce" bugs. */
+  excludeInvalid?: boolean;
+};
+
+export function applyBugScopeFilters(bugs: BugRow[], f: BugScopeFilters): BugRow[] {
+  const projects = f.projects && f.projects.size > 0 ? f.projects : null;
+  return bugs.filter(
+    (b) =>
+      (!projects || projects.has(b.projectKey)) &&
+      (!f.env || b.environment === f.env) &&
+      (!f.excludeInvalid || !b.isInvalid)
+  );
+}
+
+export type BugDetailFilters = {
+  /** Owner key (email, else display name): matches the bug's owner OR assignee. */
+  owner?: string | null;
+  /** Case-insensitive substring search across the visible text columns. */
+  q?: string | null;
+};
+
+export function applyBugDetailFilters(bugs: BugRow[], f: BugDetailFilters): BugRow[] {
+  const needle = (f.q ?? "").trim().toLowerCase();
+  const owner = f.owner || null;
+  if (!owner && !needle) return bugs;
+  return bugs.filter((b) => {
+    // A developer's bugs are every bug they touch — as owner OR assignee.
+    if (owner) {
+      const ownerKey = b.ownerEmail ?? b.ownerName;
+      const assigneeKey = b.assigneeEmail ?? b.assigneeName;
+      if (ownerKey !== owner && assigneeKey !== owner) return false;
+    }
+    if (!needle) return true;
+    return (
+      b.jiraKey.toLowerCase().includes(needle) ||
+      b.summary.toLowerCase().includes(needle) ||
+      b.ownerName.toLowerCase().includes(needle) ||
+      (b.assigneeName ?? "").toLowerCase().includes(needle) ||
+      b.environment.toLowerCase().includes(needle) ||
+      (b.priority ?? "").toLowerCase().includes(needle) ||
+      b.status.toLowerCase().includes(needle) ||
+      b.projectKey.toLowerCase().includes(needle) ||
+      b.projectName.toLowerCase().includes(needle)
+    );
+  });
+}
+
+/** Returns a new sorted array; ties break on Jira key (numeric-aware). */
+export function sortBugs(bugs: BugRow[], key: BugSortKey, dir: "asc" | "desc"): BugRow[] {
+  const sign = dir === "asc" ? 1 : -1;
+  return [...bugs].sort((a, b) => {
+    let cmp = 0;
+    switch (key) {
+      case "key":
+        cmp = a.jiraKey.localeCompare(b.jiraKey, undefined, { numeric: true });
+        break;
+      case "project":
+        cmp = a.projectKey.localeCompare(b.projectKey);
+        break;
+      case "summary":
+        cmp = a.summary.localeCompare(b.summary);
+        break;
+      case "owner":
+        cmp = a.ownerName.localeCompare(b.ownerName);
+        break;
+      case "assignee":
+        cmp = (a.assigneeName ?? "").localeCompare(b.assigneeName ?? "");
+        break;
+      case "priority":
+        cmp = BUCKET_RANK[a.priorityBucket] - BUCKET_RANK[b.priorityBucket];
+        break;
+      case "environment":
+        cmp = a.environment.localeCompare(b.environment);
+        break;
+      case "status":
+        cmp = a.status.localeCompare(b.status);
+        break;
+      case "start":
+        cmp =
+          new Date(a.jiraCreatedAt ?? 0).getTime() - new Date(b.jiraCreatedAt ?? 0).getTime();
+        break;
+      case "end":
+        // Open bugs have no end date — keep them at the bottom whichever way
+        // the column is sorted, so the closed ones read as one block.
+        if (!a.jiraClosedAt || !b.jiraClosedAt) {
+          if (a.jiraClosedAt) return -1;
+          if (b.jiraClosedAt) return 1;
+          cmp = 0;
+        } else {
+          cmp = new Date(a.jiraClosedAt).getTime() - new Date(b.jiraClosedAt).getTime();
+        }
+        break;
+      case "updated":
+        cmp =
+          new Date(a.jiraUpdatedAt ?? 0).getTime() - new Date(b.jiraUpdatedAt ?? 0).getTime();
+        break;
+    }
+    if (cmp === 0) cmp = a.jiraKey.localeCompare(b.jiraKey, undefined, { numeric: true });
+    return cmp * sign;
+  });
+}

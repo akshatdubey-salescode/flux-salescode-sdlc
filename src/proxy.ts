@@ -7,8 +7,9 @@ import type { NextRequest } from "next/server";
 // requireAuth()/requireRole()/getCurrentUser() in its handler, so a proxy
 // cookie-presence check there is pure redundant (billed) overhead — it never
 // provided real protection (cookie present != valid session). Also excluded:
-// _next/* and static assets. These regexes only handle the page paths the
-// matcher *does* let through that shouldn't be auth-gated.
+// _next/* and static assets, and /version.json (the build stamp, public on
+// purpose so a deploy can be checked with curl). These regexes only handle
+// the page paths the matcher *does* let through that shouldn't be auth-gated.
 const PUBLIC_PATHS: RegExp[] = [
   /^\/$/,
   /^\/sign-in(\/.*)?$/,
@@ -56,6 +57,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!api|_next/static|_next/image|_next/data|favicon.ico|sitemap.xml|robots.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webmanifest|webp|ico|css|js|woff|woff2|ttf|map)$).*)",
+    "/((?!api|_next/static|_next/image|_next/data|favicon.ico|sitemap.xml|robots.txt|version\\.json|.*\\.(?:svg|png|jpg|jpeg|gif|webmanifest|webp|ico|css|js|woff|woff2|ttf|map)$).*)",
   ],
 };
