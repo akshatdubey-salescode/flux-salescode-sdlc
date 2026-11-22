@@ -453,13 +453,16 @@ export function parseDeploymentRecord(comment: RecordComment): ParsedRecord | nu
   try {
     const read = bodyToBlocks(comment.body);
     let blocks = read.blocks;
-    let truncated = read.truncated;
+    const truncated = read.truncated;
+    // A record inside a code block is also run through the markdown reader (20 KB per paragraph); that is only the block view, a dialect record
+    // is parsed from the code text itself, so the markdown cut counts only when the numbered-section reader is used.
+    let unwrapTruncated = false;
     let codeText: string | null = null;
     const unwrapped = unwrapCodeRecord(blocks);
     if (unwrapped) {
       blocks = unwrapped.blocks;
       codeText = unwrapped.text;
-      truncated = truncated || unwrapped.truncated;
+      unwrapTruncated = unwrapped.truncated;
       warnings.push({ code: "record_in_code_block", message: "The record was inside a code block and was read as ordinary text" });
     }
 
@@ -478,7 +481,7 @@ export function parseDeploymentRecord(comment: RecordComment): ParsedRecord | nu
           truncated: norm.truncated,
         }
       : splitSections(blocks);
-    const wasTruncated = truncated || split.overflow || split.truncated;
+    const wasTruncated = truncated || (dialectOn ? false : unwrapTruncated) || split.overflow || split.truncated;
     if (wasTruncated) {
       warnings.push({ code: "truncated", message: "The comment exceeded a safety limit (64 KB text, 20 KB per section/paragraph, 200 chars per word); the rest was cut" });
     }

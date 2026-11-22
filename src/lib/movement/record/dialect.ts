@@ -33,12 +33,16 @@ import type {
 } from "./types";
 import { capStr, cleanText, outsideParens, refsWithPos, splitOutsideParens, trimDot } from "./util";
 
-export const MAX_DIALECT_CHARS = 20_000;
+// A union record of a big story (34 PRs, 23 release rows, the likely-missed list, order, open, undo, verify) is 25-30 KB: the cap sits just under
+// the 64 KB budget of the ADF reader so nothing at the end of such a record (the later rows and the labelled blocks) is cut.
+export const MAX_DIALECT_CHARS = 60_000;
 const MAX_LINES = 400;
 const MAX_LINE = 2000;
 const MAX_BLOCKS = 40;
 const MAX_ROWS = 60;
-const MAX_COVERS = 40;
+// One labelled block keeps this many lines: the MERGED PRs block of a story with 34+ PRs has one line per PR (it was 30, which dropped the last PRs).
+const MAX_BLOCK_LINES = 150;
+const MAX_COVERS = 120;
 
 /** Tabs become two blanks (a column gap), CRLF becomes LF, blank runs and long words are capped. */
 export function normalizeDialect(raw: string): { text: string; truncated: boolean } {
@@ -287,7 +291,7 @@ export function parseDialect(text: string): Dialect {
     if (cur.kind === "label") {
       const parts = cur.block.parts.filter(Boolean);
       if (labelled.length < MAX_BLOCKS) {
-        labelled.push({ label: cur.block.label, text: parts.join("\n"), lines: parts.slice(0, 30).map((p) => capStr(p, 500)), ...(cur.block.written ? { written: cur.block.written } : {}) });
+        labelled.push({ label: cur.block.label, text: parts.join("\n"), lines: parts.slice(0, MAX_BLOCK_LINES).map((p) => capStr(p, 500)), ...(cur.block.written ? { written: cur.block.written } : {}) });
       }
     } else if (rows.length < MAX_ROWS) {
       const partsNonEmpty = cur.parts.filter(Boolean);
@@ -298,7 +302,7 @@ export function parseDialect(text: string): Dialect {
         id: null,
         label: cur.label,
         answer: capStr(answer, 1000),
-        ...(partsNonEmpty.length > 1 ? { lines: partsNonEmpty.slice(0, 30).map((p) => capStr(p, 500)) } : {}),
+        ...(partsNonEmpty.length > 1 ? { lines: partsNonEmpty.slice(0, MAX_BLOCK_LINES).map((p) => capStr(p, 500)) } : {}),
         state,
         text: capStr(rest, 1000),
       });

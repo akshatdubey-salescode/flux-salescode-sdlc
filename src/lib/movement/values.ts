@@ -86,5 +86,8 @@ export type MovementSummarySource = (typeof MOVEMENT_SUMMARY_SOURCE_VALUES)[numb
  * 6: a sentence of rows 2 / 12 with no service in it ("Users log out and in ...", "The app is an app-store release, not a restart") is ONE note; "tenant: a; b" is one note.
  * 7: a bracket wrapped over two lines is one text; "(remark)" on its own line and a phrase after a service ("Channel Kart (code); properties need cache clear only") are that service's note.
  * 8: the database rows of a release page (previous data, DB change queries, DB index, UI index db) no longer also become `facts.database.items` / `noSql`: the rows are the single source.
+ * 9: a record up to 60 KB is read whole (the cap was 20 KB, which cut the later release rows and the LIKELY TO BE MISSED / ORDER / OPEN / UNDO / VERIFY blocks of a big union record);
+ *    a labelled block keeps 150 lines (was 30: the last PRs of a 34-PR union were dropped) and a record lists up to 120 PRs (was 40);
+ *    a union record's `supersedes: <comment ids>` also retires the per-PR records it names.
  */
-export const PARSER_VERSION = 8;
+export const PARSER_VERSION = 9;
