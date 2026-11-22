@@ -16,7 +16,7 @@
  * `normalizeDialect`, so regexes see single-line strings of at most 2000 characters with bounded
  * blank runs.
  */
-import { chainEdges, dedupeEdges, parseServices, stepFrom } from "./facts";
+import { chainEdges, dedupeEdges, stepFrom } from "./facts";
 import type {
   ConfigRow,
   Cover,
