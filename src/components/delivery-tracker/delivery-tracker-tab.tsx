@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   RiAddLine,
@@ -19,6 +20,7 @@ import {
   RiDownload2Line,
   RiMore2Line,
   RiArrowDownSLine,
+  RiLoader4Line,
 } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -71,10 +73,15 @@ import { refreshDeliverySummary, subscribeToDeliveryListChanges } from "./delive
 import { CreateDeliveryForm } from "./create-delivery-form";
 import { IssueMultiPicker, type IssueResult } from "./issue-multi-picker";
 import { ItemDetailModal } from "./item-detail-modal";
+import { MovementSection } from "./movement/movement-section";
+import { filterDeliveries } from "./movement/logic";
+import { arrivalStep, completionToastText, legacyMovementRedirect, listIsStale, movementPagePath, parseCompletionParams, parseDeliveryLink, withoutCompletionParams } from "./movement/view-model";
 import { useColumnVisibility, TOGGLEABLE_COLUMNS, type ColumnKey } from "./use-column-visibility";
 import type { DeliveryWithItems, DeliveryItemRow, DeliveryRollup, DeliveryOption } from "@/lib/deliveries/entries";
 
-type DeliveriesResponse = { deliveries: DeliveryWithItems[] };
+/** The list also carries each delivery's live movement per environment (`movements`), so a card needs no request of its own. */
+type DeliveryRow = DeliveryWithItems & { movements?: Array<{ id: string; environment: "demo" | "uat" | "prod"; status: string }> };
+type DeliveriesResponse = { deliveries: DeliveryRow[] };
 
 function deliveryMatchesSearch(delivery: DeliveryWithItems, query: string): boolean {
   const q = query.toLowerCase();
@@ -274,7 +281,7 @@ function buildDeliveryAlertMessage(delivery: DeliveryWithItems, items: DeliveryI
 }
 
 export function DeliveryTrackerTab({ projectId, canManage }: { projectId: string; canManage: boolean }) {
-  const [deliveries, setDeliveries] = useState<DeliveryWithItems[] | null>(null);
+  const [deliveries, setDeliveries] = useState<DeliveryRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
@@ -285,17 +292,37 @@ export function DeliveryTrackerTab({ projectId, canManage }: { projectId: string
   const { visibleColumns, toggleColumn, resetColumns } = useColumnVisibility();
   const [exporting, setExporting] = useState(false);
 
-  const load = useCallback(() => {
+  // A movement is its own page (/projects/<id>/deliveries/<delivery>/movements/<movement>). This tab only
+  //  - redirects an OLD deep link (?tab=delivery-tracker&delivery=<id>&movement=<id>, older e-mails and bookmarks) to that page,
+  //  - scrolls to and highlights the card of `delivery=<id>` (the way back from a movement page; it opens nothing),
+  //  - and after a completed movement (`updated=1&env=&n=`) says what happened, then drops those keys (never `tab`).
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const deliveryLink = useMemo(() => parseDeliveryLink(searchParams), [searchParams]);
+  const completion = useMemo(() => parseCompletionParams(searchParams), [searchParams]);
+  const legacyRedirect = useMemo(() => legacyMovementRedirect(searchParams, projectId), [searchParams, projectId]);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  /** The card whose statuses are being re-read after a completed movement (shown as "Updating statuses…" instead of stale numbers). */
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const loadedAt = useRef<number | null>(null);
+  useEffect(() => {
+    if (legacyRedirect) router.replace(legacyRedirect);
+  }, [legacyRedirect, router]);
+
+  const load = useCallback((): Promise<void> => {
     // no-store: same browser-fetch-cache staleness this feature hit
     // elsewhere — this list is re-fetched right after add/remove/status
     // mutations, so a cached response for this exact URL would silently
     // undo the whole point of reloading.
-    fetch(`/api/projects/${projectId}/deliveries`, { cache: "no-store" })
+    return fetch(`/api/projects/${projectId}/deliveries`, { cache: "no-store" })
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then((d: DeliveriesResponse) => setDeliveries(d.deliveries))
+      .then((d: DeliveriesResponse) => {
+        loadedAt.current = Date.now();
+        setDeliveries(d.deliveries);
+      })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load"));
   }, [projectId]);
 
@@ -335,23 +362,53 @@ export function DeliveryTrackerTab({ projectId, canManage }: { projectId: string
 
   const completedCount = useMemo(() => (deliveries ?? []).filter((d) => d.completedAt).length, [deliveries]);
 
+  // The delivery the URL points at stays listed whatever the filters say (it may be completed, or hidden by the item-status filter).
+  const pinned = useMemo(() => new Set([deliveryLink?.deliveryId].filter((x): x is string => !!x)), [deliveryLink]);
+
   const filteredDeliveries = useMemo(() => {
     if (!deliveries) return null;
-    const query = search.trim();
-    return deliveries
-      .filter((d) => {
-        if (!showCompleted && d.completedAt) return false;
-        if (dateFrom && d.deliveryDate < dateFrom) return false;
-        if (dateTo && d.deliveryDate > dateTo) return false;
-        if (query && !deliveryMatchesSearch(d, query)) return false;
-        return true;
-      })
-      .map((d) => ({
-        ...d,
-        visibleItems: statusFilter.size === 0 ? d.items : d.items.filter((i) => statusFilter.has(i.status)),
-      }))
-      .filter((d) => statusFilter.size === 0 || d.visibleItems.length > 0);
-  }, [deliveries, search, dateFrom, dateTo, statusFilter, showCompleted]);
+    return filterDeliveries(deliveries, { showCompleted, dateFrom, dateTo, query: search, statusFilter, pinned }, deliveryMatchesSearch);
+  }, [deliveries, search, dateFrom, dateTo, statusFilter, showCompleted, pinned]);
+
+  // Once the list is loaded: scroll to the linked card and ring it for a moment; after a finished movement also say what happened. This
+  // tab can stay mounted (or be restored) across client navigations, so "once" is per ARRIVAL, not per delivery (arrivalStep): the URL
+  // without a delivery link resets it, and so does the effect being torn down (the tab hidden / unmounted). The hand-over keys are
+  // dropped every time they are seen, handled or not. Timers (not synchronous state) so a cleanup before they fire just reschedules.
+  const arrived = useRef<string | null>(null);
+  const linkedId = deliveryLink?.deliveryId ?? null;
+  const linkedPresent = !!deliveries?.some((d) => d.id === linkedId);
+  const searchKey = searchParams.toString();
+  useEffect(() => () => void (arrived.current = null), []);
+  useEffect(() => {
+    if (!linkedId) {
+      arrived.current = null; // the link is gone from the URL: the next visit is a new arrival
+      return;
+    }
+    if (!linkedPresent) return;
+    const start = setTimeout(() => {
+      const step = arrivalStep(arrived.current, linkedId, searchKey);
+      arrived.current = step.next;
+      if (step.fresh) {
+        document.getElementById(`delivery-${linkedId}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+        setHighlightId(linkedId);
+        if (completion) (completion.kind === "attention" ? toast.warning : toast.success)(completionToastText(completion));
+        // Coming back to a list that may be stale (this tab was kept alive, or a movement just finished): re-read it and say so on the card.
+        if (listIsStale(loadedAt.current, Date.now(), !!completion)) {
+          setUpdatingId(linkedId);
+          void load().finally(() => setUpdatingId((u) => (u === linkedId ? null : u)));
+        }
+      }
+      if (step.clear) {
+        const qs = withoutCompletionParams(searchKey);
+        router.replace(qs ? `?${qs}` : "?", { scroll: false });
+      }
+    }, 0);
+    const stop = setTimeout(() => setHighlightId((h) => (h === linkedId ? null : h)), 3500);
+    return () => {
+      clearTimeout(start);
+      clearTimeout(stop);
+    };
+  }, [linkedId, linkedPresent, completion, searchKey, router, load]);
 
   const hasActiveFilter = !!search.trim() || !!dateFrom || !!dateTo || statusFilter.size > 0;
 
@@ -601,6 +658,9 @@ export function DeliveryTrackerTab({ projectId, canManage }: { projectId: string
           onChanged={load}
           migrationTargets={migrationTargets.filter((o) => o.id !== delivery.id)}
           deliveriesByIssue={deliveriesByIssue}
+          highlighted={highlightId === delivery.id}
+          updating={updatingId === delivery.id}
+          onOpenMovement={(movementId) => router.push(movementPagePath(delivery.projectId, delivery.id, movementId))}
         />
       ))}
     </div>
@@ -654,8 +714,11 @@ function DeliveryCard({
   onChanged,
   migrationTargets,
   deliveriesByIssue,
+  highlighted,
+  updating,
+  onOpenMovement,
 }: {
-  delivery: DeliveryWithItems;
+  delivery: DeliveryRow;
   /** Items after the item-status filter (a subset of delivery.items) — what the table actually renders. */
   visibleItems: DeliveryItemRow[];
   canManage: boolean;
@@ -665,6 +728,11 @@ function DeliveryCard({
   migrationTargets: DeliveryOption[];
   /** issueId → set of delivery ids it's already in — used to hide guaranteed-conflict migration targets. */
   deliveriesByIssue: Map<string, Set<string>>;
+  /** The card the URL points at: briefly ringed after scrolling to it. */
+  highlighted: boolean;
+  /** Its statuses are being re-read: a quiet notice instead of numbers that may be stale. */
+  updating: boolean;
+  onOpenMovement: (movementId: string) => void;
 }) {
   const [addingIssues, setAddingIssues] = useState<IssueResult[]>([]);
   const [adding, setAdding] = useState(false);
@@ -791,7 +859,7 @@ function DeliveryCard({
   }
 
   return (
-    <div className={cn("rounded-lg border border-border overflow-hidden", isComplete && "opacity-80")}>
+    <div id={`delivery-${delivery.id}`} data-testid={`delivery-card-${delivery.id}`} data-highlighted={highlighted || undefined} className={cn("rounded-lg border border-border overflow-hidden transition-shadow duration-500", isComplete && "opacity-80", highlighted && "ring-2 ring-primary shadow-md")}>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 p-3">
         <div>
           <div className="flex items-center gap-2">
@@ -903,6 +971,13 @@ function DeliveryCard({
           )}
         </div>
       </div>
+
+      {updating && (
+        <p role="status" aria-live="polite" className="flex items-center gap-1.5 border-b border-border bg-muted/40 px-3 py-1 text-[11px] text-muted-foreground" data-testid={`delivery-updating-${delivery.id}`}>
+          <RiLoader4Line className="size-3 animate-spin" /> Updating statuses…
+        </p>
+      )}
+      <MovementSection delivery={delivery} canManage={canManage} onOpenMovement={onOpenMovement} />
 
       {canManage && !isComplete && (
         <div className="border-b border-border p-2.5">

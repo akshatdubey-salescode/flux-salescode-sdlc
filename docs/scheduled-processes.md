@@ -113,6 +113,31 @@ created from the same dialog, on the same **Repeat** tab.
 - An emptied workstream **skips** rather than stops — sprints get moved in after
   the fact, so there's no reason to retire the schedule over it.
 
+## Movement check (every 30 minutes, external scheduler)
+
+`/api/cron/movements` re-reads the deployment records of the environment movements that are ready, signed
+off or in progress, so a record edited in Jira resets the sign-offs (and mails the signers) without anybody
+opening the page. It is **not** in `vercel.json`: Vercel Hobby only allows daily crons and an entry it cannot
+schedule fails the deploy. Call it every 30 minutes from the external scheduler:
+
+```
+curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://<flux-host>/api/cron/movements
+```
+
+`GET` works too. The secret is the `CRON_SECRET` environment variable (the same one the other crons use;
+never write its value into a job definition checked into a repo). Responses: `200` with counts only
+(`due`, `refreshed`, `changed`, `skipped`, `errors`, `notStarted`), `500` only when the selection query
+itself failed, `401` for a missing or wrong secret. It exits at once when nothing is due, refreshes at most
+8 movements per call (2 at a time, none refreshed in the last 25 minutes, in an order that rotates every
+30 minutes so a broken movement cannot starve the others) and stops starting work after 240 s.
+
+To let Vercel schedule it instead, add `{ "path": "/api/cron/movements", "schedule": "*/30 * * * *" }` to
+`vercel.json`; that requires a Vercel **Pro** plan.
+
+Mail from the movement feature goes to real people only on Vercel production, or on a self-hosted
+production build that sets `MOVEMENT_EMAILS_LIVE=1` with `NODE_ENV=production`; every other environment
+mails only `+tctest@salescode.ai` / `+tctest2@salescode.ai` addresses.
+
 ## Adding a process
 
 1. Write a handler: `(row, ctx) => Promise<ProcessOutcome>`. Return `sent`, or

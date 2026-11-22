@@ -680,6 +680,20 @@
       "when": 1795033408586,
       "tag": "0097_kb_page_priority",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1795101826864,
+      "tag": "0098_delivery_movements",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1795210342662,
+      "tag": "0099_movement_comment_edits_summaries",
+      "breakpoints": true
     }
   ]
 }

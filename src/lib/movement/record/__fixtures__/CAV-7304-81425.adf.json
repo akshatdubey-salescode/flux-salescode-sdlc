@@ -1,0 +1,378 @@
+{
+ "id": "81425",
+ "created": "2026-11-19T13:03:15.206+0000",
+ "updated": "2026-11-19T13:03:15.206+0000",
+ "author": {
+  "displayName": "Author"
+ },
+ "body": {
+  "type": "doc",
+  "version": 1,
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "DEPLOYMENT-RECORD v1 | CAV-7304 | channelkart-flutter#50 | 2026-11-19 13:18 | Claude (pr-review)\nsupersedes: none"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "1 Header:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " Account Lock: app lock popup, offline owner and replay token handling. Status "
+     },
+     {
+      "type": "text",
+      "text": "BLOCKED for release",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " (2 open Should-fix, 0 Blocking). Head reviewed: 63c183a17a. Review: https://github.com/salescode-ai/channelkart-flutter/pull/50#issuecomment-7007616706 [V]"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "2 Branches and owners:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " channelkart-flutter "
+     },
+     {
+      "type": "text",
+      "text": "CAV-7304-account-lock-live-sessions",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " -> "
+     },
+     {
+      "type": "text",
+      "text": "master",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": ", PR #50, OPEN, mergeable (conflict with master resolved), Rule 31 pass. Replaces #45 (closed). PR author dev-a. Approver: none yet. Merged by: not merged. Siblings: channelkart#1185, salescode-auth-service#332, kpi-dashboard#269. [V]"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "3 Prod branch and cherry-pick:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " the app ships as a store build; a merge to "
+     },
+     {
+      "type": "text",
+      "text": "master",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " is not a release. Build that carries this: unknown, owner to confirm: mobile lead. Effort: unknown, owner to confirm: author."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "4 Services to deploy:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " Flutter app build. Needs channelkart#1185 and auth-service#332 live. Bundle SDK build: No [I]."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "5 Services to restart:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " none. Downtime required: No [I]."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "6 App release:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " Android and iOS build, current live version, minimum version: unknown, owner to confirm: mobile lead. Old builds: the result for the previous app build with 3 pending orders locked past the window (TC_43) is not shown; if orders are lost, a forced app update goes into the release [author's ticket text]."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "7 Database:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " local queue rows kept for replay; the login's replay token is kept only when the user signs out from the lock popup (an ordinary sign-out keeps none) [V, "
+     },
+     {
+      "type": "text",
+      "text": "63c183a17",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "]. No migration seen."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "8 Configs to move to prod (Rule 30):",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " none in this PR; the tenant properties are in channelkart#1185 and salescode-auth-service#332."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "9 Roles to test:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " a salesman with pending offline orders when the admin locks the account: popup, Sign out keeps the replay token, pending work syncs through the allow-listed endpoints, \"Some work could not be synced\" note. Negative: an ordinary sign-out leaves no token and the rows are not replayed with a revoked session; a user who is not locked sees nothing."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "10 Backward compatibility:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " old app with the new backend: unknown (TC_43). Old rows in the queue after upgrade: unknown, owner to confirm. Undo: next app release."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "11 Deploy order, gates, rollback:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " after channelkart#1185 and auth-service#332 and kpi-dashboard#269; then the app build. Gates: TC_43 result posted; new tests wired into whatever CI exists. Rollback: next app release."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "12 Testing evidence:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " six new test files run by hand, 88 of 98 pass; the 10 failures are legacy "
+     },
+     {
+      "type": "text",
+      "text": "logs_test.dart",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " tests that fail the same on master [author]. The repo harness skips the full suite. TC sheet, QA sign-off (Android, iOS), test owner: unknown, owner to confirm."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "13 Risks and open items:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " Should-fix: (1) old-build result (TC_43) missing; (2) tests not gated, and the "
+     },
+     {
+      "type": "text",
+      "text": "put()",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " merge resolution (headers and extraHeaders) relies on the author's run. Nitpicks: stale \"could not be synced\" note after 10 s; one test setting both header maps would pin the merge."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "14 Post-deploy verification:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " with a test salesman holding two queued orders, lock his designation and confirm the popup, Sign out, and that the orders reach the server after sign-in."
+     }
+    ]
+   },
+   {
+    "type": "codeBlock",
+    "attrs": {
+     "language": "json"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"marker\":{\"version\":1,\"key\":\"CAV-7304\",\"repo\":\"channelkart-flutter\",\"pr\":50,\"utc\":\"2026-11-19T13:18:00Z\",\"agent\":\"Claude (pr-review)\",\"supersedes\":null},\"status\":\"BLOCKED\",\"branches\":{\"branch\":\"CAV-7304-account-lock-live-sessions\",\"base\":\"master\",\"state\":\"open\",\"author\":\"dev-a\",\"approvers\":[],\"mergedBy\":null,\"jiraIdInBranch\":true,\"siblings\":[\"channelkart#1185\",\"salescode-auth-service#332\",\"kpi-dashboard#269\"]},\"app\":{\"appBuild\":null,\"minVersion\":null,\"oldAppTest\":null},\"order\":{\"steps\":[\"channelkart#1185\",\"auth-service#332\",\"kpi-dashboard#269\",\"app build\"]},\"risks\":[{\"sev\":\"Should-fix\",\"text\":\"old-build result TC_43\"},{\"sev\":\"Should-fix\",\"text\":\"tests not gated; put() merge\"}]}"
+     }
+    ]
+   }
+  ]
+ }
+}

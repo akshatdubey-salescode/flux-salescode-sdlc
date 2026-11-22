@@ -1,0 +1,79 @@
+DEPLOYMENT-RECORD v3 | CAV-7300 | union of 17 merged PRs | 2026-11-21 09:30 UTC | Claude (pr-review)
+supersedes: 81643, 81700 and 81701
+
+STATUS   PARTIAL (4 merged PRs are reverted; prod values unknown)
+WHAT     Distributor status filter and outlet download paging (net result after 4 reverts)
+
+MERGED PRs (merged by dev-b, 14-19 Nov; author dev-c)
+  channelkart#1346                 master             1a2b3c4d5e   distributor status filter (post-page filter fix)
+  channelkart#1352                 master             2b3c4d5e6f   outlet download paging; no formal approval
+  channelkart#1355                 master             3c4d5e6f7a   distributor status in outlet payload
+  channelkart#1361                 ckcoe              4d5e6f7a8b   ckcoe-only status label
+  channelkart-bundle#281           papa               5e6f7a8b9c   bundle reads the new status column
+  channelkart-bundle#283           papa               6f7a8b9c0d   bundle SDK: no change; no formal approval
+  kpi-dashboard#291                master             7a8b9c0d1e   Studio: distributor status filter
+  kpi-dashboard#293                master             8b9c0d1e2f   Studio: sidebar entry
+  kpi-dashboard#297                master             9c0d1e2f3a   portal: paging controls
+  channelkart-flutter#55           master             0d1e2f3a4b   outlet list: load next page
+  channelkart-flutter#57           master             1e2f3a4b5c   offline cache: status column
+  slake-custom-reports#975         prod_branch        2f3a4b5c6d   executor: distributor status filter
+  slake-custom-reports#978         prod_branch        3a4b5c6d7e   executor: shared status helper
+  slake-reporting-config#1362      main               4b5c6d7e8f   3 report configs
+  slake-reporting-config#1365      main               5c6d7e8f9a   1 report config; no formal approval
+  stockservice#88                  stocks-prod-branch 6d7e8f9a0b   stock: status filter parameter
+  salescode-auth-service#335       master             7e8f9a0b1c   scope: distributor status
+
+STILL OPEN:
+  channelkart#1399                 master             -            retry for the outlet download
+  kpi-dashboard#301                master             -            portal: empty state
+
+REVERTED (do not deploy as features):
+  channelkart-bundle#269           papa               aaaaaaaaaa   first status column attempt
+  kpi-dashboard#288                master             bbbbbbbbbb   first Studio filter
+  slake-custom-reports#985         prod_branch        cccccccccc   first executor filter
+  slake-reporting-config#1370      main               dddddddddd   first report configs
+
+MERGED INTO STACK BRANCHES ONLY (nothing is released):
+  channelkart-flutter#58           stack/cav-7300-app eeeeeeeeee   app: status chips
+  channelkart-flutter#59           stack/cav-7300-app ffffffffff   app: chip colours
+
+ 1  Production meeting + everyone invited   unknown (release manager)
+ 2  Services to deploy                      Channel Kart, Channelkart Bundle,
+      KPI Dashboard - UI; Stock;
+      extras: saleslens, auth service, Flutter app
+ 3  App release                             unknown (mobile lead). build and live version not stated
+ 4  Code reviewed, no breakage other LOBs   Done (3 PRs had no formal approval: channelkart#1352, channelkart-bundle#283, slake-reporting-config#1365)
+ 5  Previous data to be fixed               Done (pointer reset for the 3 reports)
+ 6  New app works with old data             Yes
+ 7  DB change queries shared                unknown (author)
+ 8  DB index queries                        Not required
+ 9  Bundle code reviewed                    Done
+10  Bundle SDK build required               No
+11  Configs to add in prod                  Not Done: prod values are not known yet
+      distributor.status.filter.enabled   default: off   prod: not set
+      outlet.download.page.size           default: 500   prod: unknown
+      green.config.distributor.designations   default: supplier,subd,ss   prod: supplier,subd,ss
+12  Services to restart                     Slake Reporting (executor reload; how: unknown (devops)), Channel Kart
+13  UI code reviewed                        Done
+14  UI index db versions updated            Not required
+15  Performance testing                     Not Done: outlet download at 100000 outlets unmeasured
+16  Automation tests run                    unknown (QA)
+17  Automation suite updated                unknown (QA)
+18  Features work with old data             Yes (status column is nullable)
+19  Beta app backward compatibility         unknown (mobile lead)
+20  Testing of different designations       Not Done: salesman (allowed), distributor user (refused by the API)
+21  Test old version of existing app        Not required
+22  Scenarios to be tested                  Not Done: see below
+23  Cherry-pick + re-test effort            unknown (author, devops). prod branch: prod_blue_21_sep_2026_branch for channelkart
+TEST OWNERS   Reports - Chirag & Hemant; Claims - unknown; Loyalty - Priya
+LIKELY TO BE MISSED IN TESTING
+  1. Switch the filter off: outlets must download exactly as today (check the first deploy gap)
+  2. A distributor user calls the outlet API directly: must be refused with 403
+  3. 100000 outlets: the paged download must finish and not time out
+  4. An outlet name with / and an accent: the status label must still render
+  5. Old app build: the new column must not break the sync
+
+ORDER    channelkart#1346 -> channelkart-bundle#281 -> kpi-dashboard#291 -> channelkart-flutter#55
+OPEN     prod values for the two new properties
+UNDO     set distributor.status.filter.enabled off; redeploy previous executor
+VERIFY   Outlet list shows the status chip for one distributor; report returns the filtered rows

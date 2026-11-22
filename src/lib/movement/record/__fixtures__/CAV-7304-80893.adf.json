@@ -1,0 +1,32 @@
+{
+ "id": "80893",
+ "created": "2026-11-16T13:46:53.602+0000",
+ "updated": "2026-11-16T13:46:53.602+0000",
+ "author": {
+  "displayName": "Author"
+ },
+ "body": {
+  "type": "doc",
+  "version": 1,
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "TC review (16-11-2026)",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": ": tab CAV-7304 of \"test cases sheet\" (38 TCs: 29 positive, 9 negative), checked against this ticket and its \"Confirm with client\" comment. There is no PR or branch yet, so these are pre-build TCs and nothing was tested live."
+     }
+    ]
+   }
+  ]
+ }
+}

@@ -3,15 +3,14 @@ import { getServerSession } from "next-auth";
 import { and, eq, inArray } from "drizzle-orm";
 import { revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
-import { deliveries, deliveryItems, deliveryStatusHistory } from "@/lib/db/schema";
+import { deliveries, deliveryItems } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { canManageDeliveries } from "@/lib/auth/types";
 import { authOptions } from "@/lib/auth/nextauth-options";
 import { isValidUuid, parseOptionalText } from "@/lib/validation";
 import { isDeliveryStatus } from "@/lib/deliveries/status";
-import { isIssueDone, fetchDeliveryById, type DeliveryWithItems } from "@/lib/deliveries/entries";
-import { FEATURE_FLAGS, isEnabled } from "@/lib/feature-flags";
-import { checkDeliveryGate } from "@/lib/test-cases/gate";
+import { fetchDeliveryById, type DeliveryWithItems } from "@/lib/deliveries/entries";
+import { checkItemStatusGates, writeItemStatus } from "@/lib/deliveries/set-item-status";
 
 type Params = { params: Promise<{ id: string; itemId: string }> };
 
@@ -60,26 +59,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "statusComment must be a string or null" }, { status: 400 });
   }
 
-  if (nextStatus !== "pending") {
-    const done = await isIssueDone(existing.issueId);
-    if (!done) {
-      return NextResponse.json(
-        { error: "This issue must be in a DONE status before its delivery outcome can be set." },
-        { status: 400 }
-      );
-    }
-  }
-
-  // Test-case gate: an issue with TCs needs a dev/tester sign-off first. Only
-  // enforced when the feature is on, and only for a real change of status.
-  if (await isEnabled(FEATURE_FLAGS.TEST_CASES)) {
-    const gate = await checkDeliveryGate({ issueId: existing.issueId, fromStatus: existing.status, toStatus: nextStatus });
-    if (gate.blocked) return NextResponse.json({ error: gate.message, code: "tc_signoff_required" }, { status: 400 });
+  // Same preconditions the movement "confirm statuses" step applies (DONE status, test-case gate).
+  const gate = await checkItemStatusGates({ issueId: existing.issueId, fromStatus: existing.status, toStatus: nextStatus });
+  if (gate.blocked) {
+    return NextResponse.json(gate.code ? { error: gate.message, code: gate.code } : { error: gate.message }, { status: 400 });
   }
 
   const session = await getServerSession(authOptions);
   const statusSetByName = session?.user?.name?.trim() || null;
-  const statusSetAt = new Date();
 
   const [deliveryForHistory] = await db
     .select({ name: deliveries.name })
@@ -87,45 +74,17 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     .where(eq(deliveries.id, deliveryId))
     .limit(1);
 
-  // Delivery status describes the ISSUE ("was this actually delivered"), not
-  // the batch it happens to be viewed through — an item committed to two
-  // deliveries at once can't be genuinely Delivered in one and Pending in
-  // the other, so every delivery_items row for this issue mirrors the same
-  // outcome. Matching `issueId` alone (not deliveryId) reaches every sibling.
-  //
-  // The mirrored update and its history row are one unit: without a
-  // transaction, a crash between them could silently drop the audit trail
-  // for a status change that DID take effect.
-  const updatedRows = await db.transaction(async (tx) => {
-    const rows = await tx
-      .update(deliveryItems)
-      .set({
-        status: nextStatus,
-        statusComment,
-        statusSetBy: user.id,
-        statusSetByName,
-        statusSetAt,
-      })
-      .where(eq(deliveryItems.issueId, existing.issueId))
-      .returning({ deliveryId: deliveryItems.deliveryId });
-
-    // Only log a genuine transition — resaving the same status with just a
-    // new comment isn't a status "change" worth cluttering the history with.
-    if (existing.status !== nextStatus) {
-      await tx.insert(deliveryStatusHistory).values({
-        issueId: existing.issueId,
-        deliveryId,
-        deliveryName: deliveryForHistory?.name ?? "Unknown delivery",
-        fromStatus: existing.status,
-        toStatus: nextStatus,
-        statusComment,
-        changedBy: user.id,
-        changedByName: statusSetByName,
-        changedAt: statusSetAt,
-      });
-    }
-
-    return rows;
+  // See writeItemStatus: every delivery_items row of the issue mirrors the outcome, and the
+  // update + its history row are one transaction.
+  const { affectedDeliveryIds } = await writeItemStatus({
+    deliveryId,
+    deliveryName: deliveryForHistory?.name ?? "Unknown delivery",
+    itemId,
+    issueId: existing.issueId,
+    nextStatus,
+    statusComment,
+    userId: user.id,
+    userName: statusSetByName,
   });
 
   const delivery = await fetchDeliveryById(deliveryId);
@@ -137,7 +96,6 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   // one this request came in through — revalidate every project actually
   // affected, not just this one, so their Delivery columns/badges don't
   // stay stale for the rest of the cacheLife window.
-  const affectedDeliveryIds = [...new Set(updatedRows.map((r) => r.deliveryId))];
   const affectedProjectIds = new Set([delivery.projectId]);
   if (affectedDeliveryIds.length > 1) {
     const rows = await db
