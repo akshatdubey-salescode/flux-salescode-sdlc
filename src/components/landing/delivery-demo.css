@@ -1,0 +1,146 @@
+/* A stack of deliveries on the sign-in panel's teal ground. The front card
+   is the only one read; the one behind shows as a sliver under it, and a
+   third waits, invisible, deeper still. */
+.fx-deliv .ss-stage {
+  --ss-surface: #ffffff;
+  --ss-line: #e4e4e7;
+  --ss-text: #52525b;
+  --ss-text-strong: #18181b;
+  --ss-text-faint: #a1a1aa;
+  overflow: hidden;
+  background: transparent;
+  font-family: var(--font-sans), Inter, system-ui, sans-serif;
+}
+
+.fx-deliv .fx-deliv__stack {
+  position: absolute;
+  inset: 0;
+}
+
+.fx-deliv .fx-deliv__card {
+  position: absolute;
+  top: 32px;
+  left: 40px;
+  width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 16px;
+  background: var(--ss-surface);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 30px 60px -24px rgba(0, 40, 50, 0.45), 0 0 0 1px rgba(0, 40, 50, 0.06);
+  transform-origin: 50% 100%;
+  will-change: transform, opacity;
+  transition:
+    transform 1s cubic-bezier(0.45, 0, 0.1, 1),
+    opacity 0.7s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.fx-deliv .fx-deliv__card[data-slot="front"] {
+  z-index: 3;
+  transform: none;
+  opacity: 1;
+}
+
+/* Behind: smaller and lower, so a sliver shows under the front card. Its
+   content dims, so the eye stays on the front */
+.fx-deliv .fx-deliv__card[data-slot="back"] {
+  z-index: 2;
+  transform: translateY(20px) scale(0.93);
+  opacity: 1;
+}
+
+.fx-deliv .fx-deliv__card[data-slot="back"] > * {
+  opacity: 0;
+}
+
+.fx-deliv .fx-deliv__card > * {
+  transition: opacity 0.6s ease 0.25s;
+}
+
+.fx-deliv .fx-deliv__card[data-slot="hidden"] {
+  z-index: 1;
+  transform: translateY(40px) scale(0.86);
+  opacity: 0;
+}
+
+/* Lifted away: up and out, fading as it goes */
+.fx-deliv .fx-deliv__card[data-slot="out"] {
+  z-index: 4;
+  transform: translateY(-36px) scale(1.02);
+  opacity: 0;
+}
+
+.fx-deliv .fx-deliv__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fx-deliv .fx-deliv__titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.fx-deliv .fx-deliv__name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ss-text-strong);
+}
+
+.fx-deliv .fx-deliv__meta {
+  font-size: 12.5px;
+  color: var(--ss-text);
+}
+
+.fx-deliv .fx-deliv__progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.fx-deliv .fx-deliv__meter {
+  --ss-accent: #0aa392;
+}
+
+.fx-deliv .fx-deliv__count {
+  font-size: 12px;
+  color: var(--ss-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.fx-deliv .fx-deliv__rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -8px;
+}
+
+.fx-deliv .fx-deliv__row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 82px;
+  align-items: center;
+  gap: 12px;
+  height: 40px;
+  padding: 0 8px;
+  border-top: 1px solid #f1f1f3;
+}
+
+.fx-deliv .fx-deliv__key {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ss-text);
+}
+
+.fx-deliv .fx-deliv__title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ss-text-strong);
+}
+
+.fx-deliv .fx-deliv__status {
+  justify-self: end;
+}
