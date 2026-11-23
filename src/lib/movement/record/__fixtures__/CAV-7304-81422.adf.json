@@ -1,0 +1,743 @@
+{
+ "id": "81422",
+ "created": "2026-11-19T13:02:45.126+0000",
+ "updated": "2026-11-19T13:02:45.126+0000",
+ "author": {
+  "displayName": "Author"
+ },
+ "body": {
+  "type": "doc",
+  "version": 1,
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "DEPLOYMENT-RECORD v1 | CAV-7304 | channelkart#1185 | 2026-11-19 13:15 | Claude (pr-review)\nsupersedes: none"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "1 Header:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " Account Lock: log out users who are already signed in (channelkart side: consume lock events, refuse locked sessions, offline replay rules). Status "
+     },
+     {
+      "type": "text",
+      "text": "BLOCKED for release",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " (2 open Should-fix, 0 Blocking). Head reviewed: f249c2be9c (the head has since moved to e2ad816ab0; not yet reviewed). Review: https://github.com/salescode-ai/channelkart/pull/1185#issuecomment-7007613864 [V]"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "2 Branches and owners:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " channelkart "
+     },
+     {
+      "type": "text",
+      "text": "CAV-7304-account-lock-live-sessions",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " -> "
+     },
+     {
+      "type": "text",
+      "text": "master",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": ", PR #1185, OPEN, mergeable, Rule 31 pass. Replaces #1160 (closed). PR author dev-a. Approver: none yet. Merged by: not merged. Siblings: salescode-auth-service#332, kpi-dashboard#269, channelkart-flutter#50 (all open). [V]"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "3 Prod branch and cherry-pick:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " channelkart prod is built from "
+     },
+     {
+      "type": "text",
+      "text": "prod_blue_*",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " branches; ckcoe's own prod branch: unknown, owner to confirm: devops. Ticket says channelkart is \"master only\"; how this reaches prod is not stated. Cherry-pick and re-test effort: unknown, owner to confirm: author."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "4 Services to deploy:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " Channel Kart (this PR); salescode-auth-service (#332, extra line); KPI Dashboard - UI (#269); Flutter app (#50). Bundle SDK build: No [I]."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "5 Services to restart:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " Channel Kart (new Kafka consumer of "
+     },
+     {
+      "type": "text",
+      "text": "auth_service_events",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": ", only channelkart consumes it) [V]; auth-service restart loses its in-memory sweep timer (it restarts on startup) [V]. Downtime required: unknown, owner to confirm: author."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "6 App release:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " see channelkart-flutter#50."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "7 Database:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " no SQL. New Redis keys "
+     },
+     {
+      "type": "text",
+      "text": "lockedUntil",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " / "
+     },
+     {
+      "type": "text",
+      "text": "lockedAt",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " with their own TTL (deadline + 30 days) and a revoked-token marker kept 30 days [V]."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "8 Configs to move to prod (Rule 30):",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "table",
+    "attrs": {
+     "isNumberColumnEnabled": false,
+     "layout": "default"
+    },
+    "content": [
+     {
+      "type": "tableRow",
+      "content": [
+       {
+        "type": "tableHeader",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "Key"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableHeader",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "Store"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableHeader",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "Default when absent"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableHeader",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "Demo"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableHeader",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "UAT"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableHeader",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "Prod"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "tableRow",
+      "content": [
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "verify.active.session.enabled",
+            "marks": [
+             {
+              "type": "code"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "per-tenant property"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "off (nothing changes)"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Turning it on also starts 5-minute auth-service checks for portal traffic. Value for ckcoe and ckcoedemo, and who sets it: unknown, owner to confirm. Evidence: unknown."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "9 Roles to test:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " a salesman, a distributor user and a portal user whose designation or platform is locked by an admin: refused at the next request with 403 "
+     },
+     {
+      "type": "text",
+      "text": "ACCOUNT_LOCKED",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " ("
+     },
+     {
+      "type": "text",
+      "text": "X-Account-Locked",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " header); the same user after unlock; an admin whose own session must not be cut (protected logins, see #332). Negative: a user not covered by the lock keeps working; replay of a record made before the lock is accepted, after it refused."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "10 Backward compatibility:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " property off equals today [V]. Offline replay: "
+     },
+     {
+      "type": "text",
+      "text": "X-Offline-Replay",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": ", 5 allow-listed endpoints; a token expired more than 29 days is refused ("
+     },
+     {
+      "type": "text",
+      "text": "MAX_REPLAY_AGE",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "), below the 30-day revoked marker [V]. Differences from the ticket (29-day cap; 120 s default grace instead of 5 minutes) have no recorded Jira decision. Every "
+     },
+     {
+      "type": "text",
+      "text": "JwtException",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " now answers 401 instead of 500: confirm no client relied on the 500. Undo: property off."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "11 Deploy order, gates, rollback:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " 1 channelkart #1185 (property off) -> 2 auth-service #332 (lock properties still off) -> 3 kpi-dashboard #269 -> 4 Flutter #50 build -> 5 per tenant: list active admin locks, set protected logins ("
+     },
+     {
+      "type": "text",
+      "text": "CAVIN",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "), then turn the properties on. Gates: security review recorded (ticket 7.6a); the 29-day and 120 s decisions recorded in Jira; access-token lifetime stated; sweep time at ckcoe scale (see #332). Rollback: properties off."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "12 Testing evidence:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " unit tests incl. "
+     },
+     {
+      "type": "text",
+      "text": "ac4TokenExpiredBeyondMaxReplayAgeRefused",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " / "
+     },
+     {
+      "type": "text",
+      "text": "WithinMaxReplayAgeAccepted",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " (author, not run by me); p95 measurements are local. TC sheet: see Jira. UAT, QA sign-off, test owner: unknown, owner to confirm."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "13 Risks and open items:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " Should-fix: (1) 29-day cap and 120 s default differ from the ticket with no Jira decision; (2) security review and per-tenant switch values not shown. Nitpicks: "
+     },
+     {
+      "type": "text",
+      "text": "lockedAt",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " is receive time; a lost unlock event leaves a session locked until deadline + 30 days; accepted replays only logged; JwtException 500 -> 401."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "14 Post-deploy verification:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " "
+     },
+     {
+      "type": "text",
+      "text": "/hckeck",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " shows the merged commit on every pod; the consumer group reads "
+     },
+     {
+      "type": "text",
+      "text": "auth_service_events",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "; lock a test user's designation and confirm 403 "
+     },
+     {
+      "type": "text",
+      "text": "ACCOUNT_LOCKED",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " within the grace; unlock and confirm access returns."
+     }
+    ]
+   },
+   {
+    "type": "codeBlock",
+    "attrs": {
+     "language": "json"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"marker\":{\"version\":1,\"key\":\"CAV-7304\",\"repo\":\"channelkart\",\"pr\":1185,\"utc\":\"2026-11-19T13:15:00Z\",\"agent\":\"Claude (pr-review)\",\"supersedes\":null},\"status\":\"BLOCKED\",\"branches\":{\"branch\":\"CAV-7304-account-lock-live-sessions\",\"base\":\"master\",\"state\":\"open\",\"author\":\"dev-a\",\"approvers\":[],\"mergedBy\":null,\"jiraIdInBranch\":true,\"siblings\":[\"salescode-auth-service#332\",\"kpi-dashboard#269\",\"channelkart-flutter#50\"]},\"configs\":[{\"key\":\"verify.active.session.enabled\",\"store\":\"per-tenant property\",\"defaultWhenAbsent\":\"off\",\"demo\":null,\"uat\":null,\"prod\":null}],\"order\":{\"steps\":[\"channelkart#1185\",\"auth-service#332\",\"kpi-dashboard#269\",\"channelkart-flutter#50\",\"per tenant properties on\"]},\"risks\":[{\"sev\":\"Should-fix\",\"text\":\"29-day cap and 120 s default not in Jira\"},{\"sev\":\"Should-fix\",\"text\":\"security review and tenant switch values\"}]}"
+     }
+    ]
+   }
+  ]
+ }
+}

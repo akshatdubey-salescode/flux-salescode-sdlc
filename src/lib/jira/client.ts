@@ -106,6 +106,46 @@ type JiraSearchResult = {
   nextPageToken?: string; // present when more pages exist; absent on last page
 };
 
+/** One issue from a lean search: only the fields the caller asked for, no changelog. */
+export type JiraLeanIssue = {
+  id: string;
+  key: string;
+  fields: Record<string, unknown>;
+};
+
+export type JiraLeanSearchResult = {
+  issues: JiraLeanIssue[];
+  nextPageToken?: string;
+};
+
+/** One page of GET /issue/{key}/comment. Comment bodies are ADF. */
+export type JiraCommentsPage = {
+  startAt: number;
+  maxResults: number;
+  total: number;
+  comments: JiraCommentRaw[];
+};
+
+/** A Jira response that stayed non-2xx after the bounded retries. `status` lets callers branch. */
+export class JiraRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "JiraRequestError";
+  }
+}
+
+export type JiraRetryOptions = {
+  /** Total attempts including the first (default 3). */
+  maxAttempts?: number;
+  /** Longest single wait (default 8s) and total wait across attempts (default 15s). */
+  maxWaitMs?: number;
+  maxTotalWaitMs?: number;
+  /** Per-attempt timeout of the lean reads (default 20 s). A timeout is a network error to the retry. */
+  timeoutMs?: number;
+  /** Injected by tests so no real time passes. */
+  sleep?: (ms: number) => Promise<void>;
+};
+
 type JiraProjectInfo = {
   id: string;
   key: string;
@@ -142,12 +182,22 @@ export class JiraClient {
   private headers: HeadersInit;
   private baseUrl: string;
   private allowedHost: string;
+  private retry: Required<JiraRetryOptions>;
 
   constructor(config: {
     baseUrl: string;
     email: string;
     apiToken: string;
+    /** Only used by the lean read methods (searchByJql, fetchIssueComments). */
+    retry?: JiraRetryOptions;
   }) {
+    this.retry = {
+      maxAttempts: Math.max(1, config.retry?.maxAttempts ?? 3),
+      maxWaitMs: config.retry?.maxWaitMs ?? 8_000,
+      maxTotalWaitMs: config.retry?.maxTotalWaitMs ?? 15_000,
+      timeoutMs: config.retry?.timeoutMs ?? 20_000,
+      sleep: config.retry?.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
+    };
     this.baseUrl = config.baseUrl.replace(/\/$/, "");
     // Lock down the host so every request is validated against it
     this.allowedHost = new URL(this.baseUrl).host;
@@ -171,7 +221,7 @@ export class JiraClient {
    *
    * Any violation throws immediately before the request is sent.
    */
-  private async get(url: string): Promise<Response> {
+  private async get(url: string, signal?: AbortSignal): Promise<Response> {
     const parsed = new URL(url);
     if (parsed.host !== this.allowedHost) {
       throw new Error(
@@ -179,7 +229,7 @@ export class JiraClient {
         `configured Jira host "${this.allowedHost}". No request was sent.`
       );
     }
-    return fetch(url, { method: "GET", headers: this.headers });
+    return fetch(url, { method: "GET", headers: this.headers, ...(signal ? { signal } : {}) });
   }
 
   /** Verify credentials by calling /myself. Returns true if authenticated. */
@@ -530,5 +580,103 @@ export class JiraClient {
       }
     }
     return result;
+  }
+
+  /**
+   * GET with bounded retry for the lean read methods: 429 and 5xx (and network errors) are
+   * retried up to `maxAttempts` times, honouring Retry-After (seconds or HTTP date) and otherwise
+   * backing off 500ms, 1s, ... with jitter. A single wait is capped and so is the total, so a
+   * request never hangs a route: when the next wait would exceed the budget the last response
+   * is returned as it is. Other statuses are returned at once.
+   */
+  private async getWithRetry(url: string): Promise<Response> {
+    const { maxAttempts, maxWaitMs, maxTotalWaitMs, timeoutMs, sleep } = this.retry;
+    let waited = 0;
+    for (let attempt = 1; ; attempt++) {
+      let res: Response | null = null;
+      let failure: unknown = null;
+      try {
+        res = await this.get(url, AbortSignal.timeout(timeoutMs));
+      } catch (e) {
+        // The host-lock violation is a programming error, not a transient failure.
+        if (e instanceof Error && e.message.startsWith("[JiraClient] BLOCKED")) throw e;
+        failure = e;
+      }
+      const transient = res ? res.status === 429 || res.status >= 500 : true;
+      if (res && !transient) return res;
+      if (attempt >= maxAttempts) {
+        if (res) return res;
+        throw failure instanceof Error ? failure : new Error("Jira request failed");
+      }
+      let wait = Math.min(500 * 2 ** (attempt - 1) + Math.floor(Math.random() * 250), maxWaitMs);
+      const ra = res?.headers.get("retry-after");
+      if (ra) {
+        const secs = Number(ra);
+        const ms = Number.isFinite(secs) ? secs * 1000 : Date.parse(ra) - Date.now();
+        if (Number.isFinite(ms) && ms > 0) wait = ms;
+      }
+      if (wait > maxWaitMs || waited + wait > maxTotalWaitMs) {
+        if (res) return res;
+        throw failure instanceof Error ? failure : new Error("Jira request failed");
+      }
+      waited += wait;
+      // Release the unread body so the connection can be reused.
+      await res?.body?.cancel().catch(() => undefined);
+      await sleep(wait);
+    }
+  }
+
+  /**
+   * Lean JQL search for the movement tree: only the fields the caller names and NO changelog
+   * expand (fetchIssues expands the changelog of every issue, far too heavy for a lookup).
+   * Cursor-paged through nextPageToken; retries 429/5xx.
+   */
+  async searchByJql(
+    jql: string,
+    opts: { fields: string[]; nextPageToken?: string; maxResults?: number }
+  ): Promise<JiraLeanSearchResult> {
+    let url =
+      `${this.baseUrl}/rest/api/3/search/jql` +
+      `?jql=${encodeURIComponent(jql)}` +
+      `&fields=${encodeURIComponent(opts.fields.join(","))}` +
+      `&maxResults=${opts.maxResults ?? 50}`;
+    if (opts.nextPageToken) url += `&nextPageToken=${encodeURIComponent(opts.nextPageToken)}`;
+    const res = await this.getWithRetry(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new JiraRequestError(`Jira search failed (${res.status}): ${body.slice(0, 300)}`, res.status);
+    }
+    const data = (await res.json()) as Partial<JiraLeanSearchResult>;
+    return { issues: Array.isArray(data.issues) ? data.issues : [], nextPageToken: data.nextPageToken };
+  }
+
+  /**
+   * One page of an issue's comments, NEWEST first (orderBy=-created), so a caller looking for
+   * the latest record can stop early. Bodies are ADF. Retries 429/5xx.
+   */
+  async fetchIssueComments(
+    issueKey: string,
+    opts: { startAt?: number; maxResults?: number } = {}
+  ): Promise<JiraCommentsPage> {
+    const startAt = opts.startAt ?? 0;
+    const maxResults = opts.maxResults ?? 50;
+    const url =
+      `${this.baseUrl}/rest/api/3/issue/${encodeURIComponent(issueKey)}/comment` +
+      `?orderBy=-created&startAt=${startAt}&maxResults=${maxResults}`;
+    const res = await this.getWithRetry(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new JiraRequestError(
+        `Jira comments of "${issueKey}" failed (${res.status}): ${body.slice(0, 300)}`,
+        res.status
+      );
+    }
+    const data = (await res.json()) as Partial<JiraCommentsPage>;
+    return {
+      startAt: data.startAt ?? startAt,
+      maxResults: data.maxResults ?? maxResults,
+      total: data.total ?? 0,
+      comments: Array.isArray(data.comments) ? data.comments : [],
+    };
   }
 }

@@ -1,0 +1,39 @@
+{
+ "self": "https://example.atlassian.net/rest/api/3/redacted",
+ "id": "81643",
+ "author": {
+  "displayName": "Author"
+ },
+ "body": {
+  "type": "doc",
+  "version": 1,
+  "content": [
+   {
+    "type": "codeBlock",
+    "content": [
+     {
+      "type": "text",
+      "text": "DEPLOYMENT-RECORD v1 | CAV-7280 | union of 2 merged PRs | 2026-11-20 20:06 UTC | Claude (pr-review)\nsupersedes: none\n\nSTATUS   HELD in the DEMO movement (blocked) \u00b7 PARTIAL\nWHAT     ckcoedemo loading reports honour the selected Loadout Number\n\nMERGED PRs (all approved and merged by dev-b, 17 Nov; author Kunal-556)\n  slake-custom-reports#931     main   689b6d326c   executor\n  slake-reporting-config#1313  main   5c9b08cdf1   4 ckcoedemo report configs\n\n 1  Production meeting + everyone invited   unknown (release manager)\n 2  Services to deploy                      Slake Reporting only (executor + configs)\n 3  App release                             Not required\n 4  Code reviewed, no breakage other LOBs   Done (ckcoedemo only; ckcoe, ckcoeuat untouched)\n 5  Previous data to be fixed               Not required\n 6  New app works with old data             Yes (no app change)\n 7  DB change queries shared                Done (none)\n 8  DB index queries                        Not required\n 9  Bundle code reviewed                    Not required\n10  Bundle SDK build required               No\n11  Configs to add in prod                  Not Done: param loadoutNumbers \u2192 loadout_number in\n      dms_loading_sheet, dms_loadout_items, dms_loadout_items_without_batch,\n      dms_loadout_items_filters (ckcoedemo). No new key.\n12  Services to restart                     Slake Reporting (executor reload; how: unknown, devops)\n13  UI code reviewed                        Not required\n14  UI index db versions updated            Not required\n15  Performance testing                     Not required (filter fix)\n16  Automation tests run                    unknown (QA)\n17  Automation suite updated                unknown (QA)\n18  Features work with old data             Yes (old key loadoutNumbers still read by the 3 report executors)\n19  Beta app backward compatibility         Not required\n20  Testing of different designations       Not Done: portal users of Loading Sheet, Product Wise, W/O Batch\n21  Test old version of existing app        Not required\n22  Scenarios to be tested                  Not Done: see below\n23  Cherry-pick + re-test effort            unknown (author, devops). ckcoedemo only: no prod move planned\n\nLIKELY TO BE MISSED\n  1. Pick SEVERAL loadouts in the dropdown (the PR says \"unverified\")\n  2. Pick none: must still return all loadouts, as before\n  3. ckcoe and ckcoeuat reports must be unchanged (negative check)\n\nORDER    executor #931 \u2192 config #1313\nOPEN     multi-select dropdown not verified\nUNDO     revert both PRs\nVERIFY   Loading Sheet with one loadout returns only that loadout"
+     }
+    ]
+   }
+  ]
+ },
+ "updateAuthor": {
+  "self": "https://example.atlassian.net/rest/api/3/redacted",
+  "accountId": "redacted-account-id",
+  "avatarUrls": {
+   "48x48": "https://avatars.example.invalid/avatar.png",
+   "24x24": "https://avatars.example.invalid/avatar.png",
+   "16x16": "https://avatars.example.invalid/avatar.png",
+   "32x32": "https://avatars.example.invalid/avatar.png"
+  },
+  "displayName": "Author",
+  "active": true,
+  "timeZone": "Etc/GMT",
+  "accountType": "atlassian"
+ },
+ "created": "2026-11-20T20:06:52.552+0000",
+ "updated": "2026-11-20T20:06:52.552+0000",
+ "jsdPublic": true
+}

@@ -3,6 +3,14 @@
     {
       "path": "/api/cron/scheduled-processes",
       "schedule": "30 18 * * *"
+    },
+    {
+      "path": "/api/cron/support-reports",
+      "schedule": "0,30 * * * *"
+    },
+    {
+      "path": "/api/cron/movements",
+      "schedule": "*/30 * * * *"
     }
   ]
 }

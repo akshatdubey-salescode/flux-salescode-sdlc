@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { RiTruckLine, RiCloseLine, RiArrowDownSLine, RiAlarmWarningLine } from "@remixicon/react";
 import { cn } from "@/lib/utils";
 import { localDateStr } from "@/lib/date-utils";
 import type { UpcomingDelivery } from "@/lib/deliveries/entries";
 import type { UpcomingForMeResponse } from "@/app/api/deliveries/upcoming-for-me/route";
+import { showDeliveryBannerOn } from "./movement/view-model";
 
 const DISMISS_KEY = "delivery-banner-dismissed-until";
 const DISMISS_DURATION_MS = 24 * 60 * 60 * 1000;
@@ -30,6 +32,7 @@ function readDismissedUntil(): number {
  * passes, at which point the server stops returning it.
  */
 export function DeliveryBanner({ userEmail }: { userEmail: string }) {
+  const pathname = usePathname();
   const [deliveries, setDeliveries] = useState<UpcomingDelivery[] | null>(null);
   // Lazy initializer reads localStorage synchronously on first render, so
   // there's no setState-in-effect for this — the effect below only ever
@@ -74,7 +77,8 @@ export function DeliveryBanner({ userEmail }: { userEmail: string }) {
     setDismissed(true);
   }
 
-  if (dismissed || !deliveries || deliveries.length === 0) return null;
+  // Not on a movement page: its sticky sign-off bar sits at the bottom of the screen, exactly where this banner would be.
+  if (dismissed || !deliveries || deliveries.length === 0 || !showDeliveryBannerOn(pathname)) return null;
 
   const today = localDateStr(new Date());
   const hasOverdue = deliveries.some((d) => d.deliveryDate < today);

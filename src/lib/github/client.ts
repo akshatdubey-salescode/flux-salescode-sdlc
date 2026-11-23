@@ -104,7 +104,7 @@ export class GitHubClient {
    *   2. host is always api.github.com — prevents SSRF / cross-host calls
    * Any violation throws before the request is sent.
    */
-  private async get(url: string): Promise<Response> {
+  private async get(url: string, signal?: AbortSignal): Promise<Response> {
     const parsed = new URL(url);
     if (parsed.host !== GITHUB_API_HOST) {
       throw new Error(
@@ -112,7 +112,7 @@ export class GitHubClient {
           `allowed host "${GITHUB_API_HOST}". No request was sent.`
       );
     }
-    const res = await fetch(url, { method: "GET", headers: this.headers });
+    const res = await fetch(url, { method: "GET", headers: this.headers, ...(signal ? { signal } : {}) });
     const remaining = res.headers.get("x-ratelimit-remaining");
     if (remaining !== null) this.lastRateLimitRemaining = Number(remaining);
     return res;
@@ -212,7 +212,7 @@ export class GitHubClient {
    * even on repos with thousands of branches). Without one, returns the first
    * page (100) of branches just to populate the picker before the user types.
    */
-  async searchBranches(repoFullName: string, query?: string): Promise<string[]> {
+  async searchBranches(repoFullName: string, query?: string, signal?: AbortSignal): Promise<string[]> {
     const q = query?.trim();
 
     if (q) {
@@ -220,7 +220,8 @@ export class GitHubClient {
       // rest of each segment so odd characters can't break the path.
       const prefix = q.split("/").map(encodeURIComponent).join("/");
       const res = await this.get(
-        `${GITHUB_API_BASE}/repos/${repoFullName}/git/matching-refs/heads/${prefix}`
+        `${GITHUB_API_BASE}/repos/${repoFullName}/git/matching-refs/heads/${prefix}`,
+        signal
       );
       if (!res.ok) {
         const body = await res.text().catch(() => "");
@@ -232,7 +233,7 @@ export class GitHubClient {
       return refs.map((r) => r.ref.replace(/^refs\/heads\//, ""));
     }
 
-    const res = await this.get(`${GITHUB_API_BASE}/repos/${repoFullName}/branches?per_page=100`);
+    const res = await this.get(`${GITHUB_API_BASE}/repos/${repoFullName}/branches?per_page=100`, signal);
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       throw new Error(`GitHub branches list failed for ${repoFullName} (${res.status}): ${body}`);

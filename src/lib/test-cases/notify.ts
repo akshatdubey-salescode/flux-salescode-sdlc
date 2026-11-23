@@ -18,7 +18,7 @@ type Common = {
   url: string;
 };
 
-function shell(title: string, bodyHtml: string, url: string, cta: string): string {
+export function shell(title: string, bodyHtml: string, url: string, cta: string): string {
   return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111827;max-width:560px">
 <h2 style="font-size:16px;margin:0 0 12px">${escapeHtml(title)}</h2>
 ${bodyHtml}
