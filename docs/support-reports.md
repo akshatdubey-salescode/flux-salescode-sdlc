@@ -16,7 +16,7 @@ admins) Settings.
 | Piece | Where |
 | --- | --- |
 | Tables (settings, per-ticket fields, ownership log, reports) | `support_report_settings`, `support_tickets`, `support_ticket_ownership_events`, `support_reports` in `src/lib/db/schema.ts` |
-| Migrations | `drizzle/0098_eager_katie_power.sql` (tables), `drizzle/0099_aromatic_gateway.sql` (raised time, RCA toggle, `external` label default), `drizzle/0100_peaceful_firebrand.sql` (per-project timezone) |
+| Migrations | `drizzle/0099_eager_katie_power.sql` (tables), `drizzle/0100_aromatic_gateway.sql` (raised time, RCA toggle, `external` label default), `drizzle/0101_peaceful_firebrand.sql` (per-project timezone) |
 | Joined row → ticket / report input (effective raised time, RCA toggle) | `src/lib/support/ticket-row.ts` (+ `.test.ts`) |
 | Shared types, categories, defaults | `src/lib/support/types.ts` |
 | Timezone helpers (calendar day, wall time ↔ instant, labels; DST-aware) | `src/lib/support/tz.ts` (+ `.test.ts`) |
@@ -205,10 +205,10 @@ wall-clock time.
 
 ## Applying the migration
 
-The tables come from `drizzle/0098_eager_katie_power.sql`; `drizzle/0099_aromatic_gateway.sql`
+The tables come from `drizzle/0099_eager_katie_power.sql`; `drizzle/0100_aromatic_gateway.sql`
 adds `support_tickets.raised_at`, `support_tickets.rca_shared` (default false) and
 sets the `support_report_settings.support_label` default to `external`. They were
-generated with `drizzle-kit generate`; `drizzle/0100_peaceful_firebrand.sql` adds
+generated with `drizzle-kit generate`; `drizzle/0101_peaceful_firebrand.sql` adds
 `support_report_settings.time_zone` (default `Asia/Kolkata`). **Never `db:push`.** Applying it is a deploy step for
 whoever deploys, against the target database:
 

@@ -1,12 +1,7 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
-import { cacheLife, cacheTag } from "next/cache";
-import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
-import { jiraIssues } from "@/lib/db/schema";
 import { requireAuth } from "@/lib/auth/server";
 import { localDateStr, ALL_TIME_START } from "@/lib/date-utils";
-import { loadBugRows, dateRangeConditions } from "@/lib/bug-summary-query";
-import type { BugRow } from "@/lib/bug-summary";
+import { fetchProjectBugs } from "@/lib/bug-summary-query";
 
 /** Fallback window when the request omits an explicit range: all time.
  * Matches the bug-summary client's default (see its defaultRange) — a bug's
@@ -39,22 +34,4 @@ export async function GET(
     console.error("Project bugs error:", error);
     return new NextResponse("Internal Server Error", { status: 500 });
   }
-}
-
-async function fetchProjectBugs(
-  projectId: string,
-  start: string,
-  end: string
-): Promise<BugRow[]> {
-  "use cache";
-  cacheLife("minutes");
-  cacheTag("projects", `project:${projectId}`);
-  // Owner attribution is gated on keka_employees (loadBugRows), so a
-  // joiner/leaver sync must refresh this.
-  cacheTag(KEKA_DIRECTORY_TAG);
-
-  return loadBugRows([
-    eq(jiraIssues.projectId, projectId),
-    ...dateRangeConditions(start, end),
-  ]);
 }

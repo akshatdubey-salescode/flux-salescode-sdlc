@@ -2864,3 +2864,35 @@ export type SupportReportSettings = typeof supportReportSettings.$inferSelect;
 export type SupportTicket = typeof supportTickets.$inferSelect;
 export type SupportTicketOwnershipEvent = typeof supportTicketOwnershipEvents.$inferSelect;
 export type SupportReport = typeof supportReports.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// External API tokens — long-lived (no expiry) bearer tokens a superuser mints
+// so other apps can call the curated /api/v1 endpoints server-to-server. Only
+// a SHA-256 hash is stored; the plaintext is shown once at creation. A token
+// stops working only when revoked. See src/lib/auth/api-token.ts.
+// ---------------------------------------------------------------------------
+export const apiTokens = pgTable(
+  "api_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Human label, e.g. "Delivery dashboard".
+    name: text("name").notNull(),
+    // hex SHA-256 of the full token string.
+    tokenHash: text("token_hash").notNull(),
+    // First characters of the token (e.g. "flx_AbCd1234") so a superuser can
+    // tell tokens apart without the secret.
+    tokenPrefix: text("token_prefix").notNull(),
+    // Endpoint scopes granted (keys of EXPOSED_ENDPOINTS, e.g. "bugs:read").
+    scopes: text("scopes").array().notNull(),
+    // jira_projects ids the token may read; null = every project.
+    projectIds: uuid("project_ids").array(),
+    createdBy: text("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Throttled to one write per few minutes (see api-token.ts).
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    // Set = revoked; the token is rejected from then on.
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedBy: text("revoked_by").references(() => users.id),
+  },
+  (t) => [uniqueIndex("api_tokens_token_hash_idx").on(t.tokenHash)]
+);

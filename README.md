@@ -20,6 +20,20 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## What is deployed: `/version.json`
+
+Every build writes `public/version.json` (`scripts/build-info.mjs`, run from
+`scripts/build.sh`), so any deployment can be asked what it was built from:
+
+```bash
+curl -s https://<host>/version.json
+```
+
+It reports the package version plus short SHA, build time, the Vercel
+environment the build was made for, and the commit (id, time, subject, branch,
+tag, author). It is public on purpose: `src/proxy.ts` excludes the path. The file
+is generated, so it is gitignored.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

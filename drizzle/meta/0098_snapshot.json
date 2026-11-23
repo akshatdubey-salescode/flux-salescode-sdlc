@@ -1,9 +1,133 @@
 {
-  "id": "d41604cd-a1ba-4640-89f1-331f79dd7c96",
+  "id": "29e77cc4-1de4-4a91-befb-18d66209198a",
   "prevId": "7f84b12b-e9d0-49cd-8952-18dfc89d6422",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "public.api_tokens": {
+      "name": "api_tokens",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token_hash": {
+          "name": "token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token_prefix": {
+          "name": "token_prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scopes": {
+          "name": "scopes",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "project_ids": {
+          "name": "project_ids",
+          "type": "uuid[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_used_at": {
+          "name": "last_used_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revoked_by": {
+          "name": "revoked_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "api_tokens_token_hash_idx": {
+          "name": "api_tokens_token_hash_idx",
+          "columns": [
+            {
+              "expression": "token_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "api_tokens_created_by_users_id_fk": {
+          "name": "api_tokens_created_by_users_id_fk",
+          "tableFrom": "api_tokens",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "api_tokens_revoked_by_users_id_fk": {
+          "name": "api_tokens_revoked_by_users_id_fk",
+          "tableFrom": "api_tokens",
+          "tableTo": "users",
+          "columnsFrom": [
+            "revoked_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.calendar_events": {
       "name": "calendar_events",
       "schema": "",
@@ -7146,594 +7270,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.support_report_settings": {
-      "name": "support_report_settings",
-      "schema": "",
-      "columns": {
-        "project_id": {
-          "name": "project_id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "enabled": {
-          "name": "enabled",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "support_label": {
-          "name": "support_label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'support'"
-        },
-        "period_mode": {
-          "name": "period_mode",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'mtd'"
-        },
-        "period_start": {
-          "name": "period_start",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "to_emails": {
-          "name": "to_emails",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::text[]"
-        },
-        "cc_emails": {
-          "name": "cc_emails",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::text[]"
-        },
-        "approver_user_ids": {
-          "name": "approver_user_ids",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::text[]"
-        },
-        "shared_by": {
-          "name": "shared_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'L2 Support'"
-        },
-        "sla": {
-          "name": "sla",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "work_start": {
-          "name": "work_start",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'10:00'"
-        },
-        "work_end": {
-          "name": "work_end",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'19:00'"
-        },
-        "work_days": {
-          "name": "work_days",
-          "type": "integer[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{1,2,3,4,5}'::integer[]"
-        },
-        "updated_by": {
-          "name": "updated_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "support_report_settings_project_id_jira_projects_id_fk": {
-          "name": "support_report_settings_project_id_jira_projects_id_fk",
-          "tableFrom": "support_report_settings",
-          "tableTo": "jira_projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "support_report_settings_updated_by_users_id_fk": {
-          "name": "support_report_settings_updated_by_users_id_fk",
-          "tableFrom": "support_report_settings",
-          "tableTo": "users",
-          "columnsFrom": [
-            "updated_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.support_reports": {
-      "name": "support_reports",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "report_date": {
-          "name": "report_date",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "support_report_status",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'awaiting_approval'"
-        },
-        "data": {
-          "name": "data",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "built_at": {
-          "name": "built_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "built_by": {
-          "name": "built_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "built_by_name": {
-          "name": "built_by_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "approved_by": {
-          "name": "approved_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "approved_by_name": {
-          "name": "approved_by_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "approved_at": {
-          "name": "approved_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sent_at": {
-          "name": "sent_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "recipients_to": {
-          "name": "recipients_to",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "recipients_cc": {
-          "name": "recipients_cc",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "provider_message_id": {
-          "name": "provider_message_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "error": {
-          "name": "error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "approvers_notified_at": {
-          "name": "approvers_notified_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "support_reports_project_date_idx": {
-          "name": "support_reports_project_date_idx",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "report_date",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "support_reports_project_id_jira_projects_id_fk": {
-          "name": "support_reports_project_id_jira_projects_id_fk",
-          "tableFrom": "support_reports",
-          "tableTo": "jira_projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.support_ticket_ownership_events": {
-      "name": "support_ticket_ownership_events",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "issue_id": {
-          "name": "issue_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "side": {
-          "name": "side",
-          "type": "support_owner_side",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "at": {
-          "name": "at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "by_user": {
-          "name": "by_user",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "by_name": {
-          "name": "by_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "deleted_by": {
-          "name": "deleted_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "deleted_by_name": {
-          "name": "deleted_by_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "support_ticket_ownership_events_issue_idx": {
-          "name": "support_ticket_ownership_events_issue_idx",
-          "columns": [
-            {
-              "expression": "issue_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "support_ticket_ownership_events_issue_id_jira_issues_id_fk": {
-          "name": "support_ticket_ownership_events_issue_id_jira_issues_id_fk",
-          "tableFrom": "support_ticket_ownership_events",
-          "tableTo": "jira_issues",
-          "columnsFrom": [
-            "issue_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "support_ticket_ownership_events_by_user_users_id_fk": {
-          "name": "support_ticket_ownership_events_by_user_users_id_fk",
-          "tableFrom": "support_ticket_ownership_events",
-          "tableTo": "users",
-          "columnsFrom": [
-            "by_user"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "support_ticket_ownership_events_deleted_by_users_id_fk": {
-          "name": "support_ticket_ownership_events_deleted_by_users_id_fk",
-          "tableFrom": "support_ticket_ownership_events",
-          "tableTo": "users",
-          "columnsFrom": [
-            "deleted_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.support_tickets": {
-      "name": "support_tickets",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "issue_id": {
-          "name": "issue_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "category": {
-          "name": "category",
-          "type": "support_category",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "owner_side": {
-          "name": "owner_side",
-          "type": "support_owner_side",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'salescode'"
-        },
-        "first_responded_at": {
-          "name": "first_responded_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "users_reported": {
-          "name": "users_reported",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "users_impacted": {
-          "name": "users_impacted",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "eta": {
-          "name": "eta",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_by": {
-          "name": "updated_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_by_name": {
-          "name": "updated_by_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "support_tickets_project_idx": {
-          "name": "support_tickets_project_idx",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "support_tickets_issue_id_jira_issues_id_fk": {
-          "name": "support_tickets_issue_id_jira_issues_id_fk",
-          "tableFrom": "support_tickets",
-          "tableTo": "jira_issues",
-          "columnsFrom": [
-            "issue_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "support_tickets_project_id_jira_projects_id_fk": {
-          "name": "support_tickets_project_id_jira_projects_id_fk",
-          "tableFrom": "support_tickets",
-          "tableTo": "jira_projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "support_tickets_updated_by_users_id_fk": {
-          "name": "support_tickets_updated_by_users_id_fk",
-          "tableFrom": "support_tickets",
-          "tableTo": "users",
-          "columnsFrom": [
-            "updated_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "support_tickets_issue_id_unique": {
-          "name": "support_tickets_issue_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "issue_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.tc_ai_knowledge_pages": {
       "name": "tc_ai_knowledge_pages",
       "schema": "",
@@ -10307,37 +9843,6 @@
         "daily",
         "weekly",
         "monthly"
-      ]
-    },
-    "public.support_category": {
-      "name": "support_category",
-      "schema": "public",
-      "values": [
-        "bug",
-        "understanding",
-        "data_issue",
-        "data_upload",
-        "image_upload",
-        "others"
-      ]
-    },
-    "public.support_owner_side": {
-      "name": "support_owner_side",
-      "schema": "public",
-      "values": [
-        "salescode",
-        "client"
-      ]
-    },
-    "public.support_report_status": {
-      "name": "support_report_status",
-      "schema": "public",
-      "values": [
-        "awaiting_approval",
-        "sending",
-        "sent",
-        "failed",
-        "lapsed"
       ]
     },
     "public.tc_category": {

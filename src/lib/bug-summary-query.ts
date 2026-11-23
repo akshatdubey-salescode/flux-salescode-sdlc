@@ -1,4 +1,6 @@
 import { and, eq, or, sql, type SQL } from "drizzle-orm";
+import { cacheLife, cacheTag } from "next/cache";
+import { KEKA_DIRECTORY_TAG } from "@/lib/keka/cache-tags";
 import { db } from "@/lib/db";
 import { jiraIssues, jiraProjects, projectStatusMappings } from "@/lib/db/schema";
 import { loadAccountIdEmailMap } from "@/lib/jira/identity";
@@ -179,4 +181,27 @@ export async function loadBugRows(
     return mapped.filter((b) => b.ownerEmail != null && owners.has(b.ownerEmail));
   }
   return mapped;
+}
+
+/**
+ * Every bug of one project created within [start, end] (YYYY-MM-DD, inclusive).
+ * Shared by the session-authed /api/projects/[id]/bugs route and the
+ * token-authed /api/v1 route — both get the same cached rows.
+ */
+export async function fetchProjectBugs(
+  projectId: string,
+  start: string,
+  end: string
+): Promise<BugRow[]> {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag("projects", `project:${projectId}`);
+  // Owner attribution is gated on keka_employees (loadBugRows), so a
+  // joiner/leaver sync must refresh this.
+  cacheTag(KEKA_DIRECTORY_TAG);
+
+  return loadBugRows([
+    eq(jiraIssues.projectId, projectId),
+    ...dateRangeConditions(start, end),
+  ]);
 }
