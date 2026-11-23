@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored Stageshow kit (MIT, see its LICENSE); kept as upstream ships it.
+    "src/components/landing/kit/**",
   ]),
 ]);
 
