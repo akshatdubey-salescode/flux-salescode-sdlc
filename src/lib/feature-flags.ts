@@ -20,6 +20,7 @@ export const FEATURE_FLAGS = {
   PERFORMANCE_REVIEW_VISIBLE_COLUMNS: "performanceReviewVisibleColumns",
   BUG_BOARD_OPEN_COLUMN: "showBugBoardOpenColumn",
   TEST_CASES: "enableTestCases",
+  SUPPORT_REPORTS: "enableSupportReports",
 } as const satisfies Record<string, FlagKey>;
 
 // ---------------------------------------------------------------------------

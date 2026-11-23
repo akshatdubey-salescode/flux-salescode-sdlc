@@ -1,0 +1,245 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import {
+  isBeforeTicketCreated,
+  parseOwnershipBody,
+  parseSettingsBody,
+  parseTicketPatch,
+  ticketTimesError,
+} from "./validate";
+
+const now = new Date("2026-11-20T10:00:00Z");
+
+test("patch: valid full body", () => {
+  const r = parseTicketPatch(
+    { category: "bug", firstRespondedAt: "2026-11-20T09:00:00Z", usersReported: 3, usersImpacted: 0, eta: "2026-11-25" },
+    now,
+  );
+  assert.ok(r.ok);
+  if (r.ok) {
+    assert.equal(r.value.category, "bug");
+    assert.equal(r.value.firstRespondedAt?.toISOString(), "2026-11-20T09:00:00.000Z");
+  }
+});
+test("patch: nulls allowed, only present keys returned", () => {
+  const r = parseTicketPatch({ category: null, eta: null }, now);
+  assert.ok(r.ok);
+  if (r.ok) assert.deepEqual(r.value, { category: null, eta: null });
+});
+test("patch: rejects bad input", () => {
+  for (const b of [
+    null,
+    [],
+    { foo: 1 },
+    { category: "nope" },
+    { usersReported: -1 },
+    { usersReported: 1.5 },
+    { usersImpacted: "3" },
+    { firstRespondedAt: "yesterday" },
+    { firstRespondedAt: "2026-11-20T10:05:00Z" },
+    { eta: "2026-02-30" },
+    { eta: "20/11/2026" },
+  ]) {
+    assert.equal(parseTicketPatch(b, now).ok, false, JSON.stringify(b));
+  }
+});
+test("patch: firstRespondedAt within 1 minute slack ok", () => {
+  assert.ok(parseTicketPatch({ firstRespondedAt: "2026-11-20T10:00:30Z" }, now).ok);
+});
+test("patch: raisedAt accepts ISO (past, even before Jira creation) and null", () => {
+  const r = parseTicketPatch({ raisedAt: "2026-10-31T18:30:00Z" }, now);
+  assert.ok(r.ok);
+  if (r.ok) assert.equal(r.value.raisedAt?.toISOString(), "2026-10-31T18:30:00.000Z");
+  const cleared = parseTicketPatch({ raisedAt: null }, now);
+  assert.ok(cleared.ok);
+  if (cleared.ok) assert.deepEqual(cleared.value, { raisedAt: null });
+  assert.ok(parseTicketPatch({ raisedAt: "2026-11-20T10:00:30Z" }, now).ok); // 1 min slack
+});
+test("patch: raisedAt rejects junk and the future", () => {
+  for (const b of [
+    { raisedAt: "yesterday" },
+    { raisedAt: 1732000000000 },
+    { raisedAt: "2026-11-20" },
+    { raisedAt: "2026-11-20T10:05:00Z" },
+  ]) {
+    assert.equal(parseTicketPatch(b, now).ok, false, JSON.stringify(b));
+  }
+});
+test("patch: rcaShared must be a boolean", () => {
+  const on = parseTicketPatch({ rcaShared: true }, now);
+  assert.ok(on.ok);
+  if (on.ok) assert.deepEqual(on.value, { rcaShared: true });
+  const off = parseTicketPatch({ rcaShared: false }, now);
+  assert.ok(off.ok);
+  if (off.ok) assert.deepEqual(off.value, { rcaShared: false });
+  for (const v of [null, "true", 1, 0, {}]) {
+    assert.equal(parseTicketPatch({ rcaShared: v }, now).ok, false, JSON.stringify(v));
+  }
+});
+test("ticketTimesError: first response vs effective raised time", () => {
+  const jiraCreatedAt = new Date("2026-11-19T10:00:00Z");
+  const stored = { jiraCreatedAt, raisedAt: null, firstRespondedAt: null };
+  // First response before Jira creation, no raised time -> rejected.
+  assert.match(
+    ticketTimesError(stored, { firstRespondedAt: new Date("2026-11-19T09:00:00Z") }) ?? "",
+    /before the ticket was raised/,
+  );
+  // Same response is fine once the ticket is raised earlier (stored or in the same patch).
+  const raisedEarly = { ...stored, raisedAt: new Date("2026-11-19T08:00:00Z") };
+  assert.equal(ticketTimesError(raisedEarly, { firstRespondedAt: new Date("2026-11-19T09:00:00Z") }), null);
+  assert.equal(
+    ticketTimesError(stored, {
+      raisedAt: new Date("2026-11-19T08:00:00Z"),
+      firstRespondedAt: new Date("2026-11-19T09:00:00Z"),
+    }),
+    null,
+  );
+  // Clearing the response is always fine.
+  assert.equal(ticketTimesError(stored, { firstRespondedAt: null }), null);
+});
+test("ticketTimesError: raised time can't be after the first response", () => {
+  const jiraCreatedAt = new Date("2026-11-19T10:00:00Z");
+  const responded = { jiraCreatedAt, raisedAt: null, firstRespondedAt: new Date("2026-11-19T10:30:00Z") };
+  assert.equal(
+    ticketTimesError(responded, { raisedAt: new Date("2026-11-19T11:00:00Z") }),
+    "Raised time can't be after the first response",
+  );
+  // Equal is fine; earlier than Jira creation is the point.
+  assert.equal(ticketTimesError(responded, { raisedAt: new Date("2026-11-19T10:30:00Z") }), null);
+  assert.equal(ticketTimesError(responded, { raisedAt: new Date("2026-11-18T10:00:00Z") }), null);
+  // Clearing falls back to Jira creation, which is still before the response.
+  assert.equal(ticketTimesError({ ...responded, raisedAt: new Date("2026-11-19T09:00:00Z") }, { raisedAt: null }), null);
+  // Clearing when the response predates Jira creation would break the invariant.
+  const early = { jiraCreatedAt, raisedAt: new Date("2026-11-19T08:00:00Z"), firstRespondedAt: new Date("2026-11-19T09:00:00Z") };
+  assert.equal(ticketTimesError(early, { raisedAt: null }), "Can't clear the raised time: the first response is before the Jira creation time");
+  // Unrelated patches never trip on stored values.
+  assert.equal(ticketTimesError(early, { usersReported: 3 }), null);
+});
+test("ownership: defaults at to now", () => {
+  const r = parseOwnershipBody({ side: "client" }, now);
+  assert.ok(r.ok);
+  if (r.ok) assert.equal(r.value.at, now);
+});
+test("ownership: rejects bad side / at / extra keys", () => {
+  for (const b of [null, {}, { side: "x" }, { side: "client", at: "nope" }, { side: "client", extra: 1 }]) {
+    assert.equal(parseOwnershipBody(b, now).ok, false, JSON.stringify(b));
+  }
+});
+
+// ---- parseSettingsBody ----
+
+const goodSettings = () => ({
+  enabled: true,
+  supportLabel: "  support ",
+  periodMode: "mtd",
+  periodStart: null,
+  toEmails: [" A@x.com ", "a@x.com", "b@y.org"],
+  ccEmails: ["C@z.io"],
+  approverUserIds: ["User-1", "boss@x.com"],
+  sharedBy: " L2 Support ",
+  sla: {
+    P1: { responseMin: 10, resolutionMin: 240 },
+    P2: { responseMin: 10, resolutionMin: 480 },
+    P3: { responseMin: 30, resolutionMin: 1440 },
+    P4: { responseMin: 30, resolutionMin: 2400 },
+  },
+  officeHours: { start: "10:00", end: "19:00", days: [1, 2, 3, 4, 5], timeZone: "Asia/Kolkata" },
+});
+
+test("settings: valid body is normalised", () => {
+  const r = parseSettingsBody(goodSettings());
+  assert.ok(r.ok);
+  if (r.ok) {
+    assert.equal(r.value.supportLabel, "support");
+    assert.equal(r.value.sharedBy, "L2 Support");
+    assert.deepEqual(r.value.toEmails, ["a@x.com", "b@y.org"]);
+    assert.deepEqual(r.value.ccEmails, ["c@z.io"]);
+    assert.deepEqual(r.value.approverUserIds, ["user-1", "boss@x.com"]);
+  }
+});
+
+test("settings: rejects non-object, empty label, empty sharedBy", () => {
+  assert.equal(parseSettingsBody(null).ok, false);
+  assert.equal(parseSettingsBody([]).ok, false);
+  assert.equal(parseSettingsBody({ ...goodSettings(), supportLabel: "  " }).ok, false);
+  assert.equal(parseSettingsBody({ ...goodSettings(), sharedBy: "" }).ok, false);
+});
+
+test("settings: email validation", () => {
+  assert.equal(parseSettingsBody({ ...goodSettings(), toEmails: ["nope"] }).ok, false);
+  assert.equal(parseSettingsBody({ ...goodSettings(), ccEmails: ["a b@x.com"] }).ok, false);
+  assert.equal(parseSettingsBody({ ...goodSettings(), toEmails: "a@x.com" }).ok, false);
+});
+
+test("settings: enabled requires a To; disabled does not", () => {
+  assert.equal(parseSettingsBody({ ...goodSettings(), toEmails: [] }).ok, false);
+  assert.ok(parseSettingsBody({ ...goodSettings(), enabled: false, toEmails: [] }).ok);
+});
+
+test("settings: periodMode", () => {
+  assert.equal(parseSettingsBody({ ...goodSettings(), periodMode: "weekly" }).ok, false);
+  assert.equal(parseSettingsBody({ ...goodSettings(), periodMode: "custom", periodStart: null }).ok, false);
+  assert.equal(parseSettingsBody({ ...goodSettings(), periodMode: "custom", periodStart: "2026-02-30" }).ok, false);
+  const c = parseSettingsBody({ ...goodSettings(), periodMode: "custom", periodStart: "2026-04-01" });
+  assert.ok(c.ok);
+  if (c.ok) assert.equal(c.value.periodStart, "2026-04-01");
+  const m = parseSettingsBody({ ...goodSettings(), periodMode: "ytd", periodStart: "2026-04-01" });
+  assert.ok(m.ok);
+  if (m.ok) assert.equal(m.value.periodStart, null);
+});
+
+test("settings: SLA values", () => {
+  const bad = (mut: (s: ReturnType<typeof goodSettings>) => void) => {
+    const s = goodSettings();
+    mut(s);
+    return parseSettingsBody(s).ok;
+  };
+  assert.equal(bad((s) => { s.sla.P1.responseMin = 0; }), false);
+  assert.equal(bad((s) => { s.sla.P2.resolutionMin = 1.5; }), false);
+  assert.equal(bad((s) => { s.sla.P3.resolutionMin = -5; }), false);
+  assert.equal(bad((s) => { delete (s.sla as Record<string, unknown>).P4; }), false);
+  assert.equal(bad((s) => { (s.sla.P1 as Record<string, unknown>).responseMin = "10"; }), false);
+});
+
+test("settings: office hours", () => {
+  const oh = (o: unknown) => parseSettingsBody({ ...goodSettings(), officeHours: o }).ok;
+  assert.ok(oh({ start: "00:00", end: "24:00", days: [0, 6] }));
+  assert.equal(oh({ start: "10:00", end: "10:00", days: [1] }), false);
+  assert.equal(oh({ start: "19:00", end: "10:00", days: [1] }), false);
+  assert.equal(oh({ start: "24:00", end: "24:00", days: [1] }), false);
+  assert.equal(oh({ start: "9:00", end: "19:00", days: [1] }), false);
+  assert.equal(oh({ start: "10:60", end: "19:00", days: [1] }), false);
+  assert.equal(oh({ start: "10:00", end: "19:00", days: [] }), false);
+  assert.equal(oh({ start: "10:00", end: "19:00", days: [1, 1] }), false);
+  assert.equal(oh({ start: "10:00", end: "19:00", days: [7] }), false);
+  assert.equal(oh({ start: "10:00", end: "19:00", days: [1.5] }), false);
+});
+
+test("settings: approverUserIds", () => {
+  assert.equal(parseSettingsBody({ ...goodSettings(), approverUserIds: [""] }).ok, false);
+  assert.equal(parseSettingsBody({ ...goodSettings(), approverUserIds: [3] }).ok, false);
+  assert.equal(parseSettingsBody({ ...goodSettings(), approverUserIds: "x" }).ok, false);
+});
+
+test("isBeforeTicketCreated: earlier than creation is rejected, equal or later is fine", () => {
+  const created = new Date("2026-11-20T08:00:00Z");
+  assert.equal(isBeforeTicketCreated(new Date("2026-11-20T07:59:59Z"), created), true);
+  assert.equal(isBeforeTicketCreated(new Date("2026-11-20T08:00:00Z"), created), false);
+  assert.equal(isBeforeTicketCreated(new Date("2026-11-20T09:00:00Z"), created), false);
+});
+
+test("isBeforeTicketCreated: no creation time never rejects", () => {
+  assert.equal(isBeforeTicketCreated(new Date("2000-01-01T00:00:00Z"), null), false);
+});
+
+test("parseSettingsBody: timezone is validated, and defaults to Asia/Kolkata when absent", () => {
+  const withTz = (timeZone: unknown) =>
+    parseSettingsBody({ ...goodSettings(), officeHours: { start: "10:00", end: "19:00", days: [1], timeZone } });
+  const ba = withTz("America/Argentina/Buenos_Aires");
+  assert.ok(ba.ok && ba.value.officeHours.timeZone === "America/Argentina/Buenos_Aires");
+  const bad = withTz("Mars/Olympus");
+  assert.ok(!bad.ok && /officeHours\.timeZone/.test(bad.error));
+  assert.equal(withTz(42).ok, false);
+  const absent = parseSettingsBody({ ...goodSettings(), officeHours: { start: "10:00", end: "19:00", days: [1] } });
+  assert.ok(absent.ok && absent.value.officeHours.timeZone === "Asia/Kolkata");
+});

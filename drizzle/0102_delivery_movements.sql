@@ -4,6 +4,19 @@ CREATE TYPE "public"."movement_result" AS ENUM('pending', 'moved', 'held');--> s
 CREATE TYPE "public"."movement_slot" AS ENUM('deployer', 'ba', 'lead');--> statement-breakpoint
 CREATE TYPE "public"."movement_snapshot_reason" AS ENUM('signoff', 'start', 'done');--> statement-breakpoint
 CREATE TYPE "public"."movement_status" AS ENUM('draft', 'ready', 'signed_off', 'in_progress', 'done', 'cancelled');--> statement-breakpoint
+CREATE TABLE "delivery_movement_comment_edits" (
+	"movement_id" uuid NOT NULL,
+	"issue_id" uuid NOT NULL,
+	"comment_id" text NOT NULL,
+	"edited_text" text NOT NULL,
+	"edited_by" text NOT NULL,
+	"edited_by_name" text,
+	"edited_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"base_updated" text,
+	CONSTRAINT "delivery_movement_comment_edits_movement_id_comment_id_pk" PRIMARY KEY("movement_id","comment_id"),
+	CONSTRAINT "delivery_movement_comment_edits_text_cap" CHECK (char_length("delivery_movement_comment_edits"."edited_text") <= 40000)
+);
+--> statement-breakpoint
 CREATE TABLE "delivery_movement_events" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"movement_id" uuid NOT NULL,
@@ -56,6 +69,23 @@ CREATE TABLE "delivery_movement_snapshots" (
 	CONSTRAINT "delivery_movement_snapshots_body_cap" CHECK (octet_length("delivery_movement_snapshots"."body") <= 1048576)
 );
 --> statement-breakpoint
+CREATE TABLE "delivery_movement_summaries" (
+	"movement_id" uuid PRIMARY KEY NOT NULL,
+	"hash" text NOT NULL,
+	"source" text NOT NULL,
+	"model" text,
+	"body" jsonb NOT NULL,
+	"note" text,
+	"generated_by" text,
+	"generated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"input_hash" text,
+	"last_attempt_at" timestamp with time zone,
+	"attempts_day" text,
+	"attempts_today" integer DEFAULT 0 NOT NULL,
+	CONSTRAINT "delivery_movement_summaries_source_check" CHECK ("delivery_movement_summaries"."source" in ('ai', 'rules')),
+	CONSTRAINT "delivery_movement_summaries_body_cap" CHECK (pg_column_size("delivery_movement_summaries"."body") < 65536)
+);
+--> statement-breakpoint
 CREATE TABLE "delivery_movements" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"delivery_id" uuid NOT NULL,
@@ -76,11 +106,15 @@ CREATE TABLE "delivery_movements" (
 	"inputs" "bytea",
 	"inputs_hash" text,
 	"refresh_error" text,
+	"comment_edits_hash" text,
 	CONSTRAINT "delivery_movements_branches_cap" CHECK (jsonb_array_length("delivery_movements"."branches") <= 30),
 	CONSTRAINT "delivery_movements_refresh_error_cap" CHECK (char_length("delivery_movements"."refresh_error") <= 300),
 	CONSTRAINT "delivery_movements_inputs_cap" CHECK (octet_length("delivery_movements"."inputs") <= 4194304)
 );
 --> statement-breakpoint
+ALTER TABLE "delivery_movement_comment_edits" ADD CONSTRAINT "delivery_movement_comment_edits_movement_id_delivery_movements_id_fk" FOREIGN KEY ("movement_id") REFERENCES "public"."delivery_movements"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "delivery_movement_comment_edits" ADD CONSTRAINT "delivery_movement_comment_edits_issue_id_jira_issues_id_fk" FOREIGN KEY ("issue_id") REFERENCES "public"."jira_issues"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "delivery_movement_comment_edits" ADD CONSTRAINT "delivery_movement_comment_edits_edited_by_users_id_fk" FOREIGN KEY ("edited_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "delivery_movement_events" ADD CONSTRAINT "delivery_movement_events_movement_id_delivery_movements_id_fk" FOREIGN KEY ("movement_id") REFERENCES "public"."delivery_movements"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "delivery_movement_events" ADD CONSTRAINT "delivery_movement_events_actor_users_id_fk" FOREIGN KEY ("actor") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "delivery_movement_items" ADD CONSTRAINT "delivery_movement_items_movement_id_delivery_movements_id_fk" FOREIGN KEY ("movement_id") REFERENCES "public"."delivery_movements"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -89,6 +123,8 @@ ALTER TABLE "delivery_movement_items" ADD CONSTRAINT "delivery_movement_items_ov
 ALTER TABLE "delivery_movement_signoffs" ADD CONSTRAINT "delivery_movement_signoffs_movement_id_delivery_movements_id_fk" FOREIGN KEY ("movement_id") REFERENCES "public"."delivery_movements"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "delivery_movement_snapshots" ADD CONSTRAINT "delivery_movement_snapshots_movement_id_delivery_movements_id_fk" FOREIGN KEY ("movement_id") REFERENCES "public"."delivery_movements"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "delivery_movement_snapshots" ADD CONSTRAINT "delivery_movement_snapshots_taken_by_users_id_fk" FOREIGN KEY ("taken_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "delivery_movement_summaries" ADD CONSTRAINT "delivery_movement_summaries_movement_id_delivery_movements_id_fk" FOREIGN KEY ("movement_id") REFERENCES "public"."delivery_movements"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "delivery_movement_summaries" ADD CONSTRAINT "delivery_movement_summaries_generated_by_users_id_fk" FOREIGN KEY ("generated_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "delivery_movements" ADD CONSTRAINT "delivery_movements_delivery_id_deliveries_id_fk" FOREIGN KEY ("delivery_id") REFERENCES "public"."deliveries"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "delivery_movements" ADD CONSTRAINT "delivery_movements_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "delivery_movements" ADD CONSTRAINT "delivery_movements_done_by_users_id_fk" FOREIGN KEY ("done_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint

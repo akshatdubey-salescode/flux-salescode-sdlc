@@ -22,7 +22,7 @@ structure is still shown as the original text.
 
 | Step | What |
 |---|---|
-| Database | Migrations `0099_delivery_movements` and `0100_movement_comment_edits_summaries` (additive: 7 new `delivery_movement*` tables, no change to existing tables). `scripts/build.sh` applies them on a **Vercel production** build; Preview builds do not migrate, so the movement pages fail on a Preview until the database has them. |
+| Database | Migration `0102_delivery_movements` (additive: 7 new `delivery_movement*` tables, no change to existing tables). `scripts/build.sh` applies it on a **Vercel production** build; Preview builds do not migrate, so the movement pages fail on a Preview until the database has them. |
 | Env vars (existing) | `DATABASE_URL`, `CRON_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `NEXT_PUBLIC_APP_URL`. Jira and GitHub access reuse the project's Jira connection and the active GitHub org tokens already stored in Flux. |
 | Env vars (optional) | `MINIMAX_API_KEY` (+ `MINIMAX_MODEL`, `MINIMAX_BASE_URL`, `MINIMAX_EFFORT`) turns on the "AI summary" button. Without a key the button is off and the rule-based Summary still works. `MOVEMENT_EMAILS_LIVE=1` is only for a self-hosted production build (Vercel production mails real people by itself). |
 | Scheduler | Vercel Cron calls `/api/cron/movements` every 30 minutes (`vercel.json`, needs the Vercel **Pro** plan; see `docs/scheduled-processes.md`, "Movement check"). Nothing to set up beyond `CRON_SECRET`. Without the cron the feature still works; changed records are then noticed only when someone opens the movement or presses Refresh. |

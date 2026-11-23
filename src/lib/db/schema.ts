@@ -1,4 +1,5 @@
 import type { RoundScope } from "@/lib/test-cases/scope";
+import type { SlaTargets, SupportReportData } from "@/lib/support/types";
 import {
   pgTable,
   text,
@@ -51,6 +52,7 @@ import {
   TC_SEVERITY_VALUES,
   TC_SOURCE_VALUES,
 } from "../test-cases/values";
+import { SUPPORT_CATEGORIES } from "../support/types";
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -3028,6 +3030,147 @@ export const googleSharedReader = pgTable("google_shared_reader", {
   // Set when Google refuses the refresh token (revoked, expired): the admin has to connect again.
   lastError: text("last_error"),
 });
+
+// ---------------------------------------------------------------------------
+// Support tickets & the daily client support report
+//
+// Per-project settings, Flux-side ticket metadata (category, first response,
+// impact, ETA), the client/Salescode ownership timeline used for SLA counting,
+// and one built report per project per IST day (held until approved and sent).
+// ---------------------------------------------------------------------------
+
+export const supportCategoryEnum = pgEnum("support_category", SUPPORT_CATEGORIES);
+export const supportOwnerSideEnum = pgEnum("support_owner_side", ["salescode", "client"]);
+export const supportReportStatusEnum = pgEnum("support_report_status", [
+  "awaiting_approval",
+  "sending",
+  "sent",
+  "failed",
+  "lapsed",
+]);
+
+export const supportReportSettings = pgTable("support_report_settings", {
+  projectId: uuid("project_id")
+    .primaryKey()
+    .references(() => jiraProjects.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(false),
+  // Jira label that marks a support ticket. Default "external" (user decision, 2026-11-20).
+  supportLabel: text("support_label").notNull().default("external"),
+  // 'mtd' | 'ytd' | 'custom'
+  periodMode: text("period_mode").notNull().default("mtd"),
+  periodStart: date("period_start"),
+  toEmails: text("to_emails")
+    .array()
+    .notNull()
+    .default(sql`'{}'::text[]`),
+  ccEmails: text("cc_emails")
+    .array()
+    .notNull()
+    .default(sql`'{}'::text[]`),
+  approverUserIds: text("approver_user_ids")
+    .array()
+    .notNull()
+    .default(sql`'{}'::text[]`),
+  sharedBy: text("shared_by").notNull().default("L2 Support"),
+  sla: jsonb("sla").$type<SlaTargets>().notNull(),
+  // IANA timezone of the client (user decision, 2026-11-21): sets the report
+  // day, the 17:00 build time, how office hours are read, and every time typed
+  // or shown for the project's support tickets.
+  timeZone: text("time_zone").notNull().default("Asia/Kolkata"),
+  // Office hours (HH:MM in time_zone) and working days (Sunday-first) for SLA counting.
+  workStart: text("work_start").notNull().default("10:00"),
+  workEnd: text("work_end").notNull().default("19:00"),
+  workDays: integer("work_days")
+    .array()
+    .notNull()
+    .default(sql`'{1,2,3,4,5}'::integer[]`),
+  updatedBy: text("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const supportTickets = pgTable(
+  "support_tickets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    issueId: uuid("issue_id")
+      .notNull()
+      .unique()
+      .references(() => jiraIssues.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => jiraProjects.id, { onDelete: "cascade" }),
+    category: supportCategoryEnum("category"),
+    ownerSide: supportOwnerSideEnum("owner_side").notNull().default("salescode"),
+    firstRespondedAt: timestamp("first_responded_at", { withTimezone: true }),
+    usersReported: integer("users_reported"),
+    usersImpacted: integer("users_impacted"),
+    eta: date("eta"),
+    // When the client actually raised the ticket (may predate Jira creation).
+    // Effective raised time = raised_at ?? jira_issues.jira_created_at.
+    raisedAt: timestamp("raised_at", { withTimezone: true }),
+    // RCA shared with the client; the report's RCA counts read only this.
+    rcaShared: boolean("rca_shared").notNull().default(false),
+    updatedBy: text("updated_by").references(() => users.id),
+    updatedByName: text("updated_by_name"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("support_tickets_project_idx").on(t.projectId)]
+);
+
+export const supportTicketOwnershipEvents = pgTable(
+  "support_ticket_ownership_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    issueId: uuid("issue_id")
+      .notNull()
+      .references(() => jiraIssues.id, { onDelete: "cascade" }),
+    side: supportOwnerSideEnum("side").notNull(),
+    // When the ball changed sides (editable); createdAt is when the row was logged.
+    at: timestamp("at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    byUser: text("by_user").references(() => users.id),
+    byName: text("by_name"),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: text("deleted_by").references(() => users.id),
+    deletedByName: text("deleted_by_name"),
+  },
+  (t) => [index("support_ticket_ownership_events_issue_idx").on(t.issueId, t.at)]
+);
+
+export const supportReports = pgTable(
+  "support_reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => jiraProjects.id, { onDelete: "cascade" }),
+    // The IST day this report is FOR.
+    reportDate: date("report_date").notNull(),
+    status: supportReportStatusEnum("status").notNull().default("awaiting_approval"),
+    data: jsonb("data").$type<SupportReportData>().notNull(),
+    builtAt: timestamp("built_at", { withTimezone: true }).notNull().defaultNow(),
+    // Null when built by the scheduler rather than a person.
+    builtBy: text("built_by"),
+    builtByName: text("built_by_name"),
+    approvedBy: text("approved_by"),
+    approvedByName: text("approved_by_name"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    recipientsTo: text("recipients_to").array(),
+    recipientsCc: text("recipients_cc").array(),
+    providerMessageId: text("provider_message_id"),
+    error: text("error"),
+    // Set once by the 17:00 cron when it claims the "ready for approval" notice,
+    // so the notice goes out at most once per report. Manual builds never set it.
+    approversNotifiedAt: timestamp("approvers_notified_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("support_reports_project_date_idx").on(t.projectId, t.reportDate)]
+);
+
+export type SupportReportSettings = typeof supportReportSettings.$inferSelect;
+export type SupportTicket = typeof supportTickets.$inferSelect;
+export type SupportTicketOwnershipEvent = typeof supportTicketOwnershipEvents.$inferSelect;
+export type SupportReport = typeof supportReports.$inferSelect;
 
 // ---------------------------------------------------------------------------
 // External API tokens — long-lived (no expiry) bearer tokens a superuser mints
