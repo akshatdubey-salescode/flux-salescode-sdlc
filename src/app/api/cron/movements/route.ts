@@ -6,9 +6,9 @@ import { runMovementCheck } from "@/lib/movement/cron";
 // last 25 minutes) so a changed record resets the sign-offs without anybody opening the page. Exits
 // at once when nothing is due.
 //
-// Bearer CRON_SECRET guard, mirroring the other cron routes. It is NOT in vercel.json (Vercel Hobby only
-// allows daily crons): the external scheduler calls it every 30 minutes, see docs/scheduled-processes.md.
-// GET (what Vercel Cron would issue) and POST are both handled. The response holds counts only.
+// Bearer CRON_SECRET guard, mirroring the other cron routes. Vercel Cron calls it every 30 minutes
+// (vercel.json, needs the Pro plan), see docs/scheduled-processes.md.
+// GET (what Vercel Cron issues) and POST are both handled. The response holds counts only.
 export const maxDuration = 800; // Vercel caps this to the plan's actual max if lower. The run stops starting work after 240 s and gives each refresh 120 s (see lib/movement/cron.ts); keep this above their sum.
 
 function authorized(req: Request): boolean {

@@ -113,12 +113,13 @@ created from the same dialog, on the same **Repeat** tab.
 - An emptied workstream **skips** rather than stops — sprints get moved in after
   the fact, so there's no reason to retire the schedule over it.
 
-## Movement check (every 30 minutes, external scheduler)
+## Movement check (every 30 minutes, Vercel Cron)
 
 `/api/cron/movements` re-reads the deployment records of the environment movements that are ready, signed
 off or in progress, so a record edited in Jira resets the sign-offs (and mails the signers) without anybody
-opening the page. It is **not** in `vercel.json`: Vercel Hobby only allows daily crons and an entry it cannot
-schedule fails the deploy. Call it every 30 minutes from the external scheduler:
+opening the page. `vercel.json` registers it at `*/30 * * * *`; Vercel Cron issues a `GET` with
+`Authorization: Bearer $CRON_SECRET` injected from the env var. Sub-daily schedules need the Vercel **Pro**
+plan: on Hobby the entry fails the deploy, so drop it there and call the path from an external scheduler instead:
 
 ```
 curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://<flux-host>/api/cron/movements
@@ -130,9 +131,6 @@ never write its value into a job definition checked into a repo). Responses: `20
 itself failed, `401` for a missing or wrong secret. It exits at once when nothing is due, refreshes at most
 8 movements per call (2 at a time, none refreshed in the last 25 minutes, in an order that rotates every
 30 minutes so a broken movement cannot starve the others) and stops starting work after 240 s.
-
-To let Vercel schedule it instead, add `{ "path": "/api/cron/movements", "schedule": "*/30 * * * *" }` to
-`vercel.json`; that requires a Vercel **Pro** plan.
 
 Mail from the movement feature goes to real people only on Vercel production, or on a self-hosted
 production build that sets `MOVEMENT_EMAILS_LIVE=1` with `NODE_ENV=production`; every other environment
