@@ -16,3 +16,8 @@ export const ScorecardDemo = dynamic(() => import("./scorecard-demo").then((m) =
   ssr: false,
   loading: () => <div className="lp-demo-slot lp-demo-slot--score" aria-hidden />,
 });
+
+export const FeatureRotator = dynamic(() => import("./feature-rotator").then((m) => m.FeatureRotator), {
+  ssr: false,
+  loading: () => <div className="lp-demo-slot lp-demo-slot--rotator" aria-hidden />,
+});

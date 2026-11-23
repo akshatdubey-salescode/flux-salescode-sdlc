@@ -2,7 +2,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { Instrument_Serif } from "next/font/google";
 import {
   RiArrowRightLine,
   RiArrowRightUpLine,
@@ -18,14 +17,9 @@ import { LandingMotion } from "@/components/landing/landing-motion";
 import { Upvote } from "@/components/landing/upvote";
 import githubMark from "@/components/landing/kit/brands/github.svg";
 import calendarMark from "@/components/landing/kit/brands/google-calendar.svg";
+import { displaySerif } from "@/components/landing/fonts";
 import "@/components/landing/landing.css";
 
-const serif = Instrument_Serif({
-  subsets: ["latin"],
-  weight: "400",
-  style: ["normal", "italic"],
-  variable: "--font-display-serif",
-});
 
 // Everything named on this page (people, projects, issue keys) is invented:
 // the page is public.
@@ -57,7 +51,7 @@ export default async function LandingPage() {
   if (session?.user?.email) redirect("/home");
 
   return (
-    <div className={`landing ${serif.variable}`}>
+    <div className={`landing ${displaySerif.variable}`}>
       <LandingMotion />
 
       <header className="lp-nav">
