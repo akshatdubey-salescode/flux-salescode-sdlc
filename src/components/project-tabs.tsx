@@ -28,6 +28,7 @@ import { ProjectTeamClient } from "@/components/observer/team-timeline-client";
 import { DeliveryTrackerTab } from "@/components/delivery-tracker/delivery-tracker-tab";
 import { SprintTrackerTab } from "@/components/sprint-tracker/sprint-tracker-tab";
 import { AiProjectGuidelines } from "@/components/test-cases/ai-project-guidelines";
+import { SupportTab } from "@/components/support/support-tab";
 
 type SyncJob = {
   id: string;
@@ -47,16 +48,18 @@ type Props = {
   /** Admin tab: which AI review guidelines apply to this project; only when Test Cases is enabled. */
   aiReviewTab?: boolean;
   aiConfigured?: boolean;
+  /** Support tab (tickets + daily client report); gated by the enableSupportReports flag. */
+  supportTab: boolean;
 };
 
-const VALID_TABS = ["overview", "project-tracking", "delivery-tracker", "sprint-tracker", "team", "bug-summary", "sla-engine", "status-mapping", "ai-review", "client-issues"] as const;
+const VALID_TABS = ["overview", "project-tracking", "delivery-tracker", "sprint-tracker", "team", "bug-summary", "support", "sla-engine", "status-mapping", "ai-review", "client-issues"] as const;
 type Tab = (typeof VALID_TABS)[number];
 
 function isValidTab(value: string | null): value is Tab {
   return VALID_TABS.includes(value as Tab);
 }
 
-export function ProjectTabs({ projectId, projectName, hasFreshdesk, isAdmin, isSuperuser, canManageDeliveries, aiReviewTab = false, aiConfigured = false }: Props) {
+export function ProjectTabs({ projectId, projectName, hasFreshdesk, isAdmin, isSuperuser, canManageDeliveries, aiReviewTab = false, aiConfigured = false, supportTab }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawTab = searchParams.get("tab");
@@ -64,7 +67,8 @@ export function ProjectTabs({ projectId, projectName, hasFreshdesk, isAdmin, isS
     isValidTab(rawTab) &&
     (rawTab !== "sla-engine" || isAdmin) &&
     (rawTab !== "status-mapping" || isAdmin) &&
-    (rawTab !== "ai-review" || (isAdmin && aiReviewTab))
+    (rawTab !== "ai-review" || (isAdmin && aiReviewTab)) &&
+    (rawTab !== "support" || supportTab)
       ? rawTab
       : "overview";
 
@@ -143,6 +147,9 @@ export function ProjectTabs({ projectId, projectName, hasFreshdesk, isAdmin, isS
           <TabsTrigger value="sprint-tracker">Sprint Tracking</TabsTrigger>
           <TabsTrigger value="team">Team Tracking</TabsTrigger>
           <TabsTrigger value="bug-summary">Bug Summary</TabsTrigger>
+          {supportTab && (
+            <TabsTrigger value="support">Support</TabsTrigger>
+          )}
           {isAdmin && (
             <TabsTrigger value="sla-engine">SLA Engine</TabsTrigger>
           )}
@@ -243,6 +250,12 @@ export function ProjectTabs({ projectId, projectName, hasFreshdesk, isAdmin, isS
                 exportTitle={projectName}
               />
             </TabsContent>
+
+            {supportTab && (
+              <TabsContent value="support">
+                <SupportTab projectId={projectId} isAdmin={isAdmin} />
+              </TabsContent>
+            )}
 
             {isAdmin && (
               <TabsContent value="sla-engine">
