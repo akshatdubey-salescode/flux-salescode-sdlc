@@ -41,7 +41,8 @@ build on them.
   tags to limit duplicates. Not curated by admins.
 
 **Draft / Published**
-: The two states of a Showcase. A Draft is autosaved and visible only to its
+: The two states of a Showcase. A Draft is created once the Author names the
+  tool in the "Share a tool" dialog (no empty drafts), then autosaved and visible only to its
   Author. Publishing makes it visible to everyone. A Published Showcase stays
   editable (shown as "Updated <date>"), and the Author can unpublish it back to
   Draft or delete it. No revision history.

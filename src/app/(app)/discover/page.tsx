@@ -1,13 +1,12 @@
-import { RiAddLine, RiCompass3Line } from "@remixicon/react";
+import { RiCompass3Line } from "@remixicon/react";
 import { requireAuth } from "@/lib/auth/server";
 import { PageHeader } from "@/components/page-header";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from "@/components/ui/breadcrumb";
-import { Button } from "@/components/ui/button";
 import { FeedControls } from "@/components/discover/feed-controls";
+import { ShareToolButton } from "@/components/discover/share-tool-button";
 import { ShowcaseCard } from "@/components/discover/showcase-card";
 import { normalizeTag } from "@/lib/discover/core";
 import { listMyShowcases, listPublishedShowcases } from "@/lib/discover/service";
-import { createShowcase } from "./actions";
 
 export default async function DiscoverPage(props: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -31,14 +30,7 @@ export default async function DiscoverPage(props: {
   return (
     <div className="flex flex-col min-h-svh">
       <PageHeader
-        actions={
-          <form action={createShowcase}>
-            <Button type="submit" size="lg">
-              <RiAddLine />
-              Share a tool
-            </Button>
-          </form>
-        }
+        actions={<ShareToolButton />}
       >
         <Breadcrumb>
           <BreadcrumbList>
@@ -49,11 +41,11 @@ export default async function DiscoverPage(props: {
         </Breadcrumb>
       </PageHeader>
 
-      <main className="flex-1 p-6 space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">Discover</h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Internal tools built by your colleagues. Find something useful, or share what you&apos;ve built.
+      <main className="flex-1 space-y-6 p-6 lg:px-8">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">Discover</h1>
+          <p className="max-w-xl text-sm text-zinc-500 dark:text-zinc-400">
+            Internal tools your colleagues have built. Find something useful, or share what you&apos;ve made.
           </p>
         </div>
 
@@ -70,16 +62,11 @@ export default async function DiscoverPage(props: {
                   : "Nothing here yet. Be the first to share a tool."}
             </p>
             {!filtered && (
-              <form action={createShowcase}>
-                <Button type="submit" variant="outline" size="lg">
-                  <RiAddLine />
-                  Share a tool
-                </Button>
-              </form>
+              <ShareToolButton variant="outline" />
             )}
           </div>
         ) : (
-          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          <div className="grid gap-x-6 gap-y-10 pt-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {items.map((s) => (
               <ShowcaseCard key={s.id} s={s} showStatus={tab === "mine"} />
             ))}

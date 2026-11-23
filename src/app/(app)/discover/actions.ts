@@ -42,15 +42,23 @@ async function loadShowcase(id: string) {
 // Authoring
 // ---------------------------------------------------------------------------
 
-/** Creates an empty draft straight away (so uploads have a showcase) and opens the editor. */
-export async function createShowcase(): Promise<void> {
+/**
+ * Creates a draft once the author has named their tool (so uploads have a
+ * showcase to attach to) and opens the editor. An empty name creates nothing.
+ */
+export async function createShowcase(_prev: Result, formData: FormData): Promise<Result> {
   const user = await requireAuth();
+  const title = String(formData.get("title") ?? "").trim();
+  if (!title) return { error: "Give your tool a name to continue." };
+  if (title.length > TITLE_MAX) return { error: `Name must be ${TITLE_MAX} characters or fewer.` };
+
+  const slug = slugify(title);
   let shortId = "";
   for (let attempt = 0; attempt < 5; attempt++) {
     const candidate = generateShortId();
     const inserted = await db
       .insert(showcases)
-      .values({ shortId: candidate, slug: "untitled", authorId: user.id })
+      .values({ shortId: candidate, slug, title, authorId: user.id })
       .onConflictDoNothing({ target: showcases.shortId })
       .returning({ shortId: showcases.shortId });
     if (inserted.length) {
@@ -58,8 +66,8 @@ export async function createShowcase(): Promise<void> {
       break;
     }
   }
-  if (!shortId) throw new Error("Could not create a showcase, please try again.");
-  redirect(`${showcasePath({ slug: "untitled", shortId })}/edit`);
+  if (!shortId) return { error: "Could not create the showcase. Please try again." };
+  redirect(`${showcasePath({ slug, shortId })}/edit`);
 }
 
 export type ShowcaseInput = {
