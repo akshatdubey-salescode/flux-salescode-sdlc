@@ -1,0 +1,352 @@
+{
+ "id": "81424",
+ "created": "2026-11-19T13:03:05.474+0000",
+ "updated": "2026-11-19T13:03:05.474+0000",
+ "author": {
+  "displayName": "Author"
+ },
+ "body": {
+  "type": "doc",
+  "version": 1,
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "DEPLOYMENT-RECORD v1 | CAV-7304 | kpi-dashboard#269 | 2026-11-19 13:17 | Claude (pr-review)\nsupersedes: none"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "1 Header:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " Account Lock: portal lock popup and refresh handling. Status "
+     },
+     {
+      "type": "text",
+      "text": "PARTIAL",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " (0 Blocking, 0 Should-fix, 1 Nitpick). Head reviewed: f97b0494a5. Review: https://github.com/salescode-ai/kpi-dashboard/pull/269#issuecomment-7007615798 [V]"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "2 Branches and owners:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " kpi-dashboard "
+     },
+     {
+      "type": "text",
+      "text": "CAV-7304-account-lock-live-sessions",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " -> "
+     },
+     {
+      "type": "text",
+      "text": "master",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": ", PR #269, OPEN, Rule 31 pass. Replaces #258 (closed). PR author dev-a. Approver: none yet. Merged by: not merged. Siblings: channelkart#1185, salescode-auth-service#332, channelkart-flutter#50. [V]"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "3 Prod branch and cherry-pick:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " kpi-dashboard prod is built from "
+     },
+     {
+      "type": "text",
+      "text": "prod-17-july-blue",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " (catalogue, devops to confirm); this PR targets "
+     },
+     {
+      "type": "text",
+      "text": "master",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": ". Effort: unknown, owner to confirm: author."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "4 Services to deploy:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " KPI Dashboard - UI (portal build). Needs channelkart#1185 and auth-service#332 live for the popup to appear."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "5 Services to restart:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " none (portal redeploy). Downtime required: No [I]."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "6 App release:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " not applicable (portal only)."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "7 Database:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " none. UI IndexedDB version bump: not required [I], owner to confirm: author."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "8 Configs to move to prod (Rule 30):",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " none in this PR; it depends on the tenant properties listed in channelkart#1185 and salescode-auth-service#332."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "9 Roles to test:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " any portal user whose session is locked by an admin: sees the lock popup, Sign out is disabled while a write is pending and enabled after 90 s if a write never settles [V]. Negative: a non-locked user never sees the popup; an ordinary non-lock 403 on refresh is replayed once to read the code."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "10 Backward compatibility:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " visible only after a lock refuses a refresh; nothing changes otherwise [V]. Undo: portal redeploy."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "11 Deploy order, gates, rollback:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " after channelkart#1185 and salescode-auth-service#332. Gate: the 90-second cap recorded in Jira beside the app's sync timeout so QA tests the same number. Rollback: redeploy."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "12 Testing evidence:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " red-to-green test for the 90 s enable (author, not run by me); perf note counts the 403 replay. TC sheet, QA sign-off, test owner: unknown, owner to confirm."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "13 Risks and open items:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " Nitpick: the 90 s cap is a new rule not yet in Jira. No Should-fix open."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "14 Post-deploy verification:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " the portal build shows the new version; with a locked test user, the popup appears and Sign out works."
+     }
+    ]
+   },
+   {
+    "type": "codeBlock",
+    "attrs": {
+     "language": "json"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"marker\":{\"version\":1,\"key\":\"CAV-7304\",\"repo\":\"kpi-dashboard\",\"pr\":269,\"utc\":\"2026-11-19T13:17:00Z\",\"agent\":\"Claude (pr-review)\",\"supersedes\":null},\"status\":\"PARTIAL\",\"branches\":{\"branch\":\"CAV-7304-account-lock-live-sessions\",\"base\":\"master\",\"state\":\"open\",\"author\":\"dev-a\",\"approvers\":[],\"mergedBy\":null,\"jiraIdInBranch\":true,\"siblings\":[\"channelkart#1185\",\"salescode-auth-service#332\",\"channelkart-flutter#50\"]},\"prodBranch\":{\"branch\":\"prod-17-july-blue\"},\"order\":{\"steps\":[\"channelkart#1185\",\"auth-service#332\",\"kpi-dashboard#269\"]},\"risks\":[{\"sev\":\"Nitpick\",\"text\":\"90 s cap not in Jira\"}]}"
+     }
+    ]
+   }
+  ]
+ }
+}

@@ -1,0 +1,1190 @@
+{
+ "id": "81399",
+ "created": "2026-11-19T11:20:42.624+0000",
+ "updated": "2026-11-19T11:20:42.624+0000",
+ "author": {
+  "displayName": "Author"
+ },
+ "body": {
+  "type": "doc",
+  "version": 1,
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "DEPLOYMENT-RECORD v1 | CAV-7346 | channelkart#1184 | 2026-11-19 11:30 | Claude (pr-review)\nsupersedes: none"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "1 Header:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " Partner Application Banner Configuration and Display. Status "
+     },
+     {
+      "type": "text",
+      "text": "BLOCKED for release",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " (4 open Should-fix, 0 Blocking). Head reviewed: 87ee77d2b2. Review: https://github.com/salescode-ai/channelkart/pull/1184#issuecomment-7007611179 [V]"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "2 Branches and owners:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " channelkart "
+     },
+     {
+      "type": "text",
+      "text": "CAV-7346-partner-banner-pr",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " -> "
+     },
+     {
+      "type": "text",
+      "text": "master",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": ", PR #1184, OPEN, Rule 31 pass. PR author dev-a (first commit dev-d). Approver: none yet. Merged by: not merged. Siblings: kpi-dashboard#267, channelkart-flutter#49 (both open). [V]"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "3 Prod branch and cherry-pick:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " channelkart ships from "
+     },
+     {
+      "type": "text",
+      "text": "prod_blue_*",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " branches; ckcoe's own prod branch: unknown, owner to confirm: devops. 3 commits, 39 files (+1,644 prod lines): cherry-pick effort and re-test effort: unknown, owner to confirm: author. The PR does not say how it reaches prod."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "4 Services to deploy:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " Channel Kart (this PR). Also KPI Dashboard - UI (#267) and the Flutter app (#49). Bundle SDK build: No [I]. Reports, Stock, Promo, Claims, Rewards: not touched [I]."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "5 Services to restart:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " Channel Kart (new private key read once at first use, so a key change needs a restart) [V]. Downtime required: unknown, owner to confirm: author. Property changes use the normal property refresh: unknown, owner to confirm."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "6 App release:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " not this PR; see channelkart-flutter#49."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "7 Database:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " no hand-run SQL seen in this PR. Needed on each LOB: sequence "
+     },
+     {
+      "type": "text",
+      "text": "partner_banner_mapping_config",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " and the "
+     },
+     {
+      "type": "text",
+      "text": "PARTNER_BANNER_MAPPING",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " profile type (applied on ckcoedemo 19 Nov by OTP [author]); prod: unknown, owner to confirm. Query on "
+     },
+     {
+      "type": "text",
+      "text": "ck_planned_pjp",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " per tap (8.2M rows, 26 GB on ckcoe): EXPLAIN at prod size required; two indexes on that table are on the DB-cleanup redundant-index list. [V]"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "8 Configs to move to prod (Rule 30):",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "table",
+    "attrs": {
+     "isNumberColumnEnabled": false,
+     "layout": "default"
+    },
+    "content": [
+     {
+      "type": "tableRow",
+      "content": [
+       {
+        "type": "tableHeader",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "Key"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableHeader",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "Store"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableHeader",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "Default when absent"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableHeader",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "Demo"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableHeader",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "UAT"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableHeader",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "Prod"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "tableRow",
+      "content": [
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "partner.banner.enabled",
+            "marks": [
+             {
+              "type": "code"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "per-LOB property"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "off (403 EG243)"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "on (ckcoedemo) [author]"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "tableRow",
+      "content": [
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "PARTNER_BANNER_SSO_PRIVATE_KEY_PATH",
+            "marks": [
+             {
+              "type": "code"
+             }
+            ]
+           },
+           {
+            "type": "text",
+            "text": " (or property "
+           },
+           {
+            "type": "text",
+            "text": "partner.banner.sso.private-key-path",
+            "marks": [
+             {
+              "type": "code"
+             }
+            ]
+           },
+           {
+            "type": "text",
+            "text": ")"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "environment variable / property, PKCS#8 PEM file on every pod"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "no key: token refused"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "set on demo [author]"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "tableRow",
+      "content": [
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "public key to each partner (Sales Pitch, Evido)"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "partner side"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "n/a"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "tableRow",
+      "content": [
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "PARTNER_BANNER_MAPPING",
+            "marks": [
+             {
+              "type": "code"
+             }
+            ]
+           },
+           {
+            "type": "text",
+            "text": " rows"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "ck_green_config_profile",
+            "marks": [
+             {
+              "type": "code"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "no mapping, no banner"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "rows exist [author]"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "tableRow",
+      "content": [
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "partnerBanner",
+            "marks": [
+             {
+              "type": "code"
+             }
+            ]
+           },
+           {
+            "type": "text",
+            "text": " Studio feature + sidebar"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "role portal feature configuration"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "hidden"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "set [author]"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "tableRow",
+      "content": [
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "outlet_activity_configuration.partnerBannerEnabled",
+            "marks": [
+             {
+              "type": "code"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "app config"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "\"false\""
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "set [author]"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Evidence (config-compare or query) for prod: unknown, owner to confirm: deployer. Key storage sign-off (ticket question 13): not recorded."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "9 Roles to test:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " admin / report admin: create, edit, activate, inactivate mappings with OTP (expected: works). Salesman of a mapped distributor: banner applies, token issued. Negative: a non-admin calling the admin endpoints is refused; a salesman whose outlet is outside his hierarchy gets no token; a salesman with no mobile number, route or distributor must be refused with a clear error (open Should-fix)."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "10 Backward compatibility:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " property off equals today (endpoints refuse, nothing else changes) [V]. Old apps never call the endpoints [I]. Added endpoints only; no existing response shape changes [V]. Undo: set "
+     },
+     {
+      "type": "text",
+      "text": "partner.banner.enabled",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " off; key rotation needs a restart."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "11 Deploy order, gates, rollback:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " 1 channelkart #1184 with the key file on every pod and the property still off -> 2 kpi-dashboard #267 (Studio entry) -> 3 create mappings on the LOB, property on -> 4 Flutter #49 build with "
+     },
+     {
+      "type": "text",
+      "text": "partnerBannerEnabled",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " on. Gates: EXPLAIN of the visit query at ckcoe size posted; public key given to both partners and a test token accepted by each; key storage signed off. Rollback: property off, flag off, hide Studio entry."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "12 Testing evidence:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " 92 tests (author, not run by me); no CI on the repo; perf note measured locally. TC sheet: see Jira ticket. UAT, dev sign-off, QA sign-off, test owner per area: unknown, owner to confirm."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "13 Risks and open items (Should-fix):",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " (1) token can be issued with null mobile number, route or distributor; (2) "
+     },
+     {
+      "type": "text",
+      "text": "ck_planned_pjp",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " lookup per tap needs EXPLAIN at prod size; (3) "
+     },
+     {
+      "type": "text",
+      "text": "imageUrl",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " not validated on the server; (4) per-LOB config and prod branch not listed. Nitpicks: mobile format and "
+     },
+     {
+      "type": "text",
+      "text": "kid",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " header open (questions 10, 12); key cached until restart; several mappings shown as a carousel (not in ticket)."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "14 Post-deploy verification:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " "
+     },
+     {
+      "type": "text",
+      "text": "/hckeck",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " shows the merged commit on every pod; list call returns 200 for an admin and 403 EG243 while the property is off; one test token verified by each partner; one salesman of a mapped distributor sees the banner and a tap opens the partner app."
+     }
+    ]
+   },
+   {
+    "type": "codeBlock",
+    "attrs": {
+     "language": "json"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"marker\":{\"version\":1,\"key\":\"CAV-7346\",\"repo\":\"channelkart\",\"pr\":1184,\"utc\":\"2026-11-19T11:30:00Z\",\"agent\":\"Claude (pr-review)\",\"supersedes\":null},\"status\":\"BLOCKED\",\"branches\":{\"branch\":\"CAV-7346-partner-banner-pr\",\"base\":\"master\",\"state\":\"open\",\"author\":\"dev-a\",\"approvers\":[],\"mergedBy\":null,\"jiraIdInBranch\":true,\"siblings\":[\"kpi-dashboard#267\",\"channelkart-flutter#49\"]},\"prodBranch\":{\"branch\":null,\"conflictRisk\":\"unknown\"},\"deploy\":[{\"service\":\"Channel Kart\",\"fromBranch\":\"unknown\"}],\"restart\":[{\"service\":\"Channel Kart\",\"why\":\"private key read once\"}],\"order\":{\"steps\":[\"channelkart#1184\",\"kpi-dashboard#267\",\"create mappings, property on\",\"channelkart-flutter#49\"]},\"risks\":[{\"sev\":\"Should-fix\",\"text\":\"null required claims\"},{\"sev\":\"Should-fix\",\"text\":\"ck_planned_pjp EXPLAIN\"},{\"sev\":\"Should-fix\",\"text\":\"imageUrl not validated\"},{\"sev\":\"Should-fix\",\"text\":\"per-LOB config and prod branch\"}]}"
+     }
+    ]
+   }
+  ]
+ }
+}

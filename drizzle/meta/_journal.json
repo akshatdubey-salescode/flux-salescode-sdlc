@@ -708,6 +708,13 @@
       "when": 1795247508335,
       "tag": "0101_peaceful_firebrand",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1795414167162,
+      "tag": "0102_delivery_movements",
+      "breakpoints": true
     }
   ]
 }

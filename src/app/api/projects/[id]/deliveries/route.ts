@@ -15,10 +15,12 @@ import {
   type DeliveryWithItems,
   type DeliveryOption,
 } from "@/lib/deliveries/entries";
+import { movementChipsFor, type MovementChip } from "@/lib/movement/service/chips";
 
 type Params = { params: Promise<{ id: string }> };
 
-export type ProjectDeliveriesResponse = { deliveries: DeliveryWithItems[] };
+/** `movements`: the live (not cancelled) movement per environment, so the Delivery tab needs no request per card. Optional: older consumers ignore it. */
+export type ProjectDeliveriesResponse = { deliveries: Array<DeliveryWithItems & { movements?: MovementChip[] }> };
 export type ProjectDeliveryOptionsResponse = { deliveries: DeliveryOption[] };
 
 /** List active deliveries for a project. `?summary=1` returns a light {id,name,deliveryDate}[] shape for pickers. */
@@ -35,7 +37,15 @@ export async function GET(req: NextRequest, { params }: Params) {
   }
 
   const list = await fetchProjectDeliveries(id);
-  return NextResponse.json({ deliveries: list } satisfies ProjectDeliveriesResponse);
+  // One grouped query for the whole page of deliveries. A failure must not take the list down (the chips are an
+  // extra): the field is then left out, and the UI falls back to asking per delivery.
+  let chips: Map<string, MovementChip[]> | null = null;
+  try {
+    chips = await movementChipsFor(list.map((d) => d.id));
+  } catch {
+    chips = null;
+  }
+  return NextResponse.json({ deliveries: list.map((d) => (chips ? { ...d, movements: chips.get(d.id) ?? [] } : d)) } satisfies ProjectDeliveriesResponse);
 }
 
 /**

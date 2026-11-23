@@ -1,0 +1,904 @@
+{
+ "id": "81423",
+ "created": "2026-11-19T13:02:57.182+0000",
+ "updated": "2026-11-19T13:02:57.182+0000",
+ "author": {
+  "displayName": "Author"
+ },
+ "body": {
+  "type": "doc",
+  "version": 1,
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "DEPLOYMENT-RECORD v1 | CAV-7304 | salescode-auth-service#332 | 2026-11-19 13:16 | Claude (pr-review)\nsupersedes: none"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "1 Header:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " Account Lock: auth-service sweep that publishes "
+     },
+     {
+      "type": "text",
+      "text": "session_locked",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " / "
+     },
+     {
+      "type": "text",
+      "text": "session_unlocked",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " for live sessions. Status "
+     },
+     {
+      "type": "text",
+      "text": "BLOCKED for release",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " (2 open Should-fix, 0 Blocking). Head reviewed: 2563841212. Review: https://github.com/salescode-ai/salescode-auth-service/pull/332#issuecomment-7007614805 [V]"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "2 Branches and owners:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " salescode-auth-service "
+     },
+     {
+      "type": "text",
+      "text": "CAV-7304-account-lock-live-sessions",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " -> "
+     },
+     {
+      "type": "text",
+      "text": "master",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": ", PR #332, OPEN, mergeable, Rule 31 pass. Replaces #330 (closed). PR author dev-a. Approver: none yet. Merged by: not merged. Siblings: channelkart#1185, kpi-dashboard#269, channelkart-flutter#50. [V]"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "3 Prod branch and cherry-pick:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " auth-service prod branch: unknown, owner to confirm: devops (ckcoe prod main build does not use auth-service today [author]). Effort: unknown, owner to confirm: author."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "4 Services to deploy:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " salescode-auth-service (extra service line, not on the release page list); Channel Kart #1185 must be live to consume the events. Bundle SDK build: No [I]."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "5 Services to restart:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " salescode-auth-service (the 10-second sweep runs from an in-memory timer that is lost on restart and starts again) [V]. Downtime required: unknown, owner to confirm: author."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "6 App release:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " not this PR; see channelkart-flutter#50."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "7 Database:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " none seen. Property values are set through "
+     },
+     {
+      "type": "text",
+      "text": "/v1/property",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " [author]. Old locks: once "
+     },
+     {
+      "type": "text",
+      "text": "account.lock.enabled",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " is on, a live session covered by an old admin lock is refused at its next refresh; list active admin locks first [author, rollout item 2]."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "8 Configs to move to prod (Rule 30):",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "table",
+    "attrs": {
+     "isNumberColumnEnabled": false,
+     "layout": "default"
+    },
+    "content": [
+     {
+      "type": "tableRow",
+      "content": [
+       {
+        "type": "tableHeader",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "Key"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableHeader",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "Store"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableHeader",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "Default when absent"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableHeader",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "Demo"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableHeader",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "UAT"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableHeader",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "Prod"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "tableRow",
+      "content": [
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "account.lock.enabled",
+            "marks": [
+             {
+              "type": "code"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "per-tenant property"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "off"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "tableRow",
+      "content": [
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "account.lock.grace.seconds",
+            "marks": [
+             {
+              "type": "code"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "per-tenant property"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "120 (ticket said 300)"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "tableRow",
+      "content": [
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "account.lock.protected.logins",
+            "marks": [
+             {
+              "type": "code"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "per-tenant property"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "empty (nobody protected; "
+           },
+           {
+            "type": "text",
+            "text": "CAVIN",
+            "marks": [
+             {
+              "type": "code"
+             }
+            ]
+           },
+           {
+            "type": "text",
+            "text": " must be listed on ckcoe and ckcoedemo before any platform lock)"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {},
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "unknown"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Who sets: via "
+     },
+     {
+      "type": "text",
+      "text": "/v1/property",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": ". Evidence for each tenant: unknown, owner to confirm."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "9 Roles to test:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " a locked designation or platform: live sessions get "
+     },
+     {
+      "type": "text",
+      "text": "session_locked",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " and are logged out after the grace; protected login ("
+     },
+     {
+      "type": "text",
+      "text": "CAVIN",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": ") keeps its session on a platform lock; negative: users outside the lock keep working; unlock publishes "
+     },
+     {
+      "type": "text",
+      "text": "session_unlocked",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "10 Backward compatibility:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " properties off equals today [V]. A protected login is also exempt from SYSTEM wrong-password locks: confirm another throttle covers it. Undo: properties off."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "11 Deploy order, gates, rollback:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " after channelkart#1185, before the properties are turned on; then kpi-dashboard#269 and Flutter#50. Gates: sweep wall time at ckcoe scale (about 4,300 distributor logins, 320 salesmen, 2,300 others; about 1,100 live sessions) posted; grace decision (120 s) recorded in Jira; per-tenant values listed. Rollback: properties off."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "12 Testing evidence:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " 54 tests for 686 production lines (author, not run by me); 249 sessions published in 0.11 to 0.25 s locally; create-lock p95 30.6 ms. Sweep time at prod scale: not measured. TC sheet, QA sign-off, test owner: unknown, owner to confirm."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "13 Risks and open items:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " Should-fix: (1) sweep wall time at ckcoe scale unmeasured (a slow sweep shortens each user's grace); (2) 120 s default not recorded in Jira and tenant values not stated. Nitpicks: protected login exempt from SYSTEM lock; test overlap (Rule 27)."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "14 Post-deploy verification:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " "
+     },
+     {
+      "type": "text",
+      "text": "/hckeck",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " shows the merged commit; with "
+     },
+     {
+      "type": "text",
+      "text": "account.lock.enabled",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " on a demo tenant, lock a test designation and watch "
+     },
+     {
+      "type": "text",
+      "text": "session_locked",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " events in "
+     },
+     {
+      "type": "text",
+      "text": "auth_service_events",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "; measure the sweep duration in the logs."
+     }
+    ]
+   },
+   {
+    "type": "codeBlock",
+    "attrs": {
+     "language": "json"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"marker\":{\"version\":1,\"key\":\"CAV-7304\",\"repo\":\"salescode-auth-service\",\"pr\":332,\"utc\":\"2026-11-19T13:16:00Z\",\"agent\":\"Claude (pr-review)\",\"supersedes\":null},\"status\":\"BLOCKED\",\"branches\":{\"branch\":\"CAV-7304-account-lock-live-sessions\",\"base\":\"master\",\"state\":\"open\",\"author\":\"dev-a\",\"approvers\":[],\"mergedBy\":null,\"jiraIdInBranch\":true,\"siblings\":[\"channelkart#1185\",\"kpi-dashboard#269\",\"channelkart-flutter#50\"]},\"configs\":[{\"key\":\"account.lock.enabled\",\"default\":\"off\"},{\"key\":\"account.lock.grace.seconds\",\"default\":\"120\"},{\"key\":\"account.lock.protected.logins\",\"default\":\"empty\"}],\"order\":{\"steps\":[\"channelkart#1185\",\"auth-service#332\",\"kpi-dashboard#269\",\"channelkart-flutter#50\"]},\"risks\":[{\"sev\":\"Should-fix\",\"text\":\"sweep time at ckcoe scale\"},{\"sev\":\"Should-fix\",\"text\":\"120 s default and tenant values\"}]}"
+     }
+    ]
+   }
+  ]
+ }
+}

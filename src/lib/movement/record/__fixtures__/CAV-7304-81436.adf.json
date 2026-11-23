@@ -1,0 +1,443 @@
+{
+ "id": "81436",
+ "created": "2026-11-19T13:13:59.065+0000",
+ "updated": "2026-11-19T13:13:59.065+0000",
+ "author": {
+  "displayName": "Author"
+ },
+ "body": {
+  "type": "doc",
+  "version": 1,
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "DEPLOYMENT-RECORD v2 | CAV-7304 | channelkart-flutter#50 | 2026-11-19 13:52 | Claude (pr-review)\nsupersedes: 81425"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "1 Header:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " Account Lock (app). Status "
+     },
+     {
+      "type": "text",
+      "text": "PARTIAL",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " (0 Blocking, 0 Should-fix, 3 Nitpick). Head reviewed: fea339ff3d. Review: https://github.com/salescode-ai/channelkart-flutter/pull/50#issuecomment-7010125088 [V]"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "2 Branches and owners:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " channelkart-flutter "
+     },
+     {
+      "type": "text",
+      "text": "CAV-7304-account-lock-live-sessions",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " -> "
+     },
+     {
+      "type": "text",
+      "text": "master",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": ", PR #50, OPEN, mergeable, Rule 31 pass. Replaces #45. PR author dev-a. Approver: none yet. Merged by: not merged. Siblings: channelkart#1185, salescode-auth-service#332, kpi-dashboard#269. [V]"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "3 Prod branch and cherry-pick:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " store build; a merge to "
+     },
+     {
+      "type": "text",
+      "text": "master",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " is not a release. Build number: unknown, owner to confirm: mobile lead."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "4 Services to deploy:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " Flutter app build; needs channelkart#1185 and auth-service#332 live. Bundle SDK build: No [I]."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "5 Services to restart:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " none. Downtime: No [I]."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "6 App release:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " Android and iOS build, live version, minimum version: unknown, owner to confirm. Old build with the new backend: run on 19 Nov on an emulator (previous build = master "
+     },
+     {
+      "type": "text",
+      "text": "60009124e0",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "): one attendance row queued offline, locked past the window; the old app signed itself out on the 403 and sent no replay; after unlock and sign-in the row synced (201). No forced update needed for that case [author]. The 3-order case is for the demo round."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "7 Database:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " local queue rows kept for replay; a login's replay token is kept only when the user signs out from the lock popup, and is removed once that login has no queued rows [V, author]. No migration seen."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "8 Configs to move to prod (Rule 30):",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " none in this PR; tenant properties are in channelkart#1185 and salescode-auth-service#332."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "9 Roles to test:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " salesman with pending offline work when the admin locks the account: popup (comes back on the next frame if navigation removed it), Sign out lands on the sign-in page, pending work syncs through the allow-listed paths. Negative: an ordinary sign-out keeps no token and nothing is replayed with a revoked session; a user who is not locked sees nothing."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "10 Backward compatibility:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " old app with new backend: see item 6. Undo: next app release."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "11 Deploy order, gates, rollback:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " after channelkart#1185 and auth-service#332 and kpi-dashboard#269; then the app build. Gate: the 3-order old-build case on the demo. Rollback: next app release."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "12 Testing evidence:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " every CAV-7304 test file run by hand on the merged head: "
+     },
+     {
+      "type": "text",
+      "text": "account_lock_controller_test",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " 20/20, "
+     },
+     {
+      "type": "text",
+      "text": "account_lock_popup_test",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " 4/4, "
+     },
+     {
+      "type": "text",
+      "text": "lock_sign_out_keeps_server_session_test",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " 2/2, "
+     },
+     {
+      "type": "text",
+      "text": "refresh_token_refused_test",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " 2/2, "
+     },
+     {
+      "type": "text",
+      "text": "network_account_lock_test",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " 28/28; "
+     },
+     {
+      "type": "text",
+      "text": "logs_test",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " 39 pass, 10 legacy failures as on master [author]. No CI test job in the repo; pre-commit and pre-push "
+     },
+     {
+      "type": "text",
+      "text": "check-fast",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " is warn-only [author]. TC sheet, QA sign-off (Android, iOS), test owner: unknown, owner to confirm."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "13 Risks and open items:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " Nitpicks: 1-row old-build test; tests are author-run; the popup re-shows once per frame if something keeps removing it. Closed since v1: TC_43, conflict, header-merge test, popup removal and sign-out screen defects."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "14 Post-deploy verification:",
+      "marks": [
+       {
+        "type": "strong"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " with a test salesman holding two queued orders, lock his designation: popup shows, Sign out goes to the sign-in page, the orders reach the server after sign-in."
+     }
+    ]
+   },
+   {
+    "type": "codeBlock",
+    "attrs": {
+     "language": "json"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"marker\":{\"version\":2,\"key\":\"CAV-7304\",\"repo\":\"channelkart-flutter\",\"pr\":50,\"utc\":\"2026-11-19T13:52:00Z\",\"agent\":\"Claude (pr-review)\",\"supersedes\":\"81425\"},\"status\":\"PARTIAL\",\"branches\":{\"branch\":\"CAV-7304-account-lock-live-sessions\",\"base\":\"master\",\"state\":\"open\",\"author\":\"dev-a\",\"approvers\":[],\"mergedBy\":null,\"jiraIdInBranch\":true,\"siblings\":[\"channelkart#1185\",\"salescode-auth-service#332\",\"kpi-dashboard#269\"]},\"app\":{\"appBuild\":null,\"minVersion\":null,\"oldAppTest\":\"1 attendance row ok, emulator 19 Nov\"},\"order\":{\"steps\":[\"channelkart#1185\",\"auth-service#332\",\"kpi-dashboard#269\",\"app build\"]},\"risks\":[{\"sev\":\"Nitpick\",\"text\":\"3-order old-build case pending\"}]}"
+     }
+    ]
+   }
+  ]
+ }
+}

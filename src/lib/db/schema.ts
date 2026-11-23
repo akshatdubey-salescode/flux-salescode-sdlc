@@ -15,10 +15,29 @@ import {
   doublePrecision,
   date,
   primaryKey,
+  customType,
+  check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { DELAY_CATEGORY_VALUES } from "../delay-tracker/categories";
 import { DELIVERY_STATUS_VALUES } from "../deliveries/status";
+import {
+  MAX_BRANCH_REPOS,
+  MAX_COMMENT_EDIT_CHARS,
+  MAX_EVENT_DETAIL_DB_BYTES,
+  MAX_INPUTS_BYTES,
+  MAX_RECORD_REFS_PER_ITEM,
+  MAX_REFRESH_ERROR_CHARS,
+  MAX_SUMMARY_BYTES,
+  MAX_SNAPSHOT_BYTES,
+  MAX_WARNINGS_PER_ITEM,
+  MOVEMENT_ENVIRONMENT_VALUES,
+  MOVEMENT_READINESS_VALUES,
+  MOVEMENT_RESULT_VALUES,
+  MOVEMENT_SLOT_VALUES,
+  MOVEMENT_SNAPSHOT_REASON_VALUES,
+  MOVEMENT_STATUS_VALUES,
+} from "../movement/values";
 import { SCHEDULE_FREQUENCY_VALUES } from "../scheduled-processes/types";
 import {
   TC_CATEGORY_VALUES,
@@ -1891,6 +1910,294 @@ export type DeliveryTransfer = typeof deliveryTransfers.$inferSelect;
 export type NewDeliveryTransfer = typeof deliveryTransfers.$inferInsert;
 export type DeliveryStatusHistoryRow = typeof deliveryStatusHistory.$inferSelect;
 export type NewDeliveryStatusHistoryRow = typeof deliveryStatusHistory.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Delivery Movements — moving a delivery's Jiras to one environment (demo /
+// uat / prod): which Jiras are included, whether each is ready (derived from
+// the deployment-record comments on the Jira, never stored as bodies), the
+// branches to release, and three sign-offs. Deliberately small: no Jira
+// comment text lives here, only pointers, so the tables stay cheap and the
+// large jira_issues / github_pull_requests tables are untouched. Enums (not
+// text + check) for the closed sets, same as delivery_status above. Every
+// jsonb column has a documented size cap, enforced by a CHECK here and by the
+// same constant (src/lib/movement/values.ts) in code.
+// Heads-up: a movement outlives its delivery's soft-delete / completion, so
+// cron and list queries must join deliveries and skip deleted_at / completed_at.
+// ---------------------------------------------------------------------------
+
+export const movementEnvironmentEnum = pgEnum("movement_environment", MOVEMENT_ENVIRONMENT_VALUES);
+export const movementStatusEnum = pgEnum("movement_status", MOVEMENT_STATUS_VALUES);
+export const movementSlotEnum = pgEnum("movement_slot", MOVEMENT_SLOT_VALUES);
+export const movementReadinessEnum = pgEnum("movement_readiness", MOVEMENT_READINESS_VALUES);
+export const movementResultEnum = pgEnum("movement_result", MOVEMENT_RESULT_VALUES);
+export const movementSnapshotReasonEnum = pgEnum(
+  "movement_snapshot_reason",
+  MOVEMENT_SNAPSHOT_REASON_VALUES
+);
+
+// Postgres bytea <-> Buffer; drizzle has no built-in column for it.
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
+export const deliveryMovements = pgTable(
+  "delivery_movements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deliveryId: uuid("delivery_id")
+      .notNull()
+      .references(() => deliveries.id, { onDelete: "cascade" }),
+    environment: movementEnvironmentEnum("environment").notNull(),
+    status: movementStatusEnum("status").notNull().default("draft"),
+    // [{repo, branch}] chosen for release: at most MAX_BRANCH_REPOS (30) entries, a few hundred bytes each.
+    branches: jsonb("branches").notNull().default(sql`'[]'::jsonb`),
+    // Hash of the merged checklist; a sign-off is valid only for the hash it signed.
+    checklistHash: text("checklist_hash"),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdByName: text("created_by_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    doneAt: timestamp("done_at", { withTimezone: true }),
+    doneBy: text("done_by").references(() => users.id),
+    doneByName: text("done_by_name"),
+    // Real changes only (status, branches, sign-offs, hash); written by the service.
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Last time the Jira records were re-checked, written by the refresh/cron
+    // routine even when nothing changed (so the UI can say "checked 2 min ago"
+    // without touching updated_at).
+    refreshedAt: timestamp("refreshed_at", { withTimezone: true }),
+    // Checklist hash for which the reset+notify mail was last sent; written by
+    // the refresh/cron routine so the same change never mails twice.
+    lastNotifiedHash: text("last_notified_hash"),
+    // gzip'd JSON {version, items:[{issue, key, records:[ParsedRecord], readiness, warnings}]}: the
+    // parsed records of ALL items, so ticking Jiras, picking branches, overrides and sign-off rebuild
+    // the checklist with no Jira call. Written only when the set of (commentId, updated) pointers
+    // changed. NEVER select it in list queries (name the columns); capped at MAX_INPUTS_BYTES (4 MiB).
+    inputs: bytea("inputs"),
+    inputsHash: text("inputs_hash"),
+    // Set (generic text, never internals) when a refresh could not persist its result (e.g. the parsed
+    // records exceed the inputs cap): approvals (sign / start) are refused while it is set; a later
+    // successful refresh clears it.
+    refreshError: text("refresh_error"),
+    // Hash of the Flux-side comment edits (delivery_movement_comment_edits); null = none. Lets a read know the edits
+    // part of the checklist cache key without a query, and is set by the service whenever an edit is saved or reset.
+    commentEditsHash: text("comment_edits_hash"),
+  },
+  (t) => [
+    // One live movement per delivery+environment; a cancelled one can be redone.
+    // It also serves lookups of LIVE movements by delivery_id (leading column);
+    // lookups that include cancelled ones are rare history reads and scan the
+    // few rows of one delivery. Do not add a delivery_id index.
+    uniqueIndex("delivery_movements_delivery_env_live_idx")
+      .on(t.deliveryId, t.environment)
+      .where(sql`${t.status} <> 'cancelled'`),
+    check(
+      "delivery_movements_branches_cap",
+      sql`jsonb_array_length(${t.branches}) <= ${sql.raw(String(MAX_BRANCH_REPOS))}`
+    ),
+    check(
+      "delivery_movements_refresh_error_cap",
+      sql`char_length(${t.refreshError}) <= ${sql.raw(String(MAX_REFRESH_ERROR_CHARS))}`
+    ),
+    check(
+      "delivery_movements_inputs_cap",
+      sql`octet_length(${t.inputs}) <= ${sql.raw(String(MAX_INPUTS_BYTES))}`
+    ),
+  ]
+);
+
+export const deliveryMovementItems = pgTable(
+  "delivery_movement_items",
+  {
+    movementId: uuid("movement_id")
+      .notNull()
+      .references(() => deliveryMovements.id, { onDelete: "cascade" }),
+    issueId: uuid("issue_id")
+      .notNull()
+      .references(() => jiraIssues.id, { onDelete: "cascade" }),
+    included: boolean("included").notNull().default(true),
+    // True once a person ticked or unticked this Jira: a refresh then never changes `included`.
+    // While false, a Jira that was blocked and becomes ready is ticked automatically.
+    tickSet: boolean("tick_set").notNull().default(false),
+    // Owned by the refresh routine, which recomputes ready/blocked from the
+    // records. An 'override' survives a refresh until the record becomes valid
+    // (then it becomes 'ready') or an admin revokes it; revoke clears every
+    // override_* column and recomputes.
+    readiness: movementReadinessEnum("readiness").notNull().default("blocked"),
+    overrideReason: text("override_reason"),
+    overrideBy: text("override_by").references(() => users.id),
+    overrideByName: text("override_by_name"),
+    overrideAt: timestamp("override_at", { withTimezone: true }),
+    result: movementResultEnum("result").notNull().default("pending"),
+    resultComment: text("result_comment"),
+    // POINTERS only: [{repo, pr, commentId, version, updated, status}], at most
+    // MAX_RECORD_REFS_PER_ITEM (50) per Jira, about 150 bytes each. Never comment bodies.
+    recordRefs: jsonb("record_refs").notNull().default(sql`'[]'::jsonb`),
+    // [{code, message}], at most MAX_WARNINGS_PER_ITEM (20), message under 200 chars.
+    warnings: jsonb("warnings").notNull().default(sql`'[]'::jsonb`),
+  },
+  (t) => [
+    primaryKey({ columns: [t.movementId, t.issueId] }),
+    check(
+      "delivery_movement_items_override_complete",
+      sql`${t.readiness} <> 'override' OR (${t.overrideReason} IS NOT NULL AND ${t.overrideBy} IS NOT NULL AND ${t.overrideAt} IS NOT NULL)`
+    ),
+    check(
+      "delivery_movement_items_warnings_cap",
+      sql`jsonb_array_length(${t.warnings}) <= ${sql.raw(String(MAX_WARNINGS_PER_ITEM))}`
+    ),
+    check(
+      "delivery_movement_items_record_refs_cap",
+      sql`jsonb_array_length(${t.recordRefs}) <= ${sql.raw(String(MAX_RECORD_REFS_PER_ITEM))}`
+    ),
+    // "Which movements include this Jira" (the PK already serves movement_id lookups).
+    index("delivery_movement_items_issue_idx").on(t.issueId),
+  ]
+);
+
+export const deliveryMovementSignoffs = pgTable(
+  "delivery_movement_signoffs",
+  {
+    movementId: uuid("movement_id")
+      .notNull()
+      .references(() => deliveryMovements.id, { onDelete: "cascade" }),
+    slot: movementSlotEnum("slot").notNull(),
+    userEmail: text("user_email").notNull(),
+    userName: text("user_name"),
+    // Null until the person signs; signedHash is the checklist hash they signed.
+    signedAt: timestamp("signed_at", { withTimezone: true }),
+    signedHash: text("signed_hash"),
+  },
+  (t) => [primaryKey({ columns: [t.movementId, t.slot] })]
+);
+
+// gzip'd JSON of the checklist at sign-off / start / done so "what changed
+// since you signed" survives a later edit of a Jira comment. Deduped by hash.
+// Rules for readers/writers: never select `body` in list queries (select
+// explicit columns); insert with onConflictDoNothing on (movement_id, hash);
+// dedupe keeps only the FIRST reason/taken_by for a hash, so look snapshots up
+// by hash, never by reason. Body is capped at MAX_SNAPSHOT_BYTES (1 MiB).
+export const deliveryMovementSnapshots = pgTable(
+  "delivery_movement_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    movementId: uuid("movement_id")
+      .notNull()
+      .references(() => deliveryMovements.id, { onDelete: "cascade" }),
+    hash: text("hash").notNull(),
+    reason: movementSnapshotReasonEnum("reason").notNull(),
+    takenAt: timestamp("taken_at", { withTimezone: true }).notNull().defaultNow(),
+    takenBy: text("taken_by").references(() => users.id),
+    body: bytea("body").notNull(),
+  },
+  (t) => [
+    uniqueIndex("delivery_movement_snapshots_movement_hash_idx").on(t.movementId, t.hash),
+    check(
+      "delivery_movement_snapshots_body_cap",
+      sql`octet_length(${t.body}) <= ${sql.raw(String(MAX_SNAPSHOT_BYTES))}`
+    ),
+  ]
+);
+
+// Append-only; written only on a real change (never on a refresh that found nothing).
+export const deliveryMovementEvents = pgTable(
+  "delivery_movement_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    movementId: uuid("movement_id")
+      .notNull()
+      .references(() => deliveryMovements.id, { onDelete: "cascade" }),
+    // Open set (created, signed, reset, override, ...): text so a new event type needs no migration.
+    type: text("type").notNull(),
+    actor: text("actor").references(() => users.id),
+    actorName: text("actor_name"),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    // Small diff, truncated in code to MAX_EVENT_DETAIL_BYTES (4 KB); the DB
+    // check is a looser 16 KB backstop.
+    detail: jsonb("detail"),
+  },
+  (t) => [
+    index("delivery_movement_events_movement_at_idx").on(t.movementId, t.at),
+    check(
+      "delivery_movement_events_detail_cap",
+      sql`pg_column_size(${t.detail}) < ${sql.raw(String(MAX_EVENT_DETAIL_DB_BYTES))}`
+    ),
+  ]
+);
+
+// A person's correction of one AI-written review comment, kept in Flux only (Jira stays read-only). It REPLACES the
+// parsed record of that comment when the checklist is built; the stored inputs keep the Jira-parsed records. The
+// primary key serves every lookup (by movement); no other index.
+export const deliveryMovementCommentEdits = pgTable(
+  "delivery_movement_comment_edits",
+  {
+    movementId: uuid("movement_id")
+      .notNull()
+      .references(() => deliveryMovements.id, { onDelete: "cascade" }),
+    issueId: uuid("issue_id")
+      .notNull()
+      .references(() => jiraIssues.id, { onDelete: "cascade" }),
+    commentId: text("comment_id").notNull(),
+    editedText: text("edited_text").notNull(),
+    editedBy: text("edited_by")
+      .notNull()
+      .references(() => users.id),
+    editedByName: text("edited_by_name"),
+    editedAt: timestamp("edited_at", { withTimezone: true }).notNull().defaultNow(),
+    // The Jira comment's `updated` when it was edited: a later change on Jira marks the edit stale (it is kept).
+    baseUpdated: text("base_updated"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.movementId, t.commentId] }),
+    check("delivery_movement_comment_edits_text_cap", sql`char_length(${t.editedText}) <= ${sql.raw(String(MAX_COMMENT_EDIT_CHARS))}`),
+  ]
+);
+
+// ONE summary per movement (overwritten): the AI-merged one, or the deterministic roll-up when the AI is off / on
+// hold / failed. `hash` is the hash of the checklist input it describes (a different current hash = stale). The
+// attempt columns are the rate limit (1 AI call per 20 s, 30 per day). Prompts and raw model output are never stored.
+export const deliveryMovementSummaries = pgTable(
+  "delivery_movement_summaries",
+  {
+    movementId: uuid("movement_id")
+      .primaryKey()
+      .references(() => deliveryMovements.id, { onDelete: "cascade" }),
+    hash: text("hash").notNull(),
+    source: text("source").notNull(),
+    model: text("model"),
+    body: jsonb("body").notNull(),
+    // A plain reason when `source` is 'rules' although an AI summary was wanted (no key, on hold, failed).
+    note: text("note"),
+    generatedBy: text("generated_by").references(() => users.id),
+    generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+    inputHash: text("input_hash"),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    attemptsDay: text("attempts_day"),
+    attemptsToday: integer("attempts_today").notNull().default(0),
+  },
+  (t) => [
+    check("delivery_movement_summaries_source_check", sql`${t.source} in ('ai', 'rules')`),
+    check("delivery_movement_summaries_body_cap", sql`pg_column_size(${t.body}) < ${sql.raw(String(MAX_SUMMARY_BYTES))}`),
+  ]
+);
+
+export type DeliveryMovementCommentEdit = typeof deliveryMovementCommentEdits.$inferSelect;
+export type DeliveryMovementSummary = typeof deliveryMovementSummaries.$inferSelect;
+
+export type DeliveryMovement = typeof deliveryMovements.$inferSelect;
+export type NewDeliveryMovement = typeof deliveryMovements.$inferInsert;
+export type DeliveryMovementItem = typeof deliveryMovementItems.$inferSelect;
+export type NewDeliveryMovementItem = typeof deliveryMovementItems.$inferInsert;
+export type DeliveryMovementSignoff = typeof deliveryMovementSignoffs.$inferSelect;
+export type NewDeliveryMovementSignoff = typeof deliveryMovementSignoffs.$inferInsert;
+export type DeliveryMovementSnapshot = typeof deliveryMovementSnapshots.$inferSelect;
+export type NewDeliveryMovementSnapshot = typeof deliveryMovementSnapshots.$inferInsert;
+export type DeliveryMovementEvent = typeof deliveryMovementEvents.$inferSelect;
+export type NewDeliveryMovementEvent = typeof deliveryMovementEvents.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // Sprints — an internal, time-boxed iteration (start → end date) holding Jira
