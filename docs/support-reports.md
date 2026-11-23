@@ -140,7 +140,7 @@ setting.
   Reports view says "Rebuild to include the Excel attachment".
 - **Sheets.** One per month (project timezone) with tickets ("Jan 2026", "Mar 2026", …),
   oldest raised first; no tickets at all → a single "No tickets" sheet.
-- **Columns.** Jira Key, Summary, Category, Priority,
+- **Columns.** Summary, Category, Priority,
   Open/Closed, Raised / First Response / Resolved (in the project's zone, e.g. "Raised (IST)"), Response and
   Resolution Time (Salescode office hours), Currently With, RCA Shared,
   Users Reported, Users Impacted, ETA.

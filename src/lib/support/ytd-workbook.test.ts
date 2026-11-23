@@ -59,15 +59,15 @@ test("one sheet per IST month that has tickets, chronological, empty months skip
   );
   const mar = wb.getWorksheet("Mar 2026")!;
   assert.equal(mar.rowCount, 3);
-  assert.equal(mar.getCell("A2").value, "RL-3");
-  assert.equal(mar.getCell("A3").value, "RL-4");
+  // No Jira Key column (user decision, 2026-11-23): rows are identified by summary.
+  assert.equal(mar.getCell("A1").value, "Summary");
+  assert.equal(mar.rowCount, 3);
 });
 
 test("header row text, bold, frozen and filtered", async () => {
   const wb = await load(await buildYtdWorkbook([mk()], META));
   const ws = wb.worksheets[0];
   assert.deepEqual(rowValues(ws, 1), [
-    "Jira Key",
     "Summary",
     "Category",
     "Priority",
@@ -118,7 +118,6 @@ test("a closed ticket's formatted values", async () => {
   );
   const ws = wb.getWorksheet("Nov 2026")!;
   assert.deepEqual(rowValues(ws, 2), [
-    "RL-9",
     "Scheme not applied",
     "Data Issue",
     "P1",
@@ -140,17 +139,17 @@ test("an open, uncategorised ticket with no response: dashes and empty cells", a
   const wb = await load(await buildYtdWorkbook([mk({ category: null })], META));
   const ws = wb.worksheets[0];
   const v = ws.getRow(2).values as unknown[];
-  assert.equal(v[3], "Uncategorised");
-  assert.equal(v[5], "Open");
-  assert.equal(v[7], undefined); // First Response (IST) empty
-  assert.equal(v[8], "–");
-  assert.equal(v[9], undefined); // Resolved (IST) empty
-  assert.equal(v[10], "–");
-  assert.equal(v[11], "Salescode");
-  assert.equal(v[12], "No");
+  assert.equal(v[2], "Uncategorised");
+  assert.equal(v[4], "Open");
+  assert.equal(v[6], undefined); // First Response (IST) empty
+  assert.equal(v[7], "–");
+  assert.equal(v[8], undefined); // Resolved (IST) empty
+  assert.equal(v[9], "–");
+  assert.equal(v[10], "Salescode");
+  assert.equal(v[11], "No");
+  assert.equal(v[12], undefined);
   assert.equal(v[13], undefined);
   assert.equal(v[14], undefined);
-  assert.equal(v[15], undefined);
 });
 
 test("no tickets → a single 'No tickets' sheet with the header row only", async () => {
@@ -175,7 +174,7 @@ test("a project in another timezone: its months, times and header labels", async
   );
   assert.deepEqual(wb.worksheets.map((w) => w.name), ["Nov 2026"]);
   const ws = wb.worksheets[0];
-  assert.equal(ws.getCell("F1").value, "Raised (GMT-3)");
-  assert.equal(ws.getCell("F2").value, "30 Nov 2026, 22:00");
+  assert.equal(ws.getCell("E1").value, "Raised (GMT-3)");
+  assert.equal(ws.getCell("E2").value, "30 Nov 2026, 22:00");
   assert.deepEqual(ytdHeaders(BA, "2026-12-01"), rowValues(ws, 1));
 });

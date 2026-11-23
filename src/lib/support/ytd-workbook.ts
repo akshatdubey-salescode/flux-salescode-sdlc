@@ -21,7 +21,6 @@ function columns(tz: string, label: string): Column[] {
   const when = (iso: string | null) => (iso ? formatZonedDateTime(iso, tz) : null);
   return [
 
-  { header: "Jira Key", width: 14, value: (r) => r.jiraKey },
   { header: "Summary", width: 60, value: (r) => r.summary },
   { header: "Category", width: 16, value: (r) => (r.category ? CATEGORY_LABELS[r.category] : "Uncategorised") },
   { header: "Priority", width: 10, value: (r) => r.priority },
