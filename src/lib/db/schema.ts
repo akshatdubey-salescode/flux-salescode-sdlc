@@ -17,6 +17,7 @@ import {
   primaryKey,
   customType,
   check,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { DELAY_CATEGORY_VALUES } from "../delay-tracker/categories";
@@ -3203,3 +3204,135 @@ export const apiTokens = pgTable(
   },
   (t) => [uniqueIndex("api_tokens_token_hash_idx").on(t.tokenHash)]
 );
+
+// ---------------------------------------------------------------------------
+// Discover — Tool Showcases: developers share the internal tools they built.
+// Design: docs/discover/CONTEXT.md and docs/discover/adr/.
+// ---------------------------------------------------------------------------
+
+const tsvector = customType<{ data: string }>({
+  dataType() {
+    return "tsvector";
+  },
+});
+
+export const showcases = pgTable(
+  "showcases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Authoritative short id used in URLs: /discover/<slug>-<shortId>.
+    shortId: text("short_id").notNull(),
+    // Derived from the title on every save; stale slugs redirect.
+    slug: text("slug").notNull(),
+    title: text("title").notNull().default(""),
+    tagline: text("tagline").notNull().default(""),
+    body: text("body").notNull().default(""), // markdown
+    coverImageId: uuid("cover_image_id"),
+    repoUrl: text("repo_url"),
+    liveUrl: text("live_url"),
+    demoVideoUrl: text("demo_video_url"),
+    // Normalised lowercase-kebab tags.
+    tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
+    status: text("status", { enum: ["draft", "published"] }).notNull().default("draft"),
+    // Set when an admin takes the showcase down (it goes back to draft);
+    // cleared when the author republishes.
+    takenDownReason: text("taken_down_reason"),
+    takenDownBy: text("taken_down_by").references(() => users.id, { onDelete: "set null" }),
+    takenDownAt: timestamp("taken_down_at", { withTimezone: true }),
+    authorId: text("author_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // First publish; kept across unpublish/republish so "Newest" is stable.
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    // Last content edit (autosave); drives "Updated <date>".
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    searchVector: tsvector("search_vector").generatedAlwaysAs(
+      sql`setweight(to_tsvector('english', coalesce(title, '')), 'A') || setweight(to_tsvector('english', coalesce(tagline, '')), 'B') || setweight(to_tsvector('english', coalesce(body, '')), 'C')`
+    ),
+  },
+  (t) => [
+    uniqueIndex("showcases_short_id_idx").on(t.shortId),
+    index("showcases_author_idx").on(t.authorId),
+    index("showcases_status_published_idx").on(t.status, t.publishedAt),
+    index("showcases_tags_gin_idx").using("gin", t.tags),
+    index("showcases_search_gin_idx").using("gin", t.searchVector),
+  ]
+);
+
+export type Showcase = typeof showcases.$inferSelect;
+export type NewShowcase = typeof showcases.$inferInsert;
+
+// Images uploaded to ImageKit while editing a showcase (cover or inline). Bytes
+// live in ImageKit only, as private files. showcase_id is SET NULL on delete so
+// the nightly cleanup can still find and remove the ImageKit file (cascade
+// would orphan it forever).
+export const showcaseImages = pgTable(
+  "showcase_images",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    showcaseId: uuid("showcase_id").references(() => showcases.id, { onDelete: "set null" }),
+    uploaderId: text("uploader_id").references(() => users.id, { onDelete: "set null" }),
+    // ImageKit file path (e.g. /discover/<showcaseId>/<imageId>.png), or the
+    // local dev store key.
+    storageKey: text("storage_key").notNull(),
+    // ImageKit fileId, needed to delete the file. Null until upload is verified
+    // and always null for the local dev store.
+    providerFileId: text("provider_file_id"),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    // Null until the browser's upload is verified by the complete step.
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("showcase_images_showcase_idx").on(t.showcaseId),
+    index("showcase_images_created_idx").on(t.createdAt),
+  ]
+);
+
+export type ShowcaseImage = typeof showcaseImages.$inferSelect;
+
+export const showcaseUpvotes = pgTable(
+  "showcase_upvotes",
+  {
+    showcaseId: uuid("showcase_id")
+      .notNull()
+      .references(() => showcases.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.showcaseId, t.userId] }),
+    index("showcase_upvotes_user_idx").on(t.userId),
+  ]
+);
+
+// One level of threading: parent_id points at a top-level comment; replies to
+// replies are rejected in the service layer.
+export const showcaseComments = pgTable(
+  "showcase_comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    showcaseId: uuid("showcase_id")
+      .notNull()
+      .references(() => showcases.id, { onDelete: "cascade" }),
+    parentId: uuid("parent_id").references((): AnyPgColumn => showcaseComments.id, {
+      onDelete: "cascade",
+    }),
+    authorId: text("author_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    body: text("body").notNull(), // markdown, no images
+    editedAt: timestamp("edited_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("showcase_comments_showcase_idx").on(t.showcaseId, t.createdAt),
+    index("showcase_comments_parent_idx").on(t.parentId),
+  ]
+);
+
+export type ShowcaseComment = typeof showcaseComments.$inferSelect;

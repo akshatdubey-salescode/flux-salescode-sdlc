@@ -34,6 +34,13 @@ environment the build was made for, and the commit (id, time, subject, branch,
 tag, author). It is public on purpose: `src/proxy.ts` excludes the path. The file
 is generated, so it is gitignored.
 
+## Discover (internal tool showcases)
+
+`/discover` lets developers share the internal tools they've built. The design is
+in [`docs/discover/CONTEXT.md`](docs/discover/CONTEXT.md) and
+[`docs/discover/adr/`](docs/discover/adr/). Image storage needs three ImageKit
+env vars; see [`docs/discover/SETUP.md`](docs/discover/SETUP.md).
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

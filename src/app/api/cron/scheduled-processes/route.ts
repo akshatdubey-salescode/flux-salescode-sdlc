@@ -1,5 +1,6 @@
 import { runDueSchedules } from "@/lib/scheduled-processes/dispatch";
 import { istToday } from "@/lib/scheduled-processes/recurrence";
+import { cleanupOrphanImages } from "@/lib/discover/cleanup";
 
 // The midnight run for every scheduled process in the app.
 //
@@ -36,11 +37,14 @@ async function handle(req: Request) {
 
   try {
     const stats = await runDueSchedules({ appUrl, today: istToday() });
+    // Piggybacks on this nightly run (vercel.json has one cron). Never throws,
+    // and its failures don't change this run's status.
+    const discoverImages = await cleanupOrphanImages();
     if (stats.failed > 0) {
       // Non-2xx so a cron monitor alerts, with the stats still in the body.
-      return Response.json(stats, { status: 500 });
+      return Response.json({ ...stats, discoverImages }, { status: 500 });
     }
-    return Response.json(stats);
+    return Response.json({ ...stats, discoverImages });
   } catch (err) {
     console.error("[cron/scheduled-processes] error:", err);
     const message = err instanceof Error ? err.message : String(err);
