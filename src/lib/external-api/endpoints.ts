@@ -5,6 +5,7 @@
 // The superuser API Tokens page lists these as grantable scopes.
 
 import { BUGS_DOC } from "./docs/bugs";
+import { SLA_VIOLATIONS_DOC } from "./docs/sla-violations";
 
 export type ExposedRoute = {
   method: "GET";
@@ -29,16 +30,17 @@ export type ExposedEndpoint = {
 export const EXPOSED_ENDPOINTS: ExposedEndpoint[] = [
   {
     scope: "bugs:read",
-    title: "Bug board",
+    title: "Bug board & SLA breaches",
     routes: [
       { method: "GET", path: "/api/v1/projects" },
       { method: "GET", path: "/api/v1/bugs?projects={keys}" },
       { method: "GET", path: "/api/v1/projects/{projectId}/bugs" },
+      { method: "GET", path: "/api/v1/sla-violations?projects={keys}" },
     ],
     examplePath: "/api/v1/bugs?status=open&limit=10",
-    summary: "Bugs for one or many projects (by Jira key) with every Bug Summary filter: date range, environment, owner, search, status, priority, sort and paging. Includes a project list for key/name → id lookups.",
+    summary: "Bugs for one or many projects (by Jira key) with every Bug Summary filter: date range, environment, owner, search, status, priority, sort and paging. Also SLA rule violations per project (by Jira key). Includes a project list for key/name → id lookups.",
     projectScoped: true,
-    docs: BUGS_DOC,
+    docs: BUGS_DOC + SLA_VIOLATIONS_DOC,
   },
 ];
 
