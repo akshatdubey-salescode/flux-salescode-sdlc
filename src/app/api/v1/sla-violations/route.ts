@@ -3,8 +3,7 @@ import { and, count, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { jiraIssues, jiraProjects, slaRules, slaViolations } from "@/lib/db/schema";
 import { authenticateApiToken } from "@/lib/auth/api-token";
-import { resolveProjectRefs } from "@/lib/external-api/bugs-params";
-import { loadTokenProjects } from "@/lib/external-api/projects";
+import { selectTokenProjects } from "@/lib/external-api/projects";
 import { parseSlaQuery } from "@/lib/external-api/sla-params";
 
 // SLA breaches: GET /api/v1/sla-violations?projects=SC,DEV&status=open
@@ -27,17 +26,9 @@ export async function GET(request: Request) {
     if (!parsed.ok) return jsonError(400, "bad_request", parsed.message);
     const query = parsed.query;
 
-    const allowed = await loadTokenProjects(auth.token);
-    let selected = allowed.filter((p) => p.isActive);
-    const rawProjects = params.get("projects");
-    if (rawProjects !== null) {
-      // Resolve against the token's projects only, so a restricted token
-      // can't probe which other projects exist.
-      const resolved = resolveProjectRefs(rawProjects, allowed);
-      if (!resolved.ok) return jsonError(400, "bad_request", resolved.message);
-      const ids = new Set(resolved.ids);
-      selected = allowed.filter((p) => ids.has(p.id));
-    }
+    const sel = await selectTokenProjects(auth.token, params.get("projects"));
+    if (!sel.ok) return jsonError(400, "bad_request", sel.message);
+    const selected = sel.projects;
 
     const projects = selected.map(({ id, key, name }) => ({ id, key, name }));
     const base = { projects, limit: query.limit, offset: query.offset, filters: query };

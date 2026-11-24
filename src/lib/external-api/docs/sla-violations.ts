@@ -67,6 +67,60 @@ Rows are sorted by \`violatedAt\`, newest first. An invalid value gets a \`400\`
 - A violation is not resolved automatically when the issue leaves the condition; it stays open until an admin dismisses it. \`resolvedReason\` is then \`manual_dismiss\`. Check \`status\` for the issue's current Jira status.
 - Fetch the next page with \`offset = offset + limit\` while \`offset + count < total\`.
 
+## SLA rules
+
+\`\`\`text
+GET {{BASE_URL}}/api/v1/sla-rules?projects=SC,DEV
+\`\`\`
+
+Lists the SLA rules defined for each project, so you can see what a violation's \`ruleId\` / \`ruleName\` means. \`projects\` works as above. Inactive rules are listed too, with \`isActive: false\`; only active rules create violations.
+
+\`\`\`json
+{
+  "projects": [{ "id": "09f52ba2-…", "key": "SC", "name": "Salescode" }],
+  "count": 1,
+  "rules": [
+    {
+      "id": "…",
+      "projectKey": "SC",
+      "projectName": "Salescode",
+      "name": "P1 in Dev > 24h",
+      "description": null,
+      "isActive": true,
+      "conditionText": "Priority is P1 AND Status is any of In Progress, In Dev",
+      "conditions": {
+        "operator": "OR",
+        "groups": [
+          {
+            "operator": "AND",
+            "conditions": [
+              { "field": "priority", "operator": "equals", "value": "P1" },
+              { "field": "status", "operator": "in", "value": "In Progress,In Dev" }
+            ]
+          }
+        ]
+      },
+      "thresholdHours": 24,
+      "escalationMultiplier": 2,
+      "escalationHours": 48,
+      "notifyAssignee": true,
+      "notifyReporter": false,
+      "createdAt": "2026-10-01T09:00:00.000Z",
+      "updatedAt": "2026-10-01T09:00:00.000Z"
+    }
+  ]
+}
+\`\`\`
+
+How a rule is applied:
+
+- \`conditions\` is an OR of AND-groups: an issue matches when **every** condition in **any one** group holds. \`conditionText\` is the same thing in words.
+- \`field\` is one of \`status\`, \`status_category\`, \`issue_type\`, \`priority\` (compared to the issue's current Jira value, exact and case-sensitive) or \`created_at\` (a \`YYYY-MM-DD\` date, UTC).
+- \`operator\` is \`equals\`, \`not_equals\` or \`in\` (comma-separated values) for text fields, and \`on_or_after\`, \`on_or_before\` or \`on_date\` for \`created_at\`.
+- An issue breaches when it has matched for longer than \`thresholdHours\`. If the rule has a \`status\` or \`status_category\` condition, time is counted from when the issue entered its current status. Otherwise it is counted from when Flux last synced the issue.
+- An escalation email goes out at \`escalationHours\` (\`thresholdHours × escalationMultiplier\`).
+- Only active projects are checked.
+
 ## Example
 
 Open SLA breaches in SC and DEV:
