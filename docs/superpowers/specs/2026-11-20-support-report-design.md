@@ -106,6 +106,15 @@ tickets), and the SLA clock only runs while a ticket is with Salescode.
    built at 17:00 in the project's timezone for the client's calendar day (cron
    every 30 minutes, building each project in its 17:00–17:29 local window).
    This supersedes "IST" wherever it appears below.
+10. **Closed-time override (2026-11-25):** the closing time stays the Jira
+   one (latest move into Done/Cancelled) by default, with a Flux field to
+   override it; when set, every calculation uses it and the ticket counts as
+   closed at that time even if Jira still has it open.
+11. **Subject, client name, frequency (2026-11-25):** "a way to add subject
+   over mail in the settings like `Dabur: Ticket Summary MTD | [Date]` and
+   frequency as Friday every week; Dabur is client name: need option for that
+   too." Settings get a client name, a subject template with placeholders, and
+   a daily / weekly-on-a-weekday schedule.
 
 ## Design
 

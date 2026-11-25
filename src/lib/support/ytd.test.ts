@@ -26,6 +26,8 @@ function mk(p: Partial<SupportTicketRow> = {}): SupportTicketRow {
     eta: null,
     events: [],
     raisedAt: null,
+    closedAt: null,
+    jiraResolvedAt: null,
     jiraCreatedAt: createdAt,
     status: "In Progress",
     issueType: "Bug",

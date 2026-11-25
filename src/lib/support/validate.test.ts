@@ -243,3 +243,61 @@ test("parseSettingsBody: timezone is validated, and defaults to Asia/Kolkata whe
   const absent = parseSettingsBody({ ...goodSettings(), officeHours: { start: "10:00", end: "19:00", days: [1] } });
   assert.ok(absent.ok && absent.value.officeHours.timeZone === "Asia/Kolkata");
 });
+
+test("patch: closedAt accepts ISO and null, rejects junk and the future", () => {
+  const ok = parseTicketPatch({ closedAt: "2026-11-20T09:00:00Z" }, now);
+  assert.ok(ok.ok && ok.value.closedAt?.toISOString() === "2026-11-20T09:00:00.000Z");
+  const cleared = parseTicketPatch({ closedAt: null }, now);
+  assert.ok(cleared.ok && cleared.value.closedAt === null);
+  assert.equal(parseTicketPatch({ closedAt: "yesterday" }, now).ok, false);
+  const future = parseTicketPatch({ closedAt: "2026-11-21T10:00:00Z" }, now);
+  assert.ok(!future.ok && /future/.test(future.error));
+});
+
+test("ticketTimesError: closed time can't precede the effective raised time", () => {
+  const jiraCreatedAt = new Date("2026-11-19T10:00:00Z");
+  const stored = { jiraCreatedAt, raisedAt: null, firstRespondedAt: null, closedAt: null };
+  assert.match(
+    ticketTimesError(stored, { closedAt: new Date("2026-11-19T09:00:00Z") }) ?? "",
+    /Closed time is before the ticket was raised/,
+  );
+  assert.equal(ticketTimesError(stored, { closedAt: new Date("2026-11-19T12:00:00Z") }), null);
+  assert.equal(ticketTimesError(stored, { closedAt: null }), null);
+  // Moving the raised time past a stored closed time is refused.
+  const closed = { ...stored, closedAt: new Date("2026-11-19T12:00:00Z") };
+  assert.match(
+    ticketTimesError(closed, { raisedAt: new Date("2026-11-19T13:00:00Z") }) ?? "",
+    /Raised time can't be after the closed time/,
+  );
+});
+
+test("parseSettingsBody: client name, subject template and weekly schedule", () => {
+  const r = parseSettingsBody({
+    ...goodSettings(),
+    clientName: "  Dabur ",
+    subjectTemplate: "{client}: Ticket Summary {period} | {date}",
+    frequency: "weekly",
+    weeklyDay: 5,
+  });
+  assert.ok(r.ok);
+  if (r.ok) {
+    assert.equal(r.value.clientName, "Dabur");
+    assert.equal(r.value.subjectTemplate, "{client}: Ticket Summary {period} | {date}");
+    assert.equal(r.value.frequency, "weekly");
+    assert.equal(r.value.weeklyDay, 5);
+  }
+  // Absent → defaults (older clients).
+  const d = parseSettingsBody(goodSettings());
+  assert.ok(d.ok && d.value.clientName === "" && d.value.frequency === "daily" && d.value.weeklyDay === 5);
+  assert.ok(d.ok && d.value.subjectTemplate.includes("{client}"));
+  for (const bad of [
+    { subjectTemplate: "  " },
+    { subjectTemplate: "x".repeat(201) },
+    { clientName: 7 },
+    { frequency: "monthly" },
+    { weeklyDay: 7 },
+    { weeklyDay: 1.5 },
+  ]) {
+    assert.equal(parseSettingsBody({ ...goodSettings(), ...bad }).ok, false, JSON.stringify(bad));
+  }
+});

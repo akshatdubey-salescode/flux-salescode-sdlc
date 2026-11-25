@@ -20,6 +20,17 @@ export function approverNoticeCandidate(sendEnabled: boolean, outcome: BuildOutc
   return outcome.id;
 }
 
+/**
+ * Whether the project's schedule builds a report on `reportDate` (a calendar
+ * day in its timezone): every day when daily, only on `weeklyDay` when weekly
+ * (user decision, 2026-11-25). "Build now" ignores the schedule.
+ */
+export function isScheduledDay(frequency: string, weeklyDay: number, reportDate: string): boolean {
+  if (frequency !== "weekly") return true;
+  const [y, m, d] = reportDate.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay() === weeklyDay;
+}
+
 /** Local wall time at which each project's report is built (in its own timezone). */
 export const BUILD_MINUTE_OF_DAY = 17 * 60;
 /** The cron runs every 30 minutes, so a project is due in the half hour from 17:00 local. */

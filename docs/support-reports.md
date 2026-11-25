@@ -16,7 +16,7 @@ admins) Settings.
 | Piece | Where |
 | --- | --- |
 | Tables (settings, per-ticket fields, ownership log, reports) | `support_report_settings`, `support_tickets`, `support_ticket_ownership_events`, `support_reports` in `src/lib/db/schema.ts` |
-| Migrations | `drizzle/0099_eager_katie_power.sql` (tables), `drizzle/0100_aromatic_gateway.sql` (raised time, RCA toggle, `external` label default), `drizzle/0101_peaceful_firebrand.sql` (per-project timezone) |
+| Migrations | `drizzle/0099_eager_katie_power.sql` (tables), `drizzle/0100_aromatic_gateway.sql` (raised time, RCA toggle, `external` label default), `drizzle/0101_peaceful_firebrand.sql` (per-project timezone), `drizzle/0104_busy_ogun.sql` (closed-time override, client name, subject template, weekly schedule) |
 | Joined row → ticket / report input (effective raised time, RCA toggle) | `src/lib/support/ticket-row.ts` (+ `.test.ts`) |
 | Shared types, categories, defaults | `src/lib/support/types.ts` |
 | Timezone helpers (calendar day, wall time ↔ instant, labels; DST-aware) | `src/lib/support/tz.ts` (+ `.test.ts`) |
@@ -119,6 +119,14 @@ end-to-end test, set it on your machine against a local database).
   falls back to the Jira creation time (refused if the first response would
   then be before it). The first response and ownership changes can't be
   earlier than the effective raised time.
+- **Closed time (override, 2026-11-25).** `support_tickets.closed_at` (Tickets
+  view → **Closed**) overrides the Jira closing time. By default a ticket is
+  closed when its Jira status maps to Done/Cancelled, at `jira_issues.completed_at`
+  (its latest move into done; else its last update). When the override is set,
+  the ticket counts as **closed at that time whatever its Jira status**: Open
+  counts, §4, the resolution clock and the Excel's Open/Closed and Resolved
+  columns all follow it. It can't be in the future or before the effective
+  raised time; clearing it goes back to the Jira closing time.
 - **RCA shared.** `support_tickets.rca_shared` (Tickets view → **RCA shared**
   switch) is the only source for §1's "RCA Shared" row and §3's new
   "RCA Shared" column. The Jira RCA field is no longer read. Reports stored
@@ -150,6 +158,25 @@ setting.
   Approve dialog lists the attachment name.
 - **Failure.** If the workbook can't be generated the send fails cleanly
   (report → `failed`, Retry available); nothing is sent without it.
+
+## Subject, client name and frequency (user decision, 2026-11-25)
+
+Settings → Client report:
+
+- **Frequency.** *Every day* (default) or *Once a week* on a chosen weekday
+  (default Friday). The cron builds a project only at 17:00 project time on a
+  scheduled day; **Build now** works on any day. A weekly report not approved
+  lapses when the next one is built.
+- **Client name.** Used for `{client}` and the Excel file name; blank = the
+  Flux project name.
+- **Email subject.** A template with `{client}`, `{period}` (MTD / YTD /
+  custom range), `{date}` ("27 Nov 2026") and `{project}`, in `{}` or `[]`,
+  case-insensitive; e.g. `{client}: Ticket Summary {period} | {date}` →
+  "Dabur: Ticket Summary MTD | 27 Nov 2026". Default:
+  `Issue Report — Daily Update | {client} | {date}` (the original subject). The
+  form shows a live preview. The subject is rendered at build time and stored
+  on the report (`data.subject`), so a template change applies from the next
+  build or Rebuild.
 
 ## Per-project timezone (user decision, 2026-11-21)
 

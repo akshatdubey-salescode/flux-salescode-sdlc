@@ -147,7 +147,9 @@ function openBugsSection(d: SupportReportData): string {
 
 export function renderSupportReportEmail(data: SupportReportData): { subject: string; html: string } {
   const date = fmtDate(data.reportDate);
-  const subject = `Issue Report — Daily Update | ${data.projectName} | ${date}`;
+  // Rendered from Settings → Email subject at build time; reports built before
+  // that (2026-11-25) keep the original subject.
+  const subject = data.subject ?? `Issue Report — Daily Update | ${data.projectName} | ${date}`;
   const html = `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(subject)}</title></head>
 <body style="margin:0;padding:0;background:#f1f4f5;">

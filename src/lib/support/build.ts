@@ -18,6 +18,7 @@ import {
 } from "./store";
 import { reportWindow } from "./windows";
 import { buildYtdRows } from "./ytd";
+import { renderSubject } from "./subject";
 
 export async function buildSupportReport(
   projectId: string,
@@ -54,6 +55,15 @@ export async function buildSupportReport(
   // setting (user decision, 2026-11-20).
   data.ytdTickets = buildYtdRows(tickets, reportDate, settings.officeHours);
   data.timeZone = settings.officeHours.timeZone;
+  // Client name and subject are fixed at build time so the mail sent is the
+  // one previewed (user decision, 2026-11-25).
+  data.clientName = settings.clientName || project.name;
+  data.subject = renderSubject(settings.subjectTemplate, {
+    client: data.clientName,
+    project: project.name,
+    period: data.periodLabel,
+    reportDate,
+  });
 
   const result = await upsertAwaitingReport(projectId, reportDate, data, by);
   return { ...result, lapsed };

@@ -1,6 +1,6 @@
 import { buildSupportReport } from "@/lib/support/build";
 import { isSendEnabled, notifyApprovers } from "@/lib/support/send";
-import { approverNoticeCandidate, isBuildDue } from "@/lib/support/notice";
+import { approverNoticeCandidate, isBuildDue, isScheduledDay } from "@/lib/support/notice";
 import { listEnabledProjects, markApproversNotified } from "@/lib/support/store";
 import { dateInZone, minutesOfDayInZone } from "@/lib/support/tz";
 
@@ -49,12 +49,13 @@ async function handle(req: Request) {
     const now = new Date();
     const stats = { built: 0, lapsed: 0, notified: 0, skipped: 0, notDue: 0, failed: 0, errors: [] as string[] };
 
-    for (const { projectId, timeZone } of await listEnabledProjects()) {
-      if (!isBuildDue(minutesOfDayInZone(now, timeZone))) {
+    for (const { projectId, timeZone, frequency, weeklyDay } of await listEnabledProjects()) {
+      const today = dateInZone(now, timeZone);
+      // Due = 17:00–17:29 local on a scheduled day (every day, or the weekly day).
+      if (!isBuildDue(minutesOfDayInZone(now, timeZone)) || !isScheduledDay(frequency, weeklyDay, today)) {
         stats.notDue++;
         continue;
       }
-      const today = dateInZone(now, timeZone);
       try {
         const result = await buildSupportReport(projectId, today, null);
         stats.lapsed += result.lapsed;

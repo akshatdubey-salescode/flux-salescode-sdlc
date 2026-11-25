@@ -276,6 +276,7 @@ function mapped(over: Partial<RawSupportTicket>) {
     storedCategory: null,
     ownerSide: null,
     raisedAt: null,
+    closedAt: null,
     rcaShared: null,
     firstRespondedAt: null,
     usersReported: null,

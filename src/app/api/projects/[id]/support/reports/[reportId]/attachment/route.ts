@@ -31,7 +31,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
     reportDate: data.reportDate,
     timeZone: data.timeZone,
   });
-  const filename = ytdAttachmentFilename(data.projectName, data.reportDate);
+  const filename = ytdAttachmentFilename(data.clientName ?? data.projectName, data.reportDate);
   return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "Content-Type": XLSX_CONTENT_TYPE,
