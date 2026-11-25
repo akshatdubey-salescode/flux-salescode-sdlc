@@ -106,6 +106,10 @@ tickets), and the SLA clock only runs while a ticket is with Salescode.
    built at 17:00 in the project's timezone for the client's calendar day (cron
    every 30 minutes, building each project in its 17:00–17:29 local window).
    This supersedes "IST" wherever it appears below.
+10. **Closed-time override (2026-11-25):** the closing time stays the Jira
+   one (latest move into Done/Cancelled) by default, with a Flux field to
+   override it; when set, every calculation uses it and the ticket counts as
+   closed at that time even if Jira still has it open.
 
 ## Design
 

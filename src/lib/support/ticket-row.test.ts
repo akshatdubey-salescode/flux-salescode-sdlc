@@ -24,6 +24,7 @@ function raw(over: Partial<RawSupportTicket> = {}): RawSupportTicket {
     storedCategory: null,
     ownerSide: null,
     raisedAt: null,
+    closedAt: null,
     rcaShared: null,
     firstRespondedAt: null,
     usersReported: null,
@@ -125,4 +126,21 @@ test("events parsed from ISO strings and sorted; ownerSide defaults to salescode
   );
   assert.equal(row.ownerSide, "salescode");
   assert.equal(toSupportTicketRow(raw({ ownerSide: "client" })).ownerSide, "client");
+});
+
+test("closing time: the Flux override wins over Jira, and closes a ticket Jira still has open", () => {
+  const override = new Date("2026-11-21T09:00:00Z");
+  // Open in Jira, closed in Flux.
+  const open = toSupportTicketRow(raw({ closedAt: override }));
+  assert.equal(open.resolvedAt, override);
+  assert.equal(open.jiraResolvedAt, null);
+  assert.equal(open.closedAt, override);
+  // Done in Jira, override replaces the Jira time.
+  const done = toSupportTicketRow(raw({ canonicalStatus: "DONE", completedAt: completed, closedAt: override }));
+  assert.equal(done.resolvedAt, override);
+  assert.equal(done.jiraResolvedAt, completed);
+  // No override: the Jira closing time.
+  const jira = toSupportTicketRow(raw({ canonicalStatus: "DONE", completedAt: completed }));
+  assert.equal(jira.resolvedAt, completed);
+  assert.equal(jira.closedAt, null);
 });

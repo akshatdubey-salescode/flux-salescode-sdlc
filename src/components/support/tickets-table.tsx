@@ -40,7 +40,12 @@ export type SupportTicketDto = {
   /** Flux raised time; null = falls back to the Jira creation time. */
   raisedAt: string | null;
   jiraCreatedAt: string;
+  /** Effective closing time: closedAt ?? jiraResolvedAt (null = open). */
   resolvedAt: string | null;
+  /** Flux closing-time override; null = the Jira closing time. */
+  closedAt: string | null;
+  /** The Jira closing time (null while open in Jira). */
+  jiraResolvedAt: string | null;
   firstRespondedAt: string | null;
   /** Flux "RCA shared" toggle. */
   rcaGiven: boolean;
@@ -70,6 +75,7 @@ type TicketPatch = Partial<{
   eta: string | null;
   raisedAt: string | null;
   rcaShared: boolean;
+  closedAt: string | null;
 }>;
 
 type StatusFilter = "open" | "closed" | "all";
@@ -91,6 +97,7 @@ const FIELD_LABELS: Record<keyof TicketPatch, string> = {
   eta: "ETA",
   raisedAt: "Raised time",
   rcaShared: "RCA shared",
+  closedAt: "Closed time",
 };
 
 const TH = "px-3 py-2.5 text-left text-xs font-medium whitespace-nowrap text-zinc-500";
@@ -353,6 +360,7 @@ export function TicketsTable({ projectId }: { projectId: string }) {
               <th className={TH}>RCA shared</th>
               <th className={TH}>On</th>
               <th className={TH}>First response ({zone})</th>
+              <th className={TH}>Closed ({zone})</th>
               <th className={TH}>Users reported</th>
               <th className={TH}>Users impacted</th>
               <th className={TH}>ETA</th>
@@ -362,7 +370,7 @@ export function TicketsTable({ projectId }: { projectId: string }) {
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={14} className="px-4 py-8 text-center text-sm text-zinc-400">
+                <td colSpan={15} className="px-4 py-8 text-center text-sm text-zinc-400">
                   No tickets match these filters.
                 </td>
               </tr>
@@ -474,6 +482,18 @@ export function TicketsTable({ projectId }: { projectId: string }) {
                       timeZone={tz}
                       label={`First response (${zone}) for ${t.jiraKey}`}
                       onCommit={(iso) => save(t, { firstRespondedAt: iso }, { firstRespondedAt: iso })}
+                    />
+                  </td>
+                  <td className={TD}>
+                    <ClosedCell
+                      key={`${t.issueId}:${t.closedAt ?? ""}`}
+                      closedAt={t.closedAt}
+                      jiraResolvedAt={t.jiraResolvedAt}
+                      timeZone={tz}
+                      label={`Closed (${zone}) for ${t.jiraKey}`}
+                      onCommit={(iso) =>
+                        save(t, { closedAt: iso }, { closedAt: iso, resolvedAt: iso ?? t.jiraResolvedAt })
+                      }
                     />
                   </td>
                   <td className={TD}>
@@ -637,6 +657,47 @@ function RaisedCell({
       emptyDraft={toZonedInputValue(jiraCreatedAt, timeZone)}
       label={label}
       placeholder={`${formatZonedDateTime(jiraCreatedAt, timeZone)} (Jira)`}
+      size="sm"
+      noFuture
+      allowClear
+      onChange={(v) => {
+        if (v === null) return onCommit(null);
+        const d = fromZonedInputValue(v, timeZone);
+        if (!d) {
+          toast.error("Enter a valid date and time");
+          return;
+        }
+        onCommit(d.toISOString());
+      }}
+    />
+  );
+}
+
+/**
+ * Flux closing-time override (project timezone). When unset, shows the Jira
+ * closing time muted (or "Open in Jira"); clearing falls back to it. Setting it
+ * counts the ticket as closed at that time, whatever its Jira status.
+ */
+function ClosedCell({
+  closedAt,
+  jiraResolvedAt,
+  timeZone,
+  label,
+  onCommit,
+}: {
+  closedAt: string | null;
+  jiraResolvedAt: string | null;
+  timeZone: string;
+  label: string;
+  onCommit: (iso: string | null) => void;
+}) {
+  return (
+    <ZonedDateTimePicker
+      timeZone={timeZone}
+      value={closedAt ? toZonedInputValue(closedAt, timeZone) : null}
+      emptyDraft={jiraResolvedAt ? toZonedInputValue(jiraResolvedAt, timeZone) : undefined}
+      label={label}
+      placeholder={jiraResolvedAt ? `${formatZonedDateTime(jiraResolvedAt, timeZone)} (Jira)` : "Open in Jira"}
       size="sm"
       noFuture
       allowClear

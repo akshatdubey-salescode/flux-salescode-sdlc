@@ -15,6 +15,7 @@ export type TicketPatch = Partial<{
   eta: string | null;
   raisedAt: Date | null;
   rcaShared: boolean;
+  closedAt: Date | null;
 }>;
 
 const ALLOWED = [
@@ -25,6 +26,7 @@ const ALLOWED = [
   "eta",
   "raisedAt",
   "rcaShared",
+  "closedAt",
 ];
 const FUTURE_SLACK_MS = 60_000;
 
@@ -92,6 +94,20 @@ export function parseTicketPatch(body: unknown, now: Date = new Date()): Result<
       out.raisedAt = d;
     }
   }
+  // Closing-time override: an ISO instant (not in the future) or null (back to
+  // the Jira closing time).
+  if ("closedAt" in b) {
+    const v = b.closedAt;
+    if (v === null) out.closedAt = null;
+    else {
+      const d = parseIso(v);
+      if (!d) return { ok: false, error: "closedAt must be an ISO timestamp or null" };
+      if (d.getTime() > now.getTime() + FUTURE_SLACK_MS) {
+        return { ok: false, error: "closedAt cannot be in the future" };
+      }
+      out.closedAt = d;
+    }
+  }
   if ("rcaShared" in b) {
     if (typeof b.rcaShared !== "boolean") return { ok: false, error: "rcaShared must be a boolean" };
     out.rcaShared = b.rcaShared;
@@ -100,29 +116,46 @@ export function parseTicketPatch(body: unknown, now: Date = new Date()): Result<
 }
 
 /**
- * Cross-field check for a ticket patch against the stored ticket: the first
- * response may not precede the effective raised time (Flux raised time, else
- * Jira creation). A response before the ticket was raised would count as 0
- * minutes and flatter the client-facing Avg Response Time. Returns the error
- * message, or null when the patch is consistent.
+ * Cross-field check for a ticket patch against the stored ticket: neither the
+ * first response nor the Flux closing time may precede the effective raised
+ * time (Flux raised time, else Jira creation). Either would count as 0 minutes
+ * and flatter the client-facing averages. Returns the error message, or null
+ * when the patch is consistent.
  */
 export function ticketTimesError(
-  stored: { jiraCreatedAt: Date | null; raisedAt: Date | null; firstRespondedAt: Date | null },
+  stored: {
+    jiraCreatedAt: Date | null;
+    raisedAt: Date | null;
+    firstRespondedAt: Date | null;
+    closedAt?: Date | null;
+  },
   patch: TicketPatch,
 ): string | null {
   const touchesRaised = "raisedAt" in patch;
   const touchesResponse = "firstRespondedAt" in patch;
-  if (!touchesRaised && !touchesResponse) return null;
+  const touchesClosed = "closedAt" in patch;
+  if (!touchesRaised && !touchesResponse && !touchesClosed) return null;
   const raisedAt = touchesRaised ? (patch.raisedAt ?? null) : stored.raisedAt;
   const effectiveRaised = raisedAt ?? stored.jiraCreatedAt;
+
   const response = touchesResponse ? (patch.firstRespondedAt ?? null) : stored.firstRespondedAt;
-  if (!response || !isBeforeTicketCreated(response, effectiveRaised)) return null;
-  if (touchesRaised && raisedAt === null) {
-    return "Can't clear the raised time: the first response is before the Jira creation time";
+  if (response && isBeforeTicketCreated(response, effectiveRaised)) {
+    if (touchesRaised && raisedAt === null) {
+      return "Can't clear the raised time: the first response is before the Jira creation time";
+    }
+    return touchesRaised
+      ? "Raised time can't be after the first response"
+      : "First response is before the ticket was raised";
   }
-  return touchesRaised
-    ? "Raised time can't be after the first response"
-    : "First response is before the ticket was raised";
+
+  const closed = touchesClosed ? (patch.closedAt ?? null) : (stored.closedAt ?? null);
+  if (closed && isBeforeTicketCreated(closed, effectiveRaised)) {
+    if (touchesRaised && raisedAt === null) {
+      return "Can't clear the raised time: the closed time is before the Jira creation time";
+    }
+    return touchesRaised ? "Raised time can't be after the closed time" : "Closed time is before the ticket was raised";
+  }
+  return null;
 }
 
 export function parseOwnershipBody(

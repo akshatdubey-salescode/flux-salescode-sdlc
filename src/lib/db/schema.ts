@@ -3111,6 +3111,10 @@ export const supportTickets = pgTable(
     raisedAt: timestamp("raised_at", { withTimezone: true }),
     // RCA shared with the client; the report's RCA counts read only this.
     rcaShared: boolean("rca_shared").notNull().default(false),
+    // Flux override of the closing time (user decision, 2026-11-25). When set the
+    // ticket counts as closed at this instant, whatever its Jira status; null =
+    // the Jira closing time (completed_at of a Done/Cancelled issue).
+    closedAt: timestamp("closed_at", { withTimezone: true }),
     updatedBy: text("updated_by").references(() => users.id),
     updatedByName: text("updated_by_name"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

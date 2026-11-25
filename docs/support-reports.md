@@ -16,7 +16,7 @@ admins) Settings.
 | Piece | Where |
 | --- | --- |
 | Tables (settings, per-ticket fields, ownership log, reports) | `support_report_settings`, `support_tickets`, `support_ticket_ownership_events`, `support_reports` in `src/lib/db/schema.ts` |
-| Migrations | `drizzle/0099_eager_katie_power.sql` (tables), `drizzle/0100_aromatic_gateway.sql` (raised time, RCA toggle, `external` label default), `drizzle/0101_peaceful_firebrand.sql` (per-project timezone) |
+| Migrations | `drizzle/0099_eager_katie_power.sql` (tables), `drizzle/0100_aromatic_gateway.sql` (raised time, RCA toggle, `external` label default), `drizzle/0101_peaceful_firebrand.sql` (per-project timezone), `drizzle/0104_zippy_moira_mactaggert.sql` (closed-time override) |
 | Joined row → ticket / report input (effective raised time, RCA toggle) | `src/lib/support/ticket-row.ts` (+ `.test.ts`) |
 | Shared types, categories, defaults | `src/lib/support/types.ts` |
 | Timezone helpers (calendar day, wall time ↔ instant, labels; DST-aware) | `src/lib/support/tz.ts` (+ `.test.ts`) |
@@ -119,6 +119,14 @@ end-to-end test, set it on your machine against a local database).
   falls back to the Jira creation time (refused if the first response would
   then be before it). The first response and ownership changes can't be
   earlier than the effective raised time.
+- **Closed time (override, 2026-11-25).** `support_tickets.closed_at` (Tickets
+  view → **Closed**) overrides the Jira closing time. By default a ticket is
+  closed when its Jira status maps to Done/Cancelled, at `jira_issues.completed_at`
+  (its latest move into done; else its last update). When the override is set,
+  the ticket counts as **closed at that time whatever its Jira status**: Open
+  counts, §4, the resolution clock and the Excel's Open/Closed and Resolved
+  columns all follow it. It can't be in the future or before the effective
+  raised time; clearing it goes back to the Jira closing time.
 - **RCA shared.** `support_tickets.rca_shared` (Tickets view → **RCA shared**
   switch) is the only source for §1's "RCA Shared" row and §3's new
   "RCA Shared" column. The Jira RCA field is no longer read. Reports stored

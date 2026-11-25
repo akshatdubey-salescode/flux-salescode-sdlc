@@ -187,6 +187,7 @@ export async function listSupportTickets(projectId: string): Promise<SupportTick
       storedCategory: supportTickets.category,
       ownerSide: supportTickets.ownerSide,
       raisedAt: supportTickets.raisedAt,
+      closedAt: supportTickets.closedAt,
       rcaShared: supportTickets.rcaShared,
       firstRespondedAt: supportTickets.firstRespondedAt,
       usersReported: supportTickets.usersReported,
@@ -228,7 +229,7 @@ export async function getJiraBaseUrl(projectId: string): Promise<string | null> 
 }
 
 /**
- * The issue's Jira creation time plus the Flux raised / first-response times
+ * The issue's Jira creation time plus the Flux raised / first-response / closed times
  * (null when unset or no support_tickets row yet), or NotFoundError when the
  * issue isn't in the project.
  */
@@ -236,12 +237,18 @@ async function issueInProject(
   q: Tx | typeof db,
   projectId: string,
   issueId: string,
-): Promise<{ jiraCreatedAt: Date | null; raisedAt: Date | null; firstRespondedAt: Date | null }> {
+): Promise<{
+  jiraCreatedAt: Date | null;
+  raisedAt: Date | null;
+  firstRespondedAt: Date | null;
+  closedAt: Date | null;
+}> {
   const [row] = await q
     .select({
       jiraCreatedAt: jiraIssues.jiraCreatedAt,
       raisedAt: supportTickets.raisedAt,
       firstRespondedAt: supportTickets.firstRespondedAt,
+      closedAt: supportTickets.closedAt,
     })
     .from(jiraIssues)
     .leftJoin(supportTickets, eq(supportTickets.issueId, jiraIssues.id))
@@ -276,6 +283,7 @@ export async function updateSupportTicket(
   if ("usersImpacted" in patch) set.usersImpacted = patch.usersImpacted ?? null;
   if ("eta" in patch) set.eta = patch.eta ?? null;
   if ("raisedAt" in patch) set.raisedAt = patch.raisedAt ?? null;
+  if ("closedAt" in patch) set.closedAt = patch.closedAt ?? null;
   if ("rcaShared" in patch && patch.rcaShared !== undefined) set.rcaShared = patch.rcaShared;
 
   await db.transaction(async (tx) => {
