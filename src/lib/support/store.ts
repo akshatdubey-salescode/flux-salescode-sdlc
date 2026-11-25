@@ -21,9 +21,11 @@ import {
   type OfficeHours,
   type OwnerSide,
   type PeriodMode,
+  type ReportFrequency,
   type SlaTargets,
   type SupportReportData,
 } from "./types";
+import { DEFAULT_SUBJECT_TEMPLATE } from "./subject";
 import {
   effectiveRaisedAt,
   toSupportTicketRow,
@@ -66,6 +68,10 @@ export type SettingsInput = {
   sharedBy: string;
   sla: SlaTargets;
   officeHours: OfficeHours;
+  clientName: string; // "" = the project name
+  subjectTemplate: string;
+  frequency: ReportFrequency;
+  weeklyDay: number; // 0-6, Sunday-first; used when frequency is weekly
 };
 
 const PERIOD_MODES: readonly PeriodMode[] = ["mtd", "ytd", "custom"];
@@ -82,6 +88,10 @@ function defaultSettings(): SettingsInput {
     sharedBy: "L2 Support",
     sla: structuredClone(DEFAULT_SLA),
     officeHours: structuredClone(DEFAULT_OFFICE_HOURS),
+    clientName: "",
+    subjectTemplate: DEFAULT_SUBJECT_TEMPLATE,
+    frequency: "daily",
+    weeklyDay: 5,
   };
 }
 
@@ -105,6 +115,10 @@ export async function getSettings(projectId: string): Promise<SettingsInput> {
     sharedBy: row.sharedBy,
     sla: row.sla,
     officeHours: { start: row.workStart, end: row.workEnd, days: row.workDays, timeZone: row.timeZone },
+    clientName: row.clientName,
+    subjectTemplate: row.subjectTemplate,
+    frequency: row.frequency === "weekly" ? "weekly" : "daily",
+    weeklyDay: row.weeklyDay,
   };
 }
 
@@ -127,6 +141,10 @@ export async function saveSettings(
     workEnd: input.officeHours.end,
     workDays: input.officeHours.days,
     timeZone: input.officeHours.timeZone,
+    clientName: input.clientName,
+    subjectTemplate: input.subjectTemplate,
+    frequency: input.frequency,
+    weeklyDay: input.weeklyDay,
     updatedBy: userId,
     updatedAt: new Date(),
   };
@@ -137,9 +155,16 @@ export async function saveSettings(
 }
 
 /** Projects whose daily report is enabled, with each one's IANA timezone. */
-export async function listEnabledProjects(): Promise<{ projectId: string; timeZone: string }[]> {
+export async function listEnabledProjects(): Promise<
+  { projectId: string; timeZone: string; frequency: string; weeklyDay: number }[]
+> {
   return db
-    .select({ projectId: supportReportSettings.projectId, timeZone: supportReportSettings.timeZone })
+    .select({
+      projectId: supportReportSettings.projectId,
+      timeZone: supportReportSettings.timeZone,
+      frequency: supportReportSettings.frequency,
+      weeklyDay: supportReportSettings.weeklyDay,
+    })
     .from(supportReportSettings)
     .where(eq(supportReportSettings.enabled, true));
 }
@@ -216,6 +241,16 @@ export async function listSupportTickets(projectId: string): Promise<SupportTick
     .orderBy(desc(sql`coalesce(${supportTickets.raisedAt}, ${jiraIssues.jiraCreatedAt})`));
 
   return rows.map((r) => toSupportTicketRow({ ...r, jiraCreatedAt: r.jiraCreatedAt! }));
+}
+
+/** The Flux project's name ("" when not found). */
+export async function getProjectName(projectId: string): Promise<string> {
+  const [row] = await db
+    .select({ name: jiraProjects.name })
+    .from(jiraProjects)
+    .where(eq(jiraProjects.id, projectId))
+    .limit(1);
+  return row?.name ?? "";
 }
 
 /** The project's Jira site root (no trailing slash), for building /browse links. */

@@ -1,9 +1,18 @@
 // Pure body validation for the support ticket routes.
 
 import { isValidDateString } from "@/lib/validation";
-import { PRIORITIES, SUPPORT_CATEGORIES, type OwnerSide, type PeriodMode, type SlaTargets, type SupportCategory } from "./types";
+import {
+  PRIORITIES,
+  SUPPORT_CATEGORIES,
+  type OwnerSide,
+  type PeriodMode,
+  type ReportFrequency,
+  type SlaTargets,
+  type SupportCategory,
+} from "./types";
 import type { SettingsInput } from "./store";
 import { DEFAULT_TIME_ZONE, isValidTimeZone } from "./tz";
+import { DEFAULT_SUBJECT_TEMPLATE, SUBJECT_MAX_LENGTH } from "./subject";
 
 type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -279,6 +288,39 @@ export function parseSettingsBody(body: unknown): Result<SettingsInput> {
     return { ok: false, error: "officeHours.timeZone must be a valid IANA timezone, e.g. Asia/Kolkata" };
   }
 
+  // Email subject, client name and schedule (2026-11-25). Each is optional so
+  // older clients keep working; absent → the default.
+  let clientName = "";
+  if (b.clientName !== undefined) {
+    if (typeof b.clientName !== "string") return { ok: false, error: "clientName must be a string" };
+    clientName = b.clientName.trim();
+    if (clientName.length > 100) return { ok: false, error: "clientName must be at most 100 characters" };
+  }
+  let subjectTemplate = DEFAULT_SUBJECT_TEMPLATE;
+  if (b.subjectTemplate !== undefined) {
+    if (typeof b.subjectTemplate !== "string" || b.subjectTemplate.trim() === "") {
+      return { ok: false, error: "subjectTemplate is required" };
+    }
+    subjectTemplate = b.subjectTemplate.trim();
+    if (subjectTemplate.length > SUBJECT_MAX_LENGTH) {
+      return { ok: false, error: `subjectTemplate must be at most ${SUBJECT_MAX_LENGTH} characters` };
+    }
+  }
+  let frequency: ReportFrequency = "daily";
+  if (b.frequency !== undefined) {
+    if (b.frequency !== "daily" && b.frequency !== "weekly") {
+      return { ok: false, error: "frequency must be daily or weekly" };
+    }
+    frequency = b.frequency;
+  }
+  let weeklyDay = 5;
+  if (b.weeklyDay !== undefined) {
+    if (typeof b.weeklyDay !== "number" || !Number.isInteger(b.weeklyDay) || b.weeklyDay < 0 || b.weeklyDay > 6) {
+      return { ok: false, error: "weeklyDay must be an integer 0-6 (0 = Sunday)" };
+    }
+    weeklyDay = b.weeklyDay;
+  }
+
   const ids = b.approverUserIds;
   if (!Array.isArray(ids) || !ids.every((s) => typeof s === "string" && s.trim() !== "")) {
     return { ok: false, error: "approverUserIds must be an array of non-empty strings" };
@@ -303,6 +345,10 @@ export function parseSettingsBody(body: unknown): Result<SettingsInput> {
         days: days as number[],
         timeZone: timeZone === undefined ? DEFAULT_TIME_ZONE : (timeZone as string).trim(),
       },
+      clientName,
+      subjectTemplate,
+      frequency,
+      weeklyDay,
     },
   };
 }

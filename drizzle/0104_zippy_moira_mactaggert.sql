@@ -1,1 +1,0 @@
-ALTER TABLE "support_tickets" ADD COLUMN "closed_at" timestamp with time zone;

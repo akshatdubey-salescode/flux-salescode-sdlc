@@ -16,7 +16,7 @@ admins) Settings.
 | Piece | Where |
 | --- | --- |
 | Tables (settings, per-ticket fields, ownership log, reports) | `support_report_settings`, `support_tickets`, `support_ticket_ownership_events`, `support_reports` in `src/lib/db/schema.ts` |
-| Migrations | `drizzle/0099_eager_katie_power.sql` (tables), `drizzle/0100_aromatic_gateway.sql` (raised time, RCA toggle, `external` label default), `drizzle/0101_peaceful_firebrand.sql` (per-project timezone), `drizzle/0104_zippy_moira_mactaggert.sql` (closed-time override) |
+| Migrations | `drizzle/0099_eager_katie_power.sql` (tables), `drizzle/0100_aromatic_gateway.sql` (raised time, RCA toggle, `external` label default), `drizzle/0101_peaceful_firebrand.sql` (per-project timezone), `drizzle/0104_busy_ogun.sql` (closed-time override, client name, subject template, weekly schedule) |
 | Joined row → ticket / report input (effective raised time, RCA toggle) | `src/lib/support/ticket-row.ts` (+ `.test.ts`) |
 | Shared types, categories, defaults | `src/lib/support/types.ts` |
 | Timezone helpers (calendar day, wall time ↔ instant, labels; DST-aware) | `src/lib/support/tz.ts` (+ `.test.ts`) |
@@ -158,6 +158,25 @@ setting.
   Approve dialog lists the attachment name.
 - **Failure.** If the workbook can't be generated the send fails cleanly
   (report → `failed`, Retry available); nothing is sent without it.
+
+## Subject, client name and frequency (user decision, 2026-11-25)
+
+Settings → Client report:
+
+- **Frequency.** *Every day* (default) or *Once a week* on a chosen weekday
+  (default Friday). The cron builds a project only at 17:00 project time on a
+  scheduled day; **Build now** works on any day. A weekly report not approved
+  lapses when the next one is built.
+- **Client name.** Used for `{client}` and the Excel file name; blank = the
+  Flux project name.
+- **Email subject.** A template with `{client}`, `{period}` (MTD / YTD /
+  custom range), `{date}` ("27 Nov 2026") and `{project}`, in `{}` or `[]`,
+  case-insensitive; e.g. `{client}: Ticket Summary {period} | {date}` →
+  "Dabur: Ticket Summary MTD | 27 Nov 2026". Default:
+  `Issue Report — Daily Update | {client} | {date}` (the original subject). The
+  form shows a live preview. The subject is rendered at build time and stored
+  on the report (`data.subject`), so a template change applies from the next
+  build or Rebuild.
 
 ## Per-project timezone (user decision, 2026-11-21)
 

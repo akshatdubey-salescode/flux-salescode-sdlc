@@ -27,6 +27,10 @@ export type Priority = (typeof PRIORITIES)[number];
 
 export type PeriodMode = "mtd" | "ytd" | "custom";
 
+// How often the report is built (user decision, 2026-11-25): every day, or
+// once a week on `weeklyDay` (0 = Sunday … 5 = Friday), at 17:00 project time.
+export type ReportFrequency = "daily" | "weekly";
+
 export type SlaTargets = Record<Priority, { responseMin: number; resolutionMin: number }>;
 
 export const DEFAULT_SLA: SlaTargets = {
@@ -117,6 +121,11 @@ export type SupportReportData = {
   // The project's IANA timezone when built (added 2026-11-21); reports stored
   // before then were IST.
   timeZone?: string;
+  // Settings → Client name (else the project name) and the rendered email
+  // subject, fixed at build time (added 2026-11-25). Older reports lack them
+  // and use the original subject and the project name.
+  clientName?: string;
+  subject?: string;
 };
 
 /**

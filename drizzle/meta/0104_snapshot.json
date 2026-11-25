@@ -1,5 +1,5 @@
 {
-  "id": "c228a1a5-6af8-495a-a1d0-a5eb3f014470",
+  "id": "fca74a29-ae24-469e-8aa5-1a07dd9f1b5f",
   "prevId": "1a303f45-08b5-4e01-adff-6747b167c67a",
   "version": "7",
   "dialect": "postgresql",
@@ -8870,6 +8870,34 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'Asia/Kolkata'"
+        },
+        "client_name": {
+          "name": "client_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "subject_template": {
+          "name": "subject_template",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'Issue Report — Daily Update | {client} | {date}'"
+        },
+        "frequency": {
+          "name": "frequency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'daily'"
+        },
+        "weekly_day": {
+          "name": "weekly_day",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 5
         },
         "work_start": {
           "name": "work_start",

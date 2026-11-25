@@ -57,7 +57,7 @@ export async function approveAndSend(
     const attachments = data.ytdTickets
       ? [
           {
-            filename: ytdAttachmentFilename(data.projectName, data.reportDate),
+            filename: ytdAttachmentFilename(data.clientName ?? data.projectName, data.reportDate),
             content: await buildYtdWorkbook(data.ytdTickets, {
               projectName: data.projectName,
               reportDate: data.reportDate,

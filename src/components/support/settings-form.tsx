@@ -17,7 +17,17 @@ import { usePersonSearch, type KnownPerson } from "@/hooks/use-person-search";
 import { cn } from "@/lib/utils";
 import { formatDuration } from "@/lib/support/time";
 import { parseEmailChips, settingsErrorField, type SettingsField } from "@/lib/support/settings-form";
-import { PRIORITIES, type OfficeHours, type PeriodMode, type Priority, type SlaTargets } from "@/lib/support/types";
+import {
+  PRIORITIES,
+  type OfficeHours,
+  type PeriodMode,
+  type Priority,
+  type ReportFrequency,
+  type SlaTargets,
+} from "@/lib/support/types";
+import { DEFAULT_SUBJECT_TEMPLATE, renderSubject, SUBJECT_PLACEHOLDERS } from "@/lib/support/subject";
+import { reportWindow } from "@/lib/support/windows";
+import { dateInZone } from "@/lib/support/tz";
 
 /** SettingsInput as it travels over JSON (mirrors src/lib/support/store.ts). */
 type Settings = {
@@ -31,7 +41,15 @@ type Settings = {
   sharedBy: string;
   sla: SlaTargets;
   officeHours: OfficeHours;
+  clientName: string;
+  subjectTemplate: string;
+  frequency: ReportFrequency;
+  weeklyDay: number;
+  /** Read-only, from GET: the Flux project name (subject preview fallback). */
+  projectName?: string;
 };
+
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
 
 /** SLA minutes are kept as strings while editing so a field can be cleared. */
 type SlaDraft = Record<Priority, { responseMin: string; resolutionMin: string }>;
@@ -73,6 +91,10 @@ function fingerprint(s: Settings): string {
     s.approverUserIds,
     PRIORITIES.map((p) => [s.sla[p].responseMin, s.sla[p].resolutionMin]),
     [s.officeHours.start, s.officeHours.end, s.officeHours.days, s.officeHours.timeZone],
+    s.clientName.trim(),
+    s.subjectTemplate.trim(),
+    s.frequency,
+    s.frequency === "weekly" ? s.weeklyDay : null,
   ]);
 }
 
@@ -254,6 +276,10 @@ export function SettingsForm({ projectId }: { projectId: string }) {
   const [approvers, setApprovers] = useState<string[]>([]);
   const [sla, setSla] = useState<SlaDraft | null>(null);
   const [officeHours, setOfficeHours] = useState<OfficeHours | null>(null);
+  const [clientName, setClientName] = useState("");
+  const [subjectTemplate, setSubjectTemplate] = useState("");
+  const [frequency, setFrequency] = useState<ReportFrequency>("daily");
+  const [weeklyDay, setWeeklyDay] = useState(5);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<{ field: SettingsField; message: string } | null>(null);
@@ -270,6 +296,10 @@ export function SettingsForm({ projectId }: { projectId: string }) {
     setApprovers(s.approverUserIds);
     setSla(toSlaDraft(s.sla));
     setOfficeHours(s.officeHours);
+    setClientName(s.clientName ?? "");
+    setSubjectTemplate(s.subjectTemplate ?? DEFAULT_SUBJECT_TEMPLATE);
+    setFrequency(s.frequency ?? "daily");
+    setWeeklyDay(s.weeklyDay ?? 5);
     setError(null);
   }
 
@@ -325,7 +355,20 @@ export function SettingsForm({ projectId }: { projectId: string }) {
     approverUserIds: approvers,
     sla: fromSlaDraft(sla),
     officeHours,
+    clientName,
+    subjectTemplate,
+    frequency,
+    weeklyDay,
   };
+  const projectName = loaded.projectName || "Project";
+  const subjectPreview = renderSubject(subjectTemplate, {
+    client: clientName.trim() || projectName,
+    project: projectName,
+    period: reportWindow(dateInZone(new Date(), officeHours.timeZone), periodMode, periodStart || null).label,
+    reportDate: dateInZone(new Date(), officeHours.timeZone),
+  });
+  const cadence =
+    frequency === "weekly" ? `every ${WEEKDAY_NAMES[weeklyDay]} at 17:00` : "daily at 17:00";
   const dirty = fingerprint(body) !== fingerprint(loaded);
 
   async function handleSave() {
@@ -380,18 +423,85 @@ export function SettingsForm({ projectId }: { projectId: string }) {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Daily report</CardTitle>
+          <CardTitle>Client report</CardTitle>
           <CardDescription>
-            Built at 17:00 in the project&apos;s timezone ({officeHours.timeZone}) from Jira issues carrying the
+            Built {cadence} in the project&apos;s timezone ({officeHours.timeZone}) from Jira issues carrying the
             external label, then held for approval before it is mailed to the client.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-3">
             <Switch id="support-enabled" checked={enabled} onCheckedChange={setEnabled} />
-            <Label htmlFor="support-enabled">Build the daily report for this project</Label>
+            <Label htmlFor="support-enabled">Build the report for this project</Label>
           </div>
           <FieldError field="enabled" error={error} />
+
+          <div className="space-y-1.5">
+            <Label htmlFor="support-frequency">Frequency</Label>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select value={frequency} onValueChange={(v) => setFrequency(v as ReportFrequency)}>
+                <SelectTrigger id="support-frequency" className="w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="daily">Every day</SelectItem>
+                  <SelectItem value="weekly">Once a week</SelectItem>
+                </SelectContent>
+              </Select>
+              {frequency === "weekly" && (
+                <Select value={String(weeklyDay)} onValueChange={(v) => setWeeklyDay(Number(v))}>
+                  <SelectTrigger aria-label="Weekly build day" className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {WEEKDAY_NAMES.map((name, d) => (
+                      <SelectItem key={name} value={String(d)}>
+                        on {name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Built at 17:00 project time on those days. &quot;Build now&quot; works on any day.
+            </p>
+            <FieldError field="schedule" error={error} />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="support-client-name">Client name</Label>
+              <Input
+                id="support-client-name"
+                value={clientName}
+                placeholder={projectName}
+                onChange={(e) => setClientName(e.target.value)}
+                aria-invalid={error?.field === "email" || undefined}
+              />
+              <p className="text-xs text-muted-foreground">
+                Used for {"{client}"} in the subject and in the Excel file name. Blank = the project name.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="support-subject">Email subject</Label>
+              <Input
+                id="support-subject"
+                value={subjectTemplate}
+                placeholder={DEFAULT_SUBJECT_TEMPLATE}
+                onChange={(e) => setSubjectTemplate(e.target.value)}
+                aria-invalid={error?.field === "email" || undefined}
+              />
+              <p className="text-xs text-muted-foreground">
+                Placeholders: {SUBJECT_PLACEHOLDERS.join(" ")}
+              </p>
+            </div>
+          </div>
+          <p className="rounded-md bg-muted px-3 py-2 text-xs">
+            <span className="text-muted-foreground">Subject preview: </span>
+            <span className="font-medium">{subjectPreview}</span>
+          </p>
+          <FieldError field="email" error={error} />
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">

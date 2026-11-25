@@ -27,6 +27,12 @@ function fixture(over: Partial<SupportReportData> = {}): SupportReportData {
   };
 }
 
+test("a subject rendered at build time is used as-is", () => {
+  const { subject, html } = renderSupportReportEmail({ ...fixture(), subject: "Dabur: Ticket Summary MTD | 20 Nov 2026" });
+  assert.equal(subject, "Dabur: Ticket Summary MTD | 20 Nov 2026");
+  assert.ok(html.includes("<title>Dabur: Ticket Summary MTD | 20 Nov 2026</title>"));
+});
+
 test("subject and key copy", () => {
   const { subject, html } = renderSupportReportEmail(fixture());
   assert.equal(subject, "Issue Report — Daily Update | Acme | 20 Nov 2026");

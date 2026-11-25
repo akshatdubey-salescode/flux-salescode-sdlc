@@ -39,6 +39,8 @@ export type SettingsField =
   | "sla"
   | "officeHours"
   | "approvers"
+  | "email"
+  | "schedule"
   | "form";
 
 /**
@@ -56,5 +58,7 @@ export function settingsErrorField(error: string): SettingsField {
   if (/^sla\b/.test(error)) return "sla";
   if (/^officeHours\b/.test(error)) return "officeHours";
   if (/^approverUserIds\b/.test(error)) return "approvers";
+  if (/^(clientName|subjectTemplate)\b/.test(error)) return "email";
+  if (/^(frequency|weeklyDay)\b/.test(error)) return "schedule";
   return "form";
 }

@@ -270,3 +270,34 @@ test("ticketTimesError: closed time can't precede the effective raised time", ()
     /Raised time can't be after the closed time/,
   );
 });
+
+test("parseSettingsBody: client name, subject template and weekly schedule", () => {
+  const r = parseSettingsBody({
+    ...goodSettings(),
+    clientName: "  Dabur ",
+    subjectTemplate: "{client}: Ticket Summary {period} | {date}",
+    frequency: "weekly",
+    weeklyDay: 5,
+  });
+  assert.ok(r.ok);
+  if (r.ok) {
+    assert.equal(r.value.clientName, "Dabur");
+    assert.equal(r.value.subjectTemplate, "{client}: Ticket Summary {period} | {date}");
+    assert.equal(r.value.frequency, "weekly");
+    assert.equal(r.value.weeklyDay, 5);
+  }
+  // Absent → defaults (older clients).
+  const d = parseSettingsBody(goodSettings());
+  assert.ok(d.ok && d.value.clientName === "" && d.value.frequency === "daily" && d.value.weeklyDay === 5);
+  assert.ok(d.ok && d.value.subjectTemplate.includes("{client}"));
+  for (const bad of [
+    { subjectTemplate: "  " },
+    { subjectTemplate: "x".repeat(201) },
+    { clientName: 7 },
+    { frequency: "monthly" },
+    { weeklyDay: 7 },
+    { weeklyDay: 1.5 },
+  ]) {
+    assert.equal(parseSettingsBody({ ...goodSettings(), ...bad }).ok, false, JSON.stringify(bad));
+  }
+});

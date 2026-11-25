@@ -3078,6 +3078,14 @@ export const supportReportSettings = pgTable("support_report_settings", {
   // day, the 17:00 build time, how office hours are read, and every time typed
   // or shown for the project's support tickets.
   timeZone: text("time_zone").notNull().default("Asia/Kolkata"),
+  // Client name for the email subject / attachment ("" = the project name),
+  // the subject template, and the schedule (user decision, 2026-11-25).
+  clientName: text("client_name").notNull().default(""),
+  subjectTemplate: text("subject_template").notNull().default("Issue Report — Daily Update | {client} | {date}"),
+  // 'daily' | 'weekly'
+  frequency: text("frequency").notNull().default("daily"),
+  // Weekly build day, Sunday-first (5 = Friday).
+  weeklyDay: integer("weekly_day").notNull().default(5),
   // Office hours (HH:MM in time_zone) and working days (Sunday-first) for SLA counting.
   workStart: text("work_start").notNull().default("10:00"),
   workEnd: text("work_end").notNull().default("19:00"),

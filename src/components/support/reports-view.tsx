@@ -325,7 +325,7 @@ export function ReportsView({ projectId }: { projectId: string }) {
   const fixedCount = uncategorised.filter((u) => fixedCats[u.issueId]).length;
   // The YTD Excel snapshot stored on the build; absent on reports built before 2026-11-20.
   const ytdTickets = report?.data.ytdTickets;
-  const attachmentName = report ? ytdAttachmentFilename(report.data.projectName, report.data.reportDate) : null;
+  const attachmentName = report ? ytdAttachmentFilename(report.data.clientName ?? report.data.projectName, report.data.reportDate) : null;
   const approveReason = !shown
     ? "Loading…"
     : shown.blocker ?? (!canApprove ? "Only this project's approvers can send the report" : null);
