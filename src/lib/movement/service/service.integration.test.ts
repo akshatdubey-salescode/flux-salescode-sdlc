@@ -25,9 +25,10 @@ const suite = RUN ? describe : describe.skip;
 const TAG = `MVTEST-${randomUUID().slice(0, 8)}`;
 const E1 = "dev+tctest@salescode.ai";
 const E2 = "dev+tctest2@salescode.ai";
-// Two more people (the three slots must be three different Flux users); `.invalid` can never be mailed.
+// Three more people (the four slots must be four different Flux users); `.invalid` can never be mailed.
 const E3 = `${TAG.toLowerCase()}-lead@example.invalid`;
 const E4 = `${TAG.toLowerCase()}-ba2@example.invalid`;
+const E5 = `${TAG.toLowerCase()}-qa@example.invalid`;
 const actor = (email: string, flags: Partial<Pick<MovementActor, "isManager" | "isAdmin">> = {}): MovementActor => ({
   id: email,
   email,
@@ -41,8 +42,9 @@ const manager = actor(E2, { isManager: true }); // a delivery manager who is not
 const deployer = actor(E1);
 const ba = actor(E2);
 const lead = actor(E3);
+const qaLead = actor(E5);
 const stranger = actor(`stranger-${TAG.toLowerCase()}@example.invalid`); // not a Flux user, not a signer
-const SIGNERS = { deployer: { email: E1 }, ba: { email: E2 }, lead: { email: E3 } };
+const SIGNERS = { deployer: { email: E1 }, ba: { email: E2 }, lead: { email: E3 }, qa_lead: { email: E5 } };
 
 // ---- fakes -----------------------------------------------------------------------------------
 const caches = () => ({
@@ -149,7 +151,7 @@ suite("movement service (dev DB, fake Jira / GitHub)", () => {
       notifyDone: (p) => void calls.push({ kind: "done", p }),
     });
 
-    for (const email of [E1, E2, E3, E4]) {
+    for (const email of [E1, E2, E3, E4, E5]) {
       const r = await D.db.insert(S.users).values({ id: email, email, role: "USER" }).onConflictDoNothing().returning({ id: S.users.id });
       if (r.length) created.users.push(email);
     }
@@ -189,11 +191,11 @@ suite("movement service (dev DB, fake Jira / GitHub)", () => {
     await rejects(() => M.createMovement(deliveryId, "prod", SIGNERS, actor(E2), deps), 403); // not a manager
     await rejects(() => M.createMovement(deliveryId, "staging", SIGNERS, admin, deps), 400);
     await rejects(() => M.createMovement(deliveryId, "prod", { ...SIGNERS, lead: { email: "not-an-email" } }, admin, deps), 400);
-    // S10: three DIFFERENT people, each a Flux user, and the 400 names the slot
-    await rejects(() => M.createMovement(deliveryId, "prod", { ...SIGNERS, lead: { email: E1.toUpperCase() } }, admin, deps), 400);
+    // S10: all four slots named, each a Flux user, and the 400 names the slot (one person may hold several slots: that is not refused)
+    await rejects(() => M.createMovement(deliveryId, "prod", { deployer: SIGNERS.deployer, ba: SIGNERS.ba, lead: SIGNERS.lead }, admin, deps), 400); // no QA lead
     await assert.rejects(
       () => M.createMovement(deliveryId, "prod", { ...SIGNERS, ba: { email: `nobody-${TAG.toLowerCase()}@example.invalid` } }, admin, deps),
-      (e: unknown) => (e as { status?: number; message?: string }).status === 400 && /ba/.test((e as { message: string }).message)
+      (e: unknown) => (e as { status?: number; message?: string }).status === 400 && /BA/.test((e as { message: string }).message)
     );
 
     startCount();
@@ -216,7 +218,7 @@ suite("movement service (dev DB, fake Jira / GitHub)", () => {
     assert.ok(refs.length === 3 && refs[0].commentId, "pointers only");
     assert.deepEqual(await M.listMovements(deliveryId).then((l) => l.map((x) => [x.status, x.items, x.included])), [["ready", 3, 1]]);
     assert.deepEqual((await eventsOf()).map((e) => e.type), ["created", "became_ready", "items_changed"]);
-    assert.equal(calls.filter((c) => c.kind === "assigned").length, 3);
+    assert.equal(calls.filter((c) => c.kind === "assigned").length, 4);
     await assert.rejects(
       () => M.createMovement(deliveryId, "prod", SIGNERS, admin, deps), // one live movement per environment
       (e: { status?: number; code?: string; message?: string; extra?: Record<string, unknown> }) =>
@@ -235,7 +237,7 @@ suite("movement service (dev DB, fake Jira / GitHub)", () => {
     assert.ok(!/DEPLOYMENT-RECORD|inputs|token/i.test(text.replace(/"inputsHash"/g, "")));
     assert.equal(v.checklist.hash, (await movement()).checklistHash);
     assert.equal(v.items.length, 3);
-    assert.equal(v.signers.length, 3);
+    assert.equal(v.signers.length, 4);
     const cl = await M.getChecklist(deliveryId, movementId);
     assert.equal(cl.sections.length, 14);
     assert.equal(cl.hash, v.checklist.hash);
@@ -350,7 +352,10 @@ suite("movement service (dev DB, fake Jira / GitHub)", () => {
     assert.equal((await M.signMovement(deliveryId, movementId, "deployer", hash, deployer)).allSigned, false);
     assert.equal((await M.signMovement(deliveryId, movementId, "deployer", hash, deployer)).allSigned, false, "idempotent");
     await M.signMovement(deliveryId, movementId, "ba", hash, ba);
-    const last = await M.signMovement(deliveryId, movementId, "lead", hash, lead);
+    const third = await M.signMovement(deliveryId, movementId, "lead", hash, lead);
+    assert.deepEqual([third.status, third.allSigned], ["ready", false], "the QA lead has not signed yet");
+    await rejects(() => M.signMovement(deliveryId, movementId, "qa_lead", hash, lead), 403); // only the QA lead signs as the QA lead
+    const last = await M.signMovement(deliveryId, movementId, "qa_lead", hash, qaLead);
     assert.deepEqual([last.status, last.allSigned], ["signed_off", true]);
     assert.equal((await movement()).status, "signed_off");
     assert.equal(calls.filter((c) => c.kind === "ready").length, 1);
@@ -369,12 +374,12 @@ suite("movement service (dev DB, fake Jira / GitHub)", () => {
     assert.equal(r.movementStatus, "ready");
     assert.notEqual(r.hash, hash);
     const so = await signoffs();
-    for (const s of ["deployer", "ba", "lead"]) assert.deepEqual([so[s].signedAt, so[s].signedHash], [null, null]);
+    for (const s of ["deployer", "ba", "lead", "qa_lead"]) assert.deepEqual([so[s].signedAt, so[s].signedHash], [null, null]);
     const row_ = (await items())["CAV-7304"];
     assert.deepEqual([row_.readiness, row_.overrideReason, row_.included], ["ready", null, true], "valid record: override dropped, still ticked");
     const ev = (await eventsOf("checklist_changed")).at(-1)!;
     const d = ev.detail as { cleared: number; diff: { counts: { added: number } } };
-    assert.equal(d.cleared, 3);
+    assert.equal(d.cleared, 4);
     assert.ok(JSON.stringify(ev.detail).length <= 4096 && d.diff.counts.added > 0, "capped diff");
     assert.equal(calls.filter((c) => c.kind === "reset").length, resets + 1);
     assert.equal((await eventsOf("items_changed")).at(-1) && true, true);
@@ -473,6 +478,7 @@ suite("movement service (dev DB, fake Jira / GitHub)", () => {
     await M.signMovement(deliveryId, movementId, "deployer", hash, deployer);
     await M.signMovement(deliveryId, movementId, "ba", hash, ba);
     await M.signMovement(deliveryId, movementId, "lead", hash, lead);
+    await M.signMovement(deliveryId, movementId, "qa_lead", hash, qaLead);
     assert.equal((await movement()).status, "signed_off");
     await rejects(() => M.startMovement(deliveryId, movementId, ba), 403);
     await rejects(() => M.startMovement(deliveryId, movementId, manager), 403); // a manager who is not the deployer
@@ -572,13 +578,20 @@ suite("movement service (dev DB, fake Jira / GitHub)", () => {
     const h = (await M.getMovementView(d2, mid, admin)).movement.hash;
     await M.signMovement(d2, mid, "ba", h, ba);
     const calls0 = calls.filter((c) => c.kind === "assigned").length;
-    await rejects(() => M.setSigners(d2, mid, { ba: { email: E1 } }, manager), 400); // would be the deployer too
+    // one person may hold two slots (here the deployer is also the BA); the other signers keep their sign-off
+    assert.equal((await M.setSigners(d2, mid, { ba: { email: E1 } }, manager)).changed, true);
+    assert.deepEqual((await M.getMovementView(d2, mid, deployer)).me.slots, ["deployer", "ba"], "E1 now holds two slots");
+    const calls1 = calls.filter((c) => c.kind === "assigned").length;
+    assert.equal(calls1, calls0 + 1);
+    // E1 signs one of its slots; the other is still open for E1
+    await M.signMovement(d2, mid, "ba", h, deployer);
+    assert.deepEqual((await M.getMovementView(d2, mid, deployer)).permissions.sign, ["deployer"]);
     await rejects(() => M.setSigners(d2, mid, { ba: { email: `ghost-${TAG.toLowerCase()}@example.invalid` } }, manager), 400);
     const ch = await M.setSigners(d2, mid, { ba: { email: E4, name: "New BA" } }, manager);
     assert.equal(ch.changed, true);
-    assert.equal(calls.filter((c) => c.kind === "assigned").length, calls0 + 1);
+    assert.equal(calls.filter((c) => c.kind === "assigned").length, calls1 + 1);
     const v = await M.getMovementView(d2, mid, admin);
-    assert.deepEqual(v.signers.map((s) => [s.slot, s.email, s.signed]), [["deployer", E1, false], ["ba", E4, false], ["lead", E3, false]]);
+    assert.deepEqual(v.signers.map((s) => [s.slot, s.email, s.signed]), [["deployer", E1, false], ["ba", E4, false], ["lead", E3, false], ["qa_lead", E5, false]]);
     // the person who was the BA can no longer sign that slot
     await rejects(() => M.signMovement(d2, mid, "ba", h, ba), 403);
     await rejects(() => M.cancelMovement(d2, mid, "x", ba), 403);
@@ -607,6 +620,7 @@ suite("movement service (dev DB, fake Jira / GitHub)", () => {
     await M.signMovement(d, mid, "deployer", h, deployer);
     await M.signMovement(d, mid, "ba", h, ba);
     await M.signMovement(d, mid, "lead", h, lead);
+    await M.signMovement(d, mid, "qa_lead", h, qaLead);
     return h;
   }
   const codeOf = (e: unknown) => (e as { code?: string }).code;
@@ -665,7 +679,7 @@ suite("movement service (dev DB, fake Jira / GitHub)", () => {
         () => M.getItemDetail(m.d, m.mid, issues.get("CAV-7346")!),
       ]) await assert.rejects(call, (e: unknown) => (e as { status?: number }).status === 409 && codeOf(e) === "inputs_stale", label);
       assert.equal((await mvRow(m.mid)).checklistHash, h, `${label}: the stored hash was not replaced by an empty-records hash`);
-      assert.deepEqual((await soOf(m.mid)).map((x) => x.h), [null, null, null]);
+      assert.deepEqual((await soOf(m.mid)).map((x) => x.h), [null, null, null, null]);
       const r = await R.refreshMovement(m.mid, { ...m.deps, bypass: true });
       assert.equal(r.inputsWritten, true, `${label}: the refresh rewrote the unreadable copy`);
       assert.equal(r.hash, h, "same content, same hash");
@@ -724,16 +738,18 @@ suite("movement service (dev DB, fake Jira / GitHub)", () => {
     assert.equal((await soOf(m.mid)).filter((x) => x.h === h).length, 2);
     assert.equal((await evOf(m.mid, "signed")).length, 2, "the same slot twice is one sign-off");
     await M.signMovement(m.d, m.mid, "lead", h, lead);
+    await M.signMovement(m.d, m.mid, "qa_lead", h, qaLead);
     assert.equal((await mvRow(m.mid)).status, "signed_off");
 
-    // race: two sign-offs are in, the lead signs while a new record arrives
+    // race: three sign-offs are in, the QA lead signs while a new record arrives
     const f2 = new FakeJira([{ key: "CAV-7346", comments: rec7346() }]);
     const n = await newMovement("conc2", ["CAV-7346"], f2, "demo");
     const h2 = await hashOf(n.d, n.mid);
     await M.signMovement(n.d, n.mid, "deployer", h2, deployer);
     await M.signMovement(n.d, n.mid, "ba", h2, ba);
+    await M.signMovement(n.d, n.mid, "lead", h2, lead);
     f2.issues.get("CAV-7346")!.comments!.push(cloneComment("CAV-7346-81399", "999888", (x) => x.replace(/1184/g, "1192")));
-    const out = await Promise.allSettled([M.signMovement(n.d, n.mid, "lead", h2, lead), R.refreshMovement(n.mid, { ...n.deps, bypass: true })]);
+    const out = await Promise.allSettled([M.signMovement(n.d, n.mid, "qa_lead", h2, qaLead), R.refreshMovement(n.mid, { ...n.deps, bypass: true })]);
     assert.equal(out[1].status, "fulfilled");
     const row_ = await mvRow(n.mid);
     assert.equal(row_.status, "ready");
@@ -815,7 +831,7 @@ suite("movement service (dev DB, fake Jira / GitHub)", () => {
     if (!tracked) return console.log("SKIP draft test: the dev DB has no tracked repo");
     const d = await seedDelivery("draft", [issues.get("CAV-7346")!]);
     const [mv] = await D.db.insert(S.deliveryMovements).values({ deliveryId: d, environment: "demo", createdBy: E1 }).returning({ id: S.deliveryMovements.id });
-    await D.db.insert(S.deliveryMovementSignoffs).values((["deployer", "ba", "lead"] as const).map((slot, i) => ({ movementId: mv.id, slot, userEmail: [E1, E2, E3][i] })));
+    await D.db.insert(S.deliveryMovementSignoffs).values((["deployer", "ba", "lead"] as const).map((slot, i) => ({ movementId: mv.id, slot, userEmail: [E1, E2, E3][i] })) /* three rows on purpose: an older movement */);
     const saved = await M.saveBranches(d, mv.id, [{ repo: tracked.name, branch: "main" }], admin);
     assert.equal(saved.changed, true);
     assert.equal((await mvRow(mv.id)).status, "draft");
@@ -823,6 +839,16 @@ suite("movement service (dev DB, fake Jira / GitHub)", () => {
     const r = await R.refreshMovement(mv.id, { ...depsFor(new FakeJira([{ key: "CAV-7346", comments: rec7346() }])), bypass: true });
     assert.equal(r.ok, true);
     assert.equal((await mvRow(mv.id)).status, "ready");
+
+    // This movement has only the three first slots (made before the QA lead existed): it has no QA lead row, and naming one adds the slot.
+    const before = await M.getMovementView(d, mv.id, admin);
+    assert.deepEqual(before.signers.find((s) => s.slot === "qa_lead")?.email, "");
+    await rejects(() => M.setSigners(d, mv.id, { qa_lead: { email: `ghost-${TAG.toLowerCase()}@example.invalid` } }, manager), 400);
+    assert.equal((await M.setSigners(d, mv.id, { qa_lead: { email: E5, name: "QA Lead" } }, manager)).changed, true);
+    const after = await M.getMovementView(d, mv.id, admin);
+    assert.deepEqual(after.signers.find((s) => s.slot === "qa_lead")?.email, E5);
+    assert.equal((await evOf(mv.id, "signers_changed")).length, 1);
+    assert.equal((await M.setSigners(d, mv.id, { qa_lead: { email: E5 } }, manager)).changed, false, "naming the same person again changes nothing");
   });
 
   it("a notifier that throws never rolls anything back; a transaction that rolls back sends no mail; statuses are proposed only for prod", async () => {

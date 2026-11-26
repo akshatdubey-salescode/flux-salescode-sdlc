@@ -142,9 +142,11 @@ export function pickNewestRecords(records: ParsedRecord[], opts: PickOptions = {
     if (!cur || compare(u, cur) < 0) newestUnion.set(k, u);
   }
   const picked = pickNewestPerPr(perPr, opts).filter((r) => {
-    if (!r.marker.repo || r.marker.pr === null) return true;
     const u = newestUnion.get((r.marker.key ?? "").toUpperCase());
     if (!u) return true;
+    // The newest union names the older comments it replaces: a per-PR record it names is retired even when the union's PR list does not show its PR.
+    if (u.marker.supersedes?.commentIds.includes(r.comment.id) && compare(u, r) < 0) return false;
+    if (!r.marker.repo || r.marker.pr === null) return true;
     return !(u.facts.covers ?? []).some((c) => c.pr === r.marker.pr && sameRepo(c.repo, r.marker.repo as string));
   });
   return [...picked, ...[...newestUnion.values()].sort(compare)];

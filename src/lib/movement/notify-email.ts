@@ -14,7 +14,7 @@
 import { escapeHtml as esc, sendEmail, shell, type EmailContent, type SendResult } from "@/lib/test-cases/notify";
 import { isValidEmail, normEmail } from "./service/state";
 import type { MovementNotifier, NotifyBase } from "./service/notify";
-import type { MovementSlot } from "./values";
+import { MOVEMENT_SLOT_WORDS, type MovementSlot } from "./values";
 
 export type EmailTransport = (to: string[], content: EmailContent) => Promise<SendResult>;
 
@@ -40,7 +40,7 @@ export interface EmailNotifierDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
-/** Most recipients one notification mails (a movement has 3 signers plus the delivery's responsible people). */
+/** Most recipients one notification mails (a movement has 4 signers plus the delivery's responsible people). */
 export const MAX_RECIPIENTS = 20;
 /** Largest count shown in a "changed" email; the movement page has the details. */
 export const MAX_SHOWN_COUNT = 999;
@@ -92,7 +92,7 @@ export function filterRecipients(emails: readonly string[], production: boolean)
 
 // --- builders (pure) -----------------------------------------------------------------------------
 
-const SLOT_LABEL: Record<MovementSlot, string> = { deployer: "deployer", ba: "BA", lead: "lead" };
+const SLOT_LABEL: Record<MovementSlot, string> = MOVEMENT_SLOT_WORDS;
 
 /** Single line, no control characters (a subject is a header), bounded. */
 const oneLine = (s: string, n = 120): string => s.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, n);
@@ -155,11 +155,11 @@ export function buildReadyToDeployEmail(p: NotifyBase & { hash: string }, url: s
     subject: `${subjectBase(p)}: all signed, ready to deploy`,
     html: shell(
       "Ready to deploy",
-      `${intro(p)}<p>All three sign-offs are in for checklist ${esc(p.hash.slice(0, 8))}. You can start the deployment.</p>`,
+      `${intro(p)}<p>All sign-offs are in for checklist ${esc(p.hash.slice(0, 8))}. You can start the deployment.</p>`,
       url,
       "Open the movement"
     ),
-    text: `${textHead(p)}\n\nAll three sign-offs are in for checklist ${p.hash.slice(0, 8)}. You can start the deployment.\n\nOpen: ${url}`,
+    text: `${textHead(p)}\n\nAll sign-offs are in for checklist ${p.hash.slice(0, 8)}. You can start the deployment.\n\nOpen: ${url}`,
   };
 }
 
@@ -255,7 +255,7 @@ export function createEmailNotifier(deps: EmailNotifierDeps = {}): MovementNotif
     },
     async notifyDone(p) {
       const d = await info(p.deliveryId);
-      // the three signers (given) plus the delivery's responsible people
+      // the signers (given) plus the delivery's responsible people
       await deliver("done", [...p.recipients, ...(d?.responsibleEmails ?? [])], (url) => buildDoneEmail(p, url), p, d?.projectId ?? null);
     },
   };

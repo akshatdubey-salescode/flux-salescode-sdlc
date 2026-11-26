@@ -1,0 +1,1 @@
+ALTER TYPE "public"."movement_slot" ADD VALUE 'qa_lead';

@@ -4,7 +4,7 @@ import { authActor, badIds, run } from "@/lib/movement/service/http";
 
 type Params = { params: Promise<{ id: string; mid: string }> };
 
-/** The deployer (or an admin) starts the deployment once all three sign-offs are on the current checklist. */
+/** The deployer (or an admin) starts the deployment once all sign-offs are on the current checklist. */
 export async function POST(_req: NextRequest, { params }: Params) {
   const actor = await authActor();
   const { id, mid } = await params;

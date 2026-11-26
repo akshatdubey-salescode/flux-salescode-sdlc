@@ -16,7 +16,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
   return run(async () => NextResponse.json({ movements: await listMovements(id) }));
 }
 
-/** Create a movement of the delivery to one environment: `{ environment, signers: { deployer, ba, lead } }`. 409 when one is live. */
+/** Create a movement of the delivery to one environment: `{ environment, signers: { deployer, ba, lead, qa_lead } }`. 409 when one is live. */
 export async function POST(req: NextRequest, { params }: Params) {
   const actor = await authActor();
   const { id } = await params;

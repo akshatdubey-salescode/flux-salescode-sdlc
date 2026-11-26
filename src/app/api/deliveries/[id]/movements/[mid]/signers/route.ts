@@ -4,7 +4,7 @@ import { authActor, badIds, readJson, run } from "@/lib/movement/service/http";
 
 type Params = { params: Promise<{ id: string; mid: string }> };
 
-/** Change who holds a slot (before everyone has signed): `{ deployer?, ba?, lead? }`, each an email or `{ email, name }`. A changed slot loses its sign-off. */
+/** Change who holds a slot (before everyone has signed): `{ deployer?, ba?, lead?, qa_lead? }`, each an email or `{ email, name }`. A changed slot loses its sign-off. */
 export async function PUT(req: NextRequest, { params }: Params) {
   const actor = await authActor();
   const { id, mid } = await params;

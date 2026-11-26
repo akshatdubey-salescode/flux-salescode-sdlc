@@ -33,6 +33,7 @@ import {
   isMovementResult,
   MAX_BRANCH_REPOS,
   MOVEMENT_SLOT_VALUES,
+  MOVEMENT_SLOT_WORDS,
   type MovementEnvironment,
   type MovementResult,
   type MovementSlot,
@@ -117,17 +118,11 @@ function normalizeSigners(input: unknown, partial: boolean): Partial<Record<Move
     if (v === undefined && partial) continue;
     const email = typeof v === "string" ? v : (v as { email?: unknown } | undefined)?.email;
     const name = typeof v === "object" && v !== null ? (v as { name?: unknown }).name : undefined;
-    if (!isValidEmail(email)) throw new MovementError(400, `${slot} must be a valid email address`, "bad_request");
-    if (name !== undefined && name !== null && (typeof name !== "string" || name.length > 100)) throw new MovementError(400, `${slot} name is not valid`, "bad_request");
+    if (!isValidEmail(email)) throw new MovementError(400, `The ${MOVEMENT_SLOT_WORDS[slot]} must be a valid email address`, "bad_request", { slot });
+    if (name !== undefined && name !== null && (typeof name !== "string" || name.length > 100)) throw new MovementError(400, `The ${MOVEMENT_SLOT_WORDS[slot]} name is not valid`, "bad_request", { slot });
     out[slot] = { email: normEmail(email), name: typeof name === "string" && name.trim() ? name.trim() : null };
   }
   return out;
-}
-
-/** The three slots must be three different people (one person cannot approve their own work three times). */
-function assertDistinct(emails: Record<MovementSlot, string>): void {
-  const list = MOVEMENT_SLOT_VALUES.map((s) => normEmail(emails[s]));
-  if (new Set(list).size !== list.length) throw new MovementError(400, "The deployer, the BA and the lead must be three different people", "bad_request");
 }
 
 /** Each named person must be a Flux user (users.id is the email): a sign-off needs a login that can match it. */
@@ -137,7 +132,7 @@ async function assertSignersExist(ex: Executor, signers: Partial<Record<Movement
   const rows = await ex.select({ id: users.id }).from(users).where(inArray(users.id, entries.map(([, e]) => e)));
   const known = new Set(rows.map((r) => r.id));
   for (const [slot, email] of entries) {
-    if (!known.has(email)) throw new MovementError(400, `The ${slot} (${email}) is not a Flux user`, "bad_request", { slot });
+    if (!known.has(email)) throw new MovementError(400, `The ${MOVEMENT_SLOT_WORDS[slot]} (${email}) is not a Flux user`, "bad_request", { slot });
   }
 }
 
@@ -161,7 +156,6 @@ export async function createMovement(
   if (!actor.isManager) throw new MovementError(403, "Only delivery managers can create a movement", "forbidden");
   if (!isMovementEnvironment(environment)) throw new MovementError(400, "environment must be demo, uat or prod", "bad_request");
   const signers = normalizeSigners(signersInput, false) as Record<MovementSlot, { email: string; name: string | null }>;
-  assertDistinct({ deployer: signers.deployer.email, ba: signers.ba.email, lead: signers.lead.email });
   await assertSignersExist(db, signers);
 
   const [delivery] = await db
@@ -473,7 +467,7 @@ export async function getMovementView(deliveryId: string, movementId: string, ac
       confirm: perms.confirm && head.environment === "prod",
       start: perms.start && !approvalsBlocked && includedCount > 0,
       sign: approvalsBlocked || includedCount === 0 ? [] : perms.sign,
-      // GET changes is for the signers only (the three people who approve)
+      // GET changes is for the signers only (the people who approve)
       changes: slotsOf(slots, actor.email).length > 0,
       notes: degradedNote ? [degradedNote] : ([] as string[]),
     },
@@ -760,14 +754,21 @@ export async function setSigners(deliveryId: string, movementId: string, input: 
     const head = await loadMovement(tx, deliveryId, movementId, true);
     guard("setSigners", head, actor);
     const { rows } = await loadSlots(tx, movementId);
-    // The three slots as they will be: still three different people, each a Flux user.
-    const finalEmails = Object.fromEntries(MOVEMENT_SLOT_VALUES.map((sl) => [sl, next[sl]?.email ?? rows.find((r) => r.slot === sl)?.email ?? ""])) as Record<MovementSlot, string>;
-    assertDistinct(finalEmails);
+    // One person may hold several slots (and signs each); every named person must be a Flux user.
     await assertSignersExist(tx, Object.fromEntries(MOVEMENT_SLOT_VALUES.filter((sl) => next[sl] && !sameEmail(rows.find((r) => r.slot === sl)?.email ?? "", next[sl]!.email)).map((sl) => [sl, next[sl]!])));
     const changes: Record<string, { from: string; to: string }> = {};
     for (const slot of MOVEMENT_SLOT_VALUES) {
       const n = next[slot];
       const cur = rows.find((r) => r.slot === slot);
+      if (n && !cur) {
+        // A movement made before the QA lead slot existed has no row for it: naming one adds the slot.
+        await tx.insert(deliveryMovementSignoffs).values({ movementId, slot, userEmail: n.email, userName: n.name });
+        changes[slot] = { from: "", to: n.email };
+        notes.push((x) =>
+          x.notifySignerAssigned({ movementId, deliveryId, deliveryName: head.deliveryName, environment: head.environment, slot, email: n.email, assignedBy: actor.email })
+        );
+        continue;
+      }
       if (!n || !cur) continue;
       if (sameEmail(cur.email, n.email)) {
         if ((n.name ?? null) !== cur.name && n.name) await tx.update(deliveryMovementSignoffs).set({ userName: n.name }).where(and(eq(deliveryMovementSignoffs.movementId, movementId), eq(deliveryMovementSignoffs.slot, slot)));
@@ -818,7 +819,7 @@ async function syncedState(tx: Executor, notes: Notification[], head: MovementHe
 }
 
 export async function signMovement(deliveryId: string, movementId: string, slot: unknown, hash: unknown, actor: MovementActor) {
-  if (typeof slot !== "string" || !(MOVEMENT_SLOT_VALUES as readonly string[]).includes(slot)) throw new MovementError(400, "slot must be deployer, ba or lead", "bad_request");
+  if (typeof slot !== "string" || !(MOVEMENT_SLOT_VALUES as readonly string[]).includes(slot)) throw new MovementError(400, "slot must be deployer, ba, lead or qa_lead", "bad_request");
   if (typeof hash !== "string" || !/^[0-9a-f]{64}$/.test(hash)) throw new MovementError(400, "hash must be the checklist hash you reviewed", "bad_request");
   const s = slot as MovementSlot;
   const outcome = await inTx<Outcome<{ status: string; hash: string; allSigned: boolean }>>(async (tx, notes) => {
@@ -866,7 +867,7 @@ export async function startMovement(deliveryId: string, movementId: string, acto
     guard("start", head, actor, slots0);
     assertRefreshOk(head);
     const st = await syncedState(tx, notes, head, actor, slots0);
-    if (st.status !== "signed_off") return { deny: { ok: false, code: "conflict", message: "The checklist changed after the sign-offs; all three must sign again", extra: { currentHash: st.cl.hash, status: st.status } } };
+    if (st.status !== "signed_off") return { deny: { ok: false, code: "conflict", message: "The checklist changed after the sign-offs; everyone must sign again", extra: { currentHash: st.cl.hash, status: st.status } } };
     const ok = checkStartable({ slots: st.slots, currentHash: st.cl.hash, includedCount: st.rows.filter(isEffectivelyIncluded).length });
     if (!ok.ok) return { deny: ok };
     await writeSnapshot(tx, movementId, st.cl, "start", actor.id);
@@ -1160,7 +1161,7 @@ export async function confirmStatuses(
 // "what changed since I signed"
 // ---------------------------------------------------------------------------------------------
 
-/** SIGNERS ONLY (the three people who approve); everybody else gets 403. The view reports `permissions.changes`. */
+/** SIGNERS ONLY (the people who approve); everybody else gets 403. The view reports `permissions.changes`. */
 export async function getChangesSinceSigned(deliveryId: string, movementId: string, actor: MovementActor) {
   const head = await loadMovement(db, deliveryId, movementId);
   const [{ slots }, rows] = await Promise.all([loadSlots(db, movementId), loadItemRows(db, movementId)]);

@@ -37,7 +37,7 @@ export function envLabel(env: string): string {
   return ENV_OPTIONS.find((o) => o.value === env)?.label ?? env;
 }
 
-export const SLOT_LABELS: Record<MovementSlot, string> = { deployer: "Deployer", ba: "BA", lead: "Lead" };
+export const SLOT_LABELS: Record<MovementSlot, string> = { deployer: "Deployer", ba: "BA", lead: "Lead", qa_lead: "QA Lead" };
 
 const STATUS_LABELS: Record<MovementStatus, string> = {
   draft: "Draft",
@@ -90,7 +90,7 @@ const EVENT_LABELS: Record<string, string> = {
   branches_changed: "Branches changed",
   signers_changed: "Signers changed",
   signed: "Signed",
-  signed_off: "All three signed",
+  signed_off: "All signed",
   started: "Deployment started",
   done: "Marked done",
   statuses_confirmed: "Delivery statuses confirmed",
@@ -276,7 +276,7 @@ export function actionState(action: PanelAction, view: ActionView): ActionState 
   if (view.permissions[action]) return { allowed: true, reason: null };
   const status = view.movement.status as MovementStatus;
   if (!ALLOWED_STATUSES[action].includes(status)) {
-    if (action === "start" && status === "ready") return { allowed: false, reason: `Waiting for ${waitingSlots(view.signers) || "all three sign-offs"}` };
+    if (action === "start" && status === "ready") return { allowed: false, reason: `Waiting for ${waitingSlots(view.signers) || "all sign-offs"}` };
     return { allowed: false, reason: `Not available while the movement is ${statusLabel(status).toLowerCase()}` };
   }
   if (!roleFits(action, view.me)) return { allowed: false, reason: ROLE_REASON[action] };
@@ -285,8 +285,8 @@ export function actionState(action: PanelAction, view: ActionView): ActionState 
   return { allowed: false, reason: blocked ?? ROLE_REASON[action] };
 }
 
-function waitingSlots(signers: ReadonlyArray<Pick<MovementSigner, "slot" | "signedCurrent">>): string {
-  const w = signers.filter((s) => !s.signedCurrent).map((s) => SLOT_LABELS[s.slot as MovementSlot] ?? s.slot);
+function waitingSlots(signers: ReadonlyArray<Pick<MovementSigner, "slot" | "signedCurrent"> & { email?: string }>): string {
+  const w = signers.filter((s) => !s.signedCurrent && s.email !== "").map((s) => SLOT_LABELS[s.slot as MovementSlot] ?? s.slot);
   return w.length ? `sign-off from ${w.join(", ")}` : "";
 }
 
@@ -307,7 +307,7 @@ export interface SignerRow {
 }
 
 /**
- * The three signer rows. Who the viewer is comes from `me` (the server's reading of the session), never
+ * The signer rows (a slot nobody holds, the QA lead of a movement made before that slot existed, has none). Who the viewer is comes from `me` (the server's reading of the session), never
  * guessed from the permissions. "Your turn" = the viewer holds the slot, has not signed the current
  * checklist and sign-offs are open. `reviewedHash` is the checklist the user can actually see (the loaded
  * checklist's hash): Sign is only enabled when it equals the movement's current hash AND the server
@@ -319,7 +319,7 @@ export function signerRows(
 ): SignerRow[] {
   const { status, hash } = view.movement;
   const signOpen = ALLOWED_STATUSES.sign.includes(status as MovementStatus);
-  return MOVEMENT_SLOT_VALUES.map((slot) => {
+  return MOVEMENT_SLOT_VALUES.filter((slot) => !!view.signers.find((x) => x.slot === slot)?.email).map((slot) => {
     const s = view.signers.find((x) => x.slot === slot);
     const isMe = view.me.slots.includes(slot);
     const signedNow = !!s?.signedCurrent;
@@ -1072,18 +1072,6 @@ export function refreshNeededMessage(code: "inputs_stale" | "refresh_failed", bo
 export function slotFromError(body: ApiErrorBody | null | undefined): MovementSlot | null {
   const s = body?.slot;
   return typeof s === "string" && (MOVEMENT_SLOT_VALUES as readonly string[]).includes(s) ? (s as MovementSlot) : null;
-}
-
-/** Two slots held by the same person (case-insensitive), as a message on EACH offending field, so the form can say it before the server does (400). */
-export function signerConflicts(value: Readonly<Record<MovementSlot, { email: string } | null>>): Partial<Record<MovementSlot, string>> {
-  const out: Partial<Record<MovementSlot, string>> = {};
-  for (const a of MOVEMENT_SLOT_VALUES) {
-    const ea = value[a]?.email.trim().toLowerCase();
-    if (!ea) continue;
-    const other = MOVEMENT_SLOT_VALUES.find((b) => b !== a && value[b]?.email.trim().toLowerCase() === ea);
-    if (other) out[a] = `${SLOT_LABELS[a]} and ${SLOT_LABELS[other]} are the same person; the Deployer, the BA and the Lead must be three different people`;
-  }
-  return out;
 }
 
 /** The create call's failures, in words the user can act on. */
