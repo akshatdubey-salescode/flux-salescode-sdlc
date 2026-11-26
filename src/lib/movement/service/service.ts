@@ -125,12 +125,6 @@ function normalizeSigners(input: unknown, partial: boolean): Partial<Record<Move
   return out;
 }
 
-/** The slots must be held by different people (one person cannot approve their own work several times). A slot nobody holds yet (an older movement's QA lead) is not compared. */
-function assertDistinct(emails: Record<MovementSlot, string>): void {
-  const list = MOVEMENT_SLOT_VALUES.map((s) => normEmail(emails[s])).filter(Boolean);
-  if (new Set(list).size !== list.length) throw new MovementError(400, "The deployer, the BA, the lead and the QA lead must be four different people", "bad_request");
-}
-
 /** Each named person must be a Flux user (users.id is the email): a sign-off needs a login that can match it. */
 async function assertSignersExist(ex: Executor, signers: Partial<Record<MovementSlot, { email: string }>>): Promise<void> {
   const entries = MOVEMENT_SLOT_VALUES.flatMap((slot) => (signers[slot] ? [[slot, signers[slot]!.email] as const] : []));
@@ -162,7 +156,6 @@ export async function createMovement(
   if (!actor.isManager) throw new MovementError(403, "Only delivery managers can create a movement", "forbidden");
   if (!isMovementEnvironment(environment)) throw new MovementError(400, "environment must be demo, uat or prod", "bad_request");
   const signers = normalizeSigners(signersInput, false) as Record<MovementSlot, { email: string; name: string | null }>;
-  assertDistinct(Object.fromEntries(MOVEMENT_SLOT_VALUES.map((s) => [s, signers[s].email])) as Record<MovementSlot, string>);
   await assertSignersExist(db, signers);
 
   const [delivery] = await db
@@ -761,9 +754,7 @@ export async function setSigners(deliveryId: string, movementId: string, input: 
     const head = await loadMovement(tx, deliveryId, movementId, true);
     guard("setSigners", head, actor);
     const { rows } = await loadSlots(tx, movementId);
-    // The slots as they will be: still different people, each a Flux user.
-    const finalEmails = Object.fromEntries(MOVEMENT_SLOT_VALUES.map((sl) => [sl, next[sl]?.email ?? rows.find((r) => r.slot === sl)?.email ?? ""])) as Record<MovementSlot, string>;
-    assertDistinct(finalEmails);
+    // One person may hold several slots (and signs each); every named person must be a Flux user.
     await assertSignersExist(tx, Object.fromEntries(MOVEMENT_SLOT_VALUES.filter((sl) => next[sl] && !sameEmail(rows.find((r) => r.slot === sl)?.email ?? "", next[sl]!.email)).map((sl) => [sl, next[sl]!])));
     const changes: Record<string, { from: string; to: string }> = {};
     for (const slot of MOVEMENT_SLOT_VALUES) {

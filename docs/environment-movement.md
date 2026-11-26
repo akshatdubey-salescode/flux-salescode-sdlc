@@ -7,7 +7,8 @@ to the delivery page when done. Flux **only reads** Jira, GitHub and Confluence 
 ## Using it
 
 1. Open the delivery in the Delivery tab and pick an environment (Demo / UAT / Prod). A delivery manager
-   (ADMIN or the delivery-manager flag) creates the movement and names the deployer, BA, lead and QA lead (four different people; all four must sign).
+   (ADMIN or the delivery-manager flag) creates the movement and names the deployer, BA, lead and QA lead (all four must sign; one person may hold more than one role
+   and then signs each role separately).
    A movement made before the QA lead existed keeps working without one; a delivery manager can add a QA lead
    with Change signers while it is still in draft or ready.
 2. Tick the Jiras that move. A Jira with no `DEPLOYMENT-RECORD` comment is **blocked**; an ADMIN can override it with a

@@ -11,7 +11,7 @@ import { MOVEMENT_SLOT_VALUES, type MovementSlot } from "@/lib/movement/values";
 import type { Checklist, MovementView } from "./api-types";
 import { EMPTY_SIGNERS, SignerFields, signersComplete, type SignerErrors, type SignerPeople } from "./signer-fields";
 import { Chip, GuardedButton, useFocusReturn } from "./ui-bits";
-import { actionState, formatIst, hasStatusStep, openerTestIds, pendingActionReason, signerConflicts, signerRows, statusLabel, type SignerRow, type Tone } from "./view-model";
+import { actionState, formatIst, hasStatusStep, openerTestIds, pendingActionReason, signerRows, statusLabel, type SignerRow, type Tone } from "./view-model";
 
 const STATE_TONE: Record<SignerRow["state"], Tone> = { signed: "ok", waiting: "muted", you: "info", stale: "warn" };
 const STATE_TEXT: Record<SignerRow["state"], string> = { signed: "Signed", waiting: "Waiting", you: "Your turn", stale: "Signed an older checklist" };
@@ -231,8 +231,6 @@ function SignersForm({ view, onClose, onSave, onCloseAutoFocus }: { view: Moveme
   const [error, setError] = useState<string | null>(null);
   const [slotErrors, setSlotErrors] = useState<SignerErrors>({});
   const changed = MOVEMENT_SLOT_VALUES.filter((s) => value[s] && value[s]!.email.toLowerCase() !== (initial[s]?.email ?? "").toLowerCase());
-  // Same person in two slots: the server refuses it; say so on the fields and keep Save off.
-  const conflicts = signerConflicts(value);
   return (
     <DialogContent className="sm:max-w-md" data-testid="movement-signers-dialog" onCloseAutoFocus={onCloseAutoFocus}>
       <DialogHeader>
@@ -246,7 +244,7 @@ function SignersForm({ view, onClose, onSave, onCloseAutoFocus }: { view: Moveme
           setValue(next);
           setSlotErrors({});
         }}
-        errors={{ ...conflicts, ...slotErrors }}
+        errors={slotErrors}
       />
       {error && (
         <p role="alert" className="text-xs text-destructive" data-testid="movement-signers-error">
@@ -258,7 +256,7 @@ function SignersForm({ view, onClose, onSave, onCloseAutoFocus }: { view: Moveme
           Cancel
         </Button>
         <Button
-          disabled={busy || changed.length === 0 || !signersComplete(value) || Object.keys(conflicts).length > 0}
+          disabled={busy || changed.length === 0 || !signersComplete(value)}
           data-testid="movement-signers-save"
           onClick={async () => {
             setBusy(true);

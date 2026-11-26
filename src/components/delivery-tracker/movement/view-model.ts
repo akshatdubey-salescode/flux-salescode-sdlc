@@ -1074,18 +1074,6 @@ export function slotFromError(body: ApiErrorBody | null | undefined): MovementSl
   return typeof s === "string" && (MOVEMENT_SLOT_VALUES as readonly string[]).includes(s) ? (s as MovementSlot) : null;
 }
 
-/** Two slots held by the same person (case-insensitive), as a message on EACH offending field, so the form can say it before the server does (400). */
-export function signerConflicts(value: Readonly<Record<MovementSlot, { email: string } | null>>): Partial<Record<MovementSlot, string>> {
-  const out: Partial<Record<MovementSlot, string>> = {};
-  for (const a of MOVEMENT_SLOT_VALUES) {
-    const ea = value[a]?.email.trim().toLowerCase();
-    if (!ea) continue;
-    const other = MOVEMENT_SLOT_VALUES.find((b) => b !== a && value[b]?.email.trim().toLowerCase() === ea);
-    if (other) out[a] = `${SLOT_LABELS[a]} and ${SLOT_LABELS[other]} are the same person; the Deployer, the BA, the Lead and the QA Lead must be four different people`;
-  }
-  return out;
-}
-
 /** The create call's failures, in words the user can act on. */
 export function describeCreateError(status: number, body: ApiErrorBody | null | undefined, fallback: string): string {
   const base = describeApiError(status, body, fallback);

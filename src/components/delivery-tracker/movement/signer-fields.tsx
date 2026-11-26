@@ -19,7 +19,7 @@ export const EMPTY_SIGNERS: SignerPeople = { deployer: null, ba: null, lead: nul
 /** A server refusal pinned to the field it is about (400 "The BA (x@y.com) is not a Flux user" names the slot). */
 export type SignerErrors = Partial<Record<MovementSlot, string>>;
 
-/** The four signers, one person each (a search over Flux users). All are required, distinct, and existing Flux users. */
+/** The four signers, one person each (a search over Flux users). All are required and must be existing Flux users; one person may hold several slots and signs each. */
 export function SignerFields({ deliveryId, value, onChange, errors }: { deliveryId: string; value: SignerPeople; onChange: (next: SignerPeople) => void; errors?: SignerErrors }) {
   return (
     <div className="space-y-2" data-testid="movement-signer-fields">

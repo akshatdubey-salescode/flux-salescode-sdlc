@@ -191,8 +191,8 @@ suite("movement service (dev DB, fake Jira / GitHub)", () => {
     await rejects(() => M.createMovement(deliveryId, "prod", SIGNERS, actor(E2), deps), 403); // not a manager
     await rejects(() => M.createMovement(deliveryId, "staging", SIGNERS, admin, deps), 400);
     await rejects(() => M.createMovement(deliveryId, "prod", { ...SIGNERS, lead: { email: "not-an-email" } }, admin, deps), 400);
-    // S10: three DIFFERENT people, each a Flux user, and the 400 names the slot
-    await rejects(() => M.createMovement(deliveryId, "prod", { ...SIGNERS, lead: { email: E1.toUpperCase() } }, admin, deps), 400);
+    // S10: all four slots named, each a Flux user, and the 400 names the slot (one person may hold several slots: that is not refused)
+    await rejects(() => M.createMovement(deliveryId, "prod", { deployer: SIGNERS.deployer, ba: SIGNERS.ba, lead: SIGNERS.lead }, admin, deps), 400); // no QA lead
     await assert.rejects(
       () => M.createMovement(deliveryId, "prod", { ...SIGNERS, ba: { email: `nobody-${TAG.toLowerCase()}@example.invalid` } }, admin, deps),
       (e: unknown) => (e as { status?: number; message?: string }).status === 400 && /BA/.test((e as { message: string }).message)
@@ -578,11 +578,18 @@ suite("movement service (dev DB, fake Jira / GitHub)", () => {
     const h = (await M.getMovementView(d2, mid, admin)).movement.hash;
     await M.signMovement(d2, mid, "ba", h, ba);
     const calls0 = calls.filter((c) => c.kind === "assigned").length;
-    await rejects(() => M.setSigners(d2, mid, { ba: { email: E1 } }, manager), 400); // would be the deployer too
+    // one person may hold two slots (here the deployer is also the BA); the other signers keep their sign-off
+    assert.equal((await M.setSigners(d2, mid, { ba: { email: E1 } }, manager)).changed, true);
+    assert.deepEqual((await M.getMovementView(d2, mid, deployer)).me.slots, ["deployer", "ba"], "E1 now holds two slots");
+    const calls1 = calls.filter((c) => c.kind === "assigned").length;
+    assert.equal(calls1, calls0 + 1);
+    // E1 signs one of its slots; the other is still open for E1
+    await M.signMovement(d2, mid, "ba", h, deployer);
+    assert.deepEqual((await M.getMovementView(d2, mid, deployer)).permissions.sign, ["deployer"]);
     await rejects(() => M.setSigners(d2, mid, { ba: { email: `ghost-${TAG.toLowerCase()}@example.invalid` } }, manager), 400);
     const ch = await M.setSigners(d2, mid, { ba: { email: E4, name: "New BA" } }, manager);
     assert.equal(ch.changed, true);
-    assert.equal(calls.filter((c) => c.kind === "assigned").length, calls0 + 1);
+    assert.equal(calls.filter((c) => c.kind === "assigned").length, calls1 + 1);
     const v = await M.getMovementView(d2, mid, admin);
     assert.deepEqual(v.signers.map((s) => [s.slot, s.email, s.signed]), [["deployer", E1, false], ["ba", E4, false], ["lead", E3, false], ["qa_lead", E5, false]]);
     // the person who was the BA can no longer sign that slot
@@ -836,7 +843,6 @@ suite("movement service (dev DB, fake Jira / GitHub)", () => {
     // This movement has only the three first slots (made before the QA lead existed): it has no QA lead row, and naming one adds the slot.
     const before = await M.getMovementView(d, mv.id, admin);
     assert.deepEqual(before.signers.find((s) => s.slot === "qa_lead")?.email, "");
-    await rejects(() => M.setSigners(d, mv.id, { qa_lead: { email: E1 } }, manager), 400); // not the deployer too
     await rejects(() => M.setSigners(d, mv.id, { qa_lead: { email: `ghost-${TAG.toLowerCase()}@example.invalid` } }, manager), 400);
     assert.equal((await M.setSigners(d, mv.id, { qa_lead: { email: E5, name: "QA Lead" } }, manager)).changed, true);
     const after = await M.getMovementView(d, mv.id, admin);

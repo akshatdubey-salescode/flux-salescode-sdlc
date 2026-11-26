@@ -11,7 +11,7 @@ import { api, movementsBase } from "./api";
 import type { MovementListItem, RefreshResult } from "./api-types";
 import { EMPTY_SIGNERS, SignerFields, signersComplete, type SignerErrors, type SignerPeople } from "./signer-fields";
 import { useNow } from "./ui-bits";
-import { createDialogUi, describeCreateError, ENV_OPTIONS, envLabel, signerConflicts, slotFromError, type ApiErrorBody } from "./view-model";
+import { createDialogUi, describeCreateError, ENV_OPTIONS, envLabel, slotFromError, type ApiErrorBody } from "./view-model";
 
 /** Server maxDuration is 300 s; past this we stop waiting and look the movement up instead. */
 const CREATE_TIMEOUT_MS = 290_000;
@@ -63,10 +63,7 @@ function CreateForm({ deliveryId, deliveryName, itemCount, environment, onOpenCh
   const [opening, setOpening] = useState(false);
   const now = useNow(busy);
   const elapsed = busy ? Math.max(0, Math.round((now - startedAt) / 1000)) : 0;
-  // Two slots holding the same person is refused by the server (400); say it on the fields before asking.
-  const conflicts = signerConflicts(signers);
-  const distinct = Object.keys(conflicts).length === 0;
-  const ready = signersComplete(signers) && distinct;
+  const ready = signersComplete(signers);
   const ui = createDialogUi(busy, opening);
 
   async function findLive(target: MovementEnvironment): Promise<MovementListItem | null> {
@@ -154,7 +151,7 @@ function CreateForm({ deliveryId, deliveryName, itemCount, environment, onOpenCh
               setSigners(next);
               setSlotErrors({});
             }}
-            errors={{ ...conflicts, ...slotErrors }}
+            errors={slotErrors}
           />
         </div>
       </div>

@@ -31,7 +31,6 @@ import {
   fitDonePayload,
   mergeFirstPage,
   SESSION_EXPIRED,
-  signerConflicts,
   BRANCH_NAME_RE,
   BRANCH_QUERY_RE,
   branchHints,
@@ -125,7 +124,7 @@ const perms = (o: Partial<Record<string, unknown>> = {}) =>
   ({ edit: false, refresh: false, setSigners: false, cancel: false, override: false, revoke: false, start: false, done: false, confirm: false, sign: [] as string[], ...o }) as never;
 const me = (o: Partial<{ email: string; name: string | null; slots: string[]; isManager: boolean; isAdmin: boolean }> = {}) => ({ email: "me@x.com", name: "Me", slots: [] as string[], isManager: false, isAdmin: false, ...o }) as never;
 const signers = (signed: boolean[]) =>
-  (["deployer", "ba", "lead"] as const).map((slot, i) => ({ slot, email: `${slot}@x.com`, name: slot, signedAt: signed[i] ? "2026-11-19T05:00:00Z" : null, signed: signed[i], signedCurrent: signed[i] }));
+  (["deployer", "ba", "lead", "qa_lead"] as const).slice(0, Math.max(3, signed.length)).map((slot, i) => ({ slot, email: `${slot}@x.com`, name: slot, signedAt: signed[i] ? "2026-11-19T05:00:00Z" : null, signed: signed[i], signedCurrent: signed[i] }));
 
 describe("labels", () => {
   it("labels statuses and falls back to humanized text", () => {
@@ -276,6 +275,18 @@ describe("signer rows", () => {
     me: me({ slots: mine }),
     needsRefresh: o.needsRefresh ?? false,
     refreshError: o.refreshError ?? null,
+  });
+  it("the QA lead is a fourth row; a movement made before it existed has three (the unassigned slot has no row and is not waited for)", () => {
+    assert.deepEqual(signerRows(view("ready", [], [false, false, false, false]), "h1").map((r) => r.label), ["Deployer", "BA", "Lead", "QA Lead"]);
+    assert.deepEqual(signerRows(view("ready", [], [false, false, false]), "h1").map((r) => r.label), ["Deployer", "BA", "Lead"]);
+    const older = { ...view("ready", [], [true, true, true]), signers: [...signers([true, true, true]), { slot: "qa_lead" as const, email: "", name: null, signedAt: null, signed: false, signedCurrent: false }] };
+    assert.deepEqual(signerRows(older, "h1").map((r) => r.slot), ["deployer", "ba", "lead"]);
+  });
+  it("one person may hold several slots: each of their slots has its own Sign button", () => {
+    const rows = signerRows(view("ready", ["deployer", "qa_lead"], [false, false, false, false]), "h1");
+    assert.deepEqual(rows.map((r) => [r.slot, r.state, r.canSign]), [["deployer", "you", true], ["ba", "waiting", false], ["lead", "waiting", false], ["qa_lead", "you", true]]);
+    const half = signerRows(view("ready", ["deployer", "qa_lead"], [true, false, false, false]), "h1");
+    assert.deepEqual(half.filter((r) => r.isMe).map((r) => [r.slot, r.state]), [["deployer", "signed"], ["qa_lead", "you"]], "signing one slot leaves the other for them to sign");
   });
   it("marks signed / your turn / waiting and enables only the viewer's own slot", () => {
     const rows = signerRows(view("ready", ["ba"], [true, false, false]), "h1");
@@ -876,20 +887,6 @@ describe("the /done body stays under the server's 64 KB", () => {
     assert.equal(fit.trimmed, false);
     assert.equal(fit.payload.results[0].comment, "held back, waiting for the DBA");
     assert.deepEqual(buildDonePayload(rows(10, "x"), ""), fitDonePayload(rows(10, "x"), "").payload);
-  });
-});
-
-describe("signers: the same person twice", () => {
-  const p = (email: string) => ({ email, name: email });
-  it("says so on each offending field, ignoring case and spaces; nothing when all differ or unset", () => {
-    const c = signerConflicts({ deployer: p("A@x.com"), ba: p(" a@x.com "), lead: p("l@x.com"), qa_lead: p("q@x.com") });
-    assert.deepEqual(Object.keys(c).sort(), ["ba", "deployer"]);
-    assert.match(c.deployer ?? "", /^Deployer and BA are the same person; the Deployer, the BA, the Lead and the QA Lead must be four different people$/);
-    assert.match(c.ba ?? "", /^BA and Deployer are the same person/);
-    assert.match(signerConflicts({ deployer: p("a@x.com"), ba: p("b@x.com"), lead: p("A@x.com"), qa_lead: null }).lead ?? "", /^Lead and Deployer are the same person/);
-    assert.deepEqual(signerConflicts({ deployer: p("a@x.com"), ba: p("b@x.com"), lead: p("c@x.com"), qa_lead: p("d@x.com") }), {});
-    assert.match(signerConflicts({ deployer: p("a@x.com"), ba: p("b@x.com"), lead: p("c@x.com"), qa_lead: p("C@x.com") }).qa_lead ?? "", /^QA Lead and Lead are the same person/);
-    assert.deepEqual(signerConflicts({ deployer: null, ba: null, lead: p("c@x.com"), qa_lead: null }), {});
   });
 });
 
