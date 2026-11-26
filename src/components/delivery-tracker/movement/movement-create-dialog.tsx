@@ -6,7 +6,7 @@ import { RiLoader4Line } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import type { MovementEnvironment } from "@/lib/movement/values";
+import { MOVEMENT_SLOT_VALUES, type MovementEnvironment } from "@/lib/movement/values";
 import { api, movementsBase } from "./api";
 import type { MovementListItem, RefreshResult } from "./api-types";
 import { EMPTY_SIGNERS, SignerFields, signersComplete, type SignerErrors, type SignerPeople } from "./signer-fields";
@@ -17,7 +17,7 @@ import { createDialogUi, describeCreateError, ENV_OPTIONS, envLabel, signerConfl
 const CREATE_TIMEOUT_MS = 290_000;
 
 /**
- * Start a movement: environment + the three signers, then the create call, which also runs the
+ * Start a movement: environment + the four signers, then the create call, which also runs the
  * first refresh (reads the Jira comments: it can take a minute or more for a big delivery). The
  * dialog cannot be closed while that runs; a timeout or a 409 "already exists" is resolved by
  * looking the live movement up, never by blindly creating a second one.
@@ -80,7 +80,7 @@ function CreateForm({ deliveryId, deliveryName, itemCount, environment, onOpenCh
     setError(null);
     setSlotErrors({});
     setStartedAt(Date.now());
-    const body = { environment: env, signers: Object.fromEntries((["deployer", "ba", "lead"] as const).map((s) => [s, { email: signers[s]!.email, name: signers[s]!.name }])) };
+    const body = { environment: env, signers: Object.fromEntries(MOVEMENT_SLOT_VALUES.map((s) => [s, { email: signers[s]!.email, name: signers[s]!.name }])) };
     const r = await api<{ movementId: string; refresh: RefreshResult }>(movementsBase(deliveryId), { method: "POST", body, timeoutMs: CREATE_TIMEOUT_MS, fallbackError: "Could not create the movement" });
     if (r.ok && r.data) {
       setOpening(true); // stays busy: the tab navigates to the movement's page

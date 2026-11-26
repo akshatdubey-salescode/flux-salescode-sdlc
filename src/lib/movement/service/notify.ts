@@ -26,7 +26,7 @@ export interface MovementNotifier {
   notifyReset(
     p: NotifyBase & { hash: string; signers: string[]; changedAfterStart: boolean; counts: { added: number; removed: number; changed: number } }
   ): Promise<void> | void;
-  /** All three slots signed: tell the deployer. */
+  /** Every slot signed: tell the deployer. */
   notifyReadyToDeploy(p: NotifyBase & { deployerEmail: string; hash: string }): Promise<void> | void;
   /** The deployment was marked done. */
   notifyDone(p: NotifyBase & { recipients: string[]; moved: number; held: number }): Promise<void> | void;

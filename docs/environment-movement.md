@@ -1,13 +1,15 @@
 # Environment movement (Delivery tab)
 
 A delivery can be moved to an environment (demo, uat or prod) with one **movement**: one checklist built from
-the `DEPLOYMENT-RECORD` comments on the delivery's Jiras, three sign-offs (deployer, BA, lead), and a hand-back
+the `DEPLOYMENT-RECORD` comments on the delivery's Jiras, four sign-offs (deployer, BA, lead, QA lead), and a hand-back
 to the delivery page when done. Flux **only reads** Jira, GitHub and Confluence for this; it never writes to them.
 
 ## Using it
 
 1. Open the delivery in the Delivery tab and pick an environment (Demo / UAT / Prod). A delivery manager
-   (ADMIN or the delivery-manager flag) creates the movement and names the deployer, BA and lead.
+   (ADMIN or the delivery-manager flag) creates the movement and names the deployer, BA, lead and QA lead (four different people; all four must sign).
+   A movement made before the QA lead existed keeps working without one; a delivery manager can add a QA lead
+   with Change signers while it is still in draft or ready.
 2. Tick the Jiras that move. A Jira with no `DEPLOYMENT-RECORD` comment is **blocked**; an ADMIN can override it with a
    reason. Jiras added to the delivery later show a "delivery changed" notice and come in on Refresh.
 3. Search and save the branch per repo (searched live from GitHub), read the Summary and per-Jira cards (every
@@ -22,7 +24,7 @@ structure is still shown as the original text.
 
 | Step | What |
 |---|---|
-| Database | Migration `0102_delivery_movements` (additive: 7 new `delivery_movement*` tables, no change to existing tables). `scripts/build.sh` applies it on a **Vercel production** build; Preview builds do not migrate, so the movement pages fail on a Preview until the database has them. |
+| Database | Migration `0102_delivery_movements` (additive: 7 new `delivery_movement*` tables, no change to existing tables) and `0105_movement_qa_lead_slot` (adds the value `qa_lead` to the `movement_slot` enum). `scripts/build.sh` applies it on a **Vercel production** build; Preview builds do not migrate, so the movement pages fail on a Preview until the database has them. |
 | Env vars (existing) | `DATABASE_URL`, `CRON_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `NEXT_PUBLIC_APP_URL`. Jira and GitHub access reuse the project's Jira connection and the active GitHub org tokens already stored in Flux. |
 | Env vars (optional) | `MINIMAX_API_KEY` (+ `MINIMAX_MODEL`, `MINIMAX_BASE_URL`, `MINIMAX_EFFORT`) turns on the "AI summary" button. Without a key the button is off and the rule-based Summary still works. `MOVEMENT_EMAILS_LIVE=1` is only for a self-hosted production build (Vercel production mails real people by itself). |
 | Scheduler | Vercel Cron calls `/api/cron/movements` every 30 minutes (`vercel.json`, needs the Vercel **Pro** plan; see `docs/scheduled-processes.md`, "Movement check"). Nothing to set up beyond `CRON_SECRET`. Without the cron the feature still works; changed records are then noticed only when someone opens the movement or presses Refresh. |

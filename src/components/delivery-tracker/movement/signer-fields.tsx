@@ -11,14 +11,15 @@ const HELP: Record<MovementSlot, string> = {
   deployer: "Moves it, starts the deployment and marks it done",
   ba: "Confirms the scope and the checklist",
   lead: "Confirms the risks and the order",
+  qa_lead: "Confirms the testing is done and the test evidence",
 };
 
-export const EMPTY_SIGNERS: SignerPeople = { deployer: null, ba: null, lead: null };
+export const EMPTY_SIGNERS: SignerPeople = { deployer: null, ba: null, lead: null, qa_lead: null };
 
-/** A server refusal pinned to the field it is about (400 "The ba (x@y.com) is not a Flux user" names the slot). */
+/** A server refusal pinned to the field it is about (400 "The BA (x@y.com) is not a Flux user" names the slot). */
 export type SignerErrors = Partial<Record<MovementSlot, string>>;
 
-/** The three signers, one person each (a search over Flux users). All three are required, distinct, and existing Flux users. */
+/** The four signers, one person each (a search over Flux users). All are required, distinct, and existing Flux users. */
 export function SignerFields({ deliveryId, value, onChange, errors }: { deliveryId: string; value: SignerPeople; onChange: (next: SignerPeople) => void; errors?: SignerErrors }) {
   return (
     <div className="space-y-2" data-testid="movement-signer-fields">

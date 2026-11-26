@@ -12,9 +12,15 @@ export const MOVEMENT_STATUS_VALUES = [
 ] as const;
 export type MovementStatus = (typeof MOVEMENT_STATUS_VALUES)[number];
 
-/** The three sign-off slots: the person who deploys, the BA, and the lead. */
-export const MOVEMENT_SLOT_VALUES = ["deployer", "ba", "lead"] as const;
+/**
+ * The four sign-off slots: the person who deploys, the BA, the lead and the QA lead. `qa_lead` was added after the first three: a
+ * movement created before it has no `qa_lead` row, and that missing slot is simply not required (see `allSignedAt`).
+ */
+export const MOVEMENT_SLOT_VALUES = ["deployer", "ba", "lead", "qa_lead"] as const;
 export type MovementSlot = (typeof MOVEMENT_SLOT_VALUES)[number];
+
+/** A slot in plain words, for messages and mail ("The QA lead (x@y.com) is not a Flux user"). */
+export const MOVEMENT_SLOT_WORDS: Record<MovementSlot, string> = { deployer: "deployer", ba: "BA", lead: "lead", qa_lead: "QA lead" };
 
 export const MOVEMENT_READINESS_VALUES = ["ready", "blocked", "override"] as const;
 export type MovementReadiness = (typeof MOVEMENT_READINESS_VALUES)[number];

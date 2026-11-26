@@ -729,6 +729,13 @@
       "when": 1795590091301,
       "tag": "0104_busy_ogun",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1795712404969,
+      "tag": "0105_movement_qa_lead_slot",
+      "breakpoints": true
     }
   ]
 }

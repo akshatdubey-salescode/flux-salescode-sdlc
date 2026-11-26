@@ -7,9 +7,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import type { MovementSlot } from "@/lib/movement/values";
+import { MOVEMENT_SLOT_VALUES, type MovementSlot } from "@/lib/movement/values";
 import type { Checklist, MovementView } from "./api-types";
-import { SignerFields, signersComplete, type SignerErrors, type SignerPeople } from "./signer-fields";
+import { EMPTY_SIGNERS, SignerFields, signersComplete, type SignerErrors, type SignerPeople } from "./signer-fields";
 import { Chip, GuardedButton, useFocusReturn } from "./ui-bits";
 import { actionState, formatIst, hasStatusStep, openerTestIds, pendingActionReason, signerConflicts, signerRows, statusLabel, type SignerRow, type Tone } from "./view-model";
 
@@ -34,7 +34,7 @@ export interface SignoffBarProps {
   onChangeSigners: (next: Partial<Record<MovementSlot, { email: string; name: string }>>) => Promise<SignerSaveError | null>;
 }
 
-/** The three signers with their state, each signer's own Sign button, and Start / Mark done / Confirm / Cancel. */
+/** The signers with their state, each signer's own Sign button, and Start / Mark done / Confirm / Cancel. */
 export function SignoffBar({ view, checklist, busy, onSign, onStart, onOpenDone, onOpenConfirm, onCancel, onChangeSigners }: SignoffBarProps) {
   const rows = useMemo(() => signerRows(view, checklist?.hash ?? null), [view, checklist]);
   const status = view.movement.status;
@@ -45,7 +45,7 @@ export function SignoffBar({ view, checklist, busy, onSign, onStart, onOpenDone,
   const setSigners = actionState("setSigners", view);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [signersOpen, setSignersOpen] = useState(false);
-  // Under 640 px the three signer cards fold into one summary row (a third of a phone's height otherwise); the viewer's own Sign stays in it.
+  // Under 640 px the signer cards fold into one summary row (a big part of a phone's height otherwise); the viewer's own Sign stays in it.
   const [expanded, setExpanded] = useState(false);
   const focus = useFocusReturn();
   const signedCount = rows.filter((r) => r.state === "signed").length;
@@ -221,22 +221,23 @@ function CancelForm({ status, onClose, onCancel, onCloseAutoFocus }: { status: s
 
 function SignersForm({ view, onClose, onSave, onCloseAutoFocus }: { view: MovementView; onClose: () => void; onSave: SignoffBarProps["onChangeSigners"]; onCloseAutoFocus: (e: Event) => void }) {
   const initial = useMemo<SignerPeople>(() => {
-    const out: SignerPeople = { deployer: null, ba: null, lead: null };
-    for (const s of view.signers) out[s.slot] = { email: s.email, name: s.name ?? s.email };
+    const out: SignerPeople = { ...EMPTY_SIGNERS };
+    // a slot nobody holds (the QA lead of a movement made before that slot existed) starts empty
+    for (const s of view.signers) out[s.slot] = s.email ? { email: s.email, name: s.name ?? s.email } : null;
     return out;
   }, [view.signers]);
   const [value, setValue] = useState<SignerPeople>(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [slotErrors, setSlotErrors] = useState<SignerErrors>({});
-  const changed = (["deployer", "ba", "lead"] as const).filter((s) => value[s] && value[s]!.email.toLowerCase() !== initial[s]!.email.toLowerCase());
+  const changed = MOVEMENT_SLOT_VALUES.filter((s) => value[s] && value[s]!.email.toLowerCase() !== (initial[s]?.email ?? "").toLowerCase());
   // Same person in two slots: the server refuses it; say so on the fields and keep Save off.
   const conflicts = signerConflicts(value);
   return (
     <DialogContent className="sm:max-w-md" data-testid="movement-signers-dialog" onCloseAutoFocus={onCloseAutoFocus}>
       <DialogHeader>
         <DialogTitle>Change signers</DialogTitle>
-        <DialogDescription>A changed slot loses its sign-off and the new person is told. Possible until all three have signed.</DialogDescription>
+        <DialogDescription>A changed slot loses its sign-off and the new person is told. Possible until everyone has signed.</DialogDescription>
       </DialogHeader>
       <SignerFields
         deliveryId={view.delivery.id}

@@ -12,6 +12,7 @@ import {
   onHashChange,
   permissionsFor,
   signableSlots,
+  slotsOf,
   statusAfterSign,
   type ActorInfo,
   type MovementAction,
@@ -20,10 +21,11 @@ import {
 
 const H1 = "a".repeat(64);
 const H2 = "b".repeat(64);
-const slots = (h: [string | null, string | null, string | null] = [null, null, null]): Slots => ({
+const slots = (h: [string | null, string | null, string | null, string | null] = [null, null, null, null]): Slots => ({
   deployer: { email: "Dep@x.com", signedHash: h[0] },
   ba: { email: "ba@x.com", signedHash: h[1] },
   lead: { email: "lead@x.com", signedHash: h[2] },
+  qa_lead: { email: "qa@x.com", signedHash: h[3] },
 });
 const manager: ActorInfo = { email: "mgr@x.com", isManager: true, isAdmin: false };
 const admin: ActorInfo = { email: "admin@x.com", isManager: true, isAdmin: true };
@@ -96,7 +98,7 @@ describe("state machine: who can do what", () => {
   });
 
   it("permissionsFor reports the same answers the guards give", () => {
-    const p = permissionsFor("signed_off", deployer, slots([H1, H1, H1]), H1);
+    const p = permissionsFor("signed_off", deployer, slots([H1, H1, H1, H1]), H1);
     assert.deepEqual([p.start, p.edit, p.override, p.cancel], [true, false, false, false]);
     assert.deepEqual(p.sign, []); // already signed at the current hash
     assert.deepEqual(permissionsFor("ready", deployer, slots(), H1).sign, ["deployer"]);
@@ -121,15 +123,15 @@ describe("state machine: sign-offs are for ONE hash", () => {
   });
 
   it("signed_off needs all three slots at the CURRENT hash; start re-checks it", () => {
-    assert.equal(statusAfterSign(slots([H1, H1, null]), H1), "ready");
-    assert.equal(statusAfterSign(slots([H1, H1, H1]), H1), "signed_off");
-    assert.equal(statusAfterSign(slots([H1, H2, H1]), H1), "ready", "a sign-off of another hash does not count");
-    assert.equal(allSignedAt(slots([H1, H1, H1]), null), false);
-    assert.equal(checkStartable({ slots: slots([H1, H1, H1]), currentHash: H1, includedCount: 1 }).ok, true);
-    assert.equal(checkStartable({ slots: slots([H1, H1, H1]), currentHash: H2, includedCount: 1 }).ok, false);
-    assert.equal(checkStartable({ slots: slots([H1, H1, H1]), currentHash: H1, includedCount: 0 }).ok, false);
-    assert.deepEqual(signableSlots("ready", slots([H1, null, null]), "dep@x.com", H1), [], "signed at the current hash: nothing left to sign");
-    assert.deepEqual(signableSlots("ready", slots([H2, null, null]), "dep@x.com", H1), ["deployer"], "signed an older hash: can sign again");
+    assert.equal(statusAfterSign(slots([H1, H1, null, null]), H1), "ready");
+    assert.equal(statusAfterSign(slots([H1, H1, H1, H1]), H1), "signed_off");
+    assert.equal(statusAfterSign(slots([H1, H2, H1, H1]), H1), "ready", "a sign-off of another hash does not count");
+    assert.equal(allSignedAt(slots([H1, H1, H1, H1]), null), false);
+    assert.equal(checkStartable({ slots: slots([H1, H1, H1, H1]), currentHash: H1, includedCount: 1 }).ok, true);
+    assert.equal(checkStartable({ slots: slots([H1, H1, H1, H1]), currentHash: H2, includedCount: 1 }).ok, false);
+    assert.equal(checkStartable({ slots: slots([H1, H1, H1, H1]), currentHash: H1, includedCount: 0 }).ok, false);
+    assert.deepEqual(signableSlots("ready", slots([H1, null, null, null]), "dep@x.com", H1), [], "signed at the current hash: nothing left to sign");
+    assert.deepEqual(signableSlots("ready", slots([H2, null, null, null]), "dep@x.com", H1), ["deployer"], "signed an older hash: can sign again");
   });
 });
 
@@ -156,5 +158,25 @@ describe("state machine: a change of the checklist hash", () => {
     for (const st of ["done", "cancelled"] as const) {
       assert.deepEqual(onHashChange({ status: st, prevHash: H1, nextHash: H2, signedCount: 3 }), { status: st, clearSignoffs: false, event: null, notify: null });
     }
+  });
+});
+
+describe("the QA lead slot", () => {
+  it("is a fourth sign-off: start and signed_off wait for it", () => {
+    assert.equal(allSignedAt(slots([H1, H1, H1, null]), H1), false);
+    assert.equal(statusAfterSign(slots([H1, H1, H1, null]), H1), "ready");
+    assert.equal(statusAfterSign(slots([H1, H1, H1, H1]), H1), "signed_off");
+    assert.equal(checkStartable({ slots: slots([H1, H1, H1, null]), currentHash: H1, includedCount: 1 }).ok, false);
+  });
+  it("the QA lead can sign as qa_lead and holds only that slot", () => {
+    assert.deepEqual(slotsOf(slots(), "QA@x.com"), ["qa_lead"]);
+    assert.deepEqual(signableSlots("ready", slots(), "qa@x.com", H1), ["qa_lead"]);
+  });
+  it("a movement made before the slot existed (no QA lead row) is not held up for it", () => {
+    const legacy = slots([H1, H1, H1, null]);
+    legacy.qa_lead = { email: "", signedHash: null };
+    assert.equal(allSignedAt(legacy, H1), true);
+    assert.equal(statusAfterSign(legacy, H1), "signed_off");
+    assert.equal(checkStartable({ slots: legacy, currentHash: H1, includedCount: 1 }).ok, true);
   });
 });

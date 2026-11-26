@@ -2,7 +2,7 @@
  * The movement state machine. PURE: no I/O, no clock. The DB layer (service.ts / refresh.ts) asks
  * these functions what is allowed and what a change of the checklist hash does, then writes it.
  *
- *   draft -> ready (first successful refresh) -> signed_off (all 3 slots signed at the CURRENT
+ *   draft -> ready (first successful refresh) -> signed_off (every assigned slot signed at the CURRENT
  *   hash) -> in_progress (the deployer starts) -> done;  cancelled from any non-done state.
  *
  * Who may act:
@@ -153,9 +153,12 @@ function labelOf(a: MovementAction): string {
   }
 }
 
-/** Every slot signed the given hash. */
+/**
+ * Every assigned slot signed the given hash. A slot nobody holds (a movement made before the QA lead slot existed has no `qa_lead` row) is not
+ * waited for: a movement already under way is not held up for a person it never had.
+ */
 export function allSignedAt(slots: Slots, hash: string | null): boolean {
-  return hash !== null && MOVEMENT_SLOT_VALUES.every((s) => slots[s].signedHash === hash);
+  return hash !== null && MOVEMENT_SLOT_VALUES.every((s) => !slots[s].email || slots[s].signedHash === hash);
 }
 
 /**
@@ -171,11 +174,11 @@ export function checkSignable(input: { currentHash: string | null; signingHash: 
   return OK;
 }
 
-/** Start needs the three sign-offs at the hash that is current right now. */
+/** Start needs every sign-off at the hash that is current right now. */
 export function checkStartable(input: { slots: Slots; currentHash: string | null; includedCount: number }): Decision {
   if (input.includedCount < 1) return deny("conflict", "No Jira is selected for this movement");
   if (!allSignedAt(input.slots, input.currentHash)) {
-    return deny("conflict", "All three sign-offs must be on the current checklist", { currentHash: input.currentHash });
+    return deny("conflict", "All sign-offs must be on the current checklist", { currentHash: input.currentHash });
   }
   return OK;
 }

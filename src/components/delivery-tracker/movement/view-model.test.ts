@@ -882,13 +882,14 @@ describe("the /done body stays under the server's 64 KB", () => {
 describe("signers: the same person twice", () => {
   const p = (email: string) => ({ email, name: email });
   it("says so on each offending field, ignoring case and spaces; nothing when all differ or unset", () => {
-    const c = signerConflicts({ deployer: p("A@x.com"), ba: p(" a@x.com "), lead: p("l@x.com") });
+    const c = signerConflicts({ deployer: p("A@x.com"), ba: p(" a@x.com "), lead: p("l@x.com"), qa_lead: p("q@x.com") });
     assert.deepEqual(Object.keys(c).sort(), ["ba", "deployer"]);
-    assert.match(c.deployer ?? "", /^Deployer and BA are the same person; the Deployer, the BA and the Lead must be three different people$/);
+    assert.match(c.deployer ?? "", /^Deployer and BA are the same person; the Deployer, the BA, the Lead and the QA Lead must be four different people$/);
     assert.match(c.ba ?? "", /^BA and Deployer are the same person/);
-    assert.match(signerConflicts({ deployer: p("a@x.com"), ba: p("b@x.com"), lead: p("A@x.com") }).lead ?? "", /^Lead and Deployer are the same person/);
-    assert.deepEqual(signerConflicts({ deployer: p("a@x.com"), ba: p("b@x.com"), lead: p("c@x.com") }), {});
-    assert.deepEqual(signerConflicts({ deployer: null, ba: null, lead: p("c@x.com") }), {});
+    assert.match(signerConflicts({ deployer: p("a@x.com"), ba: p("b@x.com"), lead: p("A@x.com"), qa_lead: null }).lead ?? "", /^Lead and Deployer are the same person/);
+    assert.deepEqual(signerConflicts({ deployer: p("a@x.com"), ba: p("b@x.com"), lead: p("c@x.com"), qa_lead: p("d@x.com") }), {});
+    assert.match(signerConflicts({ deployer: p("a@x.com"), ba: p("b@x.com"), lead: p("c@x.com"), qa_lead: p("C@x.com") }).qa_lead ?? "", /^QA Lead and Lead are the same person/);
+    assert.deepEqual(signerConflicts({ deployer: null, ba: null, lead: p("c@x.com"), qa_lead: null }), {});
   });
 });
 

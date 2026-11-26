@@ -23,13 +23,15 @@ const TAG = `MVTEST-${randomUUID().slice(0, 8)}`;
 const E1 = "dev+tctest@salescode.ai";
 const E2 = "dev+tctest2@salescode.ai";
 const E3 = `${TAG.toLowerCase()}-lead@example.invalid`; // `.invalid` can never be mailed
+const E5 = `${TAG.toLowerCase()}-qa@example.invalid`;
 const actor = (email: string, flags: Partial<Pick<MovementActor, "isManager" | "isAdmin">> = {}): MovementActor => ({ id: email, email, name: email.split("@")[0], isManager: false, isAdmin: false, ...flags });
 const admin = actor(E1, { isManager: true, isAdmin: true });
 const manager = actor(E2, { isManager: true }); // a delivery manager who is not an admin
 const deployer = actor(E1);
 const ba = actor(E2);
 const lead = actor(E3);
-const SIGNERS = { deployer: { email: E1 }, ba: { email: E2 }, lead: { email: E3 } };
+const qaLead = actor(E5);
+const SIGNERS = { deployer: { email: E1 }, ba: { email: E2 }, lead: { email: E3 }, qa_lead: { email: E5 } };
 
 const caches = () => ({
   recordCache: new ByteLru<string, ParsedRecord>({ maxBytes: 64_000_000, weigh: approxBytes }),
@@ -87,6 +89,7 @@ suite("per-Jira checklist, comment edits, summary (dev DB, fake Jira, fake LLM)"
     await M.signMovement(d, mid, "deployer", h, deployer);
     await M.signMovement(d, mid, "ba", h, ba);
     await M.signMovement(d, mid, "lead", h, lead);
+    await M.signMovement(d, mid, "qa_lead", h, qaLead);
     return h;
   }
 
@@ -105,7 +108,7 @@ suite("per-Jira checklist, comment edits, summary (dev DB, fake Jira, fake LLM)"
       if (stmts) stmts.push(typeof a[0] === "string" ? a[0] : ((a[0] as { text?: string })?.text ?? ""));
       return orig.apply(this, a);
     };
-    for (const email of [E1, E2, E3]) {
+    for (const email of [E1, E2, E3, E5]) {
       const r = await D.db.insert(S.users).values({ id: email, email, role: "USER" }).onConflictDoNothing().returning({ id: S.users.id });
       if (r.length) created.users.push(email);
     }
